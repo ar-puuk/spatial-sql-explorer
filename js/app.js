@@ -22,6 +22,14 @@ let map = null;
 let queryHistory = [];
 let loadedTables = [];
 
+// Table state
+let currentRows = [];
+let currentCols = [];
+let currentGeomCol = null;
+let selectedIds = new Set();
+let filterValues = {};
+let sortState = { col: null, dir: null };
+
 /* ============================================================
    INITIALIZATION
    ============================================================ */
@@ -144,42 +152,34 @@ function initMap() {
     }
   });
 
-  // Add popup on point click
-  map.on('click', 'query-points', (e) => {
-    if (!e.features || !e.features.length) return;
-    const props = e.features[0].properties;
-    const coords = e.features[0].geometry.coordinates.slice();
-    const html = Object.entries(props)
-      .filter(([k]) => k !== '__id')
-      .map(([k, v]) => `<div class="popup-row"><span class="popup-key">${k}</span><span class="popup-val">${v}</span></div>`)
-      .join('');
+  // Click handlers — select feature and show popup
+  ['query-points', 'query-polygons', 'query-lines'].forEach(layerId => {
+    map.on('click', layerId, (e) => {
+      if (!e.features || !e.features.length) return;
+      const props = e.features[0].properties;
+      const id = props.__id;
 
-    new maplibregl.Popup({ offset: 10, className: 'geo-popup' })
-      .setLngLat(coords)
-      .setHTML(`<div class="popup-content">${html}</div>`)
-      .addTo(map);
-  });
+      // Two-way selection
+      selectFeatureFromMap(id);
 
-  map.on('mouseenter', 'query-points', () => {
-    map.getCanvas().style.cursor = 'pointer';
-  });
-  map.on('mouseleave', 'query-points', () => {
-    map.getCanvas().style.cursor = '';
-  });
+      // Popup
+      const html = Object.entries(props)
+        .filter(([k]) => k !== '__id')
+        .map(([k, v]) => `<div class="popup-row"><span class="popup-key">${k}</span><span class="popup-val">${v}</span></div>`)
+        .join('');
 
-  // Similar for polygon layers
-  map.on('click', 'query-polygons', (e) => {
-    if (!e.features || !e.features.length) return;
-    const props = e.features[0].properties;
-    const center = e.lngLat;
-    const html = Object.entries(props)
-      .filter(([k]) => k !== '__id')
-      .map(([k, v]) => `<div class="popup-row"><span class="popup-key">${k}</span><span class="popup-val">${v}</span></div>`)
-      .join('');
-    new maplibregl.Popup({ offset: 10, className: 'geo-popup' })
-      .setLngLat(center)
-      .setHTML(`<div class="popup-content">${html}</div>`)
-      .addTo(map);
+      const coords = e.features[0].geometry.type === 'Point'
+        ? e.features[0].geometry.coordinates.slice()
+        : [e.lngLat.lng, e.lngLat.lat];
+
+      new maplibregl.Popup({ offset: 10, className: 'geo-popup' })
+        .setLngLat(coords)
+        .setHTML(`<div class="popup-content">${html}</div>`)
+        .addTo(map);
+    });
+
+    map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
   });
 }
 
@@ -316,20 +316,34 @@ async function runQuery() {
       }
     }
 
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(3);
-    const rows = arrowResult.toArray();
+    // Convert Arrow proxy rows → plain objects with __id stamped in
+    const rawRows = arrowResult.toArray();
     const cols = arrowResult.schema.fields.map(f => f.name);
+    const rows = rawRows.map((row, i) => {
+      const plain = { __id: i };
+      cols.forEach(c => { plain[c] = row[c]; });
+      return plain;
+    });
     const rowCount = rows.length;
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(3);
+
+    // Store into module state and reset interactive state
+    currentRows = rows;
+    currentCols = cols;
+    currentGeomCol = geojsonColName;
+    selectedIds = new Set();
+    filterValues = {};
+    sortState = { col: null, dir: null };
 
     // Update output header
     updateOutputHeader(rowCount, elapsed, hasGeometry);
 
     // Render table
-    renderTable(cols, rows, geojsonColName);
+    renderTable();
 
     // Update map if geometry present
     if (hasGeometry && geojsonColName) {
-      const mappedCount = updateMap(rows, geojsonColName);
+      const mappedCount = updateMap();
       updateOutputHeader(rowCount, elapsed, hasGeometry, mappedCount);
     } else {
       clearMapLayers();
@@ -356,50 +370,196 @@ function applySafetyCap(sql, cap) {
 }
 
 /* ============================================================
+   TABLE — FILTER + SORT HELPERS
+   ============================================================ */
+function getFilteredSortedRows() {
+  let rows = currentRows;
+
+  // Apply per-column filters
+  const active = Object.entries(filterValues).filter(([, v]) => v.trim() !== '');
+  if (active.length > 0) {
+    rows = rows.filter(row =>
+      active.every(([col, val]) => {
+        const cell = row[col];
+        if (cell === null || cell === undefined) return false;
+        return String(cell).toLowerCase().includes(val.toLowerCase());
+      })
+    );
+  }
+
+  // Apply sort
+  if (sortState.col && sortState.dir) {
+    const col = sortState.col;
+    const dir = sortState.dir === 'asc' ? 1 : -1;
+    rows = [...rows].sort((a, b) => {
+      const av = a[col], bv = b[col];
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      if ((typeof av === 'number' || typeof av === 'bigint') &&
+        (typeof bv === 'number' || typeof bv === 'bigint')) {
+        return (Number(av) - Number(bv)) * dir;
+      }
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }
+
+  return rows;
+}
+
+/* ============================================================
    TABLE RENDERING
    ============================================================ */
-function renderTable(cols, rows, geomColName) {
+function renderTable() {
   const wrapper = document.getElementById('table-wrapper');
   const empty = document.getElementById('empty-state');
 
-  if (rows.length === 0) {
+  if (currentRows.length === 0) {
     wrapper.innerHTML = '';
     if (empty) empty.style.display = 'flex';
     return;
   }
-
   if (empty) empty.style.display = 'none';
+
+  // Columns to display (skip geometry)
+  const displayCols = currentCols.filter(c => c !== currentGeomCol);
 
   const table = document.createElement('table');
   table.id = 'results-table';
 
-  // Header
+  /* ── THEAD ── */
   const thead = document.createElement('thead');
+
+  // Row 1: checkbox + sortable column headers
   const headerRow = document.createElement('tr');
-  cols.forEach(col => {
+
+  // Checkbox header — select all
+  const thCheck = document.createElement('th');
+  thCheck.className = 'col-check';
+  const selectAll = document.createElement('input');
+  selectAll.type = 'checkbox';
+  selectAll.title = 'Select all visible rows';
+  selectAll.addEventListener('change', () => {
+    const visible = getFilteredSortedRows();
+    if (selectAll.checked) {
+      visible.forEach(r => selectedIds.add(r.__id));
+    } else {
+      visible.forEach(r => selectedIds.delete(r.__id));
+    }
+    syncSelection();
+  });
+  thCheck.appendChild(selectAll);
+  headerRow.appendChild(thCheck);
+
+  displayCols.forEach(col => {
     const th = document.createElement('th');
-    th.textContent = col;
+    th.className = 'col-sortable';
+
+    const label = document.createElement('span');
+    label.className = 'col-label';
+    label.textContent = col;
+
+    const indicator = document.createElement('span');
+    indicator.className = 'sort-indicator';
+    indicator.textContent =
+      sortState.col === col ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+
+    th.appendChild(label);
+    th.appendChild(indicator);
+
+    th.addEventListener('click', () => {
+      if (sortState.col === col) {
+        sortState.dir = sortState.dir === 'asc' ? 'desc'
+          : sortState.dir === 'desc' ? null : 'asc';
+        if (sortState.dir === null) sortState.col = null;
+      } else {
+        sortState.col = col;
+        sortState.dir = 'asc';
+      }
+      renderTableBody(table.querySelector('tbody'), displayCols);
+      // Update sort indicators without full re-render
+      table.querySelectorAll('.sort-indicator').forEach(el => el.textContent = '');
+      if (sortState.col) {
+        const idx = displayCols.indexOf(sortState.col);
+        const indicators = table.querySelectorAll('.sort-indicator');
+        // +1 offset for checkbox column
+        const target = table.querySelectorAll('thead tr:first-child th.col-sortable')[idx];
+        if (target) target.querySelector('.sort-indicator').textContent =
+          sortState.dir === 'asc' ? ' ▲' : ' ▼';
+      }
+    });
+
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
+
+  // Row 2: filter inputs
+  const filterRow = document.createElement('tr');
+  filterRow.className = 'filter-row';
+
+  // Empty cell for checkbox column
+  const tdFilterCheck = document.createElement('th');
+  tdFilterCheck.className = 'col-check';
+  filterRow.appendChild(tdFilterCheck);
+
+  displayCols.forEach(col => {
+    const th = document.createElement('th');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'filter-input';
+    input.placeholder = 'filter…';
+    input.value = filterValues[col] || '';
+    input.addEventListener('input', () => {
+      filterValues[col] = input.value;
+      renderTableBody(table.querySelector('tbody'), displayCols);
+    });
+    th.appendChild(input);
+    filterRow.appendChild(th);
+  });
+  thead.appendChild(filterRow);
   table.appendChild(thead);
 
-  // Body
+  // TBODY
   const tbody = document.createElement('tbody');
-  rows.forEach(row => {
+  table.appendChild(tbody);
+  renderTableBody(tbody, displayCols);
+
+  wrapper.innerHTML = '';
+  wrapper.appendChild(table);
+}
+
+function renderTableBody(tbody, displayCols) {
+  tbody.innerHTML = '';
+  const rows = getFilteredSortedRows();
+
+  rows.forEach((row, visIdx) => {
+    const rid = row.__id;
     const tr = document.createElement('tr');
-    cols.forEach(col => {
+    tr.dataset.rid = rid;
+    if (selectedIds.has(rid)) tr.classList.add('row-selected');
+
+    // Checkbox cell
+    const tdCheck = document.createElement('td');
+    tdCheck.className = 'col-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selectedIds.has(rid);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedIds.add(rid);
+      else selectedIds.delete(rid);
+      tr.classList.toggle('row-selected', cb.checked);
+      syncSelection();
+    });
+    tdCheck.appendChild(cb);
+    tr.appendChild(tdCheck);
+
+    displayCols.forEach(col => {
       const td = document.createElement('td');
       const val = row[col];
 
-      if (col === geomColName) {
-        td.className = 'cell-geo';
-        td.textContent = '[geometry]';
-        td.title = typeof val === 'string' ? val.substring(0, 200) : '';
-      } else if (typeof val === 'number' || (typeof val === 'bigint')) {
+      if (typeof val === 'number' || typeof val === 'bigint') {
         td.className = 'cell-number';
-        td.textContent = typeof val === 'bigint' ? val.toString() :
-          Number.isInteger(val) ? val : val.toFixed(4);
+        td.textContent = typeof val === 'bigint' ? val.toString()
+          : Number.isInteger(val) ? val : val.toFixed(4);
       } else if (val === null || val === undefined) {
         td.style.color = 'var(--text-dim)';
         td.textContent = 'null';
@@ -409,152 +569,137 @@ function renderTable(cols, rows, geomColName) {
 
       tr.appendChild(td);
     });
+
+    // Click row (not checkbox) to select too
+    tr.addEventListener('click', (e) => {
+      if (e.target.type === 'checkbox') return;
+      const isSelected = selectedIds.has(rid);
+      if (isSelected) { selectedIds.delete(rid); cb.checked = false; tr.classList.remove('row-selected'); }
+      else { selectedIds.add(rid); cb.checked = true; tr.classList.add('row-selected'); }
+      syncSelection();
+    });
+
     tbody.appendChild(tr);
   });
-  table.appendChild(tbody);
-
-  wrapper.innerHTML = '';
-  wrapper.appendChild(table);
 }
 
 /* ============================================================
    MAP LAYER MANAGEMENT
    ============================================================ */
-function updateMap(rows, geomColName) {
+function updateMap() {
   if (!map || !map.isStyleLoaded()) return 0;
 
   const features = [];
 
-  rows.forEach((row, i) => {
-    const geomVal = row[geomColName];
+  currentRows.forEach((row, i) => {
+    const geomVal = row[currentGeomCol];
     if (!geomVal) return;
 
     try {
-      const geojsonStr = typeof geomVal === 'string' ? geomVal : String(geomVal);
-      const geometry = JSON.parse(geojsonStr);
-
-      // Build properties (exclude geometry column)
+      const geometry = JSON.parse(typeof geomVal === 'string' ? geomVal : String(geomVal));
       const properties = { __id: i };
       Object.keys(row).forEach(k => {
-        if (k !== geomColName) {
+        if (k !== currentGeomCol) {
           const v = row[k];
           properties[k] = typeof v === 'bigint' ? v.toString() : v;
         }
       });
-
-      features.push({
-        type: 'Feature',
-        geometry,
-        properties
-      });
-    } catch (e) {
-      // Skip unparseable geometry
-    }
+      features.push({ type: 'Feature', geometry, properties });
+    } catch (e) { /* skip unparseable */ }
   });
 
   const geojsonFC = { type: 'FeatureCollection', features };
 
-  // Separate features by render type
   const POINT_TYPES = new Set(['Point', 'MultiPoint']);
   const LINE_TYPES = new Set(['LineString', 'MultiLineString']);
   const POLYGON_TYPES = new Set(['Polygon', 'MultiPolygon']);
 
-  // GeometryCollection: flatten into individual features
+  // Flatten GeometryCollections
   const flatFeatures = [];
   features.forEach(f => {
     if (f.geometry.type === 'GeometryCollection') {
-      f.geometry.geometries.forEach(g => {
-        flatFeatures.push({ type: 'Feature', geometry: g, properties: f.properties });
-      });
+      f.geometry.geometries.forEach(g =>
+        flatFeatures.push({ type: 'Feature', geometry: g, properties: f.properties })
+      );
     } else {
       flatFeatures.push(f);
     }
   });
 
-  const points = {
-    type: 'FeatureCollection',
-    features: flatFeatures.filter(f => POINT_TYPES.has(f.geometry.type))
-  };
-  const lines = {
-    type: 'FeatureCollection',
-    features: flatFeatures.filter(f => LINE_TYPES.has(f.geometry.type))
-  };
-  const polygons = {
-    type: 'FeatureCollection',
-    features: flatFeatures.filter(f => POLYGON_TYPES.has(f.geometry.type))
-  };
+  const points = { type: 'FeatureCollection', features: flatFeatures.filter(f => POINT_TYPES.has(f.geometry.type)) };
+  const lines = { type: 'FeatureCollection', features: flatFeatures.filter(f => LINE_TYPES.has(f.geometry.type)) };
+  const polygons = { type: 'FeatureCollection', features: flatFeatures.filter(f => POLYGON_TYPES.has(f.geometry.type)) };
+  const empty = { type: 'FeatureCollection', features: [] };
 
-  // Update or create map sources
   if (map.getSource('query-result')) {
     map.getSource('query-result').setData(geojsonFC);
     map.getSource('query-points-src').setData(points);
     map.getSource('query-lines-src').setData(lines);
     map.getSource('query-polygons-src').setData(polygons);
+    map.getSource('selected-src').setData(empty);
   } else {
     map.addSource('query-result', { type: 'geojson', data: geojsonFC });
     map.addSource('query-points-src', { type: 'geojson', data: points });
     map.addSource('query-lines-src', { type: 'geojson', data: lines });
     map.addSource('query-polygons-src', { type: 'geojson', data: polygons });
+    map.addSource('selected-src', { type: 'geojson', data: empty });
 
-    // Polygon fill
+    // ── Base layers ─────────────────────────────────────────
     map.addLayer({
-      id: 'query-polygons',
-      type: 'fill',
-      source: 'query-polygons-src',
+      id: 'query-polygons', type: 'fill', source: 'query-polygons-src',
+      paint: { 'fill-color': '#f0a500', 'fill-opacity': 0.18 }
+    });
+
+    map.addLayer({
+      id: 'query-polygon-outline', type: 'line', source: 'query-polygons-src',
+      paint: { 'line-color': '#f0a500', 'line-width': 1.5, 'line-opacity': 0.85 }
+    });
+
+    map.addLayer({
+      id: 'query-lines', type: 'line', source: 'query-lines-src',
+      paint: { 'line-color': '#3ddc84', 'line-width': 2, 'line-opacity': 0.9 }
+    });
+
+    map.addLayer({
+      id: 'query-points', type: 'circle', source: 'query-points-src',
       paint: {
-        'fill-color': '#f0a500',
-        'fill-opacity': 0.18
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8],
+        'circle-color': '#e8323c', 'circle-stroke-width': 1.2,
+        'circle-stroke-color': '#fff', 'circle-opacity': 0.85
       }
     });
 
-    // Polygon outline
+    // ── Highlight layers (render on top) ─────────────────────
     map.addLayer({
-      id: 'query-polygon-outline',
-      type: 'line',
-      source: 'query-polygons-src',
-      paint: {
-        'line-color': '#f0a500',
-        'line-width': 1.5,
-        'line-opacity': 0.85
-      }
+      id: 'selected-polygons', type: 'fill', source: 'selected-src',
+      filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+      paint: { 'fill-color': '#f0e500', 'fill-opacity': 0.55 }
     });
 
-    // Lines
     map.addLayer({
-      id: 'query-lines',
-      type: 'line',
-      source: 'query-lines-src',
-      paint: {
-        'line-color': '#3ddc84',
-        'line-width': 2,
-        'line-opacity': 0.9
-      }
+      id: 'selected-polygon-outline', type: 'line', source: 'selected-src',
+      filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+      paint: { 'line-color': '#ffe000', 'line-width': 2.5 }
     });
 
-    // Points
     map.addLayer({
-      id: 'query-points',
-      type: 'circle',
-      source: 'query-points-src',
+      id: 'selected-lines', type: 'line', source: 'selected-src',
+      filter: ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'MultiLineString']],
+      paint: { 'line-color': '#ffe000', 'line-width': 3.5 }
+    });
+
+    map.addLayer({
+      id: 'selected-points', type: 'circle', source: 'selected-src',
+      filter: ['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
       paint: {
-        'circle-radius': [
-          'interpolate', ['linear'], ['zoom'],
-          8, 4,
-          14, 8
-        ],
-        'circle-color': '#e8323c',
-        'circle-stroke-width': 1.2,
-        'circle-stroke-color': '#fff',
-        'circle-opacity': 0.85
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 11],
+        'circle-color': '#ffe000', 'circle-stroke-width': 2,
+        'circle-stroke-color': '#000', 'circle-opacity': 1
       }
     });
   }
 
-  // Fit map bounds to features
-  if (features.length > 0) {
-    fitMapToFeatures(geojsonFC);
-  }
-
+  if (features.length > 0) fitMapToFeatures(geojsonFC);
   return features.length;
 }
 
@@ -599,12 +744,66 @@ function fitMapToFeatures(geojson) {
   }
 }
 
+/* ============================================================
+   SELECTION SYNC (map ↔ table)
+   ============================================================ */
+function syncSelection() {
+  // Update map highlight source
+  if (map && map.getSource('selected-src')) {
+    const selectedFeatures = currentRows
+      .filter(r => selectedIds.has(r.__id))
+      .map(r => {
+        const geomVal = r[currentGeomCol];
+        if (!geomVal) return null;
+        try {
+          return {
+            type: 'Feature',
+            geometry: JSON.parse(typeof geomVal === 'string' ? geomVal : String(geomVal)),
+            properties: { __id: r.__id }
+          };
+        } catch { return null; }
+      })
+      .filter(Boolean);
+
+    map.getSource('selected-src').setData({
+      type: 'FeatureCollection',
+      features: selectedFeatures
+    });
+  }
+
+  // Sync table row classes and checkboxes
+  const tbody = document.querySelector('#results-table tbody');
+  if (!tbody) return;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const rid = Number(tr.dataset.rid);
+    const selected = selectedIds.has(rid);
+    tr.classList.toggle('row-selected', selected);
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = selected;
+  });
+}
+
+function selectFeatureFromMap(id) {
+  // Toggle selection
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+
+  syncSelection();
+
+  // Scroll table row into view
+  const tr = document.querySelector(`#results-table tbody tr[data-rid="${id}"]`);
+  if (tr) {
+    tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
 function clearMapLayers() {
   if (!map) return;
-  ['query-points', 'query-lines', 'query-polygons', 'query-polygon-outline'].forEach(id => {
-    if (map.getLayer(id)) map.removeLayer(id);
-  });
-  ['query-result', 'query-points-src', 'query-lines-src', 'query-polygons-src'].forEach(id => {
+  ['selected-points', 'selected-lines', 'selected-polygons', 'selected-polygon-outline',
+    'query-points', 'query-lines', 'query-polygons', 'query-polygon-outline'].forEach(id => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+  ['selected-src', 'query-result', 'query-points-src', 'query-lines-src', 'query-polygons-src'].forEach(id => {
     if (map.getSource(id)) map.removeSource(id);
   });
 }

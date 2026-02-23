@@ -71,6 +71,74 @@ body {
     overflow: hidden;
 }
 
+/* ── Checkbox column ───────────────────────────────────────── */
+#results-table .col-check {
+    width: 32px;
+    min-width: 32px;
+    text-align: center;
+    padding: 6px 4px;
+}
+
+#results-table input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* ── Sortable headers ──────────────────────────────────────── */
+#results-table thead th.col-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+#results-table thead th.col-sortable:hover {
+    color: var(--accent);
+    background: var(--bg-hover);
+}
+
+.sort-indicator {
+    color: var(--accent);
+    font-size: 9px;
+}
+
+/* ── Filter row ────────────────────────────────────────────── */
+#results-table thead tr.filter-row th {
+    background: var(--bg-panel);
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border-bright);
+}
+
+.filter-input {
+    width: 100%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 6px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.filter-input:focus {
+    border-color: var(--accent-dim);
+}
+
+.filter-input::placeholder {
+    color: var(--text-dim);
+}
+
+/* ── Selected rows ─────────────────────────────────────────── */
+#results-table tbody tr.row-selected {
+    background: rgba(240, 165, 0, 0.12) !important;
+}
+
+#results-table tbody tr.row-selected td {
+    color: var(--accent) !important;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
     width: 5px;
