@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Spatial SQL Explorer</title>
+
+        <!-- MapLibre GL JS CSS -->
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css"
+        />
+
+        <!-- CodeMirror 6 CSS -->
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/@codemirror/lang-sql@6/dist/index.css"
+        />
+
+        <!-- Local stylesheet -->
+        <link rel="stylesheet" href="css/style.css" />
+    </head>
+    <body>
+        <div
+            class="app-grid"
+            role="application"
+            aria-label="Spatial SQL Explorer"
+        >
+            <!-- Left: SQL editor panel -->
+            <aside
+                class="panel left"
+                id="editor-panel"
+                aria-label="SQL editor panel"
+            >
+                <div class="editor-header">
+                    <h1>SQL Editor</h1>
+                    <div class="editor-controls">
+                        <button
+                            id="run-query-btn"
+                            class="btn btn-primary"
+                            title="Run query (Ctrl+Enter)"
+                            aria-label="Run SQL query"
+                        >
+                            <span class="btn-icon">▶</span>
+                            Run Query
+                        </button>
+                        <button
+                            id="clear-editor-btn"
+                            class="btn btn-secondary"
+                            title="Clear editor"
+                            aria-label="Clear SQL editor"
+                        >
+                            <span class="btn-icon">✕</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="editor-container" class="editor-wrapper">
+                    <div id="cm-editor"></div>
+                </div>
+
+                <div id="editor-status" class="editor-status">
+                    <span id="char-count">0 chars</span>
+                    <span id="line-count">1 line</span>
+                </div>
+
+                <div id="editor-history-section" class="history-section">
+                    <h3>Query History</h3>
+                    <div id="editor-history" class="history-list"></div>
+                </div>
+            </aside>
+
+            <!-- Center: Map panel -->
+            <main class="panel center" id="map-panel" aria-label="Map panel">
+                <div id="map" aria-label="Map container"></div>
+            </main>
+
+            <!-- Right: Query output panel -->
+            <aside
+                class="panel right"
+                id="output-panel"
+                aria-label="Query output panel"
+            >
+                <div class="output-header">
+                    <h2>Query Results</h2>
+                    <button
+                        id="export-geojson-btn"
+                        class="btn btn-secondary"
+                        title="Export results as GeoJSON"
+                        aria-label="Export as GeoJSON"
+                        style="display: none"
+                    >
+                        <span class="btn-icon">⬇</span>
+                        Export
+                    </button>
+                </div>
+
+                <div id="results-container" class="results-wrapper">
+                    <div id="output-placeholder" class="output-placeholder">
+                        <p>Query results will appear here</p>
+                        <p class="hint">Run a query to see results</p>
+                    </div>
+                </div>
+
+                <div id="results-status" class="results-status">
+                    <span id="result-count">0 results</span>
+                    <span id="query-time">—</span>
+                </div>
+            </aside>
+        </div>
+
+        <!-- MapLibre GL JS -->
+        <script src="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.js"></script>
+
+        <!-- DuckDB-WASM -->
+        <script src="https://cdn.jsdelivr.net/npm/duckdb-wasm@latest/dist/duckdb-wasm.min.js"></script>
+
+        <!-- CodeMirror 6 modules with better error handling -->
+        <script type="module">
+            (async () => {
+                try {
+                    const [
+                        stateModule,
+                        viewModule,
+                        commandsModule,
+                        searchModule,
+                        sqlModule,
+                        languageModule,
+                        autocompleteModule,
+                    ] = await Promise.all([
+                        import("https://esm.sh/@codemirror/state@6"),
+                        import("https://esm.sh/@codemirror/view@6"),
+                        import("https://esm.sh/@codemirror/commands@6"),
+                        import("https://esm.sh/@codemirror/search@6"),
+                        import("https://esm.sh/@codemirror/lang-sql@6"),
+                        import("https://esm.sh/@codemirror/language@6"),
+                        import("https://esm.sh/@codemirror/autocomplete@6"),
+                    ]);
+
+                    window.CodeMirrorModules = {
+                        EditorState: stateModule.EditorState,
+                        EditorView: viewModule.EditorView,
+                        keymap: viewModule.keymap,
+                        lineNumbers: viewModule.lineNumbers,
+                        highlightActiveLineGutter:
+                            viewModule.highlightActiveLineGutter,
+                        foldGutter: viewModule.foldGutter,
+                        indentOnInput: viewModule.indentOnInput,
+                        defaultKeymap: commandsModule.defaultKeymap,
+                        history: commandsModule.history,
+                        historyKeymap: commandsModule.historyKeymap,
+                        indentWithTab: commandsModule.indentWithTab,
+                        searchKeymap: searchModule.searchKeymap,
+                        sql: sqlModule.sql,
+                        syntaxHighlighting: languageModule.syntaxHighlighting,
+                        defaultHighlightStyle:
+                            languageModule.defaultHighlightStyle,
+                        bracketMatching: languageModule.bracketMatching,
+                        foldKeymap: languageModule.foldKeymap,
+                        autocompletion: autocompleteModule.autocompletion,
+                        completionKeymap: autocompleteModule.completionKeymap,
+                    };
+
+                    console.log(
+                        "[spatial-sql-explorer] CodeMirror modules loaded successfully",
+                    );
+                } catch (err) {
+                    console.error(
+                        "[spatial-sql-explorer] Failed to load CodeMirror modules:",
+                        err,
+                    );
+                    window.CodeMirrorModulesError = err;
+                }
+            })();
+        </script>
+
+        <!-- Bootstrap script -->
+        <script src="js/app.js" defer></script>
+    </body>
+</html>

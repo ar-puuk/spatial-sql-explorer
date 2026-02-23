@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MapLibre GL Test</title>
+
+    <!-- MapLibre GL JS CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" />
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 12px;
+            font-family: monospace;
+            max-width: 300px;
+            z-index: 100;
+        }
+
+        .status.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .status.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .status.loading {
+            background: #eef;
+            color: #33c;
+            border: 1px solid #ccf;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="status" class="status loading">
+        Loading MapLibre GL...
+    </div>
+
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const mapEl = document.getElementById('map');
+
+        function updateStatus(message, type = 'loading') {
+            console.log(`[${type}] ${message}`);
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        // Check if maplibregl is available
+        if (typeof maplibregl === 'undefined') {
+            updateStatus('❌ maplibregl not loaded', 'error');
+            console.error('maplibregl library not found');
+        } else {
+            updateStatus(`✓ maplibregl v${maplibregl.version || 'unknown'} loaded`, 'success');
+
+            try {
+                updateStatus('Creating map...', 'loading');
+
+                const map = new maplibregl.Map({
+                    container: 'map',
+                    style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+                    center: [-96.8, 32.78],
+                    zoom: 11,
+                    attributionControl: true,
+                });
+
+                map.on('load', function() {
+                    updateStatus('✓ Map loaded successfully!', 'success');
+                    console.log('Map loaded:', map);
+
+                    // Add a test source and layer
+                    map.addSource('test-points', {
+                        type: 'geojson',
+                        data: {
+                            type: 'FeatureCollection',
+                            features: [
+                                {
+                                    type: 'Feature',
+                                    geometry: {
+                                        type: 'Point',
+                                        coordinates: [-96.8, 32.78]
+                                    },
+                                    properties: {
+                                        title: 'Test Point'
+                                    }
+                                }
+                            ]
+                        }
+                    });
+
+                    map.addLayer({
+                        id: 'test-layer',
+                        type: 'circle',
+                        source: 'test-points',
+                        paint: {
+                            'circle-radius': 8,
+                            'circle-color': '#ff0000',
+                            'circle-stroke-color': '#ffffff',
+                            'circle-stroke-width': 2
+                        }
+                    });
+                });
+
+                map.on('error', function(e) {
+                    updateStatus(`❌ Map error: ${e.error?.message || e.message}`, 'error');
+                    console.error('Map error:', e);
+                });
+
+                map.on('style.load', function() {
+                    console.log('Map style loaded');
+                });
+
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                console.error('Failed to initialize map:', error);
+            }
+        }
+    </script>
+</body>
+</html>
