@@ -1,180 +1,145 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>Spatial SQL Explorer</title>
 
-        <!-- MapLibre GL JS CSS -->
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css"
-        />
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spatial SQL Explorer</title>
 
-        <!-- CodeMirror 6 CSS -->
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/@codemirror/lang-sql@6/dist/index.css"
-        />
+    <!-- ── Cross-Origin Isolation for SharedArrayBuffer (needed by DuckDB-WASM) ── -->
+    <!-- coi-serviceworker adds the required COOP/COEP headers on GitHub Pages     -->
+    <script src="coi-serviceworker.min.js"></script>
 
-        <!-- Local stylesheet -->
-        <link rel="stylesheet" href="css/style.css" />
-    </head>
-    <body>
-        <div
-            class="app-grid"
-            role="application"
-            aria-label="Spatial SQL Explorer"
-        >
-            <!-- Left: SQL editor panel -->
-            <aside
-                class="panel left"
-                id="editor-panel"
-                aria-label="SQL editor panel"
-            >
-                <div class="editor-header">
-                    <h1>SQL Editor</h1>
-                    <div class="editor-controls">
-                        <button
-                            id="run-query-btn"
-                            class="btn btn-primary"
-                            title="Run query (Ctrl+Enter)"
-                            aria-label="Run SQL query"
-                        >
-                            <span class="btn-icon">▶</span>
-                            Run Query
-                        </button>
-                        <button
-                            id="clear-editor-btn"
-                            class="btn btn-secondary"
-                            title="Clear editor"
-                            aria-label="Clear SQL editor"
-                        >
-                            <span class="btn-icon">✕</span>
-                        </button>
-                    </div>
+    <!-- ── MapLibre GL JS ───────────────────────────────────────────────────────── -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" />
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
+    <link rel="stylesheet"
+        href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"></script>
+
+    <!-- ── App Styles ───────────────────────────────────────────────────────────── -->
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+
+    <!-- ════════════════════════════════════════════════════════════
+     INIT OVERLAY — shown while DuckDB + map are loading
+     ════════════════════════════════════════════════════════════ -->
+    <div id="init-overlay">
+        <div class="init-spinner"></div>
+        <div class="init-title">Spatial SQL Explorer</div>
+        <div class="init-log" id="init-log">Starting up…</div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+     MAIN APP LAYOUT — three columns
+     ════════════════════════════════════════════════════════════ -->
+    <div id="app">
+
+        <!-- ── LEFT PANEL: SQL Editor ─────────────────────────────── -->
+        <div id="panel-left">
+
+            <!-- Header -->
+            <div id="app-header">
+                <div id="app-title">⬡ Spatial SQL Explorer</div>
+                <div id="app-subtitle">
+                    Load GeoJSON, run SQL in DuckDB, watch map + table update together.
                 </div>
+            </div>
 
-                <div id="editor-container" class="editor-wrapper">
-                    <div id="cm-editor"></div>
-                </div>
+            <!-- Data Source -->
+            <div id="data-source">
+                <div class="section-label">Data Source</div>
 
-                <div id="editor-status" class="editor-status">
-                    <span id="char-count">0 chars</span>
-                    <span id="line-count">1 line</span>
-                </div>
-
-                <div id="editor-history-section" class="history-section">
-                    <h3>Query History</h3>
-                    <div id="editor-history" class="history-list"></div>
-                </div>
-            </aside>
-
-            <!-- Center: Map panel -->
-            <main class="panel center" id="map-panel" aria-label="Map panel">
-                <div id="map" aria-label="Map container"></div>
-            </main>
-
-            <!-- Right: Query output panel -->
-            <aside
-                class="panel right"
-                id="output-panel"
-                aria-label="Query output panel"
-            >
-                <div class="output-header">
-                    <h2>Query Results</h2>
-                    <button
-                        id="export-geojson-btn"
-                        class="btn btn-secondary"
-                        title="Export results as GeoJSON"
-                        aria-label="Export as GeoJSON"
-                        style="display: none"
-                    >
-                        <span class="btn-icon">⬇</span>
-                        Export
+                <div class="btn-row">
+                    <button class="btn" id="btn-demo">Use Demo Data</button>
+                    <button class="btn" onclick="document.getElementById('file-input').click()">
+                        Choose GeoJSON
                     </button>
                 </div>
 
-                <div id="results-container" class="results-wrapper">
-                    <div id="output-placeholder" class="output-placeholder">
-                        <p>Query results will appear here</p>
-                        <p class="hint">Run a query to see results</p>
-                    </div>
+                <input type="file" id="file-input" accept=".geojson,.json" />
+
+                <div id="drop-zone">
+                    <span>⬆</span>
+                    Drop a <code>.geojson</code> file here, or click to browse
                 </div>
 
-                <div id="results-status" class="results-status">
-                    <span id="result-count">0 results</span>
-                    <span id="query-time">—</span>
+                <div id="table-info">Loading…</div>
+            </div>
+
+            <!-- SQL Editor Label -->
+            <div id="editor-section">
+                <div id="editor-label">
+                    <div class="section-label" style="margin-bottom:0">SQL Query</div>
+                    <span id="editor-hint">Ctrl+Enter to run</span>
                 </div>
-            </aside>
+                <div id="editor-wrapper"></div>
+            </div>
+
+            <!-- Run Controls -->
+            <div id="run-controls">
+                <button class="btn btn-primary" id="run-btn">▶ Run Query</button>
+                <span id="safety-cap-label">LIMIT</span>
+                <input type="number" id="safety-cap-input" value="50000" min="1" max="500000"
+                    title="Safety cap: auto-adds LIMIT if your query doesn't have one" />
+            </div>
+
+            <!-- Query History -->
+            <div id="query-history">
+                <div class="section-label">Query History</div>
+                <!-- History items injected by JS -->
+            </div>
+
         </div>
+        <!-- end panel-left -->
 
-        <!-- MapLibre GL JS -->
-        <script src="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.js"></script>
 
-        <!-- DuckDB-WASM -->
-        <script src="https://cdn.jsdelivr.net/npm/duckdb-wasm@latest/dist/duckdb-wasm.min.js"></script>
+        <!-- ── CENTER PANEL: Map ──────────────────────────────────── -->
+        <div id="panel-map">
+            <div id="map"></div>
+            <div id="map-statusbar">
+                <span id="map-coords">–</span>
+                <span id="map-engine">DuckDB WASM + spatial extension + MapLibre</span>
+            </div>
+        </div>
+        <!-- end panel-map -->
 
-        <!-- CodeMirror 6 modules with better error handling -->
-        <script type="module">
-            (async () => {
-                try {
-                    const [
-                        stateModule,
-                        viewModule,
-                        commandsModule,
-                        searchModule,
-                        sqlModule,
-                        languageModule,
-                        autocompleteModule,
-                    ] = await Promise.all([
-                        import("https://esm.sh/@codemirror/state@6"),
-                        import("https://esm.sh/@codemirror/view@6"),
-                        import("https://esm.sh/@codemirror/commands@6"),
-                        import("https://esm.sh/@codemirror/search@6"),
-                        import("https://esm.sh/@codemirror/lang-sql@6"),
-                        import("https://esm.sh/@codemirror/language@6"),
-                        import("https://esm.sh/@codemirror/autocomplete@6"),
-                    ]);
 
-                    window.CodeMirrorModules = {
-                        EditorState: stateModule.EditorState,
-                        EditorView: viewModule.EditorView,
-                        keymap: viewModule.keymap,
-                        lineNumbers: viewModule.lineNumbers,
-                        highlightActiveLineGutter:
-                            viewModule.highlightActiveLineGutter,
-                        foldGutter: viewModule.foldGutter,
-                        indentOnInput: viewModule.indentOnInput,
-                        defaultKeymap: commandsModule.defaultKeymap,
-                        history: commandsModule.history,
-                        historyKeymap: commandsModule.historyKeymap,
-                        indentWithTab: commandsModule.indentWithTab,
-                        searchKeymap: searchModule.searchKeymap,
-                        sql: sqlModule.sql,
-                        syntaxHighlighting: languageModule.syntaxHighlighting,
-                        defaultHighlightStyle:
-                            languageModule.defaultHighlightStyle,
-                        bracketMatching: languageModule.bracketMatching,
-                        foldKeymap: languageModule.foldKeymap,
-                        autocompletion: autocompleteModule.autocompletion,
-                        completionKeymap: autocompleteModule.completionKeymap,
-                    };
+        <!-- ── RIGHT PANEL: Query Output ─────────────────────────── -->
+        <div id="panel-right">
 
-                    console.log(
-                        "[spatial-sql-explorer] CodeMirror modules loaded successfully",
-                    );
-                } catch (err) {
-                    console.error(
-                        "[spatial-sql-explorer] Failed to load CodeMirror modules:",
-                        err,
-                    );
-                    window.CodeMirrorModulesError = err;
-                }
-            })();
-        </script>
+            <div id="output-header">
+                <div id="output-title">Query Output</div>
+                <div id="output-meta">Run a query to see results.</div>
+            </div>
 
-        <!-- Bootstrap script -->
-        <script src="js/app.js" defer></script>
-    </body>
+            <div id="error-banner"></div>
+
+            <div id="query-loading">
+                <div class="mini-spinner"></div>
+                Executing query…
+            </div>
+
+            <!-- Empty state shown before first query -->
+            <div id="empty-state">
+                <div class="empty-icon">⬡</div>
+                <p>Write a SQL query in the editor<br>and press <strong>Run Query</strong><br>to see results here.</p>
+            </div>
+
+            <!-- Table injected here by JS -->
+            <div id="table-wrapper"></div>
+
+        </div>
+        <!-- end panel-right -->
+
+    </div>
+    <!-- end #app -->
+
+    <!-- ── App Logic (ES Module) ───────────────────────────────── -->
+    <script type="module" src="js/app.js"></script>
+
+</body>
+
 </html>
