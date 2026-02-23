@@ -590,11 +590,13 @@ function fitMapToFeatures(geojson) {
 
   const bounds = [[minLng, minLat], [maxLng, maxLat]];
 
-  map.fitBounds(bounds, {
+  const camera = map.cameraForBounds(bounds, {
     padding: { top: 60, bottom: 60, left: 60, right: 60 },
-    maxZoom: 14,
-    duration: 300
+    maxZoom: 14
   });
+  if (camera) {
+    map.flyTo({ ...camera, duration: 1200, essential: true });
+  }
 }
 
 function clearMapLayers() {
