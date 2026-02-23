@@ -1,15 +1,22 @@
 /* ============================================================
    SPATIAL SQL EXPLORER — app.js
    DuckDB-WASM + MapLibre GL JS + CodeMirror 6
-   All processing is client-side.
+   All processing is client-side. GitHub Pages compatible.
+   ============================================================
+
+   Features:
+   - Multi-format file loading: GeoJSON, CSV, TSV, Parquet
+   - IndexedDB session persistence (tables + history + last query)
+   - SQL autocomplete aware of loaded table schemas
+   - Result export: CSV + GeoJSON
+   - Attribute-driven map styling (choropleth + categorical)
    ============================================================ */
 
 // ── ES Module imports from CDN ──────────────────────────────
 import { basicSetup } from 'https://esm.sh/codemirror@6.0.1';
 import { EditorView, keymap } from 'https://esm.sh/@codemirror/view@6.36.3';
-import { sql, StandardSQL } from 'https://esm.sh/@codemirror/lang-sql@6.8.0';
+import { sql as cmSql, StandardSQL } from 'https://esm.sh/@codemirror/lang-sql@6.8.0';
 import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2';
-import { defaultKeymap } from 'https://esm.sh/@codemirror/commands@6.8.0';
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
 /* ============================================================
@@ -19,67 +26,168 @@ let db = null;
 let conn = null;
 let editorView = null;
 let map = null;
-let queryHistory = [];
-let loadedTables = [];
+let idb = null;
 
-// Table state
+// Table registry: [{ name, rowCount, colCount, columns: [] }]
+let loadedTablesMeta = [];
+let queryHistory = [];
+
+// Current result set
 let currentRows = [];
 let currentCols = [];
 let currentGeomCol = null;
+
+// Table interaction state
 let selectedIds = new Set();
 let filterValues = {};
 let sortState = { col: null, dir: null };
+
+// Basemap state
+let currentBasemap = 'light';
+
+// Last rendered map data — needed to re-add layers after basemap switch
+let lastMapData = null; // { points, lines, polygons, geojsonFC }
+
+// Whether a style has been applied (so we can re-apply after basemap switch)
+let styleApplied = false;
+
+/* ============================================================
+   BASEMAP DEFINITIONS
+   ============================================================ */
+const BASEMAPS = {
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  dark: 'https://tiles.openfreemap.org/styles/dark',
+  satellite: {
+    version: 8,
+    sources: {
+      esri: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        attribution: '© Esri © DigitalGlobe © GeoEye'
+      }
+    },
+    layers: [{ id: 'esri-satellite', type: 'raster', source: 'esri', minzoom: 0, maxzoom: 19 }]
+  },
+  topo: {
+    version: 8,
+    sources: {
+      otm: {
+        type: 'raster',
+        tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '© OpenTopoMap © OpenStreetMap contributors'
+      }
+    },
+    layers: [{ id: 'otm-topo', type: 'raster', source: 'otm', minzoom: 0, maxzoom: 17 }]
+  }
+};
+
+/* ============================================================
+   INDEXEDDB — Persistence layer
+   ============================================================ */
+async function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('SpatialSQLExplorer', 1);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('tables'))
+        d.createObjectStore('tables', { keyPath: 'name' });
+      if (!d.objectStoreNames.contains('state'))
+        d.createObjectStore('state', { keyPath: 'key' });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function idbPut(store, value) {
+  if (!idb) return;
+  return new Promise((res, rej) => {
+    const tx = idb.transaction(store, 'readwrite');
+    const r = tx.objectStore(store).put(value);
+    r.onsuccess = () => res();
+    r.onerror = e => rej(e.target.error);
+  });
+}
+
+async function idbGet(store, key) {
+  if (!idb) return null;
+  return new Promise((res, rej) => {
+    const tx = idb.transaction(store, 'readonly');
+    const r = tx.objectStore(store).get(key);
+    r.onsuccess = e => res(e.target.result);
+    r.onerror = e => rej(e.target.error);
+  });
+}
+
+async function idbGetAll(store) {
+  if (!idb) return [];
+  return new Promise((res, rej) => {
+    const tx = idb.transaction(store, 'readonly');
+    const r = tx.objectStore(store).getAll();
+    r.onsuccess = e => res(e.target.result);
+    r.onerror = e => rej(e.target.error);
+  });
+}
+
+async function idbDelete(store, key) {
+  if (!idb) return;
+  return new Promise((res, rej) => {
+    const tx = idb.transaction(store, 'readwrite');
+    const r = tx.objectStore(store).delete(key);
+    r.onsuccess = () => res();
+    r.onerror = e => rej(e.target.error);
+  });
+}
 
 /* ============================================================
    INITIALIZATION
    ============================================================ */
 async function init() {
-  updateInitLog('Initializing DuckDB-WASM...');
+  updateInitLog('Opening session store…');
+  try { idb = await openIDB(); } catch (e) { console.warn('IDB unavailable:', e); }
 
+  updateInitLog('Initializing DuckDB-WASM…');
   try {
-    // Select the best available DuckDB bundle for this browser
-    const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
-    const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
-
-    // Create a worker from the bundle's worker script
+    const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
     const workerUrl = URL.createObjectURL(
       new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
     );
     const worker = new Worker(workerUrl);
-    const logger = new duckdb.VoidLogger();
-
-    db = new duckdb.AsyncDuckDB(logger, worker);
+    db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
     URL.revokeObjectURL(workerUrl);
-
-    // Open a connection
     conn = await db.connect();
-    updateInitLog('DuckDB ready. Loading spatial extension...');
+    updateInitLog('DuckDB ready. Loading spatial extension…');
 
-    // Load the spatial extension (requires internet)
     try {
       await conn.query(`INSTALL spatial; LOAD spatial;`);
       updateInitLog('Spatial extension loaded.');
     } catch (e) {
-      // Spatial might already be installed or fail — degrade gracefully
       console.warn('Spatial extension warning:', e.message);
-      updateInitLog('Spatial extension unavailable — geometry queries may be limited.');
+      updateInitLog('Spatial extension unavailable — geometry queries limited.');
     }
 
-    // Initialize MapLibre
-    updateInitLog('Initializing map...');
+    updateInitLog('Initializing map…');
     initMap();
 
-    // Initialize CodeMirror editor
+    updateInitLog('Initializing editor…');
     initEditor();
+    setupBasemapSwitcher();
 
-    // Load default demo data
-    updateInitLog('Loading demo data...');
-    await loadDemoData();
+    // URL state takes priority over session restore
+    const urlRestored = restoreFromURL();
 
-    // Hide init overlay
+    const restored = !urlRestored && await restoreSession();
+    if (!restored && !urlRestored) {
+      updateInitLog('Loading demo data…');
+      await loadDemoData();
+    } else if (urlRestored) {
+      runQuery();
+    }
+
     document.getElementById('init-overlay').classList.add('hidden');
-
     updateInitLog('Ready.');
   } catch (err) {
     updateInitLog('Error: ' + err.message);
@@ -94,47 +202,69 @@ function updateInitLog(msg) {
 }
 
 /* ============================================================
-   MAP INITIALIZATION (MapLibre)
+   SESSION RESTORE
+   ============================================================ */
+async function restoreSession() {
+  if (!idb) return false;
+  const tables = await idbGetAll('tables');
+  if (!tables?.length) return false;
+
+  updateInitLog(`Restoring ${tables.length} table(s) from last session…`);
+
+  for (const t of tables) {
+    try {
+      if (t.format === 'parquet') await registerParquet(t.data, t.name, false);
+      else if (t.format === 'csv' || t.format === 'tsv') await registerCSV(t.data, t.name, t.format, false);
+      else await registerGeoJSON(t.data, t.name, false);
+    } catch (e) { console.warn(`Failed to restore "${t.name}":`, e); }
+  }
+
+  const histRec = await idbGet('state', 'history');
+  if (histRec?.value) {
+    queryHistory = histRec.value.map(h => ({ ...h, timestamp: new Date(h.timestamp) }));
+    renderHistory();
+  }
+
+  const lastRec = await idbGet('state', 'lastQuery');
+  if (lastRec?.value && editorView) {
+    editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: lastRec.value } });
+    runQuery();
+  } else if (loadedTablesMeta.length > 0) {
+    setEditorAndRun(loadedTablesMeta[0].name);
+  }
+
+  return true;
+}
+
+/* ============================================================
+   MAP INITIALIZATION
    ============================================================ */
 function initMap() {
   map = new maplibregl.Map({
     container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/positron',
-    center: [0, 20],
-    zoom: 1.5,
-    attributionControl: false
+    style: BASEMAPS.light,
+    center: [0, 20], zoom: 1.5,
+    attributionControl: false,
+    preserveDrawingBuffer: true   // required for PNG export
   });
 
-  map.on('style.load', () => {
-    map.setProjection({ type: 'globe' });
-  });
+  map.on('style.load', () => map.setProjection({ type: 'globe' }));
 
   const geocoderApi = {
     forwardGeocode: async (config) => {
       const features = [];
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${config.query}&format=geojson&polygon_geojson=1&addressdetails=1`
-        );
-        const geojson = await response.json();
-        for (const feature of geojson.features) {
-          const center = [
-            feature.bbox[0] + (feature.bbox[2] - feature.bbox[0]) / 2,
-            feature.bbox[1] + (feature.bbox[3] - feature.bbox[1]) / 2
-          ];
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${config.query}&format=geojson&polygon_geojson=1&addressdetails=1`);
+        const data = await res.json();
+        for (const f of data.features) {
+          const center = [f.bbox[0] + (f.bbox[2] - f.bbox[0]) / 2, f.bbox[1] + (f.bbox[3] - f.bbox[1]) / 2];
           features.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: center },
-            place_name: feature.properties.display_name,
-            properties: feature.properties,
-            text: feature.properties.display_name,
-            place_type: ['place'],
-            center
+            type: 'Feature', geometry: { type: 'Point', coordinates: center },
+            place_name: f.properties.display_name, properties: f.properties,
+            text: f.properties.display_name, place_type: ['place'], center
           });
         }
-      } catch (e) {
-        console.error('Geocoder error:', e);
-      }
+      } catch (e) { console.error('Geocoder error:', e); }
       return { features };
     }
   };
@@ -144,40 +274,26 @@ function initMap() {
   map.addControl(new maplibregl.GlobeControl(), 'top-right');
   map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
 
-  // Show coordinates in status bar on mouse move
-  map.on('mousemove', (e) => {
+  map.on('mousemove', e => {
     const el = document.getElementById('map-coords');
-    if (el) {
-      el.textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`;
-    }
+    if (el) el.textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`;
   });
 
-  // Click handlers — select feature and show popup
   ['query-points', 'query-polygons', 'query-lines'].forEach(layerId => {
-    map.on('click', layerId, (e) => {
-      if (!e.features || !e.features.length) return;
+    map.on('click', layerId, e => {
+      if (!e.features?.length) return;
       const props = e.features[0].properties;
-      const id = props.__id;
-
-      // Two-way selection
-      selectFeatureFromMap(id);
-
-      // Popup
+      selectFeatureFromMap(props.__id);
       const html = Object.entries(props)
         .filter(([k]) => k !== '__id')
         .map(([k, v]) => `<div class="popup-row"><span class="popup-key">${k}</span><span class="popup-val">${v}</span></div>`)
         .join('');
-
       const coords = e.features[0].geometry.type === 'Point'
         ? e.features[0].geometry.coordinates.slice()
         : [e.lngLat.lng, e.lngLat.lat];
-
       new maplibregl.Popup({ offset: 10, className: 'geo-popup' })
-        .setLngLat(coords)
-        .setHTML(`<div class="popup-content">${html}</div>`)
-        .addTo(map);
+        .setLngLat(coords).setHTML(`<div class="popup-content">${html}</div>`).addTo(map);
     });
-
     map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
   });
@@ -186,85 +302,208 @@ function initMap() {
 /* ============================================================
    EDITOR INITIALIZATION (CodeMirror 6)
    ============================================================ */
+function buildEditorExtensions(schema = {}) {
+  return [
+    basicSetup,
+    cmSql({ dialect: StandardSQL, schema }),
+    oneDark,
+    keymap.of([{ key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runQuery(); return true; } }]),
+    EditorView.theme({
+      '&': { height: '100%', background: '#0f1419' },
+      '.cm-scroller': { overflow: 'auto' },
+    })
+  ];
+}
+
 function initEditor() {
-  const defaultSQL = `SELECT * FROM demo LIMIT 100`;
-
-  // Custom keybinding: Ctrl/Cmd+Enter to run query
-  const runKeymap = keymap.of([
-    {
-      key: 'Ctrl-Enter',
-      mac: 'Cmd-Enter',
-      run: () => { runQuery(); return true; }
-    }
-  ]);
-
   editorView = new EditorView({
-    doc: defaultSQL,
-    extensions: [
-      basicSetup,
-      sql({ dialect: StandardSQL }),
-      oneDark,
-      runKeymap,
-      EditorView.theme({
-        '&': { height: '100%', background: '#0f1419' },
-        '.cm-scroller': { overflow: 'auto' },
-      })
-    ],
+    doc: `SELECT * FROM demo LIMIT 50`,
+    extensions: buildEditorExtensions(),
+    parent: document.getElementById('editor-wrapper')
+  });
+}
+
+function updateEditorSchema() {
+  if (!editorView) return;
+  // Preserve current text, then rebuild editor with new schema
+  const currentDoc = editorView.state.doc.toString();
+  const schema = {};
+  loadedTablesMeta.forEach(t => { schema[t.name] = t.columns; });
+
+  editorView.destroy();
+  editorView = new EditorView({
+    doc: currentDoc,
+    extensions: buildEditorExtensions(schema),
     parent: document.getElementById('editor-wrapper')
   });
 }
 
 /* ============================================================
-   DATA LOADING
+   DATA LOADING — DEMO
    ============================================================ */
 async function loadDemoData() {
   try {
-    const response = await fetch('./data/demo.geojson');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const text = await response.text();
-    const stats = await registerGeoJSON(text, 'demo');
-    updateTableInfo('demo', stats.rowCount, stats.colCount);
-    editorView.dispatch({
-      changes: { from: 0, to: editorView.state.doc.length, insert: `SELECT * FROM demo LIMIT 100` }
-    });
-    runQuery();
+    const res = await fetch('./data/demo.geojson');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    await registerGeoJSON(text, 'demo', true);
+    setEditorAndRun('demo');
   } catch (err) {
     console.error('Failed to load demo data:', err);
-    updateTableInfo();
   }
 }
 
-async function registerGeoJSON(geojsonText, tableName) {
-  await db.registerFileText(`${tableName}.geojson`, geojsonText);
-  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+function setEditorAndRun(tableName) {
+  const q = `SELECT * FROM "${tableName}" LIMIT 50`;
+  editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: q } });
+  runQuery();
+}
 
+/* ============================================================
+   DATA REGISTRATION — GeoJSON
+   ============================================================ */
+async function registerGeoJSON(text, tableName, persist = true) {
+  await db.registerFileText(`${tableName}.geojson`, text);
+  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
   try {
     await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM ST_Read('${tableName}.geojson')`);
   } catch (e) {
-    console.warn('ST_Read failed, falling back to JSON load:', e.message);
-    await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM read_json_auto('${tableName}.geojson', format='newline_delimited')`);
+    console.warn('ST_Read fallback:', e.message);
+    await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM read_json_auto('${tableName}.geojson')`);
   }
-
-  if (!loadedTables.includes(tableName)) loadedTables.push(tableName);
-
-  // Get row count and column count for display
-  const countResult = await conn.query(`SELECT COUNT(*) as n FROM "${tableName}"`);
-  const rows = countResult.toArray();
-  const rowCount = Number(rows[0].n);
-  const colResult = await conn.query(`SELECT * FROM "${tableName}" LIMIT 0`);
-  const colCount = colResult.schema.fields.length;
-
-  return { rowCount, colCount };
+  await finaliseRegistration(tableName);
+  if (persist) await idbPut('tables', { name: tableName, data: text, format: 'geojson' });
 }
 
-function updateTableInfo(tableName, rowCount, colCount) {
-  const el = document.getElementById('table-info');
+/* ============================================================
+   DATA REGISTRATION — CSV / TSV
+   ============================================================ */
+async function registerCSV(text, tableName, ext = 'csv', persist = true) {
+  const fname = `${tableName}.${ext}`;
+  await db.registerFileText(fname, text);
+  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+  const sep = ext === 'tsv' ? `sep='\\t', ` : '';
+  await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${fname}', ${sep}header=true)`);
+  await finaliseRegistration(tableName);
+  if (persist) await idbPut('tables', { name: tableName, data: text, format: ext });
+}
+
+/* ============================================================
+   DATA REGISTRATION — Parquet
+   ============================================================ */
+async function registerParquet(buffer, tableName, persist = true) {
+  const uint8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  await db.registerFileBuffer(`${tableName}.parquet`, uint8);
+  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+  await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM read_parquet('${tableName}.parquet')`);
+  await finaliseRegistration(tableName);
+  if (persist) await idbPut('tables', { name: tableName, data: uint8, format: 'parquet' });
+}
+
+/* ============================================================
+   REGISTRATION — Shared finalisation
+   ============================================================ */
+async function finaliseRegistration(tableName) {
+  const countRes = await conn.query(`SELECT COUNT(*) AS n FROM "${tableName}"`);
+  const rowCount = Number(countRes.toArray()[0].n);
+  const schemaRes = await conn.query(`SELECT * FROM "${tableName}" LIMIT 0`);
+  const columns = schemaRes.schema.fields.map(f => f.name);
+  const meta = { name: tableName, rowCount, colCount: columns.length, columns };
+  const idx = loadedTablesMeta.findIndex(t => t.name === tableName);
+  if (idx >= 0) loadedTablesMeta[idx] = meta; else loadedTablesMeta.push(meta);
+  renderTableRegistry();
+  updateEditorSchema();
+}
+
+/* ============================================================
+   TABLE REGISTRY UI
+   ============================================================ */
+function renderTableRegistry() {
+  const el = document.getElementById('table-registry');
   if (!el) return;
-  if (!tableName) {
-    el.innerHTML = `<span style="color:var(--text-dim)">No table loaded.</span>`;
+  el.innerHTML = '';
+
+  if (!loadedTablesMeta.length) {
+    el.innerHTML = `<div class="registry-empty">No tables loaded.</div>`;
     return;
   }
-  el.innerHTML = `Current table: <strong>${tableName}</strong> (${rowCount.toLocaleString()} features, ${colCount} attributes)`;
+
+  loadedTablesMeta.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'registry-row';
+    row.innerHTML = `
+      <div class="registry-info">
+        <span class="registry-name">${t.name}</span>
+        <span class="registry-meta">${t.rowCount.toLocaleString()} rows · ${t.colCount} cols</span>
+      </div>
+      <div class="registry-actions">
+        <button class="reg-btn reg-query" title="Query this table">▶</button>
+        <button class="reg-btn reg-delete" title="Remove table">✕</button>
+      </div>`;
+    row.querySelector('.reg-query').addEventListener('click', () => setEditorAndRun(t.name));
+    row.querySelector('.reg-delete').addEventListener('click', async () => {
+      try {
+        await conn.query(`DROP TABLE IF EXISTS "${t.name}"`);
+        loadedTablesMeta = loadedTablesMeta.filter(m => m.name !== t.name);
+        await idbDelete('tables', t.name);
+        renderTableRegistry();
+        updateEditorSchema();
+      } catch (e) { showError(`Could not remove table: ${e.message}`); }
+    });
+    el.appendChild(row);
+  });
+}
+
+/* ============================================================
+   FILE UPLOAD — multi-format router
+   ============================================================ */
+function setupFileUpload() {
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => {
+    Array.from(e.target.files).forEach(handleFile);
+    fileInput.value = '';
+  });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    Array.from(e.dataTransfer.files).forEach(handleFile);
+  });
+}
+
+async function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const supported = ['geojson', 'json', 'csv', 'tsv', 'parquet'];
+  if (!supported.includes(ext)) {
+    showError(`Unsupported: .${ext}  —  Supported: ${supported.join(', ')}`);
+    return;
+  }
+  const tableName = file.name
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-zA-Z0-9_]/g, '_')
+    .replace(/^(\d)/, '_$1');
+
+  try {
+    updateInitLog(`Loading ${file.name}…`);
+    if (ext === 'parquet') {
+      await registerParquet(await file.arrayBuffer(), tableName);
+    } else if (ext === 'csv' || ext === 'tsv') {
+      await registerCSV(await file.text(), tableName, ext);
+    } else {
+      const text = await file.text();
+      JSON.parse(text);
+      await registerGeoJSON(text, tableName);
+    }
+    setEditorAndRun(tableName);
+    updateInitLog('Ready.');
+  } catch (err) {
+    showError(`Failed to load ${file.name}: ${err.message}`);
+    updateInitLog('Ready.');
+  }
 }
 
 /* ============================================================
@@ -272,27 +511,21 @@ function updateTableInfo(tableName, rowCount, colCount) {
    ============================================================ */
 async function runQuery() {
   if (!conn) return;
-
   const rawSql = editorView.state.doc.toString().trim();
   if (!rawSql) return;
 
-  // Apply safety cap — append LIMIT if not present
-  const safetyCap = parseInt(document.getElementById('safety-cap-input').value) || 50000;
-  const sql = applySafetyCap(rawSql, safetyCap);
+  const cap = parseInt(document.getElementById('safety-cap-input').value) || 50000;
+  const cappedSql = /\bLIMIT\b/i.test(rawSql) ? rawSql : `${rawSql}\nLIMIT ${cap}`;
 
-  // UI: show loading
   setLoading(true);
   hideError();
-
-  const startTime = performance.now();
+  const t0 = performance.now();
 
   try {
-    // Run the query
-    let arrowResult = await conn.query(sql);
+    let result = await conn.query(cappedSql);
 
-    // Detect geometry columns (Binary type = WKB from DuckDB spatial)
-    const schema = arrowResult.schema;
-    const geomCols = schema.fields.filter(f =>
+    // Detect geometry (WKB binary) columns
+    const geomCols = result.schema.fields.filter(f =>
       f.type && (f.type.toString().toLowerCase().includes('binary') || f.typeId === 12 || f.type.typeId === 12)
     );
 
@@ -301,83 +534,122 @@ async function runQuery() {
 
     if (geomCols.length > 0) {
       hasGeometry = true;
-      const colName = geomCols[0].name;
-      // Re-run with ST_AsGeoJSON to convert WKB → GeoJSON string
+      const col = geomCols[0].name;
       try {
-        const wrappedSql = `
-          SELECT * EXCLUDE ("${colName}"), ST_AsGeoJSON("${colName}") AS "${colName}"
-          FROM (${sql})
-        `;
-        arrowResult = await conn.query(wrappedSql);
-        geojsonColName = colName;
-      } catch (e) {
-        console.warn('ST_AsGeoJSON wrapping failed:', e.message);
-        hasGeometry = false;
-      }
+        result = await conn.query(`SELECT * EXCLUDE ("${col}"), ST_AsGeoJSON("${col}") AS "${col}" FROM (${cappedSql})`);
+        geojsonColName = col;
+      } catch (e) { console.warn('ST_AsGeoJSON failed:', e.message); hasGeometry = false; }
     }
 
-    // Convert Arrow proxy rows → plain objects with __id stamped in
-    const rawRows = arrowResult.toArray();
-    const cols = arrowResult.schema.fields.map(f => f.name);
+    // Materialise Arrow rows → plain JS objects (Arrow rows are frozen proxies)
+    const rawRows = result.toArray();
+    const cols = result.schema.fields.map(f => f.name);
     const rows = rawRows.map((row, i) => {
-      const plain = { __id: i };
-      cols.forEach(c => { plain[c] = row[c]; });
-      return plain;
+      const o = { __id: i };
+      cols.forEach(c => { o[c] = row[c]; });
+      return o;
     });
-    const rowCount = rows.length;
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(3);
 
-    // Store into module state and reset interactive state
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+    const rowCount = rows.length;
+
     currentRows = rows;
     currentCols = cols;
     currentGeomCol = geojsonColName;
     selectedIds = new Set();
     filterValues = {};
     sortState = { col: null, dir: null };
+    styleSettings = { ...DEFAULT_STYLE };
+    styleApplied = false;
 
-    // Update output header
     updateOutputHeader(rowCount, elapsed, hasGeometry);
-
-    // Render table
     renderTable();
+    renderStatsBar();
+    updateStylePanel(hasGeometry);
 
-    // Update map if geometry present
     if (hasGeometry && geojsonColName) {
-      const mappedCount = updateMap();
-      updateOutputHeader(rowCount, elapsed, hasGeometry, mappedCount);
+      const mapped = updateMap();
+      updateOutputHeader(rowCount, elapsed, hasGeometry, mapped);
     } else {
       clearMapLayers();
     }
 
-    // Add to history
     addToHistory(rawSql, true, rowCount, elapsed);
+    await idbPut('state', { key: 'lastQuery', value: rawSql });
+    updateURL();
 
   } catch (err) {
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(3);
     showError(err.message);
-    addToHistory(rawSql, false, 0, elapsed);
+    addToHistory(rawSql, false, 0, ((performance.now() - t0) / 1000).toFixed(3));
     console.error('Query error:', err);
   } finally {
     setLoading(false);
   }
 }
 
-function applySafetyCap(sql, cap) {
-  // Only add LIMIT if there's no LIMIT clause already (simple heuristic)
-  const hasLimit = /\bLIMIT\b/i.test(sql);
-  if (hasLimit) return sql;
-  return `${sql}\nLIMIT ${cap}`;
+/* ============================================================
+   EXPORT — CSV
+   ============================================================ */
+function exportCSV() {
+  if (!currentRows.length) return;
+  const cols = currentCols.filter(c => c !== currentGeomCol && c !== '__id');
+  const rows = getFilteredSortedRows();
+  const esc = v => {
+    const s = (v === null || v === undefined) ? '' : String(v);
+    return (s.includes(',') || s.includes('"') || s.includes('\n'))
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [cols.map(esc).join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\n');
+  downloadBlob(csv, 'query_result.csv', 'text/csv');
 }
 
 /* ============================================================
-   TABLE — FILTER + SORT HELPERS
+   EXPORT — GeoJSON
+   ============================================================ */
+function exportGeoJSON() {
+  const rows = getFilteredSortedRows();
+  if (!currentGeomCol) {
+    const data = rows.map(r => {
+      const o = {};
+      currentCols.filter(c => c !== '__id').forEach(c => { o[c] = r[c]; });
+      return o;
+    });
+    downloadBlob(JSON.stringify(data, null, 2), 'query_result.json', 'application/json');
+    return;
+  }
+  const features = rows.map(r => {
+    let geometry = null;
+    try { geometry = r[currentGeomCol] ? JSON.parse(String(r[currentGeomCol])) : null; } catch { }
+    const props = {};
+    currentCols.filter(c => c !== currentGeomCol && c !== '__id').forEach(c => {
+      const v = r[c];
+      props[c] = typeof v === 'bigint' ? v.toString() : v;
+    });
+    return { type: 'Feature', geometry, properties: props };
+  });
+  downloadBlob(
+    JSON.stringify({ type: 'FeatureCollection', features }, null, 2),
+    'query_result.geojson', 'application/geo+json'
+  );
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/* ============================================================
+   TABLE FILTER + SORT
    ============================================================ */
 function getFilteredSortedRows() {
   let rows = currentRows;
-
-  // Apply per-column filters
   const active = Object.entries(filterValues).filter(([, v]) => v.trim() !== '');
-  if (active.length > 0) {
+  if (active.length) {
     rows = rows.filter(row =>
       active.every(([col, val]) => {
         const cell = row[col];
@@ -386,23 +658,19 @@ function getFilteredSortedRows() {
       })
     );
   }
-
-  // Apply sort
   if (sortState.col && sortState.dir) {
     const col = sortState.col;
     const dir = sortState.dir === 'asc' ? 1 : -1;
     rows = [...rows].sort((a, b) => {
       const av = a[col], bv = b[col];
-      if (av === null || av === undefined) return 1;
-      if (bv === null || bv === undefined) return -1;
+      if (av == null) return 1;
+      if (bv == null) return -1;
       if ((typeof av === 'number' || typeof av === 'bigint') &&
-        (typeof bv === 'number' || typeof bv === 'bigint')) {
+        (typeof bv === 'number' || typeof bv === 'bigint'))
         return (Number(av) - Number(bv)) * dir;
-      }
       return String(av).localeCompare(String(bv)) * dir;
     });
   }
-
   return rows;
 }
 
@@ -412,7 +680,6 @@ function getFilteredSortedRows() {
 function renderTable() {
   const wrapper = document.getElementById('table-wrapper');
   const empty = document.getElementById('empty-state');
-
   if (currentRows.length === 0) {
     wrapper.innerHTML = '';
     if (empty) empty.style.display = 'flex';
@@ -420,165 +687,110 @@ function renderTable() {
   }
   if (empty) empty.style.display = 'none';
 
-  // Columns to display (skip geometry)
-  const displayCols = currentCols.filter(c => c !== currentGeomCol);
-
+  const displayCols = currentCols.filter(c => c !== currentGeomCol && c !== '__id');
   const table = document.createElement('table');
   table.id = 'results-table';
 
-  /* ── THEAD ── */
+  /* thead */
   const thead = document.createElement('thead');
-
-  // Row 1: checkbox + sortable column headers
   const headerRow = document.createElement('tr');
 
-  // Checkbox header — select all
-  const thCheck = document.createElement('th');
-  thCheck.className = 'col-check';
-  const selectAll = document.createElement('input');
-  selectAll.type = 'checkbox';
-  selectAll.title = 'Select all visible rows';
-  selectAll.addEventListener('change', () => {
-    const visible = getFilteredSortedRows();
-    if (selectAll.checked) {
-      visible.forEach(r => selectedIds.add(r.__id));
-    } else {
-      visible.forEach(r => selectedIds.delete(r.__id));
-    }
+  // Select-all
+  const thCk = document.createElement('th');
+  thCk.className = 'col-check';
+  const selAll = document.createElement('input');
+  selAll.type = 'checkbox';
+  selAll.title = 'Select all visible rows';
+  selAll.addEventListener('change', () => {
+    getFilteredSortedRows().forEach(r => selAll.checked ? selectedIds.add(r.__id) : selectedIds.delete(r.__id));
     syncSelection();
   });
-  thCheck.appendChild(selectAll);
-  headerRow.appendChild(thCheck);
+  thCk.appendChild(selAll);
+  headerRow.appendChild(thCk);
 
   displayCols.forEach(col => {
     const th = document.createElement('th');
     th.className = 'col-sortable';
-
-    const label = document.createElement('span');
-    label.className = 'col-label';
-    label.textContent = col;
-
-    const indicator = document.createElement('span');
-    indicator.className = 'sort-indicator';
-    indicator.textContent =
-      sortState.col === col ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
-
-    th.appendChild(label);
-    th.appendChild(indicator);
-
+    const lbl = document.createElement('span'); lbl.className = 'col-label'; lbl.textContent = col;
+    const ind = document.createElement('span'); ind.className = 'sort-indicator';
+    ind.textContent = sortState.col === col ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    th.append(lbl, ind);
     th.addEventListener('click', () => {
       if (sortState.col === col) {
-        sortState.dir = sortState.dir === 'asc' ? 'desc'
-          : sortState.dir === 'desc' ? null : 'asc';
-        if (sortState.dir === null) sortState.col = null;
-      } else {
-        sortState.col = col;
-        sortState.dir = 'asc';
-      }
+        sortState.dir = sortState.dir === 'asc' ? 'desc' : sortState.dir === 'desc' ? null : 'asc';
+        if (!sortState.dir) sortState.col = null;
+      } else { sortState.col = col; sortState.dir = 'asc'; }
       renderTableBody(table.querySelector('tbody'), displayCols);
-      // Update sort indicators without full re-render
-      table.querySelectorAll('.sort-indicator').forEach(el => el.textContent = '');
+      table.querySelectorAll('.sort-indicator').forEach(e => e.textContent = '');
       if (sortState.col) {
-        const idx = displayCols.indexOf(sortState.col);
-        const indicators = table.querySelectorAll('.sort-indicator');
-        // +1 offset for checkbox column
-        const target = table.querySelectorAll('thead tr:first-child th.col-sortable')[idx];
-        if (target) target.querySelector('.sort-indicator').textContent =
-          sortState.dir === 'asc' ? ' ▲' : ' ▼';
+        const i = displayCols.indexOf(sortState.col);
+        const ths = table.querySelectorAll('thead tr:first-child th.col-sortable');
+        if (ths[i]) ths[i].querySelector('.sort-indicator').textContent = sortState.dir === 'asc' ? ' ▲' : ' ▼';
       }
     });
-
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
 
-  // Row 2: filter inputs
+  // Filter row
   const filterRow = document.createElement('tr');
   filterRow.className = 'filter-row';
-
-  // Empty cell for checkbox column
-  const tdFilterCheck = document.createElement('th');
-  tdFilterCheck.className = 'col-check';
-  filterRow.appendChild(tdFilterCheck);
-
+  const tfCk = document.createElement('th'); tfCk.className = 'col-check';
+  filterRow.appendChild(tfCk);
   displayCols.forEach(col => {
     const th = document.createElement('th');
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'filter-input';
-    input.placeholder = 'filter…';
-    input.value = filterValues[col] || '';
-    input.addEventListener('input', () => {
-      filterValues[col] = input.value;
-      renderTableBody(table.querySelector('tbody'), displayCols);
-    });
-    th.appendChild(input);
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'filter-input'; inp.placeholder = 'filter…';
+    inp.value = filterValues[col] || '';
+    inp.addEventListener('input', () => { filterValues[col] = inp.value; renderTableBody(table.querySelector('tbody'), displayCols); });
+    th.appendChild(inp);
     filterRow.appendChild(th);
   });
   thead.appendChild(filterRow);
   table.appendChild(thead);
 
-  // TBODY
   const tbody = document.createElement('tbody');
   table.appendChild(tbody);
   renderTableBody(tbody, displayCols);
-
   wrapper.innerHTML = '';
   wrapper.appendChild(table);
 }
 
 function renderTableBody(tbody, displayCols) {
   tbody.innerHTML = '';
-  const rows = getFilteredSortedRows();
-
-  rows.forEach((row, visIdx) => {
+  getFilteredSortedRows().forEach(row => {
     const rid = row.__id;
     const tr = document.createElement('tr');
     tr.dataset.rid = rid;
     if (selectedIds.has(rid)) tr.classList.add('row-selected');
 
-    // Checkbox cell
-    const tdCheck = document.createElement('td');
-    tdCheck.className = 'col-check';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = selectedIds.has(rid);
+    const tdCk = document.createElement('td'); tdCk.className = 'col-check';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selectedIds.has(rid);
     cb.addEventListener('change', () => {
-      if (cb.checked) selectedIds.add(rid);
-      else selectedIds.delete(rid);
+      if (cb.checked) selectedIds.add(rid); else selectedIds.delete(rid);
       tr.classList.toggle('row-selected', cb.checked);
       syncSelection();
     });
-    tdCheck.appendChild(cb);
-    tr.appendChild(tdCheck);
+    tdCk.appendChild(cb); tr.appendChild(tdCk);
 
     displayCols.forEach(col => {
       const td = document.createElement('td');
       const val = row[col];
-
       if (typeof val === 'number' || typeof val === 'bigint') {
         td.className = 'cell-number';
-        td.textContent = typeof val === 'bigint' ? val.toString()
-          : Number.isInteger(val) ? val : val.toFixed(4);
+        td.textContent = typeof val === 'bigint' ? val.toString() : Number.isInteger(val) ? val : val.toFixed(4);
       } else if (val === null || val === undefined) {
-        td.style.color = 'var(--text-dim)';
-        td.textContent = 'null';
-      } else {
-        td.textContent = String(val);
-      }
-
+        td.style.color = 'var(--text-dim)'; td.textContent = 'null';
+      } else { td.textContent = String(val); }
       tr.appendChild(td);
     });
 
-    // Click row (not checkbox) to select too
-    tr.addEventListener('click', (e) => {
+    tr.addEventListener('click', e => {
       if (e.target.type === 'checkbox') return;
-      const isSelected = selectedIds.has(rid);
-      if (isSelected) { selectedIds.delete(rid); cb.checked = false; tr.classList.remove('row-selected'); }
+      if (selectedIds.has(rid)) { selectedIds.delete(rid); cb.checked = false; tr.classList.remove('row-selected'); }
       else { selectedIds.add(rid); cb.checked = true; tr.classList.add('row-selected'); }
       syncSelection();
     });
-
     tbody.appendChild(tr);
   });
 }
@@ -586,80 +798,68 @@ function renderTableBody(tbody, displayCols) {
 /* ============================================================
    MAP LAYER MANAGEMENT
    ============================================================ */
-function updateMap() {
+function updateMap(skipFit = false) {
   if (!map || !map.isStyleLoaded()) return 0;
 
   const features = [];
-
   currentRows.forEach((row, i) => {
-    const geomVal = row[currentGeomCol];
-    if (!geomVal) return;
-
+    const gv = row[currentGeomCol];
+    if (!gv) return;
     try {
-      const geometry = JSON.parse(typeof geomVal === 'string' ? geomVal : String(geomVal));
+      const geometry = JSON.parse(typeof gv === 'string' ? gv : String(gv));
       const properties = { __id: i };
       Object.keys(row).forEach(k => {
-        if (k !== currentGeomCol) {
-          const v = row[k];
-          properties[k] = typeof v === 'bigint' ? v.toString() : v;
-        }
+        if (k !== currentGeomCol) { const v = row[k]; properties[k] = typeof v === 'bigint' ? v.toString() : v; }
       });
       features.push({ type: 'Feature', geometry, properties });
-    } catch (e) { /* skip unparseable */ }
+    } catch { }
   });
 
   const geojsonFC = { type: 'FeatureCollection', features };
+  const POINT_T = new Set(['Point', 'MultiPoint']);
+  const LINE_T = new Set(['LineString', 'MultiLineString']);
+  const POLY_T = new Set(['Polygon', 'MultiPolygon']);
 
-  const POINT_TYPES = new Set(['Point', 'MultiPoint']);
-  const LINE_TYPES = new Set(['LineString', 'MultiLineString']);
-  const POLYGON_TYPES = new Set(['Polygon', 'MultiPolygon']);
-
-  // Flatten GeometryCollections
-  const flatFeatures = [];
+  const flat = [];
   features.forEach(f => {
-    if (f.geometry.type === 'GeometryCollection') {
-      f.geometry.geometries.forEach(g =>
-        flatFeatures.push({ type: 'Feature', geometry: g, properties: f.properties })
-      );
-    } else {
-      flatFeatures.push(f);
-    }
+    if (f.geometry.type === 'GeometryCollection')
+      f.geometry.geometries.forEach(g => flat.push({ type: 'Feature', geometry: g, properties: f.properties }));
+    else flat.push(f);
   });
 
-  const points = { type: 'FeatureCollection', features: flatFeatures.filter(f => POINT_TYPES.has(f.geometry.type)) };
-  const lines = { type: 'FeatureCollection', features: flatFeatures.filter(f => LINE_TYPES.has(f.geometry.type)) };
-  const polygons = { type: 'FeatureCollection', features: flatFeatures.filter(f => POLYGON_TYPES.has(f.geometry.type)) };
+  const pts = { type: 'FeatureCollection', features: flat.filter(f => POINT_T.has(f.geometry.type)) };
+  const lns = { type: 'FeatureCollection', features: flat.filter(f => LINE_T.has(f.geometry.type)) };
+  const pols = { type: 'FeatureCollection', features: flat.filter(f => POLY_T.has(f.geometry.type)) };
   const empty = { type: 'FeatureCollection', features: [] };
+
+  // Store for basemap re-hydration
+  lastMapData = { geojsonFC, pts, lns, pols };
 
   if (map.getSource('query-result')) {
     map.getSource('query-result').setData(geojsonFC);
-    map.getSource('query-points-src').setData(points);
-    map.getSource('query-lines-src').setData(lines);
-    map.getSource('query-polygons-src').setData(polygons);
+    map.getSource('query-points-src').setData(pts);
+    map.getSource('query-lines-src').setData(lns);
+    map.getSource('query-polygons-src').setData(pols);
     map.getSource('selected-src').setData(empty);
   } else {
     map.addSource('query-result', { type: 'geojson', data: geojsonFC });
-    map.addSource('query-points-src', { type: 'geojson', data: points });
-    map.addSource('query-lines-src', { type: 'geojson', data: lines });
-    map.addSource('query-polygons-src', { type: 'geojson', data: polygons });
+    map.addSource('query-points-src', { type: 'geojson', data: pts });
+    map.addSource('query-lines-src', { type: 'geojson', data: lns });
+    map.addSource('query-polygons-src', { type: 'geojson', data: pols });
     map.addSource('selected-src', { type: 'geojson', data: empty });
 
-    // ── Base layers ─────────────────────────────────────────
     map.addLayer({
       id: 'query-polygons', type: 'fill', source: 'query-polygons-src',
       paint: { 'fill-color': '#f0a500', 'fill-opacity': 0.18 }
     });
-
     map.addLayer({
       id: 'query-polygon-outline', type: 'line', source: 'query-polygons-src',
       paint: { 'line-color': '#f0a500', 'line-width': 1.5, 'line-opacity': 0.85 }
     });
-
     map.addLayer({
       id: 'query-lines', type: 'line', source: 'query-lines-src',
       paint: { 'line-color': '#3ddc84', 'line-width': 2, 'line-opacity': 0.9 }
     });
-
     map.addLayer({
       id: 'query-points', type: 'circle', source: 'query-points-src',
       paint: {
@@ -669,25 +869,22 @@ function updateMap() {
       }
     });
 
-    // ── Highlight layers (render on top) ─────────────────────
+    // Selection highlight layers
     map.addLayer({
       id: 'selected-polygons', type: 'fill', source: 'selected-src',
       filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
       paint: { 'fill-color': '#f0e500', 'fill-opacity': 0.55 }
     });
-
     map.addLayer({
       id: 'selected-polygon-outline', type: 'line', source: 'selected-src',
       filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
       paint: { 'line-color': '#ffe000', 'line-width': 2.5 }
     });
-
     map.addLayer({
       id: 'selected-lines', type: 'line', source: 'selected-src',
       filter: ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'MultiLineString']],
       paint: { 'line-color': '#ffe000', 'line-width': 3.5 }
     });
-
     map.addLayer({
       id: 'selected-points', type: 'circle', source: 'selected-src',
       filter: ['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
@@ -699,102 +896,29 @@ function updateMap() {
     });
   }
 
-  if (features.length > 0) fitMapToFeatures(geojsonFC);
+  if (features.length > 0 && !skipFit) fitMapToFeatures(geojsonFC);
   return features.length;
 }
 
 function fitMapToFeatures(geojson) {
-  let minLng = Infinity, maxLng = -Infinity;
-  let minLat = Infinity, maxLat = -Infinity;
-
-  // Iterative coordinate walker — avoids call stack overflow on large multipolygons
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
   function walkCoords(coords) {
     const stack = [coords];
-    while (stack.length > 0) {
+    while (stack.length) {
       const item = stack.pop();
       if (!Array.isArray(item)) continue;
       if (typeof item[0] === 'number') {
-        // This is a [lng, lat] position
-        if (item[0] < minLng) minLng = item[0];
-        if (item[0] > maxLng) maxLng = item[0];
-        if (item[1] < minLat) minLat = item[1];
-        if (item[1] > maxLat) maxLat = item[1];
-      } else {
-        for (let i = 0; i < item.length; i++) stack.push(item[i]);
-      }
+        if (item[0] < minLng) minLng = item[0]; if (item[0] > maxLng) maxLng = item[0];
+        if (item[1] < minLat) minLat = item[1]; if (item[1] > maxLat) maxLat = item[1];
+      } else { for (let i = 0; i < item.length; i++) stack.push(item[i]); }
     }
   }
-
-  geojson.features.forEach(f => {
-    if (f.geometry && f.geometry.coordinates) {
-      walkCoords(f.geometry.coordinates);
-    }
-  });
-
+  geojson.features.forEach(f => { if (f.geometry?.coordinates) walkCoords(f.geometry.coordinates); });
   if (!isFinite(minLng)) return;
-
-  const bounds = [[minLng, minLat], [maxLng, maxLat]];
-
-  const camera = map.cameraForBounds(bounds, {
-    padding: { top: 60, bottom: 60, left: 60, right: 60 },
-    maxZoom: 14
+  const camera = map.cameraForBounds([[minLng, minLat], [maxLng, maxLat]], {
+    padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 14
   });
-  if (camera) {
-    map.flyTo({ ...camera, duration: 1200, essential: true });
-  }
-}
-
-/* ============================================================
-   SELECTION SYNC (map ↔ table)
-   ============================================================ */
-function syncSelection() {
-  // Update map highlight source
-  if (map && map.getSource('selected-src')) {
-    const selectedFeatures = currentRows
-      .filter(r => selectedIds.has(r.__id))
-      .map(r => {
-        const geomVal = r[currentGeomCol];
-        if (!geomVal) return null;
-        try {
-          return {
-            type: 'Feature',
-            geometry: JSON.parse(typeof geomVal === 'string' ? geomVal : String(geomVal)),
-            properties: { __id: r.__id }
-          };
-        } catch { return null; }
-      })
-      .filter(Boolean);
-
-    map.getSource('selected-src').setData({
-      type: 'FeatureCollection',
-      features: selectedFeatures
-    });
-  }
-
-  // Sync table row classes and checkboxes
-  const tbody = document.querySelector('#results-table tbody');
-  if (!tbody) return;
-  tbody.querySelectorAll('tr').forEach(tr => {
-    const rid = Number(tr.dataset.rid);
-    const selected = selectedIds.has(rid);
-    tr.classList.toggle('row-selected', selected);
-    const cb = tr.querySelector('input[type=checkbox]');
-    if (cb) cb.checked = selected;
-  });
-}
-
-function selectFeatureFromMap(id) {
-  // Toggle selection
-  if (selectedIds.has(id)) selectedIds.delete(id);
-  else selectedIds.add(id);
-
-  syncSelection();
-
-  // Scroll table row into view
-  const tr = document.querySelector(`#results-table tbody tr[data-rid="${id}"]`);
-  if (tr) {
-    tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
+  if (camera) map.flyTo({ ...camera, duration: 1200, essential: true });
 }
 
 function clearMapLayers() {
@@ -809,36 +933,527 @@ function clearMapLayers() {
 }
 
 /* ============================================================
+   ATTRIBUTE STYLING — State
+   ============================================================ */
+const DEFAULT_STYLE = {
+  mode: 'single',   // 'single' | 'graduated' | 'categorical'
+  col: null,
+  singleColor: '#f0a500',
+  ramp: 'oranges',
+  rampInverted: false,
+  method: 'quantile', // 'quantile' | 'equal' | 'jenks'
+  nClasses: 5,
+  opacity: 85,         // 0–100
+};
+let styleSettings = { ...DEFAULT_STYLE };
+
+// Built-in color ramps (5-stop, low→high)
+const COLOR_RAMPS = {
+  oranges: ['#fff3e0', '#ffcc80', '#ffa726', '#f57c00', '#bf360c'],
+  reds: ['#ffebee', '#ef9a9a', '#e53935', '#c62828', '#7f0000'],
+  blues: ['#e3f2fd', '#90caf9', '#1e88e5', '#1565c0', '#0d2d6b'],
+  greens: ['#e8f5e9', '#a5d6a7', '#43a047', '#2e7d32', '#0a3d0a'],
+  purples: ['#f3e5f5', '#ce93d8', '#8e24aa', '#6a1b9a', '#2e0040'],
+  plasma: ['#0d0887', '#7201a8', '#bd3786', '#ed7953', '#f0f921'],
+  viridis: ['#440154', '#31688e', '#21918c', '#35b779', '#fde725'],
+  greys: ['#f5f5f5', '#bdbdbd', '#757575', '#424242', '#212121'],
+  rdylgn: ['#d73027', '#fc8d59', '#ffffbf', '#91cf60', '#1a9850'],
+  spectral: ['#9e0142', '#f46d43', '#ffffbf', '#66c2a5', '#5e4fa2'],
+};
+
+const CATEGORICAL_PALETTE = [
+  '#e8323c', '#f0a500', '#3ddc84', '#42a5f5', '#ab47bc',
+  '#ff7043', '#26c6da', '#d4e157', '#ec407a', '#8d6e63',
+  '#607d8b', '#66bb6a', '#ffa726', '#26a69a', '#7e57c2',
+];
+
+/* ============================================================
+   CLASSIFICATION ALGORITHMS
+   ============================================================ */
+function classifyEqualInterval(values, n) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const step = (max - min) / n;
+  const breaks = [];
+  for (let i = 0; i <= n; i++) breaks.push(min + step * i);
+  breaks[breaks.length - 1] = max; // clamp
+  return breaks;
+}
+
+function classifyQuantile(values, n) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const breaks = [sorted[0]];
+  for (let i = 1; i < n; i++) {
+    const idx = Math.floor((i / n) * sorted.length);
+    breaks.push(sorted[idx]);
+  }
+  breaks.push(sorted[sorted.length - 1]);
+  return breaks;
+}
+
+function classifyJenks(values, n) {
+  // Jenks Natural Breaks (Fisher-Jenks exact algorithm)
+  const sorted = [...values].sort((a, b) => a - b);
+  const len = sorted.length;
+  if (len <= n) return [sorted[0], ...sorted, sorted[len - 1]];
+
+  // Lower matrix (1-indexed via offset)
+  const mat1 = Array.from({ length: len + 1 }, () => new Array(n + 1).fill(0));
+  const mat2 = Array.from({ length: len + 1 }, () => new Array(n + 1).fill(Infinity));
+
+  for (let i = 1; i <= n; i++) { mat1[1][i] = 1; mat2[1][i] = 0; }
+  for (let j = 2; j <= len; j++) mat2[j][1] = Infinity;
+
+  for (let j = 2; j <= len; j++) {
+    let ssd = 0, sumX = 0, sumX2 = 0, w = 0;
+    for (let m = j; m >= 2; m--) {
+      w++;
+      const val = sorted[m - 1];
+      sumX += val; sumX2 += val * val;
+      ssd = sumX2 - (sumX * sumX) / w;
+      for (let k = 2; k <= n; k++) {
+        if (mat2[j][k] >= ssd + mat2[m - 1][k - 1]) {
+          mat1[j][k] = m;
+          mat2[j][k] = ssd + mat2[m - 1][k - 1];
+        }
+      }
+    }
+    mat1[j][1] = 1;
+    mat2[j][1] = ssd;
+  }
+
+  const breaks = new Array(n + 1);
+  breaks[n] = sorted[len - 1];
+  breaks[0] = sorted[0];
+  let k = len;
+  for (let i = n; i >= 2; i--) {
+    const id = mat1[k][i] - 1;
+    breaks[i - 1] = sorted[id];
+    k = mat1[k][i] - 1;
+  }
+  return breaks;
+}
+
+function getBreaks(values, method, n) {
+  if (method === 'jenks') return classifyJenks(values, n);
+  if (method === 'equal') return classifyEqualInterval(values, n);
+  return classifyQuantile(values, n);
+}
+
+function getRamp() {
+  const ramp = [...(COLOR_RAMPS[styleSettings.ramp] || COLOR_RAMPS.oranges)];
+  return styleSettings.rampInverted ? ramp.reverse() : ramp;
+}
+
+function interpolateRampToN(ramp, n) {
+  // Stretch or compress a base ramp to exactly n stops
+  if (ramp.length === n) return ramp;
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const idx = t * (ramp.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.min(Math.ceil(idx), ramp.length - 1);
+    const f = idx - lo;
+    result.push(lerpColor(ramp[lo], ramp[hi], f));
+  }
+  return result;
+}
+
+function lerpColor(a, b, t) {
+  const ah = a.replace('#', '');
+  const bh = b.replace('#', '');
+  const ar = parseInt(ah.slice(0, 2), 16), ag = parseInt(ah.slice(2, 4), 16), ab = parseInt(ah.slice(4, 6), 16);
+  const br = parseInt(bh.slice(0, 2), 16), bg = parseInt(bh.slice(2, 4), 16), bb = parseInt(bh.slice(4, 6), 16);
+  const rr = Math.round(ar + (br - ar) * t);
+  const rg = Math.round(ag + (bg - ag) * t);
+  const rb = Math.round(ab + (bb - ab) * t);
+  return `#${rr.toString(16).padStart(2, '0')}${rg.toString(16).padStart(2, '0')}${rb.toString(16).padStart(2, '0')}`;
+}
+
+function fmtNum(v) {
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+  if (!Number.isInteger(v)) return v.toFixed(2);
+  return v.toString();
+}
+
+/* ============================================================
+   STYLE PANEL — Setup & Wiring
+   ============================================================ */
+function updateStylePanel(hasGeometry) {
+  const panel = document.getElementById('style-panel');
+  if (!panel) return;
+  panel.style.display = hasGeometry ? 'block' : 'none';
+  if (!hasGeometry) return;
+
+  // Reset to default each time new results arrive
+  styleSettings = { ...DEFAULT_STYLE };
+
+  // Mode pills
+  document.querySelectorAll('.mode-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === styleSettings.mode);
+    btn.onclick = () => {
+      styleSettings.mode = btn.dataset.mode;
+      document.querySelectorAll('.mode-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      syncStylePanelVisibility();
+      renderLegendPreview();
+    };
+  });
+
+  // Column select — only non-geometry, non-id cols
+  const colSelect = document.getElementById('style-col-select');
+  colSelect.innerHTML = '';
+  currentCols.filter(c => c !== currentGeomCol && c !== '__id').forEach(col => {
+    const opt = document.createElement('option');
+    opt.value = col; opt.textContent = col;
+    colSelect.appendChild(opt);
+  });
+  if (colSelect.options.length) styleSettings.col = colSelect.options[0].value;
+  colSelect.onchange = () => {
+    styleSettings.col = colSelect.value;
+    renderLegendPreview();
+  };
+
+  // Single color picker
+  const colorInput = document.getElementById('style-single-color');
+  const hexLabel = document.getElementById('style-single-hex');
+  colorInput.value = styleSettings.singleColor;
+  colorInput.oninput = () => {
+    styleSettings.singleColor = colorInput.value;
+    hexLabel.textContent = colorInput.value;
+    renderLegendPreview();
+  };
+
+  // Classification method pills
+  document.querySelectorAll('.classify-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.method === styleSettings.method);
+    btn.onclick = () => {
+      styleSettings.method = btn.dataset.method;
+      document.querySelectorAll('.classify-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderLegendPreview();
+    };
+  });
+
+  // Class count buttons
+  document.querySelectorAll('.class-count-btn').forEach(btn => {
+    btn.classList.toggle('active', +btn.dataset.n === styleSettings.nClasses);
+    btn.onclick = () => {
+      styleSettings.nClasses = +btn.dataset.n;
+      document.querySelectorAll('.class-count-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderLegendPreview();
+    };
+  });
+
+  // Ramp swatches
+  renderRampSwatches();
+
+  // Invert ramp
+  const invertBtn = document.getElementById('invert-ramp-btn');
+  if (invertBtn) {
+    invertBtn.onclick = () => {
+      styleSettings.rampInverted = !styleSettings.rampInverted;
+      invertBtn.style.color = styleSettings.rampInverted ? 'var(--accent)' : '';
+      renderRampSwatches();
+      renderLegendPreview();
+    };
+  }
+
+  // Opacity slider
+  const opSlider = document.getElementById('style-opacity');
+  const opVal = document.getElementById('style-opacity-val');
+  opSlider.value = styleSettings.opacity;
+  opSlider.oninput = () => {
+    styleSettings.opacity = +opSlider.value;
+    opVal.textContent = opSlider.value + '%';
+  };
+
+  // Apply button
+  document.getElementById('apply-style-btn').onclick = applyStyle;
+
+  syncStylePanelVisibility();
+  renderLegendPreview();
+}
+
+function syncStylePanelVisibility() {
+  const isSingle = styleSettings.mode === 'single';
+  const isGraduated = styleSettings.mode === 'graduated';
+
+  document.getElementById('style-row-single').style.display = isSingle ? 'flex' : 'none';
+  document.getElementById('style-row-col').style.display = isSingle ? 'none' : 'flex';
+  document.getElementById('style-graduated-controls').style.display = isGraduated ? 'block' : 'none';
+}
+
+function renderRampSwatches() {
+  const container = document.getElementById('ramp-swatches');
+  if (!container) return;
+  container.innerHTML = '';
+  Object.entries(COLOR_RAMPS).forEach(([name, colors]) => {
+    const palette = styleSettings.rampInverted ? [...colors].reverse() : colors;
+    const sw = document.createElement('div');
+    sw.className = `ramp-swatch${styleSettings.ramp === name ? ' active' : ''}`;
+    sw.title = name;
+    sw.style.background = `linear-gradient(to right, ${palette.join(',')})`;
+    sw.onclick = () => {
+      styleSettings.ramp = name;
+      renderRampSwatches();
+      renderLegendPreview();
+    };
+    container.appendChild(sw);
+  });
+}
+
+/* ============================================================
+   LEGEND PREVIEW (live, before Apply)
+   ============================================================ */
+function renderLegendPreview() {
+  const container = document.getElementById('style-legend');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const mode = styleSettings.mode;
+
+  if (mode === 'single') {
+    const title = document.createElement('div');
+    title.className = 'legend-title';
+    title.textContent = 'Preview';
+    const row = document.createElement('div');
+    row.className = 'legend-break-row';
+    row.innerHTML = `
+      <div class="legend-break-swatch" style="background:${styleSettings.singleColor}"></div>
+      <span class="legend-break-label">All features</span>`;
+    container.append(title, row);
+    return;
+  }
+
+  const col = styleSettings.col;
+  if (!col) return;
+
+  if (mode === 'graduated') {
+    renderGraduatedLegend(container, col);
+  } else {
+    renderCategoricalLegend(container, col);
+  }
+}
+
+function renderGraduatedLegend(container, col) {
+  const values = currentRows.map(r => Number(r[col])).filter(v => isFinite(v));
+  if (!values.length) return;
+
+  const n = styleSettings.nClasses;
+  const breaks = getBreaks(values, styleSettings.method, n);
+  const ramp = interpolateRampToN(getRamp(), n);
+
+  // Gradient bar
+  const gradBar = document.createElement('div');
+  gradBar.className = 'legend-gradient-bar';
+  gradBar.style.background = `linear-gradient(to right, ${ramp.join(',')})`;
+
+  // Min / max labels
+  const gradLabels = document.createElement('div');
+  gradLabels.className = 'legend-gradient-labels';
+  gradLabels.innerHTML = `<span>${fmtNum(breaks[0])}</span><span>${fmtNum(breaks[n])}</span>`;
+
+  // Per-class breaks
+  const breakList = document.createElement('div');
+  breakList.className = 'legend-breaks';
+  for (let i = 0; i < n; i++) {
+    const row = document.createElement('div');
+    row.className = 'legend-break-row';
+    const lo = fmtNum(breaks[i]);
+    const hi = fmtNum(breaks[i + 1]);
+    const label = i === n - 1 ? `${lo} – ${hi}` : `${lo} – < ${hi}`;
+    row.innerHTML = `
+      <div class="legend-break-swatch" style="background:${ramp[i]}"></div>
+      <span class="legend-break-label">${label}</span>`;
+    breakList.appendChild(row);
+  }
+
+  const title = document.createElement('div');
+  title.className = 'legend-title';
+  title.textContent = `${col} · ${styleSettings.method} · ${n} classes`;
+
+  container.append(title, gradBar, gradLabels, breakList);
+}
+
+function renderCategoricalLegend(container, col) {
+  const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))].slice(0, 20);
+  const title = document.createElement('div');
+  title.className = 'legend-title';
+  title.textContent = `${col} · ${unique.length} categories${unique.length >= 20 ? ' (top 20)' : ''}`;
+
+  const list = document.createElement('div');
+  list.className = 'legend-cat-list';
+
+  unique.forEach((val, i) => {
+    const color = CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length];
+    const row = document.createElement('div');
+    row.className = 'legend-cat-row';
+    row.innerHTML = `
+      <div class="legend-cat-swatch" style="background:${color}" title="Click to change color"></div>
+      <span class="legend-cat-label" title="${val}">${val}</span>`;
+    list.appendChild(row);
+  });
+
+  container.append(title, list);
+  if (unique.length >= 20) {
+    const note = document.createElement('div');
+    note.style.cssText = 'font-family:var(--font-mono);font-size:9px;color:var(--text-dim);margin-top:4px';
+    note.textContent = `+ ${currentRows.length} rows, showing first 20 categories`;
+    container.appendChild(note);
+  }
+}
+
+/* ============================================================
+   APPLY STYLE TO MAP
+   ============================================================ */
+function applyStyle(silent = false) {
+  if (!map) return;
+  styleApplied = true;
+  const opacity = styleSettings.opacity / 100;
+  const mode = styleSettings.mode;
+
+  if (mode === 'single') {
+    applySingleStyle(styleSettings.singleColor, opacity);
+    if (!silent) updateURL();
+    return;
+  }
+
+  const col = styleSettings.col;
+  if (!col) return;
+
+  const sample = currentRows.find(r => r[col] !== null && r[col] !== undefined);
+  const isNumeric = sample && (typeof sample[col] === 'number' || typeof sample[col] === 'bigint');
+
+  if (mode === 'graduated' && isNumeric) {
+    applyGraduatedStyle(col, opacity);
+  } else {
+    applyCategoricalStyle(col, opacity);
+  }
+  if (!silent) updateURL();
+}
+
+function applySingleStyle(color, opacity) {
+  if (map.getLayer('query-polygons')) {
+    map.setPaintProperty('query-polygons', 'fill-color', color);
+    map.setPaintProperty('query-polygons', 'fill-opacity', opacity * 0.8);
+    map.setPaintProperty('query-polygon-outline', 'line-color', color);
+  }
+  if (map.getLayer('query-points')) {
+    map.setPaintProperty('query-points', 'circle-color', color);
+    map.setPaintProperty('query-points', 'circle-opacity', opacity);
+  }
+  if (map.getLayer('query-lines')) {
+    map.setPaintProperty('query-lines', 'line-color', color);
+    map.setPaintProperty('query-lines', 'line-opacity', opacity);
+  }
+}
+
+function applyGraduatedStyle(col, opacity) {
+  const values = currentRows.map(r => Number(r[col])).filter(v => isFinite(v));
+  if (!values.length) return;
+
+  const n = styleSettings.nClasses;
+  const breaks = getBreaks(values, styleSettings.method, n);
+  const ramp = interpolateRampToN(getRamp(), n);
+
+  // Build MapLibre step expression: ['step', ['get', col], color0, b1, color1, b2, color2, ...]
+  const stepExpr = ['step', ['get', col], ramp[0]];
+  for (let i = 1; i < n; i++) {
+    stepExpr.push(breaks[i]);
+    stepExpr.push(ramp[i]);
+  }
+
+  if (map.getLayer('query-polygons')) {
+    map.setPaintProperty('query-polygons', 'fill-color', stepExpr);
+    map.setPaintProperty('query-polygons', 'fill-opacity', opacity * 0.85);
+    map.setPaintProperty('query-polygon-outline', 'line-color', stepExpr);
+  }
+  if (map.getLayer('query-points')) {
+    map.setPaintProperty('query-points', 'circle-color', stepExpr);
+    map.setPaintProperty('query-points', 'circle-opacity', opacity);
+  }
+  if (map.getLayer('query-lines')) {
+    map.setPaintProperty('query-lines', 'line-color', stepExpr);
+    map.setPaintProperty('query-lines', 'line-opacity', opacity);
+  }
+}
+
+function applyCategoricalStyle(col, opacity) {
+  const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))];
+  const match = ['match', ['get', col]];
+  unique.forEach((v, i) => {
+    match.push(String(v));
+    match.push(CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]);
+  });
+  match.push('#aaaaaa'); // fallback
+
+  if (map.getLayer('query-polygons')) {
+    map.setPaintProperty('query-polygons', 'fill-color', match);
+    map.setPaintProperty('query-polygons', 'fill-opacity', opacity * 0.85);
+    map.setPaintProperty('query-polygon-outline', 'line-color', match);
+  }
+  if (map.getLayer('query-points')) {
+    map.setPaintProperty('query-points', 'circle-color', match);
+    map.setPaintProperty('query-points', 'circle-opacity', opacity);
+  }
+  if (map.getLayer('query-lines')) {
+    map.setPaintProperty('query-lines', 'line-color', match);
+    map.setPaintProperty('query-lines', 'line-opacity', opacity);
+  }
+}
+
+/* ============================================================
+   SELECTION SYNC (map ↔ table)
+   ============================================================ */
+function syncSelection() {
+  if (map?.getSource('selected-src')) {
+    const selFeats = currentRows.filter(r => selectedIds.has(r.__id)).map(r => {
+      const gv = r[currentGeomCol];
+      if (!gv) return null;
+      try { return { type: 'Feature', geometry: JSON.parse(typeof gv === 'string' ? gv : String(gv)), properties: { __id: r.__id } }; }
+      catch { return null; }
+    }).filter(Boolean);
+    map.getSource('selected-src').setData({ type: 'FeatureCollection', features: selFeats });
+  }
+  document.querySelectorAll('#results-table tbody tr').forEach(tr => {
+    const rid = Number(tr.dataset.rid);
+    const sel = selectedIds.has(rid);
+    tr.classList.toggle('row-selected', sel);
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = sel;
+  });
+}
+
+function selectFeatureFromMap(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  syncSelection();
+  const tr = document.querySelector(`#results-table tbody tr[data-rid="${id}"]`);
+  if (tr) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+/* ============================================================
    QUERY HISTORY
    ============================================================ */
 function addToHistory(sql, success, rowCount, elapsed) {
-  const entry = {
-    sql,
-    success,
-    rowCount,
-    elapsed,
-    timestamp: new Date()
-  };
-  queryHistory.unshift(entry);
+  queryHistory.unshift({ sql, success, rowCount, elapsed, timestamp: new Date() });
   if (queryHistory.length > 20) queryHistory.pop();
   renderHistory();
+  idbPut('state', { key: 'history', value: queryHistory });
 }
 
 function renderHistory() {
   const container = document.getElementById('query-history');
-  const label = container.querySelector('.section-label');
-  // Remove old items, keep label
-  Array.from(container.children).forEach(c => {
-    if (!c.classList.contains('section-label')) c.remove();
-  });
-
-  queryHistory.forEach((entry, i) => {
+  if (!container) return;
+  Array.from(container.children).forEach(c => { if (!c.classList.contains('section-label')) c.remove(); });
+  queryHistory.forEach(entry => {
     const item = document.createElement('div');
     item.className = `history-item ${entry.success ? 'success' : 'error'}`;
-
-    const timeStr = entry.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeStr = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const preview = entry.sql.replace(/\s+/g, ' ').substring(0, 60);
-
     item.innerHTML = `
       <div class="history-status">
         <div class="history-dot ${entry.success ? 'success' : 'error'}"></div>
@@ -847,17 +1462,10 @@ function renderHistory() {
         </span>
         <span class="history-timestamp">${timeStr}</span>
       </div>
-      <div class="history-preview">${preview}${entry.sql.length > 60 ? '…' : ''}</div>
-    `;
-
-    // Click to restore query
+      <div class="history-preview">${preview}${entry.sql.length > 60 ? '…' : ''}</div>`;
     item.addEventListener('click', () => {
-      const transaction = editorView.state.update({
-        changes: { from: 0, to: editorView.state.doc.length, insert: entry.sql }
-      });
-      editorView.dispatch(transaction);
+      editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: entry.sql } });
     });
-
     container.appendChild(item);
   });
 }
@@ -867,17 +1475,14 @@ function renderHistory() {
    ============================================================ */
 function setLoading(on) {
   const btn = document.getElementById('run-btn');
-  const spinner = document.getElementById('query-loading');
+  const sp = document.getElementById('query-loading');
   if (btn) btn.disabled = on;
-  if (spinner) spinner.classList.toggle('visible', on);
+  if (sp) sp.classList.toggle('visible', on);
 }
 
 function showError(msg) {
   const el = document.getElementById('error-banner');
-  if (el) {
-    el.textContent = '⚠ ' + msg;
-    el.classList.add('visible');
-  }
+  if (el) { el.textContent = '⚠ ' + msg; el.classList.add('visible'); }
 }
 
 function hideError() {
@@ -891,119 +1496,426 @@ function updateOutputHeader(rowCount, elapsed, hasGeo, mappedCount) {
   if (title) title.textContent = 'Query Output';
   if (meta) {
     meta.textContent = `${rowCount.toLocaleString()} rows`;
-    if (mappedCount !== undefined && hasGeo) {
-      meta.textContent += `, ${mappedCount.toLocaleString()} mapped in ${elapsed}s`;
-    } else {
-      meta.textContent += ` in ${elapsed}s`;
-    }
+    meta.textContent += (mappedCount !== undefined && hasGeo)
+      ? `, ${mappedCount.toLocaleString()} mapped in ${elapsed}s`
+      : ` in ${elapsed}s`;
     meta.className = hasGeo ? 'has-geo' : '';
   }
 }
 
 /* ============================================================
-   FILE UPLOAD
+   POPUP STYLES
    ============================================================ */
-function setupFileUpload() {
-  const dropZone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('file-input');
+function injectPopupStyles() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .geo-popup .maplibregl-popup-content {
+      background:#161d26;border:1px solid #2a3f57;border-radius:6px;
+      padding:0;box-shadow:0 8px 24px rgba(0,0,0,.5);min-width:180px;max-width:280px;
+    }
+    .geo-popup .maplibregl-popup-tip { border-top-color:#161d26; }
+    .popup-content { padding:10px 12px; }
+    .popup-row {
+      display:flex;justify-content:space-between;gap:12px;padding:3px 0;
+      border-bottom:1px solid #1f2d3d;font-family:'JetBrains Mono',monospace;font-size:10px;
+    }
+    .popup-row:last-child { border-bottom:none; }
+    .popup-key { color:#6b8099; }
+    .popup-val { color:#c9d4e0;font-weight:500;text-align:right;word-break:break-all; }
+  `;
+  document.head.appendChild(s);
+}
 
-  dropZone.addEventListener('click', () => fileInput.click());
-
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) handleFile(e.target.files[0]);
+/* ============================================================
+   BASEMAP SWITCHER
+   ============================================================ */
+function setupBasemapSwitcher() {
+  document.querySelectorAll('.basemap-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.basemap;
+      if (name === currentBasemap) return;
+      currentBasemap = name;
+      document.querySelectorAll('.basemap-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      switchBasemap(name);
+    });
   });
+}
 
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
-  });
-
-  dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('drag-over');
-  });
-
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    if (e.dataTransfer.files.length > 0) {
-      handleFile(e.dataTransfer.files[0]);
+function switchBasemap(name) {
+  map.setStyle(BASEMAPS[name]);
+  map.once('style.load', () => {
+    map.setProjection({ type: 'globe' });
+    if (lastMapData && currentGeomCol) {
+      rehydrateMapLayers();
+      if (styleApplied) applyStyle(true); // re-apply style silently
     }
   });
 }
 
-async function handleFile(file) {
-  if (!file.name.endsWith('.geojson') && !file.name.endsWith('.json')) {
-    showError('Please upload a .geojson or .json file.');
+function rehydrateMapLayers() {
+  if (!lastMapData) return;
+  const { geojsonFC, pts, lns, pols } = lastMapData;
+  const empty = { type: 'FeatureCollection', features: [] };
+
+  map.addSource('query-result', { type: 'geojson', data: geojsonFC });
+  map.addSource('query-points-src', { type: 'geojson', data: pts });
+  map.addSource('query-lines-src', { type: 'geojson', data: lns });
+  map.addSource('query-polygons-src', { type: 'geojson', data: pols });
+  map.addSource('selected-src', { type: 'geojson', data: empty });
+
+  map.addLayer({
+    id: 'query-polygons', type: 'fill', source: 'query-polygons-src',
+    paint: { 'fill-color': '#f0a500', 'fill-opacity': 0.18 }
+  });
+  map.addLayer({
+    id: 'query-polygon-outline', type: 'line', source: 'query-polygons-src',
+    paint: { 'line-color': '#f0a500', 'line-width': 1.5, 'line-opacity': 0.85 }
+  });
+  map.addLayer({
+    id: 'query-lines', type: 'line', source: 'query-lines-src',
+    paint: { 'line-color': '#3ddc84', 'line-width': 2, 'line-opacity': 0.9 }
+  });
+  map.addLayer({
+    id: 'query-points', type: 'circle', source: 'query-points-src',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8],
+      'circle-color': '#e8323c', 'circle-stroke-width': 1.2,
+      'circle-stroke-color': '#fff', 'circle-opacity': 0.85
+    }
+  });
+  map.addLayer({
+    id: 'selected-polygons', type: 'fill', source: 'selected-src',
+    filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+    paint: { 'fill-color': '#f0e500', 'fill-opacity': 0.55 }
+  });
+  map.addLayer({
+    id: 'selected-polygon-outline', type: 'line', source: 'selected-src',
+    filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+    paint: { 'line-color': '#ffe000', 'line-width': 2.5 }
+  });
+  map.addLayer({
+    id: 'selected-lines', type: 'line', source: 'selected-src',
+    filter: ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'MultiLineString']],
+    paint: { 'line-color': '#ffe000', 'line-width': 3.5 }
+  });
+  map.addLayer({
+    id: 'selected-points', type: 'circle', source: 'selected-src',
+    filter: ['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 11],
+      'circle-color': '#ffe000', 'circle-stroke-width': 2,
+      'circle-stroke-color': '#000', 'circle-opacity': 1
+    }
+  });
+}
+
+/* ============================================================
+   URL STATE SHARING
+   ============================================================ */
+function encodeStateToURL() {
+  try {
+    const state = {
+      sql: editorView ? editorView.state.doc.toString() : '',
+      style: { ...styleSettings }
+    };
+    const json = JSON.stringify(state);
+    const encoded = btoa(unescape(encodeURIComponent(json)));
+    return `${location.origin}${location.pathname}#state=${encoded}`;
+  } catch (e) {
+    console.warn('encodeStateToURL failed:', e);
+    return location.href;
+  }
+}
+
+function updateURL() {
+  try {
+    const state = {
+      sql: editorView ? editorView.state.doc.toString() : '',
+      style: { ...styleSettings }
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+    history.replaceState(null, '', `#state=${encoded}`);
+  } catch (e) { /* silently skip */ }
+}
+
+function restoreFromURL() {
+  try {
+    const hash = location.hash;
+    if (!hash.startsWith('#state=')) return false;
+    const encoded = hash.slice(7);
+    const json = decodeURIComponent(escape(atob(encoded)));
+    const state = JSON.parse(json);
+
+    if (state.sql && editorView) {
+      editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: state.sql } });
+    }
+    if (state.style) {
+      Object.assign(styleSettings, state.style);
+    }
+    return !!state.sql;
+  } catch (e) {
+    console.warn('restoreFromURL failed:', e);
+    return false;
+  }
+}
+
+function copyShareURL() {
+  const url = encodeStateToURL();
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('Link copied to clipboard!');
+  }).catch(() => {
+    // Fallback for browsers without clipboard API
+    prompt('Copy this link:', url);
+  });
+}
+
+function showToast(msg) {
+  const existing = document.querySelector('.share-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'share-toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  // Trigger reflow then animate in
+  requestAnimationFrame(() => toast.classList.add('visible'));
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
+}
+
+/* ============================================================
+   MAP EXPORT — PNG
+   ============================================================ */
+async function exportMapPNG() {
+  const mapCanvas = map.getCanvas();
+  const W = mapCanvas.width;
+  const H = mapCanvas.height;
+
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const ctx = out.getContext('2d');
+
+  // 1. Draw map
+  ctx.drawImage(mapCanvas, 0, 0);
+
+  // 2. Draw legend overlay (bottom-left, above attribution)
+  drawLegendOnCanvas(ctx, W, H);
+
+  // 3. Download
+  out.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url, download: `map-export-${Date.now()}.png`
+    });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, 'image/png');
+}
+
+function drawLegendOnCanvas(ctx, W, H) {
+  const mode = styleSettings.mode;
+  if (!styleApplied) return;
+
+  const PAD = 12;
+  const ITEM_H = 20;
+  const SWATCH = 14;
+  const FONT = '11px JetBrains Mono, monospace';
+  const FONT_S = '9px JetBrains Mono, monospace';
+
+  let items = [];
+  let title = '';
+
+  if (mode === 'single') {
+    title = 'All features';
+    items = [{ color: styleSettings.singleColor, label: 'All features' }];
+  } else if (mode === 'graduated' && styleSettings.col) {
+    const values = currentRows.map(r => Number(r[styleSettings.col])).filter(v => isFinite(v));
+    if (!values.length) return;
+    const n = styleSettings.nClasses;
+    const breaks = getBreaks(values, styleSettings.method, n);
+    const ramp = interpolateRampToN(getRamp(), n);
+    title = `${styleSettings.col} (${styleSettings.method})`;
+    items = ramp.map((color, i) => ({
+      color,
+      label: `${fmtNum(breaks[i])} – ${i === n - 1 ? '' : '< '}${fmtNum(breaks[i + 1])}`
+    }));
+  } else if (mode === 'categorical' && styleSettings.col) {
+    const unique = [...new Set(currentRows.map(r => r[styleSettings.col]).filter(v => v != null))].slice(0, 12);
+    title = styleSettings.col;
+    items = unique.map((val, i) => ({
+      color: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+      label: String(val).slice(0, 24)
+    }));
+  }
+
+  if (!items.length) return;
+
+  // Box dimensions
+  ctx.font = FONT;
+  const maxLabelW = Math.max(...items.map(it => ctx.measureText(it.label).width), ctx.measureText(title).width);
+  const boxW = PAD * 2 + SWATCH + 8 + maxLabelW + 4;
+  const boxH = PAD + 16 + items.length * ITEM_H + PAD;
+  const bx = PAD;
+  const by = H - boxH - 36; // above attribution bar
+
+  // Background
+  ctx.fillStyle = 'rgba(11,15,20,0.88)';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, boxW, boxH, 6);
+  ctx.fill();
+
+  // Title
+  ctx.fillStyle = '#6b8099';
+  ctx.font = FONT_S;
+  ctx.fillText(title.toUpperCase(), bx + PAD, by + PAD + 9);
+
+  // Items
+  items.forEach((item, i) => {
+    const iy = by + PAD + 16 + i * ITEM_H;
+    ctx.fillStyle = item.color;
+    ctx.fillRect(bx + PAD, iy, SWATCH, SWATCH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx + PAD, iy, SWATCH, SWATCH);
+    ctx.fillStyle = '#c9d4e0';
+    ctx.font = FONT;
+    ctx.fillText(item.label, bx + PAD + SWATCH + 8, iy + 11);
+  });
+}
+
+/* ============================================================
+   COLUMN STATISTICS BAR
+   ============================================================ */
+function renderStatsBar() {
+  const bar = document.getElementById('stats-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+
+  if (!currentRows.length || !currentCols.length) {
+    bar.style.display = 'none';
     return;
   }
 
-  const tableName = file.name.replace(/\.(geo)?json$/i, '').replace(/[^a-zA-Z0-9_]/g, '_');
+  const numericCols = currentCols.filter(c => {
+    if (c === currentGeomCol || c === '__id') return false;
+    const sample = currentRows.find(r => r[c] !== null && r[c] !== undefined);
+    return sample && (typeof sample[c] === 'number' || typeof sample[c] === 'bigint');
+  });
 
-  try {
-    const text = await file.text();
-    // Validate it's valid JSON
-    JSON.parse(text);
+  if (!numericCols.length) {
+    bar.style.display = 'none';
+    return;
+  }
 
-    const stats = await registerGeoJSON(text, tableName);
-    updateTableInfo(tableName, stats.rowCount, stats.colCount);
+  bar.style.display = 'flex';
 
-    const newQuery = `SELECT * FROM "${tableName}" LIMIT 100`;
-    editorView.dispatch({
-      changes: { from: 0, to: editorView.state.doc.length, insert: newQuery }
-    });
-    runQuery();
-  } catch (err) {
-    showError(`Failed to load file: ${err.message}`);
+  numericCols.slice(0, 6).forEach(col => {
+    const vals = currentRows.map(r => r[col] !== null && r[col] !== undefined ? Number(r[col]) : NaN);
+    const valid = vals.filter(v => isFinite(v));
+    const nulls = vals.length - valid.length;
+
+    if (!valid.length) return;
+
+    const min = Math.min(...valid);
+    const max = Math.max(...valid);
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+
+    const chip = document.createElement('div');
+    chip.className = 'stat-chip';
+    chip.innerHTML = `
+      <span class="stat-col">${col}</span>
+      <span class="stat-kv"><span class="stat-k">min</span>${fmtNum(min)}</span>
+      <span class="stat-kv"><span class="stat-k">max</span>${fmtNum(max)}</span>
+      <span class="stat-kv"><span class="stat-k">mean</span>${fmtNum(mean)}</span>
+      ${nulls > 0 ? `<span class="stat-kv stat-null"><span class="stat-k">∅</span>${nulls}</span>` : ''}
+    `;
+    bar.appendChild(chip);
+  });
+
+  if (numericCols.length > 6) {
+    const more = document.createElement('div');
+    more.className = 'stat-more';
+    more.textContent = `+${numericCols.length - 6} more`;
+    bar.appendChild(more);
   }
 }
 
 /* ============================================================
-   DEMO DATA BUTTON
+   PANEL RESIZE
    ============================================================ */
-function setupDemoButton() {
-  document.getElementById('btn-demo').addEventListener('click', async () => {
-    await loadDemoData();
-  });
-}
+function setupResizeHandles() {
+  const app = document.getElementById('app');
+  const leftHandle = document.getElementById('resize-left');
+  const rightHandle = document.getElementById('resize-right');
 
-/* ============================================================
-   RUN BUTTON
-   ============================================================ */
-function setupRunButton() {
-  document.getElementById('run-btn').addEventListener('click', runQuery);
-}
+  const MIN_WIDTH = 180;   // px — minimum panel width
+  const MAX_WIDTH = 700;   // px — maximum panel width
+  const HANDLE_W = 4;     // px — each handle column
 
-/* ============================================================
-   POPUP STYLES (injected into head)
-   ============================================================ */
-function injectPopupStyles() {
-  const style = document.createElement('style');
-  style.textContent = `
-    .geo-popup .maplibregl-popup-content {
-      background: #161d26;
-      border: 1px solid #2a3f57;
-      border-radius: 6px;
-      padding: 0;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-      min-width: 180px;
-      max-width: 280px;
-    }
-    .geo-popup .maplibregl-popup-tip { border-top-color: #161d26; }
-    .popup-content { padding: 10px 12px; }
-    .popup-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 3px 0;
-      border-bottom: 1px solid #1f2d3d;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-    }
-    .popup-row:last-child { border-bottom: none; }
-    .popup-key { color: #6b8099; }
-    .popup-val { color: #c9d4e0; font-weight: 500; text-align: right; word-break: break-all; }
-  `;
-  document.head.appendChild(style);
+  function getWidths() {
+    const cols = getComputedStyle(app).gridTemplateColumns.split(' ');
+    return {
+      left: parseFloat(cols[0]),
+      right: parseFloat(cols[4]),
+    };
+  }
+
+  function setWidths(left, right) {
+    app.style.gridTemplateColumns = `${left}px ${HANDLE_W}px 1fr ${HANDLE_W}px ${right}px`;
+  }
+
+  function makeDragger(handle, side) {
+    let startX, startWidth;
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      handle.classList.add('dragging');
+      startX = e.clientX;
+      startWidth = getWidths()[side];
+      document.body.style.cursor = 'col-resize';
+      // Prevent text selection during drag
+      document.body.style.userSelect = 'none';
+
+      function onMove(e) {
+        const delta = side === 'left'
+          ? e.clientX - startX
+          : startX - e.clientX;
+        const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+        const widths = getWidths();
+        if (side === 'left') setWidths(newWidth, widths.right);
+        else setWidths(widths.left, newWidth);
+      }
+
+      function onUp() {
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        // Let MapLibre know the container size changed
+        if (map) map.resize();
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Double-click to reset to default
+    handle.addEventListener('dblclick', () => {
+      const widths = getWidths();
+      if (side === 'left') setWidths(300, widths.right);
+      else setWidths(widths.left, 400);
+      if (map) map.resize();
+    });
+  }
+
+  makeDragger(leftHandle, 'left');
+  makeDragger(rightHandle, 'right');
 }
 
 /* ============================================================
@@ -1012,7 +1924,22 @@ function injectPopupStyles() {
 document.addEventListener('DOMContentLoaded', () => {
   injectPopupStyles();
   setupFileUpload();
-  setupDemoButton();
-  setupRunButton();
+  setupResizeHandles();
+  document.getElementById('btn-demo').addEventListener('click', loadDemoData);
+  document.getElementById('run-btn').addEventListener('click', runQuery);
+  document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
+  document.getElementById('export-geojson-btn').addEventListener('click', exportGeoJSON);
+  document.getElementById('apply-style-btn').addEventListener('click', () => applyStyle(false));
+  document.getElementById('share-url-btn').addEventListener('click', copyShareURL);
+  document.getElementById('export-png-btn').addEventListener('click', exportMapPNG);
+  document.getElementById('clear-session-btn').addEventListener('click', async () => {
+    if (!confirm('Clear all saved tables and history from this browser?')) return;
+    const tables = await idbGetAll('tables');
+    for (const t of tables) await idbDelete('tables', t.name);
+    await idbDelete('state', 'history');
+    await idbDelete('state', 'lastQuery');
+    location.hash = '';
+    location.reload();
+  });
   init();
 });

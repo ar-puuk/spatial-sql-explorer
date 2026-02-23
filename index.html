@@ -6,140 +6,251 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spatial SQL Explorer</title>
 
-    <!-- ── Cross-Origin Isolation for SharedArrayBuffer (needed by DuckDB-WASM) ── -->
-    <!-- coi-serviceworker adds the required COOP/COEP headers on GitHub Pages     -->
+    <!-- Cross-Origin Isolation for SharedArrayBuffer (DuckDB-WASM multithreading) -->
+    <!-- Download from: https://unpkg.com/coi-serviceworker@0.1.7/coi-serviceworker.min.js -->
     <script src="coi-serviceworker.min.js"></script>
 
-    <!-- ── MapLibre GL JS ───────────────────────────────────────────────────────── -->
+    <!-- MapLibre GL JS v5 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" />
     <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
+
+    <!-- MapLibre Geocoder -->
     <link rel="stylesheet"
         href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
     <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"></script>
 
-    <!-- ── App Styles ───────────────────────────────────────────────────────────── -->
+    <!-- App styles -->
     <link rel="stylesheet" href="css/style.css" />
 </head>
 
 <body>
 
-    <!-- ════════════════════════════════════════════════════════════
-     INIT OVERLAY — shown while DuckDB + map are loading
-     ════════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════════════════════════════════════════════
+     INIT OVERLAY
+     ═══════════════════════════════════════════════════════════ -->
     <div id="init-overlay">
         <div class="init-spinner"></div>
-        <div class="init-title">Spatial SQL Explorer</div>
+        <div class="init-title">⬡ Spatial SQL Explorer</div>
         <div class="init-log" id="init-log">Starting up…</div>
     </div>
 
-    <!-- ════════════════════════════════════════════════════════════
-     MAIN APP LAYOUT — three columns
-     ════════════════════════════════════════════════════════════ -->
+
+    <!-- ═══════════════════════════════════════════════════════════
+     APP SHELL — three-column grid
+     ═══════════════════════════════════════════════════════════ -->
     <div id="app">
 
-        <!-- ── LEFT PANEL: SQL Editor ─────────────────────────────── -->
+        <!-- ── LEFT PANEL ─────────────────────────────────────────── -->
         <div id="panel-left">
 
-            <!-- Header -->
+            <!-- App header -->
             <div id="app-header">
                 <div id="app-title">⬡ Spatial SQL Explorer</div>
-                <div id="app-subtitle">
-                    Load GeoJSON, run SQL in DuckDB, watch map + table update together.
+                <div id="app-subtitle">DuckDB-WASM · MapLibre GL · 100% client-side</div>
+            </div>
+
+            <!-- ── Table Registry ────────────────────────────────────── -->
+            <div class="left-section" id="section-registry">
+                <div class="section-header">
+                    <span class="section-label">Loaded Tables</span>
+                    <button class="icon-btn danger" id="clear-session-btn" title="Clear saved session data">⟳ clear
+                        session</button>
+                </div>
+                <div id="table-registry">
+                    <div class="registry-empty">No tables loaded.</div>
                 </div>
             </div>
 
-            <!-- Data Source -->
-            <div id="data-source">
-                <div class="section-label">Data Source</div>
+            <!-- ── Data Source ────────────────────────────────────────── -->
+            <div class="left-section" id="section-datasource">
+                <div class="section-label">Load Data</div>
 
                 <div class="btn-row">
-                    <button class="btn" id="btn-demo">Use Demo Data</button>
-                    <button class="btn" onclick="document.getElementById('file-input').click()">
-                        Choose GeoJSON
-                    </button>
+                    <button class="btn" id="btn-demo">Demo Data</button>
                 </div>
 
-                <input type="file" id="file-input" accept=".geojson,.json" />
+                <!-- Hidden file input — accepts all supported formats -->
+                <input type="file" id="file-input" accept=".geojson,.json,.csv,.tsv,.parquet" multiple />
 
                 <div id="drop-zone">
-                    <span>⬆</span>
-                    Drop a <code>.geojson</code> file here, or click to browse
+                    <span class="drop-icon">⬆</span>
+                    <span class="drop-main">Drop files here or click to browse</span>
+                    <span class="drop-formats">GeoJSON · CSV · TSV · Parquet</span>
                 </div>
-
-                <div id="table-info">Loading…</div>
             </div>
 
-            <!-- SQL Editor Label -->
+            <!-- ── SQL Editor ──────────────────────────────────────────── -->
             <div id="editor-section">
                 <div id="editor-label">
-                    <div class="section-label" style="margin-bottom:0">SQL Query</div>
+                    <span class="section-label" style="margin-bottom:0">SQL Query</span>
                     <span id="editor-hint">Ctrl+Enter to run</span>
                 </div>
                 <div id="editor-wrapper"></div>
             </div>
 
-            <!-- Run Controls -->
+            <!-- ── Run Controls ─────────────────────────────────────────── -->
             <div id="run-controls">
                 <button class="btn btn-primary" id="run-btn">▶ Run Query</button>
-                <span id="safety-cap-label">LIMIT</span>
-                <input type="number" id="safety-cap-input" value="1000" min="1" max="10000"
-                    title="Safety cap: auto-adds LIMIT if your query doesn't have one" />
+                <span class="cap-label">LIMIT</span>
+                <input type="number" id="safety-cap-input" value="50000" min="1" max="500000"
+                    title="Auto-appended LIMIT if your query has none" />
             </div>
 
-            <!-- Query History -->
+            <!-- ── Query History ─────────────────────────────────────────── -->
             <div id="query-history">
                 <div class="section-label">Query History</div>
-                <!-- History items injected by JS -->
             </div>
 
-        </div>
-        <!-- end panel-left -->
+        </div><!-- end panel-left -->
 
+
+        <!-- ── RESIZE HANDLE: left ───────────────────────────────── -->
+        <div class="resize-handle" id="resize-left" title="Drag to resize"></div>
 
         <!-- ── CENTER PANEL: Map ──────────────────────────────────── -->
         <div id="panel-map">
             <div id="map"></div>
+
+            <!-- Basemap switcher overlay (top-left) -->
+            <div id="basemap-switcher">
+                <button class="basemap-pill active" data-basemap="light">Light</button>
+                <button class="basemap-pill" data-basemap="dark">Dark</button>
+                <button class="basemap-pill" data-basemap="satellite">Satellite</button>
+                <button class="basemap-pill" data-basemap="topo">Topo</button>
+            </div>
+
             <div id="map-statusbar">
                 <span id="map-coords">–</span>
-                <span id="map-engine">DuckDB WASM + spatial extension + MapLibre</span>
+                <span id="map-engine">DuckDB-WASM · spatial ext · MapLibre GL v5</span>
+                <button id="export-png-btn" title="Export map as PNG">⬇ PNG</button>
             </div>
         </div>
-        <!-- end panel-map -->
 
 
-        <!-- ── RIGHT PANEL: Query Output ─────────────────────────── -->
+        <!-- ── RESIZE HANDLE: right ──────────────────────────────── -->
+        <div class="resize-handle" id="resize-right" title="Drag to resize"></div>
+
+        <!-- ── RIGHT PANEL: Output + Style ───────────────────────── -->
         <div id="panel-right">
 
+            <!-- Output header + export buttons -->
             <div id="output-header">
-                <div id="output-title">Query Output</div>
-                <div id="output-meta">Run a query to see results.</div>
+                <div id="output-header-top">
+                    <div>
+                        <div id="output-title">Query Output</div>
+                        <div id="output-meta">Run a query to see results.</div>
+                    </div>
+                    <div id="export-btns">
+                        <button class="btn btn-export" id="share-url-btn"
+                            title="Copy shareable link with current query &amp; style">⬡ Share</button>
+                        <button class="btn btn-export" id="export-csv-btn"
+                            title="Download filtered result as CSV">CSV</button>
+                        <button class="btn btn-export" id="export-geojson-btn"
+                            title="Download filtered result as GeoJSON">GeoJSON</button>
+                    </div>
+                </div>
             </div>
 
+            <!-- Error banner -->
             <div id="error-banner"></div>
 
+            <!-- Loading indicator -->
             <div id="query-loading">
                 <div class="mini-spinner"></div>
                 Executing query…
             </div>
 
-            <!-- Empty state shown before first query -->
-            <div id="empty-state">
-                <div class="empty-icon">⬡</div>
-                <p>Write a SQL query in the editor<br>and press <strong>Run Query</strong><br>to see results here.</p>
+            <!-- Column statistics bar -->
+            <div id="stats-bar" style="display:none"></div>
+
+            <!-- ── Style Panel ───────────────────────────────────────── -->
+            <div id="style-panel" style="display:none">
+
+                <div class="style-panel-header">
+                    <span class="section-label" style="margin-bottom:0">Map Style</span>
+                    <button class="btn btn-sm" id="apply-style-btn">Apply</button>
+                </div>
+
+                <!-- Mode pill toggle -->
+                <div class="style-row">
+                    <div class="mode-pills" id="style-mode-pills">
+                        <button class="mode-pill active" data-mode="single">Single</button>
+                        <button class="mode-pill" data-mode="graduated">Graduated</button>
+                        <button class="mode-pill" data-mode="categorical">Categorical</button>
+                    </div>
+                </div>
+
+                <!-- Column selector (hidden in single mode) -->
+                <div class="style-row" id="style-row-col" style="display:none">
+                    <label class="style-label">Column</label>
+                    <select id="style-col-select" class="style-select"></select>
+                </div>
+
+                <!-- Single color picker -->
+                <div class="style-row" id="style-row-single">
+                    <label class="style-label">Color</label>
+                    <div class="single-color-row">
+                        <input type="color" id="style-single-color" value="#f0a500" class="color-picker" />
+                        <span id="style-single-hex" class="hex-label">#f0a500</span>
+                    </div>
+                </div>
+
+                <!-- Graduated controls -->
+                <div id="style-graduated-controls" style="display:none">
+                    <div class="style-row">
+                        <label class="style-label">Method</label>
+                        <div class="classify-pills" id="classify-method-pills">
+                            <button class="classify-pill active" data-method="quantile">Quantile</button>
+                            <button class="classify-pill" data-method="equal">Equal Interval</button>
+                            <button class="classify-pill" data-method="jenks">Natural Breaks</button>
+                        </div>
+                    </div>
+
+                    <div class="style-row">
+                        <label class="style-label">Classes</label>
+                        <div class="class-count-btns" id="class-count-btns">
+                            <button class="class-count-btn" data-n="3">3</button>
+                            <button class="class-count-btn active" data-n="5">5</button>
+                            <button class="class-count-btn" data-n="7">7</button>
+                            <button class="class-count-btn" data-n="9">9</button>
+                        </div>
+                    </div>
+
+                    <div class="style-row">
+                        <label class="style-label">Ramp</label>
+                        <div id="ramp-swatches"></div>
+                        <button class="icon-btn" id="invert-ramp-btn" title="Invert ramp">⇅</button>
+                    </div>
+                </div>
+
+                <!-- Opacity slider (always visible) -->
+                <div class="style-row">
+                    <label class="style-label">Opacity</label>
+                    <div class="opacity-row">
+                        <input type="range" id="style-opacity" min="0" max="100" value="85" class="opacity-slider" />
+                        <span id="style-opacity-val" class="opacity-val">85%</span>
+                    </div>
+                </div>
+
+                <!-- Legend -->
+                <div id="style-legend"></div>
+
             </div>
 
-            <!-- Table injected here by JS -->
+            <!-- Empty state -->
+            <div id="empty-state">
+                <div class="empty-icon">⬡</div>
+                <p>Write a SQL query and press<br><strong>Run Query</strong> to see results here.</p>
+            </div>
+
+            <!-- Results table injected here -->
             <div id="table-wrapper"></div>
 
-        </div>
-        <!-- end panel-right -->
+        </div><!-- end panel-right -->
 
-    </div>
-    <!-- end #app -->
+    </div><!-- end #app -->
 
-    <!-- ── App Logic (ES Module) ───────────────────────────────── -->
     <script type="module" src="js/app.js"></script>
-
 </body>
 
 </html>
