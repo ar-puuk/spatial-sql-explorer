@@ -43,26 +43,26 @@
 
 /* ── Variables — light theme ────────────────────────────────── */
 [data-theme="light"] {
-    --bg-base: #eef2f7;
+    --bg-base: #f0f2f5;
     --bg-panel: #ffffff;
-    --bg-elevated: #f4f7fb;
-    --bg-hover: #e6ecf4;
-    --bg-active: #dce5f0;
+    --bg-elevated: #f7f8fa;
+    --bg-hover: #ebedf2;
+    --bg-active: #e0e4eb;
 
-    --border: #ccd6e3;
-    --border-bright: #aabcce;
+    --border: #d5dbe5;
+    --border-bright: #b8c3d3;
 
-    --text-primary: #1a2535;
-    --text-secondary: #456080;
-    --text-dim: #8aaabf;
+    --text-primary: #1c2a3a;
+    --text-secondary: #526580;
+    --text-dim: #94a3b8;
 
-    --accent: #c98000;
-    --accent-dim: #a86800;
-    --accent-glow: rgba(200, 128, 0, 0.12);
+    --accent: #c07800;
+    --accent-dim: #a06200;
+    --accent-glow: rgba(192, 120, 0, 0.10);
 
-    --success: #1e9e5e;
-    --error: #d63030;
-    --warning: #d07820;
+    --success: #1a8f54;
+    --error: #c92a2a;
+    --warning: #c07020;
 }
 
 /* ── Reset ──────────────────────────────────────────────────── */
@@ -198,7 +198,7 @@ body {
 
 .btn-primary {
     background: var(--accent);
-    color: #0b0f14;
+    color: #fffcf5;
     border-color: var(--accent);
     font-weight: 600;
     flex: 1;
@@ -210,7 +210,7 @@ body {
 .btn-primary:hover {
     background: #fbb800;
     border-color: #fbb800;
-    color: #0b0f14;
+    color: #fffcf5;
     box-shadow: 0 0 16px var(--accent-glow);
 }
 
@@ -380,6 +380,7 @@ body {
 [data-theme="light"] #map-legend {
     background: rgba(255, 255, 255, 0.95);
     border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* Light mode: basemap switcher */
@@ -393,6 +394,74 @@ body {
     background: #ffffff;
     border-color: var(--accent-dim);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+/* Light mode: map status bar */
+[data-theme="light"] #map-statusbar {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+/* Light mode: map attribution */
+[data-theme="light"] .maplibregl-ctrl-attrib {
+    background: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Light mode: ghost overlays on graduated legend */
+[data-theme="light"] .ml-ghost {
+    background: rgba(255, 255, 255, 0.65);
+}
+
+/* Light mode: selection window border */
+[data-theme="light"] .ml-sel-window {
+    border-color: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] .ml-sel-window:hover {
+    border-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Light mode: categorical row hover */
+[data-theme="light"] .ml-cat-row:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+/* Light mode: swatch borders */
+[data-theme="light"] .ml-swatch,
+[data-theme="light"] .legend-break-swatch,
+[data-theme="light"] .legend-cat-swatch {
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Light mode: ramp swatch active border */
+[data-theme="light"] .ramp-swatch.active {
+    border-color: #1a2535;
+}
+
+/* Light mode: range selection overlay */
+[data-theme="light"] .legend-range-selection {
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Light mode: number cells in result table */
+[data-theme="light"] #results-table tbody td.cell-number {
+    color: #1565c0;
+}
+
+/* Light mode: active pills text (on accent bg) */
+[data-theme="light"] .mode-pill.active,
+[data-theme="light"] .basemap-pill.active {
+    color: #1a1000;
+}
+
+/* Light mode: drag handle shadow */
+[data-theme="light"] .ml-handle {
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.25);
+}
+
+/* Light mode: range handle shadow */
+[data-theme="light"] .legend-range-handle {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 /* ── Generic left section wrapper ───────────────────────────── */
@@ -1006,7 +1075,7 @@ body {
 
 .mode-pill.active {
     background: var(--accent);
-    color: #0b0f14;
+    color: #fffcf5;
     font-weight: 600;
 }
 
@@ -1695,7 +1764,7 @@ body {
 
 .basemap-pill.active {
     background: var(--accent);
-    color: #0b0f14;
+    color: #fffcf5;
     font-weight: 700;
 }
 
@@ -1867,6 +1936,11 @@ body {
     color: var(--accent) !important;
 }
 
+/* Light mode: selected row has warmer tone */
+[data-theme="light"] #results-table tbody tr.row-selected {
+    background: rgba(192, 120, 0, 0.08) !important;
+}
+
 /* ── Empty state ────────────────────────────────────────────── */
 #empty-state {
     display: flex;
@@ -1899,6 +1973,31 @@ body {
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════ */
+
+/* Light mode: MapLibre navigation controls */
+[data-theme="light"] .maplibregl-ctrl-group {
+    background: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] .maplibregl-ctrl-group button {
+    background-color: #ffffff !important;
+}
+
+[data-theme="light"] .maplibregl-ctrl-group button+button {
+    border-top-color: var(--border) !important;
+}
+
+/* Light mode: geocoder */
+[data-theme="light"] .maplibregl-ctrl-geocoder {
+    background: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] .maplibregl-ctrl-geocoder input {
+    color: var(--text-primary) !important;
+}
+
 @media (max-width: 960px) {
     :root {
         --panel-left: 260px;

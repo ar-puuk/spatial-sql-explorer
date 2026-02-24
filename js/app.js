@@ -13,11 +13,18 @@
    ============================================================ */
 
 // ── ES Module imports from CDN ──────────────────────────────
+// Restored to the original working URLs — no ?deps= or ?bundle flags.
+// Those caused cascading crashes ("multiple instances", "showDialog missing",
+// "keymap not exported") across the last three attempts.
+// Only two additions vs the very first version of this file:
+//   1. defaultHighlightStyle  →  HighlightStyle  (custom light-mode token colours)
+//   2. Added @lezer/highlight tags  (needed by HighlightStyle.define)
 import { basicSetup } from 'https://esm.sh/codemirror@6.0.1';
 import { EditorView, keymap } from 'https://esm.sh/@codemirror/view@6.36.3';
 import { sql as cmSql, StandardSQL } from 'https://esm.sh/@codemirror/lang-sql@6.8.0';
 import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2';
-import { syntaxHighlighting, defaultHighlightStyle } from 'https://esm.sh/@codemirror/language@6.10.8';
+import { syntaxHighlighting, HighlightStyle } from 'https://esm.sh/@codemirror/language@6.10.8';
+import { tags } from 'https://esm.sh/@lezer/highlight@1.2.1';
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
 /* ============================================================
@@ -185,13 +192,40 @@ async function init() {
 
     // Restore session tables first — tables must exist before any query runs
     const { restored, lastSql } = await restoreSession();
-    if (!restored) {
+
+    // If URL requires demo data and we don't have it, load it
+    const needsDemo = window.__urlHasDemo && !loadedTablesMeta.some(t => t.name === 'demo');
+    if (!restored || needsDemo) {
       updateInitLog('Loading demo data…');
       await loadDemoData();
     }
 
+    // Check if URL-required tables are all available
+    let urlSqlSafe = urlSql;
+    if (urlSql && window.__urlRequiredTables) {
+      const available = new Set(loadedTablesMeta.map(t => t.name));
+      const missing = window.__urlRequiredTables.filter(t => !available.has(t));
+      if (missing.length > 0) {
+        // Tables are missing — the query will fail. Warn user and fall back.
+        console.warn('Shared URL references missing tables:', missing);
+        urlSqlSafe = null; // don't run the URL query
+        // We'll show the error after the overlay hides
+        setTimeout(() => {
+          showError(
+            `Shared link requires table(s) not in your session: ${missing.join(', ')}. ` +
+            `Upload the data file(s) first, then re-run the query from history.`
+          );
+          // Still put the SQL in the editor so user can see it
+          if (urlSql && editorView) {
+            editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: urlSql } });
+            addToHistory(urlSql, false, 0, '0.000');
+          }
+        }, 300);
+      }
+    }
+
     // Decide which SQL to run: URL > lastSql > first table > demo default
-    const sqlToRun = urlSql || lastSql
+    const sqlToRun = urlSqlSafe || lastSql
       || (loadedTablesMeta.length ? `SELECT * FROM "${loadedTablesMeta[0].name}" LIMIT 50` : null);
 
     if (sqlToRun) {
@@ -307,27 +341,67 @@ function initMap() {
 /* ============================================================
    EDITOR INITIALIZATION (CodeMirror 6)
    ============================================================ */
+
+// Light-mode SQL highlight style — defined ONCE at module scope.
+// Calling HighlightStyle.define() inside a hot path (like buildEditorExtensions)
+// can create duplicate Facet entries; defining it here avoids that entirely.
+const lightHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: '#0070a8', fontWeight: '600' },
+  { tag: tags.typeName, color: '#067a26' },
+  { tag: tags.atom, color: '#3d0fa8' },
+  { tag: tags.number, color: '#116611' },
+  { tag: tags.string, color: '#a11515' },
+  { tag: tags.comment, color: '#7a6600', fontStyle: 'italic' },
+  { tag: tags.variableName, color: '#0033bb' },
+  { tag: tags.operator, color: '#067a26' },
+  { tag: tags.punctuation, color: '#444444' },
+  { tag: tags.bool, color: '#3d0fa8', fontWeight: '600' },
+  { tag: tags.null, color: '#3d0fa8', fontStyle: 'italic' },
+  { tag: tags.function(tags.variableName), color: '#007a5c' },
+  { tag: tags.definition(tags.variableName), color: '#0033bb' },
+  { tag: tags.special(tags.string), color: '#c44000' },
+  { tag: tags.bracket, color: '#333333' },
+]);
+
 function buildEditorExtensions(schema = {}) {
+  const isDark = currentTheme === 'dark';
   const exts = [
     basicSetup,
-    cmSql({ dialect: StandardSQL, schema }),
+    cmSql({ dialect: StandardSQL, schema, upperCaseKeywords: true }),
     keymap.of([{ key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runQuery(); return true; } }]),
     EditorView.theme({
-      '&': { height: '100%', background: currentTheme === 'dark' ? '#0f1419' : '#ffffff' },
-      '.cm-scroller': { overflow: 'auto' },
-      '.cm-content': { caretColor: currentTheme === 'dark' ? '#c9d4e0' : '#1a2535' },
-    })
+      '&': {
+        height: '100%',
+        background: isDark ? '#0f1419' : '#ffffff',
+        fontSize: '13px',
+      },
+      '.cm-scroller': {
+        overflow: 'auto',
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      },
+      '.cm-content': { caretColor: isDark ? '#c9d4e0' : '#1a2535', padding: '6px 0' },
+      '.cm-gutters': { background: isDark ? '#0f1419' : '#f6f6f6', borderRight: isDark ? '1px solid #1e2a38' : '1px solid #e0e0e0' },
+      '.cm-activeLine': { background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' },
+      '.cm-activeLineGutter': { background: isDark ? '#1a2535' : '#e8f0fe' },
+      '.cm-selectionBackground': { background: isDark ? '#2a4060 !important' : '#b9d4f5 !important' },
+      '.cm-tooltip': { background: isDark ? '#1a2535' : '#fff', border: isDark ? '1px solid #2a3a50' : '1px solid #ccc' },
+      '.cm-tooltip-autocomplete ul li[aria-selected]': {
+        background: isDark ? '#2a4060' : '#cce5ff',
+        color: isDark ? '#c9d4e0' : '#002',
+      },
+    }),
   ];
-  if (currentTheme === 'dark') {
+
+  if (isDark) {
+    // oneDark includes its own syntaxHighlighting — push after basicSetup so
+    // it overrides basicSetup's defaultHighlightStyle for dark mode.
     exts.push(oneDark);
   } else {
-    // Explicit light-mode highlight style — must come AFTER basicSetup
-    // to override its fallback and ensure token colours are applied
-    exts.push(syntaxHighlighting(defaultHighlightStyle));
+    // In light mode, supply explicit token colours via our custom HighlightStyle.
+    exts.push(syntaxHighlighting(lightHighlightStyle));
   }
   return exts;
 }
-
 function initEditor() {
   editorView = new EditorView({
     doc: `SELECT * FROM demo LIMIT 50`,
@@ -1426,7 +1500,10 @@ function applyGraduatedStyle(col, opacity) {
 
 function applyCategoricalStyle(col, opacity) {
   const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))];
-  const match = ['match', ['get', col]];
+  // FIX: use ['to-string', ['get', col]] so numeric column values (1, 2, 3 …)
+  // match their String(v) cases.  MapLibre's 'match' is strictly typed:
+  // the number 1 never equals the string "1", so every feature hit #aaaaaa.
+  const match = ['match', ['to-string', ['get', col]]];
   unique.forEach((v, i) => {
     match.push(String(v));
     match.push(CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]);
@@ -1545,7 +1622,8 @@ function applyCategoricalFilter(col, unique) {
   const visible = unique.filter(v => !hiddenCategories.has(v));
   if (visible.length === unique.length) setLayerFilter(null);
   else if (visible.length === 0) setLayerFilter(['boolean', false]);
-  else setLayerFilter(['match', ['get', col], visible.map(String), true, false]);
+  // Same to-string coercion so numeric-column toggles work correctly
+  else setLayerFilter(['match', ['to-string', ['get', col]], visible.map(String), true, false]);
 }
 
 /* ── Graduated: draggable range + ghost overlays ───────────── */
@@ -1825,18 +1903,18 @@ function injectPopupStyles() {
   const s = document.createElement('style');
   s.textContent = `
     .geo-popup .maplibregl-popup-content {
-      background:#161d26;border:1px solid #2a3f57;border-radius:6px;
-      padding:0;box-shadow:0 8px 24px rgba(0,0,0,.5);min-width:180px;max-width:280px;
+      background:var(--bg-elevated);border:1px solid var(--border-bright);border-radius:6px;
+      padding:0;box-shadow:0 8px 24px rgba(0,0,0,.35);min-width:180px;max-width:280px;
     }
-    .geo-popup .maplibregl-popup-tip { border-top-color:#161d26; }
+    .geo-popup .maplibregl-popup-tip { border-top-color:var(--bg-elevated); }
     .popup-content { padding:10px 12px; }
     .popup-row {
       display:flex;justify-content:space-between;gap:12px;padding:3px 0;
-      border-bottom:1px solid #1f2d3d;font-family:'JetBrains Mono',monospace;font-size:10px;
+      border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10px;
     }
     .popup-row:last-child { border-bottom:none; }
-    .popup-key { color:#6b8099; }
-    .popup-val { color:#c9d4e0;font-weight:500;text-align:right;word-break:break-all; }
+    .popup-key { color:var(--text-secondary); }
+    .popup-val { color:var(--text-primary);font-weight:500;text-align:right;word-break:break-all; }
   `;
   document.head.appendChild(s);
 }
@@ -1932,7 +2010,9 @@ function encodeStateToURL() {
   try {
     const state = {
       sql: editorView ? editorView.state.doc.toString() : '',
-      style: { ...styleSettings }
+      style: { ...styleSettings },
+      tables: loadedTablesMeta.map(t => t.name),
+      hasDemo: loadedTablesMeta.some(t => t.name === 'demo'),
     };
     const json = JSON.stringify(state);
     const encoded = btoa(unescape(encodeURIComponent(json)));
@@ -1947,7 +2027,9 @@ function updateURL() {
   try {
     const state = {
       sql: editorView ? editorView.state.doc.toString() : '',
-      style: { ...styleSettings }
+      style: { ...styleSettings },
+      tables: loadedTablesMeta.map(t => t.name),
+      hasDemo: loadedTablesMeta.some(t => t.name === 'demo'),
     };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
     history.replaceState(null, '', `#state=${encoded}`);
@@ -1955,7 +2037,7 @@ function updateURL() {
 }
 
 function peekURLSql() {
-  // Parse URL hash, apply style settings, return the SQL string (or null)
+  // Parse URL hash, apply style settings, store required tables, return the SQL string (or null)
   try {
     const hash = location.hash;
     if (!hash.startsWith('#state=')) return null;
@@ -1963,6 +2045,11 @@ function peekURLSql() {
     const json = decodeURIComponent(escape(atob(encoded)));
     const state = JSON.parse(json);
     if (state.style) Object.assign(styleSettings, state.style);
+    // Store required tables so init() can verify them after session restore
+    if (state.tables) {
+      window.__urlRequiredTables = state.tables;
+      window.__urlHasDemo = !!state.hasDemo;
+    }
     return state.sql || null;
   } catch (e) {
     console.warn('peekURLSql failed:', e);
@@ -2036,14 +2123,15 @@ function _captureMapPNG() {
 }
 
 function _exportLegendOnlyPNG() {
-  // Fallback: dark background + legend only
+  // Fallback: themed background + legend only
+  const isLight = currentTheme === 'light';
   const W = 400, H = 300;
   const out = document.createElement('canvas');
   out.width = W; out.height = H;
   const ctx = out.getContext('2d');
-  ctx.fillStyle = '#0b0f14';
+  ctx.fillStyle = isLight ? '#eef2f7' : '#0b0f14';
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#6b8099';
+  ctx.fillStyle = isLight ? '#456080' : '#6b8099';
   ctx.font = '10px monospace';
   ctx.fillText('MAP EXPORT — satellite/topo tiles blocked CORS', 12, 20);
   drawLegendOnCanvas(ctx, W, H);
@@ -2065,6 +2153,16 @@ function _downloadBlob(blob, filename) {
 function drawLegendOnCanvas(ctx, W, H) {
   const mode = styleSettings.mode;
   if (!styleApplied) return;
+
+  // Theme-aware colors — read from CSS custom properties
+  const cs = getComputedStyle(document.documentElement);
+  const isLight = currentTheme === 'light';
+  const COLORS = {
+    bg: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(11,15,20,0.88)',
+    title: cs.getPropertyValue('--text-secondary').trim() || (isLight ? '#456080' : '#6b8099'),
+    label: cs.getPropertyValue('--text-primary').trim() || (isLight ? '#1a2535' : '#c9d4e0'),
+    border: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+  };
 
   const PAD = 12;
   const ITEM_H = 20;
@@ -2109,13 +2207,13 @@ function drawLegendOnCanvas(ctx, W, H) {
   const by = H - boxH - 36; // above attribution bar
 
   // Background
-  ctx.fillStyle = 'rgba(11,15,20,0.88)';
+  ctx.fillStyle = COLORS.bg;
   ctx.beginPath();
   ctx.roundRect(bx, by, boxW, boxH, 6);
   ctx.fill();
 
   // Title
-  ctx.fillStyle = '#6b8099';
+  ctx.fillStyle = COLORS.title;
   ctx.font = FONT_S;
   ctx.fillText(title.toUpperCase(), bx + PAD, by + PAD + 9);
 
@@ -2124,10 +2222,10 @@ function drawLegendOnCanvas(ctx, W, H) {
     const iy = by + PAD + 16 + i * ITEM_H;
     ctx.fillStyle = item.color;
     ctx.fillRect(bx + PAD, iy, SWATCH, SWATCH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeStyle = COLORS.border;
     ctx.lineWidth = 1;
     ctx.strokeRect(bx + PAD, iy, SWATCH, SWATCH);
-    ctx.fillStyle = '#c9d4e0';
+    ctx.fillStyle = COLORS.label;
     ctx.font = FONT;
     ctx.fillText(item.label, bx + PAD + SWATCH + 8, iy + 11);
   });
