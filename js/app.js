@@ -13,18 +13,37 @@
    ============================================================ */
 
 // ── ES Module imports from CDN ──────────────────────────────
-// Restored to the original working URLs — no ?deps= or ?bundle flags.
-// Those caused cascading crashes ("multiple instances", "showDialog missing",
-// "keymap not exported") across the last three attempts.
-// Only two additions vs the very first version of this file:
-//   1. defaultHighlightStyle  →  HighlightStyle  (custom light-mode token colours)
-//   2. Added @lezer/highlight tags  (needed by HighlightStyle.define)
-import { basicSetup } from 'https://esm.sh/codemirror@6.0.1';
-import { EditorView, keymap } from 'https://esm.sh/@codemirror/view@6.36.3';
-import { sql as cmSql, StandardSQL } from 'https://esm.sh/@codemirror/lang-sql@6.8.0';
-import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2';
-import { syntaxHighlighting, HighlightStyle } from 'https://esm.sh/@codemirror/language@6.10.8';
-import { tags } from 'https://esm.sh/@lezer/highlight@1.2.1';
+//
+// WHY HIGHLIGHTING FAILED IN ALL PREVIOUS ATTEMPTS
+// ─────────────────────────────────────────────────
+// For CodeMirror syntax highlighting to work via CDN, THREE packages must
+// resolve to exactly the same module instance (same URL) in every import:
+//
+//   1. @codemirror/state    — Facet class identity; mismatches = "Unrecognized extension"
+//   2. @codemirror/language — where HighlightStyle Facet lives; mismatches = styles never fire
+//   3. @lezer/highlight     — where Tag objects are defined;
+//                             tags.keyword from lang-sql MUST be the same object
+//                             as tags.keyword in oneDark's style map, or no colours
+//
+// FIX: use esm.sh ?deps= to pin all three across every package.
+// Deliberately do NOT pin @codemirror/view — that caused the "showDialog not
+// exported" crash (search needed a newer view than 6.36.3).
+//
+// EditorView and keymap come from @codemirror/view directly (the meta-package
+// codemirror@6.0.1 does NOT re-export them, hence the "keymap not exported" crash).
+
+import { basicSetup }
+  from 'https://esm.sh/codemirror@6.0.1?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
+import { EditorView, keymap }
+  from 'https://esm.sh/@codemirror/view@6.36.3?deps=@codemirror/state@6.4.1';
+import { sql as cmSql, StandardSQL }
+  from 'https://esm.sh/@codemirror/lang-sql@6.8.0?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
+import { oneDark }
+  from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
+import { syntaxHighlighting, HighlightStyle }
+  from 'https://esm.sh/@codemirror/language@6.10.8?deps=@codemirror/state@6.4.1,@lezer/highlight@1.2.1';
+import { tags }
+  from 'https://esm.sh/@lezer/highlight@1.2.1';
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
 /* ============================================================
@@ -342,9 +361,9 @@ function initMap() {
    EDITOR INITIALIZATION (CodeMirror 6)
    ============================================================ */
 
-// Light-mode SQL highlight style — defined ONCE at module scope.
-// Calling HighlightStyle.define() inside a hot path (like buildEditorExtensions)
-// can create duplicate Facet entries; defining it here avoids that entirely.
+// Light-mode SQL highlight style, defined once at module scope.
+// Now that @lezer/highlight is pinned to the same instance across all packages,
+// these tag references correctly match the tokens emitted by lang-sql.
 const lightHighlightStyle = HighlightStyle.define([
   { tag: tags.keyword, color: '#0070a8', fontWeight: '600' },
   { tag: tags.typeName, color: '#067a26' },
@@ -393,11 +412,14 @@ function buildEditorExtensions(schema = {}) {
   ];
 
   if (isDark) {
-    // oneDark includes its own syntaxHighlighting — push after basicSetup so
-    // it overrides basicSetup's defaultHighlightStyle for dark mode.
+    // oneDark provides theme colours + its own syntaxHighlighting.
+    // With @lezer/highlight and @codemirror/language now pinned to shared
+    // instances, oneDark's tag-to-colour map will correctly match the tokens
+    // emitted by lang-sql.
     exts.push(oneDark);
   } else {
-    // In light mode, supply explicit token colours via our custom HighlightStyle.
+    // Light mode: our custom HighlightStyle.  syntaxHighlighting() wraps it
+    // into the correct Facet value from our shared @codemirror/language instance.
     exts.push(syntaxHighlighting(lightHighlightStyle));
   }
   return exts;
