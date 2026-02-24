@@ -45,7 +45,10 @@
 
             <!-- App header -->
             <div id="app-header">
-                <div id="app-title">⬡ Spatial SQL Explorer</div>
+                <div id="app-header-top">
+                    <div id="app-title">⬡ Spatial SQL Explorer</div>
+                    <button id="theme-toggle" title="Toggle light / dark mode" aria-label="Toggle theme">☾</button>
+                </div>
                 <div id="app-subtitle">DuckDB-WASM · MapLibre GL · 100% client-side</div>
             </div>
 
@@ -119,6 +122,11 @@
                 <button class="basemap-pill" data-basemap="topo">Topo</button>
             </div>
 
+            <!-- Interactive map legend (bottom-left, shown after Apply) -->
+            <div id="map-legend" style="display:none">
+                <div id="map-legend-inner"></div>
+            </div>
+
             <div id="map-statusbar">
                 <span id="map-coords">–</span>
                 <span id="map-engine">DuckDB-WASM · spatial ext · MapLibre GL v5</span>
@@ -159,9 +167,6 @@
                 <div class="mini-spinner"></div>
                 Executing query…
             </div>
-
-            <!-- Column statistics bar -->
-            <div id="stats-bar" style="display:none"></div>
 
             <!-- ── Style Panel ───────────────────────────────────────── -->
             <div id="style-panel" style="display:none">

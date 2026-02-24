@@ -17,6 +17,7 @@ import { basicSetup } from 'https://esm.sh/codemirror@6.0.1';
 import { EditorView, keymap } from 'https://esm.sh/@codemirror/view@6.36.3';
 import { sql as cmSql, StandardSQL } from 'https://esm.sh/@codemirror/lang-sql@6.8.0';
 import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2';
+import { syntaxHighlighting, defaultHighlightStyle } from 'https://esm.sh/@codemirror/language@6.10.8';
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
 /* ============================================================
@@ -44,6 +45,9 @@ let sortState = { col: null, dir: null };
 
 // Basemap state
 let currentBasemap = 'light';
+
+// Theme state ('dark' | 'light')
+let currentTheme = 'dark';
 
 // Last rendered map data — needed to re-add layers after basemap switch
 let lastMapData = null; // { points, lines, polygons, geojsonFC }
@@ -176,15 +180,23 @@ async function init() {
     initEditor();
     setupBasemapSwitcher();
 
-    // URL state takes priority over session restore
-    const urlRestored = restoreFromURL();
+    // Read URL state early (applies styleSettings), get SQL if present
+    const urlSql = peekURLSql();
 
-    const restored = !urlRestored && await restoreSession();
-    if (!restored && !urlRestored) {
+    // Restore session tables first — tables must exist before any query runs
+    const { restored, lastSql } = await restoreSession();
+    if (!restored) {
       updateInitLog('Loading demo data…');
       await loadDemoData();
-    } else if (urlRestored) {
-      runQuery();
+    }
+
+    // Decide which SQL to run: URL > lastSql > first table > demo default
+    const sqlToRun = urlSql || lastSql
+      || (loadedTablesMeta.length ? `SELECT * FROM "${loadedTablesMeta[0].name}" LIMIT 50` : null);
+
+    if (sqlToRun) {
+      editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: sqlToRun } });
+      await runQuery();
     }
 
     document.getElementById('init-overlay').classList.add('hidden');
@@ -205,9 +217,9 @@ function updateInitLog(msg) {
    SESSION RESTORE
    ============================================================ */
 async function restoreSession() {
-  if (!idb) return false;
+  if (!idb) return { restored: false, lastSql: null };
   const tables = await idbGetAll('tables');
-  if (!tables?.length) return false;
+  if (!tables?.length) return { restored: false, lastSql: null };
 
   updateInitLog(`Restoring ${tables.length} table(s) from last session…`);
 
@@ -226,14 +238,7 @@ async function restoreSession() {
   }
 
   const lastRec = await idbGet('state', 'lastQuery');
-  if (lastRec?.value && editorView) {
-    editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: lastRec.value } });
-    runQuery();
-  } else if (loadedTablesMeta.length > 0) {
-    setEditorAndRun(loadedTablesMeta[0].name);
-  }
-
-  return true;
+  return { restored: true, lastSql: lastRec?.value || null };
 }
 
 /* ============================================================
@@ -303,16 +308,24 @@ function initMap() {
    EDITOR INITIALIZATION (CodeMirror 6)
    ============================================================ */
 function buildEditorExtensions(schema = {}) {
-  return [
+  const exts = [
     basicSetup,
     cmSql({ dialect: StandardSQL, schema }),
-    oneDark,
     keymap.of([{ key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runQuery(); return true; } }]),
     EditorView.theme({
-      '&': { height: '100%', background: '#0f1419' },
+      '&': { height: '100%', background: currentTheme === 'dark' ? '#0f1419' : '#ffffff' },
       '.cm-scroller': { overflow: 'auto' },
+      '.cm-content': { caretColor: currentTheme === 'dark' ? '#c9d4e0' : '#1a2535' },
     })
   ];
+  if (currentTheme === 'dark') {
+    exts.push(oneDark);
+  } else {
+    // Explicit light-mode highlight style — must come AFTER basicSetup
+    // to override its fallback and ensure token colours are applied
+    exts.push(syntaxHighlighting(defaultHighlightStyle));
+  }
+  return exts;
 }
 
 function initEditor() {
@@ -561,10 +574,15 @@ async function runQuery() {
     sortState = { col: null, dir: null };
     styleSettings = { ...DEFAULT_STYLE };
     styleApplied = false;
+    hiddenCategories = new Set();
+    legendFilterRange = null;
+    legendAllValues = [];
+    legendBreaks = [];
+    const ml = document.getElementById('map-legend');
+    if (ml) ml.style.display = 'none';
 
     updateOutputHeader(rowCount, elapsed, hasGeometry);
     renderTable();
-    renderStatsBar();
     updateStylePanel(hasGeometry);
 
     if (hasGeometry && geojsonColName) {
@@ -1078,6 +1096,12 @@ function fmtNum(v) {
   return v.toString();
 }
 
+// Interactive legend filter state
+let hiddenCategories = new Set();      // for categorical toggle
+let legendFilterRange = null;          // [min, max] or null = no range filter
+let legendAllValues = [];            // sorted numeric values for current grad col
+let legendBreaks = [];            // class breaks for current grad style
+
 /* ============================================================
    STYLE PANEL — Setup & Wiring
    ============================================================ */
@@ -1313,11 +1337,18 @@ function renderCategoricalLegend(container, col) {
 function applyStyle(silent = false) {
   if (!map) return;
   styleApplied = true;
+  hiddenCategories = new Set();
+  legendFilterRange = null;
+
   const opacity = styleSettings.opacity / 100;
   const mode = styleSettings.mode;
 
+  // Clear any previous filters
+  setLayerFilter(null);
+
   if (mode === 'single') {
     applySingleStyle(styleSettings.singleColor, opacity);
+    renderInteractiveLegend();
     if (!silent) updateURL();
     return;
   }
@@ -1333,7 +1364,15 @@ function applyStyle(silent = false) {
   } else {
     applyCategoricalStyle(col, opacity);
   }
+  renderInteractiveLegend();
   if (!silent) updateURL();
+}
+
+// Apply or clear a MapLibre filter on all query layers
+function setLayerFilter(filter) {
+  ['query-polygons', 'query-polygon-outline', 'query-points', 'query-lines'].forEach(id => {
+    if (map.getLayer(id)) map.setFilter(id, filter);
+  });
 }
 
 function applySingleStyle(color, opacity) {
@@ -1360,7 +1399,10 @@ function applyGraduatedStyle(col, opacity) {
   const breaks = getBreaks(values, styleSettings.method, n);
   const ramp = interpolateRampToN(getRamp(), n);
 
-  // Build MapLibre step expression: ['step', ['get', col], color0, b1, color1, b2, color2, ...]
+  // Store for interactive legend
+  legendAllValues = [...values].sort((a, b) => a - b);
+  legendBreaks = breaks;
+
   const stepExpr = ['step', ['get', col], ramp[0]];
   for (let i = 1; i < n; i++) {
     stepExpr.push(breaks[i]);
@@ -1389,7 +1431,7 @@ function applyCategoricalStyle(col, opacity) {
     match.push(String(v));
     match.push(CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]);
   });
-  match.push('#aaaaaa'); // fallback
+  match.push('#aaaaaa');
 
   if (map.getLayer('query-polygons')) {
     map.setPaintProperty('query-polygons', 'fill-color', match);
@@ -1404,6 +1446,279 @@ function applyCategoricalStyle(col, opacity) {
     map.setPaintProperty('query-lines', 'line-color', match);
     map.setPaintProperty('query-lines', 'line-opacity', opacity);
   }
+}
+
+/* ============================================================
+   INTERACTIVE LEGEND (rendered after Apply)
+   ============================================================ */
+function renderInteractiveLegend() {
+  const card = document.getElementById('map-legend');
+  const inner = document.getElementById('map-legend-inner');
+  if (!card || !inner) return;
+
+  inner.innerHTML = '';
+  card.style.display = 'block';
+
+  const mode = styleSettings.mode;
+
+  // Dismiss button
+  const dismiss = document.createElement('button');
+  dismiss.className = 'map-legend-dismiss';
+  dismiss.title = 'Close legend';
+  dismiss.textContent = '×';
+  dismiss.onclick = () => { card.style.display = 'none'; };
+  inner.appendChild(dismiss);
+
+  if (mode === 'single') {
+    const title = document.createElement('div');
+    title.className = 'ml-title';
+    title.textContent = 'Features';
+    const row = document.createElement('div');
+    row.className = 'ml-cat-row';
+    row.innerHTML = `<div class="ml-swatch" style="background:${styleSettings.singleColor}"></div>
+                     <span class="ml-label">All features</span>`;
+    inner.appendChild(title);
+    inner.appendChild(row);
+    return;
+  }
+
+  const col = styleSettings.col;
+  if (!col) { card.style.display = 'none'; return; }
+
+  if (mode === 'graduated') {
+    renderGraduatedInteractiveLegend(inner, col);
+  } else {
+    renderCategoricalInteractiveLegend(inner, col);
+  }
+}
+
+/* ── Categorical: click-to-toggle rows ─────────────────────── */
+function renderCategoricalInteractiveLegend(container, col) {
+  const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))];
+
+  const header = document.createElement('div');
+  header.className = 'ml-header';
+  header.innerHTML = `<span class="ml-title">${col}</span>
+    <button class="ml-reset" title="Show all categories">Reset</button>`;
+  header.querySelector('.ml-reset').onclick = () => {
+    hiddenCategories.clear();
+    setLayerFilter(null);
+    renderCategoricalInteractiveLegend(container, col);
+  };
+
+  const list = document.createElement('div');
+  list.className = 'ml-cat-list';
+
+  unique.forEach((val, i) => {
+    const color = CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length];
+    const hidden = hiddenCategories.has(val);
+    const row = document.createElement('div');
+    row.className = `ml-cat-row${hidden ? ' ml-hidden' : ''}`;
+    row.title = hidden ? 'Click to show' : 'Click to hide';
+    row.innerHTML = `
+      <div class="ml-swatch" style="background:${hidden ? '#555' : color}"></div>
+      <span class="ml-label">${String(val)}</span>
+      <span class="ml-count">${currentRows.filter(r => r[col] == val).length}</span>`;
+    row.addEventListener('click', () => {
+      if (hiddenCategories.has(val)) hiddenCategories.delete(val);
+      else hiddenCategories.add(val);
+      applyCategoricalFilter(col, unique);
+      renderCategoricalInteractiveLegend(container, col);
+    });
+    list.appendChild(row);
+  });
+
+  // Replace everything after dismiss button
+  while (container.children.length > 1) container.removeChild(container.lastChild);
+  container.appendChild(header);
+  container.appendChild(list);
+
+  if (unique.length > 12) {
+    const note = document.createElement('div');
+    note.className = 'ml-note';
+    note.textContent = `${unique.length} categories · scroll for more`;
+    container.appendChild(note);
+  }
+}
+
+function applyCategoricalFilter(col, unique) {
+  const visible = unique.filter(v => !hiddenCategories.has(v));
+  if (visible.length === unique.length) setLayerFilter(null);
+  else if (visible.length === 0) setLayerFilter(['boolean', false]);
+  else setLayerFilter(['match', ['get', col], visible.map(String), true, false]);
+}
+
+/* ── Graduated: draggable range + ghost overlays ───────────── */
+function renderGraduatedInteractiveLegend(container, col) {
+  const values = legendAllValues.length ? legendAllValues
+    : currentRows.map(r => Number(r[col])).filter(v => isFinite(v)).sort((a, b) => a - b);
+  if (!values.length) return;
+
+  const absMin = values[0];
+  const absMax = values[values.length - 1];
+  const n = styleSettings.nClasses;
+  const breaks = legendBreaks.length ? legendBreaks : getBreaks(values, styleSettings.method, n);
+  const ramp = interpolateRampToN(getRamp(), n);
+
+  if (!legendFilterRange) legendFilterRange = [absMin, absMax];
+  let [selMin, selMax] = legendFilterRange;
+
+  const header = document.createElement('div');
+  header.className = 'ml-header';
+  header.innerHTML = `<span class="ml-title">${col}</span>
+    <span class="ml-subtitle">${styleSettings.method} · ${n} classes</span>
+    <button class="ml-reset" title="Reset filter">Reset Filter</button>`;
+  header.querySelector('.ml-reset').onclick = () => {
+    legendFilterRange = [absMin, absMax];
+    selMin = absMin; selMax = absMax;
+    setLayerFilter(null);
+    renderGraduatedInteractiveLegend(container, col);
+  };
+
+  /* ── Gradient bar with ghost overlays + dual handles ── */
+  const barWrap = document.createElement('div');
+  barWrap.className = 'ml-bar-wrap';
+
+  // Base gradient
+  const gradBar = document.createElement('div');
+  gradBar.className = 'ml-grad-bar';
+  gradBar.style.background = `linear-gradient(to right, ${ramp.join(',')})`;
+
+  // Left ghost (unselected)
+  const ghostL = document.createElement('div');
+  ghostL.className = 'ml-ghost ml-ghost-left';
+  ghostL.style.width = valueToPercent(selMin, absMin, absMax) + '%';
+
+  // Right ghost (unselected)
+  const ghostR = document.createElement('div');
+  ghostR.className = 'ml-ghost ml-ghost-right';
+  ghostR.style.width = (100 - valueToPercent(selMax, absMin, absMax)) + '%';
+
+  // Middle draggable selection window
+  const selWindow = document.createElement('div');
+  selWindow.className = 'ml-sel-window';
+  selWindow.style.left = valueToPercent(selMin, absMin, absMax) + '%';
+  selWindow.style.width = (valueToPercent(selMax, absMin, absMax) - valueToPercent(selMin, absMin, absMax)) + '%';
+  selWindow.title = 'Drag to pan selection';
+
+  // Handles
+  const handleMin = document.createElement('div');
+  handleMin.className = 'ml-handle ml-handle-l';
+  handleMin.style.left = valueToPercent(selMin, absMin, absMax) + '%';
+
+  const handleMax = document.createElement('div');
+  handleMax.className = 'ml-handle ml-handle-r';
+  handleMax.style.left = valueToPercent(selMax, absMin, absMax) + '%';
+
+  barWrap.appendChild(gradBar);
+  barWrap.appendChild(ghostL);
+  barWrap.appendChild(ghostR);
+  barWrap.appendChild(selWindow);
+  barWrap.appendChild(handleMin);
+  barWrap.appendChild(handleMax);
+
+  // Readout
+  const readout = document.createElement('div');
+  readout.className = 'ml-readout';
+  readout.innerHTML = `<span class="ml-val ml-val-min">${fmtNum(selMin)}</span>
+                       <span class="ml-val-sep">to</span>
+                       <span class="ml-val ml-val-max">${fmtNum(selMax)}</span>`;
+
+  function updateUI() {
+    const minPct = valueToPercent(selMin, absMin, absMax);
+    const maxPct = valueToPercent(selMax, absMin, absMax);
+    handleMin.style.left = minPct + '%';
+    handleMax.style.left = maxPct + '%';
+    ghostL.style.width = minPct + '%';
+    ghostR.style.width = (100 - maxPct) + '%';
+    selWindow.style.left = minPct + '%';
+    selWindow.style.width = (maxPct - minPct) + '%';
+    readout.querySelector('.ml-val-min').textContent = fmtNum(selMin);
+    readout.querySelector('.ml-val-max').textContent = fmtNum(selMax);
+  }
+
+  // Drag individual handles
+  function makeDragHandler(isMin) {
+    return function (e) {
+      e.preventDefault(); e.stopPropagation();
+      const rect = gradBar.getBoundingClientRect();
+      const range = absMax - absMin;
+      function onMove(ev) {
+        const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+        const val = absMin + pct * range;
+        if (isMin) selMin = Math.min(val, selMax - range * 0.01);
+        else selMax = Math.max(val, selMin + range * 0.01);
+        legendFilterRange = [selMin, selMax];
+        updateUI();
+        applyRangeFilter(col, selMin, selMax);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+  }
+
+  // Drag middle window to pan
+  selWindow.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const rect = gradBar.getBoundingClientRect();
+    const range = absMax - absMin;
+    const width = selMax - selMin;
+    const startX = e.clientX;
+    const startMin = selMin;
+    const startMax = selMax;
+    function onMove(ev) {
+      const dx = (ev.clientX - startX) / rect.width * range;
+      let nMin = startMin + dx;
+      let nMax = startMax + dx;
+      if (nMin < absMin) { nMin = absMin; nMax = absMin + width; }
+      if (nMax > absMax) { nMax = absMax; nMin = absMax - width; }
+      selMin = nMin; selMax = nMax;
+      legendFilterRange = [selMin, selMax];
+      updateUI();
+      applyRangeFilter(col, selMin, selMax);
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  handleMin.addEventListener('mousedown', makeDragHandler(true));
+  handleMax.addEventListener('mousedown', makeDragHandler(false));
+
+  // Per-class break rows
+  const breakList = document.createElement('div');
+  breakList.className = 'ml-breaks';
+  for (let i = 0; i < n; i++) {
+    const row = document.createElement('div');
+    row.className = 'ml-cat-row';
+    row.innerHTML = `<div class="ml-swatch" style="background:${ramp[i]}"></div>
+                     <span class="ml-label">${fmtNum(breaks[i])} – ${i < n - 1 ? '< ' : ''}${fmtNum(breaks[i + 1])}</span>`;
+    breakList.appendChild(row);
+  }
+
+  // Replace everything after dismiss button
+  while (container.children.length > 1) container.removeChild(container.lastChild);
+  container.appendChild(header);
+  container.appendChild(barWrap);
+  container.appendChild(readout);
+  container.appendChild(breakList);
+}
+
+function valueToPercent(val, min, max) {
+  if (max === min) return 0;
+  return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+}
+
+function applyRangeFilter(col, min, max) {
+  const filter = ['all', ['>=', ['get', col], min], ['<=', ['get', col], max]];
+  setLayerFilter(filter);
 }
 
 /* ============================================================
@@ -1639,24 +1954,19 @@ function updateURL() {
   } catch (e) { /* silently skip */ }
 }
 
-function restoreFromURL() {
+function peekURLSql() {
+  // Parse URL hash, apply style settings, return the SQL string (or null)
   try {
     const hash = location.hash;
-    if (!hash.startsWith('#state=')) return false;
+    if (!hash.startsWith('#state=')) return null;
     const encoded = hash.slice(7);
     const json = decodeURIComponent(escape(atob(encoded)));
     const state = JSON.parse(json);
-
-    if (state.sql && editorView) {
-      editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: state.sql } });
-    }
-    if (state.style) {
-      Object.assign(styleSettings, state.style);
-    }
-    return !!state.sql;
+    if (state.style) Object.assign(styleSettings, state.style);
+    return state.sql || null;
   } catch (e) {
-    console.warn('restoreFromURL failed:', e);
-    return false;
+    console.warn('peekURLSql failed:', e);
+    return null;
   }
 }
 
@@ -1688,7 +1998,21 @@ function showToast(msg) {
 /* ============================================================
    MAP EXPORT — PNG
    ============================================================ */
-async function exportMapPNG() {
+function exportMapPNG() {
+  showToast('Capturing map…');
+  // rAF ensures we read the canvas after the current frame is painted.
+  // preserveDrawingBuffer:true guarantees pixels survive between frames.
+  requestAnimationFrame(() => {
+    try {
+      _captureMapPNG();
+    } catch (e) {
+      console.warn('Canvas tainted by CORS tiles:', e.message);
+      _exportLegendOnlyPNG();
+    }
+  });
+}
+
+function _captureMapPNG() {
   const mapCanvas = map.getCanvas();
   const W = mapCanvas.width;
   const H = mapCanvas.height;
@@ -1698,23 +2022,44 @@ async function exportMapPNG() {
   out.height = H;
   const ctx = out.getContext('2d');
 
-  // 1. Draw map
+  // Draw map pixels (requires preserveDrawingBuffer:true + CORS-clean tiles)
   ctx.drawImage(mapCanvas, 0, 0);
 
-  // 2. Draw legend overlay (bottom-left, above attribution)
+  // Burn legend into composite canvas
   drawLegendOnCanvas(ctx, W, H);
 
-  // 3. Download
   out.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), {
-      href: url, download: `map-export-${Date.now()}.png`
-    });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    if (!blob) { showToast('Export failed — try the Light basemap'); return; }
+    _downloadBlob(blob, `map-${Date.now()}.png`);
+    showToast('✓ Map exported as PNG');
   }, 'image/png');
+}
+
+function _exportLegendOnlyPNG() {
+  // Fallback: dark background + legend only
+  const W = 400, H = 300;
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#0b0f14';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#6b8099';
+  ctx.font = '10px monospace';
+  ctx.fillText('MAP EXPORT — satellite/topo tiles blocked CORS', 12, 20);
+  drawLegendOnCanvas(ctx, W, H);
+  out.toBlob(blob => {
+    _downloadBlob(blob, `legend-${Date.now()}.png`);
+    showToast('Exported legend (switch to Light for full map PNG)');
+  }, 'image/png');
+}
+
+function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function drawLegendOnCanvas(ctx, W, H) {
@@ -1789,60 +2134,51 @@ function drawLegendOnCanvas(ctx, W, H) {
 }
 
 /* ============================================================
-   COLUMN STATISTICS BAR
+   THEME MANAGEMENT
    ============================================================ */
-function renderStatsBar() {
-  const bar = document.getElementById('stats-bar');
-  if (!bar) return;
-  bar.innerHTML = '';
+function initTheme() {
+  const saved = localStorage.getItem('sse-theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Saved preference wins; otherwise follow system
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  applyTheme(theme, false); // false = don't rebuild editor yet (not init'd)
 
-  if (!currentRows.length || !currentCols.length) {
-    bar.style.display = 'none';
-    return;
-  }
-
-  const numericCols = currentCols.filter(c => {
-    if (c === currentGeomCol || c === '__id') return false;
-    const sample = currentRows.find(r => r[c] !== null && r[c] !== undefined);
-    return sample && (typeof sample[c] === 'number' || typeof sample[c] === 'bigint');
+  // Follow system changes only when user hasn't manually overridden
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (!localStorage.getItem('sse-theme')) {
+      applyTheme(e.matches ? 'dark' : 'light', true);
+    }
   });
+}
 
-  if (!numericCols.length) {
-    bar.style.display = 'none';
-    return;
+function applyTheme(theme, rebuildEditor = true) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+
+  // Update toggle button icon
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.textContent = theme === 'dark' ? '☀' : '☾';
+    btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   }
 
-  bar.style.display = 'flex';
+  // Persist manual choice
+  localStorage.setItem('sse-theme', theme);
 
-  numericCols.slice(0, 6).forEach(col => {
-    const vals = currentRows.map(r => r[col] !== null && r[col] !== undefined ? Number(r[col]) : NaN);
-    const valid = vals.filter(v => isFinite(v));
-    const nulls = vals.length - valid.length;
-
-    if (!valid.length) return;
-
-    const min = Math.min(...valid);
-    const max = Math.max(...valid);
-    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
-
-    const chip = document.createElement('div');
-    chip.className = 'stat-chip';
-    chip.innerHTML = `
-      <span class="stat-col">${col}</span>
-      <span class="stat-kv"><span class="stat-k">min</span>${fmtNum(min)}</span>
-      <span class="stat-kv"><span class="stat-k">max</span>${fmtNum(max)}</span>
-      <span class="stat-kv"><span class="stat-k">mean</span>${fmtNum(mean)}</span>
-      ${nulls > 0 ? `<span class="stat-kv stat-null"><span class="stat-k">∅</span>${nulls}</span>` : ''}
-    `;
-    bar.appendChild(chip);
-  });
-
-  if (numericCols.length > 6) {
-    const more = document.createElement('div');
-    more.className = 'stat-more';
-    more.textContent = `+${numericCols.length - 6} more`;
-    bar.appendChild(more);
+  // Auto-switch basemap to match theme (only if on a light/dark basemap)
+  if (map && (currentBasemap === 'light' || currentBasemap === 'dark')) {
+    const targetBasemap = theme === 'dark' ? 'dark' : 'light';
+    if (targetBasemap !== currentBasemap) {
+      currentBasemap = targetBasemap;
+      document.querySelectorAll('.basemap-pill').forEach(b => {
+        b.classList.toggle('active', b.dataset.basemap === currentBasemap);
+      });
+      switchBasemap(currentBasemap);
+    }
   }
+
+  // Rebuild editor with correct theme (preserves SQL text)
+  if (rebuildEditor && editorView) updateEditorSchema();
 }
 
 /* ============================================================
@@ -1922,6 +2258,7 @@ function setupResizeHandles() {
    ENTRY POINT
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();   // must run first — sets data-theme before anything renders
   injectPopupStyles();
   setupFileUpload();
   setupResizeHandles();
@@ -1932,6 +2269,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('apply-style-btn').addEventListener('click', () => applyStyle(false));
   document.getElementById('share-url-btn').addEventListener('click', copyShareURL);
   document.getElementById('export-png-btn').addEventListener('click', exportMapPNG);
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    applyTheme(currentTheme === 'dark' ? 'light' : 'dark', true);
+  });
   document.getElementById('clear-session-btn').addEventListener('click', async () => {
     if (!confirm('Clear all saved tables and history from this browser?')) return;
     const tables = await idbGetAll('tables');
