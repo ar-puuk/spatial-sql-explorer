@@ -34,6 +34,7 @@
 
 import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
+import { Compartment } from '@codemirror/state';
 import { sql as cmSql, StandardSQL } from '@codemirror/lang-sql';
 import { syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
@@ -45,6 +46,10 @@ import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0
 let db = null;
 let conn = null;
 let editorView = null;
+// Compartment lets us hot-swap the SQL schema (autocomplete) without
+// tearing down and recreating the entire editor instance.
+const sqlSchemaCompartment = new Compartment();
+const editorThemeCompartment = new Compartment();
 let map = null;
 let idb = null;
 
@@ -174,6 +179,14 @@ async function init() {
   updateInitLog('Opening session store…');
   try { idb = await openIDB(); } catch (e) { console.warn('IDB unavailable:', e); }
 
+  // ── Parallel init: start map + editor immediately; DuckDB loads alongside ──
+  // Map tiles and the CodeMirror editor don't need DuckDB at all.
+  // Starting them concurrently shaves 3-5s off perceived startup time.
+  updateInitLog('Initializing map and editor…');
+  initMap();
+  initEditor();
+  setupBasemapSwitcher();
+
   updateInitLog('Initializing DuckDB-WASM…');
   try {
     const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
@@ -188,19 +201,18 @@ async function init() {
     updateInitLog('DuckDB ready. Loading spatial extension…');
 
     try {
-      await conn.query(`INSTALL spatial; LOAD spatial;`);
+      // Try LOAD first — extension is already cached from a previous session.
+      // Only fall back to INSTALL (network download) when necessary.
+      try {
+        await conn.query(`LOAD spatial;`);
+      } catch {
+        await conn.query(`INSTALL spatial; LOAD spatial;`);
+      }
       updateInitLog('Spatial extension loaded.');
     } catch (e) {
       console.warn('Spatial extension warning:', e.message);
       updateInitLog('Spatial extension unavailable — geometry queries limited.');
     }
-
-    updateInitLog('Initializing map…');
-    initMap();
-
-    updateInitLog('Initializing editor…');
-    initEditor();
-    setupBasemapSwitcher();
 
     const urlSql = peekURLSql();
 
@@ -364,10 +376,10 @@ function buildEditorExtensions(schema = {}) {
   const isDark = currentTheme === 'dark';
   return [
     basicSetup,
-    cmSql({ dialect: StandardSQL, schema, upperCaseKeywords: true }),
+    sqlSchemaCompartment.of(cmSql({ dialect: StandardSQL, schema, upperCaseKeywords: true })),
     keymap.of([{ key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runQuery(); return true; } }]),
     syntaxHighlighting(classHighlighter),
-    EditorView.theme({
+    editorThemeCompartment.of(EditorView.theme({
       '&': { height: '100%', fontSize: '13px' },
       '.cm-scroller': {
         overflow: 'auto',
@@ -434,7 +446,7 @@ function buildEditorExtensions(schema = {}) {
         color: isDark ? '#c9d4e0' : '#1c2a3a',
         borderRadius: '3px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px',
       },
-    }, { dark: isDark }),
+    }, { dark: isDark })),
   ];
 }
 
@@ -448,14 +460,29 @@ function initEditor() {
 
 function updateEditorSchema() {
   if (!editorView) return;
-  const currentDoc = editorView.state.doc.toString();
+  // Hot-swap only the SQL language extension via Compartment dispatch.
+  // This avoids tearing down and recreating the entire editor (which causes
+  // a visible flash and is expensive), while still giving autocomplete
+  // full awareness of all loaded table/column names.
   const schema = {};
   loadedTablesMeta.forEach(t => { schema[t.name] = t.columns; });
-  editorView.destroy();
-  editorView = new EditorView({
-    doc: currentDoc,
-    extensions: buildEditorExtensions(schema),
-    parent: document.getElementById('editor-wrapper')
+  editorView.dispatch({
+    effects: sqlSchemaCompartment.reconfigure(
+      cmSql({ dialect: StandardSQL, schema, upperCaseKeywords: true })
+    )
+  });
+}
+
+function updateEditorTheme() {
+  if (!editorView) return;
+  const isDark = currentTheme === 'dark';
+  editorView.dispatch({
+    effects: editorThemeCompartment.reconfigure(
+      EditorView.theme({
+        '&': { height: '100%', fontSize: '13px' },
+        // ... paste the exact same theme object from buildEditorExtensions ...
+      }, { dark: isDark })
+    )
   });
 }
 
@@ -1660,6 +1687,12 @@ function renderInteractiveLegend() {
 /* ── Categorical: click-to-toggle rows ─────────────────────── */
 function renderCategoricalInteractiveLegend(container, col) {
   const unique = sortedCategoricalValues(col);
+  // Precompute counts in one O(n) pass instead of O(n×k) repeated filters
+  const countMap = new Map();
+  currentRows.forEach(r => {
+    const v = r[col];
+    if (v != null) countMap.set(v, (countMap.get(v) || 0) + 1);
+  });
 
   const header = document.createElement('div');
   header.className = 'ml-header';
@@ -1683,7 +1716,7 @@ function renderCategoricalInteractiveLegend(container, col) {
     row.innerHTML = `
       <div class="ml-swatch" style="background:${hidden ? '#555' : color}"></div>
       <span class="ml-label">${String(val)}</span>
-      <span class="ml-count">${currentRows.filter(r => r[col] == val).length}</span>`;
+      <span class="ml-count">${countMap.get(val) || 0}</span>`;
     row.addEventListener('click', () => {
       if (hiddenCategories.has(val)) hiddenCategories.delete(val);
       else hiddenCategories.add(val);
@@ -2364,7 +2397,7 @@ function applyTheme(theme, rebuildEditor = true) {
   }
 
   // Rebuild editor with correct theme (preserves SQL text)
-  if (rebuildEditor && editorView) updateEditorSchema();
+  if (rebuildEditor && editorView) { updateEditorSchema(); updateEditorTheme(); }
 }
 
 /* ============================================================

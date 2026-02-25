@@ -6,6 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spatial SQL Explorer</title>
 
+    <!-- Preconnect: start DNS + TLS for all CDN hosts immediately so module
+         fetches and tile requests don't wait for connection setup. -->
+    <link rel="preconnect" href="https://esm.sh" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://unpkg.com" crossorigin />
+    <link rel="dns-prefetch" href="https://extensions.duckdb.org" />
+    <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://nominatim.openstreetmap.org" />
+
     <!-- Cross-Origin Isolation for SharedArrayBuffer (DuckDB-WASM multithreading) -->
     <!-- Download from: https://unpkg.com/coi-serviceworker@0.1.7/coi-serviceworker.min.js -->
     <script src="coi-serviceworker.min.js"></script>
