@@ -220,7 +220,7 @@ async function init() {
     const { restored, lastSql } = await restoreSession();
 
     // If URL requires demo data and we don't have it, load it
-    const needsDemo = pendingUrlState?.hasDemo && !loadedTablesMeta.some(t => t.name === 'demo');
+    const needsDemo = pendingUrlState?.hasDemo && !loadedTablesMeta.some(t => t.name === 'nepal_districts');
     if (!restored || needsDemo) {
       updateInitLog('Loading demo data…');
       await loadDemoData();
@@ -452,7 +452,7 @@ function buildEditorExtensions(schema = {}) {
 
 function initEditor() {
   editorView = new EditorView({
-    doc: `SELECT * FROM demo LIMIT 100`,
+    doc: `SELECT * FROM nepal_districts LIMIT 100`,
     extensions: buildEditorExtensions(),
     parent: document.getElementById('editor-wrapper')
   });
@@ -491,11 +491,11 @@ function updateEditorTheme() {
    ============================================================ */
 async function loadDemoData() {
   try {
-    const res = await fetch('./data/demo.geojson');
+    const res = await fetch('./data/nepal-districts.geojson');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    await registerGeoJSON(text, 'demo', true);
-    setEditorAndRun('demo');
+    await registerGeoJSON(text, 'nepal_districts', true);
+    setEditorAndRun('nepal_districts');
   } catch (err) {
     console.error('Failed to load demo data:', err);
   }
@@ -2133,7 +2133,7 @@ function encodeStateToURL() {
       sql: editorView ? editorView.state.doc.toString() : '',
       style: { ...styleSettings },
       tables: loadedTablesMeta.map(t => t.name),
-      hasDemo: loadedTablesMeta.some(t => t.name === 'demo'),
+      hasDemo: loadedTablesMeta.some(t => t.name === 'nepal_districts'),
     };
     const json = JSON.stringify(state);
     const encoded = btoa(unescape(encodeURIComponent(json)));
@@ -2150,7 +2150,7 @@ function updateURL() {
       sql: editorView ? editorView.state.doc.toString() : '',
       style: { ...styleSettings },
       tables: loadedTablesMeta.map(t => t.name),
-      hasDemo: loadedTablesMeta.some(t => t.name === 'demo'),
+      hasDemo: loadedTablesMeta.some(t => t.name === 'nepal_districts'),
     };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
     history.replaceState(null, '', `#state=${encoded}`);
