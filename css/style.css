@@ -303,6 +303,13 @@ body {
     color: var(--accent);
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    /* link reset — title is now an <a> tag */
+    text-decoration: none;
+    cursor: pointer;
+}
+
+#app-title:hover {
+    opacity: 0.75;
 }
 
 #app-subtitle {
@@ -336,45 +343,7 @@ body {
     transform: rotate(20deg);
 }
 
-/* Light mode: CodeMirror overrides — do NOT set color on .cm-line; let tokens colour themselves */
-[data-theme="light"] .cm-editor {
-    background: #ffffff !important;
-}
-
-[data-theme="light"] .cm-editor .cm-gutters {
-    background: #f4f7fb !important;
-    border-right-color: var(--border) !important;
-    color: var(--text-dim) !important;
-}
-
-[data-theme="light"] .cm-editor .cm-activeLine {
-    background: rgba(0, 0, 0, 0.03) !important;
-}
-
-[data-theme="light"] .cm-editor .cm-activeLineGutter {
-    background: rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .cm-editor .cm-selectionBackground {
-    background: rgba(200, 128, 0, 0.18) !important;
-}
-
-[data-theme="light"] .cm-editor .cm-cursor {
-    border-left-color: #1a2535 !important;
-}
-
-[data-theme="light"] .cm-tooltip {
-    background: #ffffff !important;
-    border-color: var(--border-bright) !important;
-}
-
-[data-theme="light"] .cm-completionLabel {
-    color: #1a2535 !important;
-}
-
-[data-theme="light"] .cm-completionDetail {
-    color: var(--text-secondary) !important;
-}
+/* Light mode: CodeMirror chrome is handled by EditorView.theme() in JS */
 
 /* Light mode: map legend card */
 [data-theme="light"] #map-legend {
@@ -636,10 +605,10 @@ body {
     min-height: 0;
 }
 
-/* CodeMirror overrides */
+/* CodeMirror — minimal chrome (EditorView.theme() in JS handles most styling) */
 .cm-editor {
     height: 100%;
-    font-size: 12px !important;
+    font-size: 13px !important;
 }
 
 .cm-editor .cm-scroller {
@@ -651,44 +620,125 @@ body {
     outline: none !important;
 }
 
-.cm-editor .cm-gutters {
-    background: var(--bg-panel) !important;
-    border-right: 1px solid var(--border) !important;
-    color: var(--text-dim) !important;
+/* ── SQL Syntax Highlighting — Token Colors ────────────────────
+   classHighlighter (from @lezer/highlight) maps Lezer syntax
+   tokens to stable .tok-* CSS class names.
+   Dark mode is the default; light mode overrides below.
+   ────────────────────────────────────────────────────────────── */
+
+/* ── Dark Theme (default) ── */
+.tok-keyword {
+    color: #f0a500 !important;
+    font-weight: 600;
 }
 
-.cm-editor .cm-content {
-    padding: 6px 0 !important;
+.tok-operator {
+    color: #e06c75 !important;
 }
 
-.cm-editor .cm-activeLine {
-    background: rgba(255, 255, 255, 0.02) !important;
+.tok-string,
+.tok-string2 {
+    color: #98c379 !important;
 }
 
-.cm-editor .cm-activeLineGutter {
-    background: rgba(255, 255, 255, 0.03) !important;
+.tok-number {
+    color: #61afef !important;
 }
 
-.cm-editor .cm-selectionBackground {
-    background: rgba(240, 165, 0, 0.15) !important;
+.tok-comment {
+    color: #5c6a7a !important;
+    font-style: italic;
 }
 
-/* Autocomplete dropdown */
-.cm-tooltip {
-    background: var(--bg-elevated) !important;
-    border: 1px solid var(--border-bright) !important;
+.tok-variableName {
+    color: #c9d4e0 !important;
 }
 
-.cm-completionLabel {
-    color: var(--text-primary) !important;
+.tok-definition {
+    color: #e5c07b !important;
 }
 
-.cm-completionDetail {
-    color: var(--text-dim) !important;
+.tok-typeName {
+    color: #c678dd !important;
 }
 
-.cm-tooltip-autocomplete>ul>li[aria-selected] {
-    background: var(--bg-hover) !important;
+.tok-punctuation {
+    color: #7a8899 !important;
+}
+
+.tok-bracket {
+    color: #7a8899 !important;
+}
+
+.tok-bool,
+.tok-atom {
+    color: #d19a66 !important;
+    font-weight: 600;
+}
+
+.tok-null {
+    color: #d19a66 !important;
+    font-style: italic;
+}
+
+.tok-meta {
+    color: #e5c07b !important;
+}
+
+/* ── Light Theme ── */
+[data-theme="light"] .tok-keyword {
+    color: #9b5500 !important;
+    font-weight: 600;
+}
+
+[data-theme="light"] .tok-operator {
+    color: #c92a2a !important;
+}
+
+[data-theme="light"] .tok-string,
+[data-theme="light"] .tok-string2 {
+    color: #2e7d32 !important;
+}
+
+[data-theme="light"] .tok-number {
+    color: #1565c0 !important;
+}
+
+[data-theme="light"] .tok-comment {
+    color: #8a97a8 !important;
+    font-style: italic;
+}
+
+[data-theme="light"] .tok-variableName {
+    color: #1c2a3a !important;
+}
+
+[data-theme="light"] .tok-definition {
+    color: #805500 !important;
+}
+
+[data-theme="light"] .tok-typeName {
+    color: #7b1fa2 !important;
+}
+
+[data-theme="light"] .tok-punctuation,
+[data-theme="light"] .tok-bracket {
+    color: #526580 !important;
+}
+
+[data-theme="light"] .tok-bool,
+[data-theme="light"] .tok-atom {
+    color: #b35900 !important;
+    font-weight: 600;
+}
+
+[data-theme="light"] .tok-null {
+    color: #b35900 !important;
+    font-style: italic;
+}
+
+[data-theme="light"] .tok-meta {
+    color: #805500 !important;
 }
 
 /* ── Run Controls ───────────────────────────────────────────── */
@@ -1798,7 +1848,7 @@ body {
     border: 1px solid var(--accent-dim);
     color: var(--accent);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11px;
     padding: 10px 20px;
     border-radius: var(--radius);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -1806,6 +1856,9 @@ body {
     opacity: 0;
     transition: opacity 0.2s ease, transform 0.2s ease;
     pointer-events: none;
+    max-width: 520px;
+    text-align: center;
+    line-height: 1.5;
 }
 
 .share-toast.visible {

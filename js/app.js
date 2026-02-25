@@ -12,38 +12,31 @@
    - Attribute-driven map styling (choropleth + categorical)
    ============================================================ */
 
-// ── ES Module imports from CDN ──────────────────────────────
+// ── ES Module imports ───────────────────────────────────────
 //
-// WHY HIGHLIGHTING FAILED IN ALL PREVIOUS ATTEMPTS
-// ─────────────────────────────────────────────────
-// For CodeMirror syntax highlighting to work via CDN, THREE packages must
-// resolve to exactly the same module instance (same URL) in every import:
+// MODULE DEDUPLICATION — THE IMPORT MAP APPROACH
+// ───────────────────────────────────────────────
+// All @codemirror/* and @lezer/* imports use BARE SPECIFIERS
+// (e.g. '@codemirror/view', not 'https://esm.sh/...').
 //
-//   1. @codemirror/state    — Facet class identity; mismatches = "Unrecognized extension"
-//   2. @codemirror/language — where HighlightStyle Facet lives; mismatches = styles never fire
-//   3. @lezer/highlight     — where Tag objects are defined;
-//                             tags.keyword from lang-sql MUST be the same object
-//                             as tags.keyword in oneDark's style map, or no colours
+// The import map in index.html resolves each specifier to a
+// single esm.sh URL with the * prefix, which tells esm.sh
+// to externalize all dependencies. The browser then resolves
+// every transitive dependency through the SAME import map,
+// guaranteeing a single instance of every module.
 //
-// FIX: use esm.sh ?deps= to pin all three across every package.
-// Deliberately do NOT pin @codemirror/view — that caused the "showDialog not
-// exported" crash (search needed a newer view than 6.36.3).
+// This eliminates the "Unrecognized extension" crash caused
+// by duplicate @codemirror/state instances.
 //
-// EditorView and keymap come from @codemirror/view directly (the meta-package
-// codemirror@6.0.1 does NOT re-export them, hence the "keymap not exported" crash).
+// classHighlighter (from @lezer/highlight) maps Lezer syntax
+// tokens to stable .tok-* CSS classes. All token colors are
+// defined in style.css — no JS theme objects needed.
 
-import { basicSetup }
-  from 'https://esm.sh/codemirror@6.0.1?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
-import { EditorView, keymap }
-  from 'https://esm.sh/@codemirror/view@6.36.3?deps=@codemirror/state@6.4.1';
-import { sql as cmSql, StandardSQL }
-  from 'https://esm.sh/@codemirror/lang-sql@6.8.0?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
-import { oneDark }
-  from 'https://esm.sh/@codemirror/theme-one-dark@6.1.2?deps=@codemirror/state@6.4.1,@codemirror/language@6.10.8,@lezer/highlight@1.2.1';
-import { syntaxHighlighting, HighlightStyle }
-  from 'https://esm.sh/@codemirror/language@6.10.8?deps=@codemirror/state@6.4.1,@lezer/highlight@1.2.1';
-import { tags }
-  from 'https://esm.sh/@lezer/highlight@1.2.1';
+import { basicSetup } from 'codemirror';
+import { EditorView, keymap } from '@codemirror/view';
+import { sql as cmSql, StandardSQL } from '@codemirror/lang-sql';
+import { syntaxHighlighting } from '@codemirror/language';
+import { classHighlighter } from '@lezer/highlight';
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
 /* ============================================================
@@ -80,6 +73,9 @@ let lastMapData = null; // { points, lines, polygons, geojsonFC }
 
 // Whether a style has been applied (so we can re-apply after basemap switch)
 let styleApplied = false;
+
+// Pending URL state — persists across file uploads until all tables arrive
+let pendingUrlState = null; // { sql, style, tables, hasDemo }
 
 /* ============================================================
    BASEMAP DEFINITIONS
@@ -206,38 +202,33 @@ async function init() {
     initEditor();
     setupBasemapSwitcher();
 
-    // Read URL state early (applies styleSettings), get SQL if present
     const urlSql = peekURLSql();
 
     // Restore session tables first — tables must exist before any query runs
     const { restored, lastSql } = await restoreSession();
 
     // If URL requires demo data and we don't have it, load it
-    const needsDemo = window.__urlHasDemo && !loadedTablesMeta.some(t => t.name === 'demo');
+    const needsDemo = pendingUrlState?.hasDemo && !loadedTablesMeta.some(t => t.name === 'demo');
     if (!restored || needsDemo) {
       updateInitLog('Loading demo data…');
       await loadDemoData();
     }
 
-    // Check if URL-required tables are all available
+    // Check if URL-required tables are available
     let urlSqlSafe = urlSql;
-    if (urlSql && window.__urlRequiredTables) {
+    if (urlSql && pendingUrlState?.tables?.length) {
       const available = new Set(loadedTablesMeta.map(t => t.name));
-      const missing = window.__urlRequiredTables.filter(t => !available.has(t));
+      const missing = pendingUrlState.tables.filter(t => !available.has(t));
       if (missing.length > 0) {
-        // Tables are missing — the query will fail. Warn user and fall back.
         console.warn('Shared URL references missing tables:', missing);
-        urlSqlSafe = null; // don't run the URL query
-        // We'll show the error after the overlay hides
+        urlSqlSafe = null;
         setTimeout(() => {
           showError(
-            `Shared link requires table(s) not in your session: ${missing.join(', ')}. ` +
-            `Upload the data file(s) first, then re-run the query from history.`
+            `Shared link needs table(s): ${missing.join(', ')}. ` +
+            `Upload the file(s) — the query will run automatically.`
           );
-          // Still put the SQL in the editor so user can see it
           if (urlSql && editorView) {
             editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: urlSql } });
-            addToHistory(urlSql, false, 0, '0.000');
           }
         }, 300);
       }
@@ -245,7 +236,7 @@ async function init() {
 
     // Decide which SQL to run: URL > lastSql > first table > demo default
     const sqlToRun = urlSqlSafe || lastSql
-      || (loadedTablesMeta.length ? `SELECT * FROM "${loadedTablesMeta[0].name}" LIMIT 50` : null);
+      || (loadedTablesMeta.length ? `SELECT * FROM "${loadedTablesMeta[0].name}" LIMIT 100` : null);
 
     if (sqlToRun) {
       editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: sqlToRun } });
@@ -359,74 +350,97 @@ function initMap() {
 
 /* ============================================================
    EDITOR INITIALIZATION (CodeMirror 6)
-   ============================================================ */
+   ============================================================
+   classHighlighter (from @lezer/highlight) maps Lezer tokens
+   to stable CSS class names:
+     .tok-keyword, .tok-operator, .tok-string, .tok-number,
+     .tok-comment, .tok-variableName, .tok-typeName, .tok-bool,
+     .tok-null, .tok-punctuation, .tok-bracket, .tok-meta
 
-// Light-mode SQL highlight style, defined once at module scope.
-// Now that @lezer/highlight is pinned to the same instance across all packages,
-// these tag references correctly match the tokens emitted by lang-sql.
-const lightHighlightStyle = HighlightStyle.define([
-  { tag: tags.keyword, color: '#0070a8', fontWeight: '600' },
-  { tag: tags.typeName, color: '#067a26' },
-  { tag: tags.atom, color: '#3d0fa8' },
-  { tag: tags.number, color: '#116611' },
-  { tag: tags.string, color: '#a11515' },
-  { tag: tags.comment, color: '#7a6600', fontStyle: 'italic' },
-  { tag: tags.variableName, color: '#0033bb' },
-  { tag: tags.operator, color: '#067a26' },
-  { tag: tags.punctuation, color: '#444444' },
-  { tag: tags.bool, color: '#3d0fa8', fontWeight: '600' },
-  { tag: tags.null, color: '#3d0fa8', fontStyle: 'italic' },
-  { tag: tags.function(tags.variableName), color: '#007a5c' },
-  { tag: tags.definition(tags.variableName), color: '#0033bb' },
-  { tag: tags.special(tags.string), color: '#c44000' },
-  { tag: tags.bracket, color: '#333333' },
-]);
+   All actual colors live in style.css → instant theme switching.
+   ============================================================ */
 
 function buildEditorExtensions(schema = {}) {
   const isDark = currentTheme === 'dark';
-  const exts = [
+  return [
     basicSetup,
     cmSql({ dialect: StandardSQL, schema, upperCaseKeywords: true }),
     keymap.of([{ key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runQuery(); return true; } }]),
+    syntaxHighlighting(classHighlighter),
     EditorView.theme({
-      '&': {
-        height: '100%',
-        background: isDark ? '#0f1419' : '#ffffff',
-        fontSize: '13px',
-      },
+      '&': { height: '100%', fontSize: '13px' },
       '.cm-scroller': {
         overflow: 'auto',
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+        fontFamily: "var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)",
       },
-      '.cm-content': { caretColor: isDark ? '#c9d4e0' : '#1a2535', padding: '6px 0' },
-      '.cm-gutters': { background: isDark ? '#0f1419' : '#f6f6f6', borderRight: isDark ? '1px solid #1e2a38' : '1px solid #e0e0e0' },
-      '.cm-activeLine': { background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' },
-      '.cm-activeLineGutter': { background: isDark ? '#1a2535' : '#e8f0fe' },
-      '.cm-selectionBackground': { background: isDark ? '#2a4060 !important' : '#b9d4f5 !important' },
-      '.cm-tooltip': { background: isDark ? '#1a2535' : '#fff', border: isDark ? '1px solid #2a3a50' : '1px solid #ccc' },
-      '.cm-tooltip-autocomplete ul li[aria-selected]': {
-        background: isDark ? '#2a4060' : '#cce5ff',
-        color: isDark ? '#c9d4e0' : '#002',
+      '.cm-content': { caretColor: isDark ? '#f0a500' : '#c07800', padding: '6px 0' },
+      '.cm-cursor, .cm-dropCursor': { borderLeftColor: isDark ? '#f0a500' : '#c07800', borderLeftWidth: '2px' },
+      '.cm-gutters': {
+        background: isDark ? '#0b0f14' : '#f7f8fa',
+        color: isDark ? '#3d5166' : '#94a3b8',
+        borderRight: isDark ? '1px solid #1f2d3d' : '1px solid #d5dbe5',
+        minWidth: '36px',
       },
-    }),
+      '.cm-lineNumbers .cm-gutterElement': { fontSize: '10px', padding: '0 8px 0 4px' },
+      '.cm-activeLine': { background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)' },
+      '.cm-activeLineGutter': { background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.035)' },
+      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+        background: isDark ? 'rgba(240,165,0,0.18) !important' : 'rgba(192,120,0,0.14) !important',
+      },
+      '.cm-matchingBracket': {
+        color: (isDark ? '#f0a500' : '#c07800') + ' !important',
+        background: isDark ? 'rgba(240,165,0,0.12)' : 'rgba(192,120,0,0.10)',
+        outline: isDark ? '1px solid rgba(240,165,0,0.3)' : '1px solid rgba(192,120,0,0.25)',
+      },
+      '.cm-selectionMatch': { background: isDark ? 'rgba(240,165,0,0.10)' : 'rgba(192,120,0,0.08)' },
+      '.cm-searchMatch': {
+        background: isDark ? 'rgba(240,165,0,0.25)' : 'rgba(192,120,0,0.20)',
+        outline: isDark ? '1px solid rgba(240,165,0,0.4)' : '1px solid rgba(192,120,0,0.3)',
+      },
+      '.cm-tooltip': {
+        background: isDark ? '#161d26' : '#ffffff',
+        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
+        borderRadius: '6px',
+        boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.5)' : '0 4px 24px rgba(0,0,0,0.12)',
+        overflow: 'hidden',
+      },
+      '.cm-tooltip-autocomplete > ul': { maxHeight: '220px' },
+      '.cm-tooltip-autocomplete > ul > li': {
+        padding: '4px 10px', fontSize: '11px', fontFamily: 'var(--font-mono)', lineHeight: '1.6',
+      },
+      '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+        background: isDark ? '#1d2733' : '#ebedf2', color: isDark ? '#f0a500' : '#9b5500',
+      },
+      '.cm-completionLabel': { color: isDark ? '#c9d4e0' : '#1c2a3a', fontSize: '11px' },
+      '.cm-completionDetail': {
+        color: isDark ? '#5c6a7a' : '#94a3b8', fontStyle: 'italic', marginLeft: '8px', fontSize: '10px',
+      },
+      '.cm-completionMatchedText': {
+        textDecoration: 'none', color: isDark ? '#f0a500' : '#c07800', fontWeight: '600',
+      },
+      '.cm-panels': {
+        background: isDark ? '#0b0f14' : '#f7f8fa',
+        borderTop: isDark ? '1px solid #1f2d3d' : '1px solid #d5dbe5',
+      },
+      '.cm-panel input': {
+        background: isDark ? '#161d26' : '#ffffff',
+        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
+        color: isDark ? '#c9d4e0' : '#1c2a3a',
+        borderRadius: '3px', padding: '3px 6px', fontFamily: 'var(--font-mono)', fontSize: '11px',
+      },
+      '.cm-panel button': {
+        background: isDark ? '#1d2733' : '#ebedf2',
+        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
+        color: isDark ? '#c9d4e0' : '#1c2a3a',
+        borderRadius: '3px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px',
+      },
+    }, { dark: isDark }),
   ];
-
-  if (isDark) {
-    // oneDark provides theme colours + its own syntaxHighlighting.
-    // With @lezer/highlight and @codemirror/language now pinned to shared
-    // instances, oneDark's tag-to-colour map will correctly match the tokens
-    // emitted by lang-sql.
-    exts.push(oneDark);
-  } else {
-    // Light mode: our custom HighlightStyle.  syntaxHighlighting() wraps it
-    // into the correct Facet value from our shared @codemirror/language instance.
-    exts.push(syntaxHighlighting(lightHighlightStyle));
-  }
-  return exts;
 }
+
 function initEditor() {
   editorView = new EditorView({
-    doc: `SELECT * FROM demo LIMIT 50`,
+    doc: `SELECT * FROM demo LIMIT 100`,
     extensions: buildEditorExtensions(),
     parent: document.getElementById('editor-wrapper')
   });
@@ -434,11 +448,9 @@ function initEditor() {
 
 function updateEditorSchema() {
   if (!editorView) return;
-  // Preserve current text, then rebuild editor with new schema
   const currentDoc = editorView.state.doc.toString();
   const schema = {};
   loadedTablesMeta.forEach(t => { schema[t.name] = t.columns; });
-
   editorView.destroy();
   editorView = new EditorView({
     doc: currentDoc,
@@ -463,7 +475,7 @@ async function loadDemoData() {
 }
 
 function setEditorAndRun(tableName) {
-  const q = `SELECT * FROM "${tableName}" LIMIT 50`;
+  const q = `SELECT * FROM "${tableName}" LIMIT 100`;
   editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: q } });
   runQuery();
 }
@@ -684,6 +696,11 @@ async function runQuery() {
     if (hasGeometry && geojsonColName) {
       const mapped = updateMap();
       updateOutputHeader(rowCount, elapsed, hasGeometry, mapped);
+      // Auto-apply default style immediately after layers are added/updated.
+      // Skip only when a URL state is pending — that path applies its own style below.
+      if (!pendingUrlState?.style) {
+        applyStyle(true);
+      }
     } else {
       clearMapLayers();
     }
@@ -691,6 +708,17 @@ async function runQuery() {
     addToHistory(rawSql, true, rowCount, elapsed);
     await idbPut('state', { key: 'lastQuery', value: rawSql });
     updateURL();
+
+    // Apply shared URL style if pending
+    if (pendingUrlState?.style && hasGeometry && geojsonColName) {
+      const urlStyle = pendingUrlState.style;
+      pendingUrlState = null;
+      Object.assign(styleSettings, urlStyle);
+      syncStylePanelFromSettings();
+      applyStyle(true);
+    } else if (pendingUrlState && !pendingUrlState.tables?.length) {
+      pendingUrlState = null;
+    }
 
   } catch (err) {
     showError(err.message);
@@ -964,11 +992,11 @@ function updateMap(skipFit = false) {
 
     map.addLayer({
       id: 'query-polygons', type: 'fill', source: 'query-polygons-src',
-      paint: { 'fill-color': '#f0a500', 'fill-opacity': 0.18 }
+      paint: { 'fill-color': '#aaaaaa', 'fill-opacity': 0 }  // invisible until applyStyle fires
     });
     map.addLayer({
       id: 'query-polygon-outline', type: 'line', source: 'query-polygons-src',
-      paint: { 'line-color': '#f0a500', 'line-width': 1.5, 'line-opacity': 0.85 }
+      paint: { 'line-color': '#aaaaaa', 'line-width': 1.5, 'line-opacity': 0 }  // invisible until applyStyle fires
     });
     map.addLayer({
       id: 'query-lines', type: 'line', source: 'query-lines-src',
@@ -1050,7 +1078,7 @@ function clearMapLayers() {
    ATTRIBUTE STYLING — State
    ============================================================ */
 const DEFAULT_STYLE = {
-  mode: 'single',   // 'single' | 'graduated' | 'categorical'
+  mode: 'categorical',   // 'single' | 'graduated' | 'categorical'
   col: null,
   singleColor: '#f0a500',
   ramp: 'oranges',
@@ -1230,7 +1258,10 @@ function updateStylePanel(hasGeometry) {
     opt.value = col; opt.textContent = col;
     colSelect.appendChild(opt);
   });
-  if (colSelect.options.length) styleSettings.col = colSelect.options[0].value;
+  // Prefer 'SCode' as default column if present, otherwise use first available
+  const preferredCol = Array.from(colSelect.options).find(o => o.value === 'SCode');
+  if (preferredCol) styleSettings.col = 'SCode';
+  else if (colSelect.options.length) styleSettings.col = colSelect.options[0].value;
   colSelect.onchange = () => {
     styleSettings.col = colSelect.value;
     renderLegendPreview();
@@ -1301,10 +1332,30 @@ function updateStylePanel(hasGeometry) {
 function syncStylePanelVisibility() {
   const isSingle = styleSettings.mode === 'single';
   const isGraduated = styleSettings.mode === 'graduated';
-
   document.getElementById('style-row-single').style.display = isSingle ? 'flex' : 'none';
   document.getElementById('style-row-col').style.display = isSingle ? 'none' : 'flex';
   document.getElementById('style-graduated-controls').style.display = isGraduated ? 'block' : 'none';
+}
+
+function syncStylePanelFromSettings() {
+  try {
+    document.querySelectorAll('.mode-pill').forEach(b => b.classList.toggle('active', b.dataset.mode === styleSettings.mode));
+    const colSel = document.getElementById('style-col-select');
+    if (colSel && styleSettings.col) colSel.value = styleSettings.col;
+    const ci = document.getElementById('style-single-color');
+    const hl = document.getElementById('style-single-hex');
+    if (ci && styleSettings.singleColor) { ci.value = styleSettings.singleColor; if (hl) hl.textContent = styleSettings.singleColor; }
+    document.querySelectorAll('.classify-pill').forEach(b => b.classList.toggle('active', b.dataset.method === styleSettings.method));
+    document.querySelectorAll('.class-count-btn').forEach(b => b.classList.toggle('active', +b.dataset.n === styleSettings.nClasses));
+    renderRampSwatches();
+    const os = document.getElementById('style-opacity');
+    const ov = document.getElementById('style-opacity-val');
+    if (os) { os.value = styleSettings.opacity; if (ov) ov.textContent = styleSettings.opacity + '%'; }
+    const ib = document.getElementById('invert-ramp-btn');
+    if (ib) ib.style.color = styleSettings.rampInverted ? 'var(--accent)' : '';
+    syncStylePanelVisibility();
+    renderLegendPreview();
+  } catch (e) { console.warn('syncStylePanelFromSettings:', e); }
 }
 
 function renderRampSwatches() {
@@ -1400,7 +1451,7 @@ function renderGraduatedLegend(container, col) {
 }
 
 function renderCategoricalLegend(container, col) {
-  const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))].slice(0, 20);
+  const unique = sortedCategoricalValues(col).slice(0, 20);
   const title = document.createElement('div');
   title.className = 'legend-title';
   title.textContent = `${col} · ${unique.length} categories${unique.length >= 20 ? ' (top 20)' : ''}`;
@@ -1520,8 +1571,23 @@ function applyGraduatedStyle(col, opacity) {
   }
 }
 
-function applyCategoricalStyle(col, opacity) {
+// Returns unique categorical values for a column, sorted:
+//   • All-numeric values  → ascending numeric order  (1, 2, 3 … 10, not 1, 10, 2)
+//   • Mixed / string      → case-insensitive alphabetical order
+function sortedCategoricalValues(col) {
   const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))];
+  const allNumeric = unique.every(v => typeof v === 'number' || (typeof v === 'bigint') ||
+    (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))));
+  if (allNumeric) {
+    unique.sort((a, b) => Number(a) - Number(b));
+  } else {
+    unique.sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base', numeric: true }));
+  }
+  return unique;
+}
+
+function applyCategoricalStyle(col, opacity) {
+  const unique = sortedCategoricalValues(col);
   // FIX: use ['to-string', ['get', col]] so numeric column values (1, 2, 3 …)
   // match their String(v) cases.  MapLibre's 'match' is strictly typed:
   // the number 1 never equals the string "1", so every feature hit #aaaaaa.
@@ -1593,7 +1659,7 @@ function renderInteractiveLegend() {
 
 /* ── Categorical: click-to-toggle rows ─────────────────────── */
 function renderCategoricalInteractiveLegend(container, col) {
-  const unique = [...new Set(currentRows.map(r => r[col]).filter(v => v != null))];
+  const unique = sortedCategoricalValues(col);
 
   const header = document.createElement('div');
   header.className = 'ml-header';
@@ -2059,19 +2125,19 @@ function updateURL() {
 }
 
 function peekURLSql() {
-  // Parse URL hash, apply style settings, store required tables, return the SQL string (or null)
   try {
     const hash = location.hash;
     if (!hash.startsWith('#state=')) return null;
     const encoded = hash.slice(7);
     const json = decodeURIComponent(escape(atob(encoded)));
     const state = JSON.parse(json);
-    if (state.style) Object.assign(styleSettings, state.style);
-    // Store required tables so init() can verify them after session restore
-    if (state.tables) {
-      window.__urlRequiredTables = state.tables;
-      window.__urlHasDemo = !!state.hasDemo;
-    }
+    // Stash full state — style will be applied AFTER runQuery() finishes
+    pendingUrlState = {
+      sql: state.sql || null,
+      style: state.style || null,
+      tables: state.tables || [],
+      hasDemo: !!state.hasDemo,
+    };
     return state.sql || null;
   } catch (e) {
     console.warn('peekURLSql failed:', e);
@@ -2210,7 +2276,7 @@ function drawLegendOnCanvas(ctx, W, H) {
       label: `${fmtNum(breaks[i])} – ${i === n - 1 ? '' : '< '}${fmtNum(breaks[i + 1])}`
     }));
   } else if (mode === 'categorical' && styleSettings.col) {
-    const unique = [...new Set(currentRows.map(r => r[styleSettings.col]).filter(v => v != null))].slice(0, 12);
+    const unique = sortedCategoricalValues(styleSettings.col).slice(0, 12);
     title = styleSettings.col;
     items = unique.map((val, i) => ({
       color: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],

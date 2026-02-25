@@ -21,6 +21,42 @@
 
     <!-- App styles -->
     <link rel="stylesheet" href="css/style.css" />
+
+    <!--
+      !! EXACTLY ONE import map per page !!
+      Browsers silently discard ALL entries from any second importmap block.
+      NEVER add another <script type="importmap"> to this file.
+      To add a package: add one entry to the imports object below.
+
+      The * prefix tells esm.sh NOT to bundle deps. It emits bare specifiers
+      which the browser resolves through this map, guaranteeing one shared
+      module instance per package (no duplicate @codemirror/state, etc.).
+    -->
+    <script type="importmap">
+    {
+      "imports": {
+        "codemirror":                    "https://esm.sh/*codemirror@6.0.1",
+        "@codemirror/view":              "https://esm.sh/*@codemirror/view@6.36.3",
+        "@codemirror/state":             "https://esm.sh/*@codemirror/state@6.4.1",
+        "@codemirror/language":          "https://esm.sh/*@codemirror/language@6.10.8",
+        "@codemirror/commands":          "https://esm.sh/*@codemirror/commands@6.7.1",
+        "@codemirror/search":            "https://esm.sh/*@codemirror/search@6.5.8",
+        "@codemirror/autocomplete":      "https://esm.sh/*@codemirror/autocomplete@6.18.6",
+        "@codemirror/lint":              "https://esm.sh/*@codemirror/lint@6.8.4",
+        "@codemirror/lang-sql":          "https://esm.sh/*@codemirror/lang-sql@6.8.0",
+        "@codemirror/theme-one-dark":    "https://esm.sh/*@codemirror/theme-one-dark@6.1.2",
+        "@codemirror/":                  "https://esm.sh/*@codemirror/",
+        "@lezer/common":                 "https://esm.sh/*@lezer/common@1.2.3",
+        "@lezer/highlight":              "https://esm.sh/*@lezer/highlight@1.2.1",
+        "@lezer/lr":                     "https://esm.sh/*@lezer/lr@1.4.2",
+        "@lezer/":                       "https://esm.sh/*@lezer/",
+        "style-mod":                     "https://esm.sh/style-mod@4.1.2",
+        "w3c-keyname":                   "https://esm.sh/w3c-keyname@2.2.8",
+        "crelt":                         "https://esm.sh/crelt@1.0.6",
+        "@marijn/find-cluster-break":    "https://esm.sh/@marijn/find-cluster-break@1.0.2"
+      }
+    }
+    </script>
 </head>
 
 <body>
@@ -46,7 +82,7 @@
             <!-- App header -->
             <div id="app-header">
                 <div id="app-header-top">
-                    <div id="app-title">⬡ Spatial SQL Explorer</div>
+                    <a id="app-title" href="./" title="Reset to home">⬡ Spatial SQL Explorer</a>
                     <button id="theme-toggle" title="Toggle light / dark mode" aria-label="Toggle theme">☾</button>
                 </div>
                 <div id="app-subtitle">DuckDB-WASM · MapLibre GL · 100% client-side</div>
