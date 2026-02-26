@@ -2208,16 +2208,38 @@ function showToast(msg) {
    ============================================================ */
 function exportMapPNG() {
   showToast('Capturing map…');
-  // rAF ensures we read the canvas after the current frame is painted.
-  // preserveDrawingBuffer:true guarantees pixels survive between frames.
-  requestAnimationFrame(() => {
+
+  // map.once('render') fires inside MapLibre's WebGL pipeline — the canvas
+  // has live pixels at exactly this moment.  requestAnimationFrame fires
+  // *before* the browser composites, which can produce a blank canvas even
+  // with preserveDrawingBuffer:true.
+  //
+  // Safety timeout: if no 'render' event arrives in 2 s (e.g. the map is
+  // fully idle and nothing triggers a repaint), fall through to a direct
+  // read — preserveDrawingBuffer keeps the last frame alive.
+  let captured = false;
+
+  const doCapture = () => {
+    if (captured) return;
+    captured = true;
     try {
       _captureMapPNG();
     } catch (e) {
       console.warn('Canvas tainted by CORS tiles:', e.message);
       _exportLegendOnlyPNG();
     }
-  });
+  };
+
+  map.once('render', doCapture);
+  map.triggerRepaint();
+
+  // Fallback: if idle map doesn't re-render within 2 s, read directly
+  setTimeout(() => {
+    if (!captured) {
+      map.off('render', doCapture);
+      doCapture();
+    }
+  }, 2000);
 }
 
 function _captureMapPNG() {
