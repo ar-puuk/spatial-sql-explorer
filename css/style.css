@@ -3,26 +3,26 @@
    Dark industrial / terminal GIS aesthetic
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ── Variables — dark (default) ─────────────────────────────── */
 :root {
-    --bg-base: #0b0f14;
-    --bg-panel: #0f1419;
-    --bg-elevated: #161d26;
-    --bg-hover: #1d2733;
-    --bg-active: #1a2535;
+    --bg-base: #0e171e;
+    --bg-panel: #131e28;
+    --bg-elevated: #192430;
+    --bg-hover: #1f2d3a;
+    --bg-active: #253545;
 
-    --border: #1f2d3d;
-    --border-bright: #2a3f57;
+    --border: #1e2e3c;
+    --border-bright: #253545;
 
-    --text-primary: #c9d4e0;
-    --text-secondary: #6b8099;
-    --text-dim: #3d5166;
+    --text-primary: #f0ebe0;
+    --text-secondary: #8a98a8;
+    --text-dim: #485868;
 
-    --accent: #f0a500;
-    --accent-dim: #a87000;
-    --accent-glow: rgba(240, 165, 0, 0.15);
+    --accent: #fbbf24;
+    --accent-dim: #f59e0b;
+    --accent-glow: rgba(251, 191, 36, 0.15);
 
     --success: #3ddc84;
     --error: #ff5a5a;
@@ -31,8 +31,8 @@
     --panel-left: 300px;
     --panel-right: 400px;
 
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-    --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', SFMono-Regular, Menlo, monospace;
+    --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
 
     --radius-sm: 4px;
     --radius: 6px;
@@ -43,22 +43,22 @@
 
 /* ── Variables — light theme ────────────────────────────────── */
 [data-theme="light"] {
-    --bg-base: #f0f2f5;
-    --bg-panel: #ffffff;
-    --bg-elevated: #f7f8fa;
-    --bg-hover: #ebedf2;
-    --bg-active: #e0e4eb;
+    --bg-base: #fffbf2;
+    --bg-panel: #f2ece0;
+    --bg-elevated: #ffffff;
+    --bg-hover: #f8f4ec;
+    --bg-active: #fef3c7;
 
-    --border: #d5dbe5;
-    --border-bright: #b8c3d3;
+    --border: #e8dfc8;
+    --border-bright: #d4c5a9;
 
-    --text-primary: #1c2a3a;
-    --text-secondary: #526580;
-    --text-dim: #94a3b8;
+    --text-primary: #1c1208;
+    --text-secondary: #6b5e4a;
+    --text-dim: #a8977a;
 
-    --accent: #c07800;
-    --accent-dim: #a06200;
-    --accent-glow: rgba(192, 120, 0, 0.10);
+    --accent: #b45309;
+    --accent-dim: #92400e;
+    --accent-glow: rgba(180, 83, 9, 0.10);
 
     --success: #1a8f54;
     --error: #c92a2a;
@@ -145,7 +145,16 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-dim);
+    background: var(--border-bright);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-bright) transparent;
 }
 
 /* ── Shared section label ───────────────────────────────────── */
@@ -347,14 +356,14 @@ body {
 
 /* Light mode: map legend card */
 [data-theme="light"] #map-legend {
-    background: rgba(255, 255, 255, 0.95);
-    border-color: rgba(0, 0, 0, 0.12);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.97);
+    border-color: #d4c5a9;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 /* Light mode: basemap switcher */
 [data-theme="light"] #basemap-switcher {
-    background: rgba(255, 255, 255, 0.92);
+    background: rgba(242, 236, 224, 0.95);
     border-color: var(--border-bright);
 }
 
@@ -367,12 +376,12 @@ body {
 
 /* Light mode: map status bar */
 [data-theme="light"] #map-statusbar {
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(242, 236, 224, 0.93);
 }
 
 /* Light mode: map attribution */
 [data-theme="light"] .maplibregl-ctrl-attrib {
-    background: rgba(255, 255, 255, 0.85) !important;
+    background: rgba(242, 236, 224, 0.90) !important;
 }
 
 /* Light mode: ghost overlays on graduated legend */
@@ -403,7 +412,7 @@ body {
 
 /* Light mode: ramp swatch active border */
 [data-theme="light"] .ramp-swatch.active {
-    border-color: #1a2535;
+    border-color: #1c1208;
 }
 
 /* Light mode: range selection overlay */
@@ -414,13 +423,13 @@ body {
 
 /* Light mode: number cells in result table */
 [data-theme="light"] #results-table tbody td.cell-number {
-    color: #1565c0;
+    color: #1c1208;
 }
 
 /* Light mode: active pills text (on accent bg) */
 [data-theme="light"] .mode-pill.active,
 [data-theme="light"] .basemap-pill.active {
-    color: #1a1000;
+    color: #1c1208;
 }
 
 /* Light mode: drag handle shadow */
@@ -628,7 +637,7 @@ body {
 
 /* ── Dark Theme (default) ── */
 .tok-keyword {
-    color: #f0a500 !important;
+    color: #fbbf24 !important;
     font-weight: 600;
 }
 
@@ -651,7 +660,7 @@ body {
 }
 
 .tok-variableName {
-    color: #c9d4e0 !important;
+    color: #f0ebe0 !important;
 }
 
 .tok-definition {
@@ -687,7 +696,7 @@ body {
 
 /* ── Light Theme ── */
 [data-theme="light"] .tok-keyword {
-    color: #9b5500 !important;
+    color: #b45309 !important;
     font-weight: 600;
 }
 
@@ -911,7 +920,7 @@ body {
 }
 
 .maplibregl-ctrl-attrib {
-    background: rgba(11, 15, 20, 0.8) !important;
+    background: rgba(14, 23, 30, 0.8) !important;
     color: var(--text-dim) !important;
     font-size: 9px !important;
 }
@@ -926,7 +935,7 @@ body {
     left: 0;
     right: 0;
     padding: 5px 14px;
-    background: rgba(11, 15, 20, 0.85);
+    background: rgba(19, 30, 40, 0.88);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -1521,9 +1530,9 @@ body {
     /* above status bar */
     left: 12px;
     z-index: 10;
-    background: rgba(11, 15, 20, 0.92);
+    background: rgba(19, 30, 40, 0.93);
     backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-bright);
     border-radius: var(--radius);
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.4);
     min-width: 200px;
@@ -1696,7 +1705,7 @@ body {
     top: 50%;
     transform: translateY(-50%);
     height: 12px;
-    background: rgba(11, 15, 20, 0.62);
+    background: rgba(14, 23, 30, 0.65);
     pointer-events: none;
     z-index: 1;
 }
@@ -1786,7 +1795,7 @@ body {
     z-index: 10;
     display: flex;
     gap: 2px;
-    background: rgba(11, 15, 20, 0.88);
+    background: rgba(19, 30, 40, 0.90);
     backdrop-filter: blur(6px);
     border: 1px solid var(--border-bright);
     border-radius: var(--radius);
@@ -1917,7 +1926,7 @@ body {
 }
 
 #results-table tbody td.cell-number {
-    color: #7ec8e3;
+    color: #e8c87a;
     text-align: right;
 }
 
@@ -1982,7 +1991,7 @@ body {
 
 /* ── Selected rows ──────────────────────────────────────────── */
 #results-table tbody tr.row-selected {
-    background: rgba(240, 165, 0, 0.1) !important;
+    background: #2d1c04 !important;
 }
 
 #results-table tbody tr.row-selected td {
@@ -1991,7 +2000,7 @@ body {
 
 /* Light mode: selected row has warmer tone */
 [data-theme="light"] #results-table tbody tr.row-selected {
-    background: rgba(192, 120, 0, 0.08) !important;
+    background: #fef3c7 !important;
 }
 
 /* ── Empty state ────────────────────────────────────────────── */
@@ -2023,18 +2032,106 @@ body {
 }
 
 
+/* ── Animations ─────────────────────────────────────────────── */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.fade-in {
+    animation: fadeIn 180ms ease-out both;
+}
+
+.skeleton {
+    background: linear-gradient(90deg, #192430 25%, #1e2e3c 50%, #192430 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+[data-theme="light"] .skeleton {
+    background: linear-gradient(90deg, #f2ece0 25%, #e8dfc8 50%, #f2ece0 75%);
+    background-size: 200% 100%;
+}
+
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════ */
 
-/* Light mode: MapLibre navigation controls */
+/* MapLibre GL popups — dark default */
+.maplibregl-popup-content {
+    background: #1f2d3a;
+    border: 1px solid #2f4258;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.70);
+    border-radius: 8px;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    color: #f0ebe0;
+}
+
+.maplibregl-popup-close-button {
+    color: #8a98a8;
+}
+
+.maplibregl-popup-close-button:hover {
+    background: #253545;
+    color: #f0ebe0;
+}
+
+/* MapLibre popups — light */
+[data-theme="light"] .maplibregl-popup-content {
+    background: #ffffff;
+    border: 1px solid #d4c5a9;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+    color: #1c1208;
+}
+
+[data-theme="light"] .maplibregl-popup-close-button {
+    color: #a8977a;
+}
+
+[data-theme="light"] .maplibregl-popup-close-button:hover {
+    background: #f2ece0;
+    color: #1c1208;
+}
+
+/* MapLibre navigation controls — dark default */
+.maplibregl-ctrl-group {
+    border-radius: 8px !important;
+    overflow: hidden;
+    border: 1px solid #253545 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+}
+
+.maplibregl-ctrl-group button {
+    background: #192430 !important;
+    border-bottom: 1px solid #1e2e3c !important;
+    width: 32px !important;
+    height: 32px !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+    background: #1f2d3a !important;
+}
+
+/* MapLibre navigation controls — light */
 [data-theme="light"] .maplibregl-ctrl-group {
-    background: #ffffff !important;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+    border-color: #d4c5a9 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10) !important;
 }
 
 [data-theme="light"] .maplibregl-ctrl-group button {
-    background-color: #ffffff !important;
+    background: #ffffff !important;
+    border-bottom-color: #e8dfc8 !important;
+}
+
+[data-theme="light"] .maplibregl-ctrl-group button:hover {
+    background: #f8f4ec !important;
 }
 
 [data-theme="light"] .maplibregl-ctrl-group button+button {

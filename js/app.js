@@ -385,33 +385,33 @@ function buildEditorExtensions(schema = {}) {
         overflow: 'auto',
         fontFamily: "var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)",
       },
-      '.cm-content': { caretColor: isDark ? '#f0a500' : '#c07800', padding: '6px 0' },
-      '.cm-cursor, .cm-dropCursor': { borderLeftColor: isDark ? '#f0a500' : '#c07800', borderLeftWidth: '2px' },
+      '.cm-content': { caretColor: isDark ? '#fbbf24' : '#b45309', padding: '6px 0' },
+      '.cm-cursor, .cm-dropCursor': { borderLeftColor: isDark ? '#fbbf24' : '#b45309', borderLeftWidth: '2px' },
       '.cm-gutters': {
-        background: isDark ? '#0b0f14' : '#f7f8fa',
-        color: isDark ? '#3d5166' : '#94a3b8',
-        borderRight: isDark ? '1px solid #1f2d3d' : '1px solid #d5dbe5',
+        background: isDark ? '#0e171e' : '#fffbf2',
+        color: isDark ? '#485868' : '#a8977a',
+        borderRight: isDark ? '1px solid #1e2e3c' : '1px solid #e8dfc8',
         minWidth: '36px',
       },
       '.cm-lineNumbers .cm-gutterElement': { fontSize: '10px', padding: '0 8px 0 4px' },
       '.cm-activeLine': { background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)' },
       '.cm-activeLineGutter': { background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.035)' },
       '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-        background: isDark ? 'rgba(240,165,0,0.18) !important' : 'rgba(192,120,0,0.14) !important',
+        background: isDark ? 'rgba(251,191,36,0.18) !important' : 'rgba(180,83,9,0.14) !important',
       },
       '.cm-matchingBracket': {
-        color: (isDark ? '#f0a500' : '#c07800') + ' !important',
-        background: isDark ? 'rgba(240,165,0,0.12)' : 'rgba(192,120,0,0.10)',
-        outline: isDark ? '1px solid rgba(240,165,0,0.3)' : '1px solid rgba(192,120,0,0.25)',
+        color: (isDark ? '#fbbf24' : '#b45309') + ' !important',
+        background: isDark ? 'rgba(251,191,36,0.12)' : 'rgba(180,83,9,0.10)',
+        outline: isDark ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(180,83,9,0.25)',
       },
-      '.cm-selectionMatch': { background: isDark ? 'rgba(240,165,0,0.10)' : 'rgba(192,120,0,0.08)' },
+      '.cm-selectionMatch': { background: isDark ? 'rgba(251,191,36,0.10)' : 'rgba(180,83,9,0.08)' },
       '.cm-searchMatch': {
-        background: isDark ? 'rgba(240,165,0,0.25)' : 'rgba(192,120,0,0.20)',
-        outline: isDark ? '1px solid rgba(240,165,0,0.4)' : '1px solid rgba(192,120,0,0.3)',
+        background: isDark ? 'rgba(251,191,36,0.25)' : 'rgba(180,83,9,0.20)',
+        outline: isDark ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(180,83,9,0.3)',
       },
       '.cm-tooltip': {
-        background: isDark ? '#161d26' : '#ffffff',
-        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
+        background: isDark ? '#192430' : '#ffffff',
+        border: isDark ? '1px solid #253545' : '1px solid #d4c5a9',
         borderRadius: '6px',
         boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.5)' : '0 4px 24px rgba(0,0,0,0.12)',
         overflow: 'hidden',
@@ -421,29 +421,29 @@ function buildEditorExtensions(schema = {}) {
         padding: '4px 10px', fontSize: '11px', fontFamily: 'var(--font-mono)', lineHeight: '1.6',
       },
       '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-        background: isDark ? '#1d2733' : '#ebedf2', color: isDark ? '#f0a500' : '#9b5500',
+        background: isDark ? '#253545' : '#fef3c7', color: isDark ? '#fbbf24' : '#92400e',
       },
-      '.cm-completionLabel': { color: isDark ? '#c9d4e0' : '#1c2a3a', fontSize: '11px' },
+      '.cm-completionLabel': { color: isDark ? '#f0ebe0' : '#1c1208', fontSize: '11px' },
       '.cm-completionDetail': {
-        color: isDark ? '#5c6a7a' : '#94a3b8', fontStyle: 'italic', marginLeft: '8px', fontSize: '10px',
+        color: isDark ? '#485868' : '#a8977a', fontStyle: 'italic', marginLeft: '8px', fontSize: '10px',
       },
       '.cm-completionMatchedText': {
-        textDecoration: 'none', color: isDark ? '#f0a500' : '#c07800', fontWeight: '600',
+        textDecoration: 'none', color: isDark ? '#fbbf24' : '#b45309', fontWeight: '600',
       },
       '.cm-panels': {
-        background: isDark ? '#0b0f14' : '#f7f8fa',
-        borderTop: isDark ? '1px solid #1f2d3d' : '1px solid #d5dbe5',
+        background: isDark ? '#0e171e' : '#fffbf2',
+        borderTop: isDark ? '1px solid #1e2e3c' : '1px solid #e8dfc8',
       },
       '.cm-panel input': {
-        background: isDark ? '#161d26' : '#ffffff',
-        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
-        color: isDark ? '#c9d4e0' : '#1c2a3a',
+        background: isDark ? '#192430' : '#ffffff',
+        border: isDark ? '1px solid #253545' : '1px solid #d4c5a9',
+        color: isDark ? '#f0ebe0' : '#1c1208',
         borderRadius: '3px', padding: '3px 6px', fontFamily: 'var(--font-mono)', fontSize: '11px',
       },
       '.cm-panel button': {
-        background: isDark ? '#1d2733' : '#ebedf2',
-        border: isDark ? '1px solid #2a3f57' : '1px solid #d5dbe5',
-        color: isDark ? '#c9d4e0' : '#1c2a3a',
+        background: isDark ? '#1f2d3a' : '#f2ece0',
+        border: isDark ? '1px solid #253545' : '1px solid #d4c5a9',
+        color: isDark ? '#f0ebe0' : '#1c1208',
         borderRadius: '3px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px',
       },
     }, { dark: isDark })),
@@ -1107,7 +1107,7 @@ function clearMapLayers() {
 const DEFAULT_STYLE = {
   mode: 'categorical',   // 'single' | 'graduated' | 'categorical'
   col: null,
-  singleColor: '#f0a500',
+  singleColor: '#b45309',
   ramp: 'oranges',
   rampInverted: false,
   method: 'quantile', // 'quantile' | 'equal' | 'jenks'
@@ -1131,7 +1131,7 @@ const COLOR_RAMPS = {
 };
 
 const CATEGORICAL_PALETTE = [
-  '#e8323c', '#f0a500', '#3ddc84', '#42a5f5', '#ab47bc',
+  '#e8323c', '#b45309', '#3ddc84', '#42a5f5', '#ab47bc',
   '#ff7043', '#26c6da', '#d4e157', '#ec407a', '#8d6e63',
   '#607d8b', '#66bb6a', '#ffa726', '#26a69a', '#7e57c2',
 ];
@@ -2080,11 +2080,11 @@ function rehydrateMapLayers() {
 
   map.addLayer({
     id: 'query-polygons', type: 'fill', source: 'query-polygons-src',
-    paint: { 'fill-color': '#f0a500', 'fill-opacity': 0.18 }
+    paint: { 'fill-color': '#b45309', 'fill-opacity': 0.18 }
   });
   map.addLayer({
     id: 'query-polygon-outline', type: 'line', source: 'query-polygons-src',
-    paint: { 'line-color': '#f0a500', 'line-width': 1.5, 'line-opacity': 0.85 }
+    paint: { 'line-color': '#b45309', 'line-width': 1.5, 'line-opacity': 0.85 }
   });
   map.addLayer({
     id: 'query-lines', type: 'line', source: 'query-lines-src',
@@ -2272,9 +2272,9 @@ function _exportLegendOnlyPNG() {
   const out = document.createElement('canvas');
   out.width = W; out.height = H;
   const ctx = out.getContext('2d');
-  ctx.fillStyle = isLight ? '#eef2f7' : '#0b0f14';
+  ctx.fillStyle = isLight ? '#fffbf2' : '#0e171e';
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = isLight ? '#456080' : '#6b8099';
+  ctx.fillStyle = isLight ? '#6b5e4a' : '#8a98a8';
   ctx.font = '10px monospace';
   ctx.fillText('MAP EXPORT — satellite/topo tiles blocked CORS', 12, 20);
   drawLegendOnCanvas(ctx, W, H);
@@ -2301,10 +2301,10 @@ function drawLegendOnCanvas(ctx, W, H) {
   const cs = getComputedStyle(document.documentElement);
   const isLight = currentTheme === 'light';
   const COLORS = {
-    bg: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(11,15,20,0.88)',
-    title: cs.getPropertyValue('--text-secondary').trim() || (isLight ? '#456080' : '#6b8099'),
-    label: cs.getPropertyValue('--text-primary').trim() || (isLight ? '#1a2535' : '#c9d4e0'),
-    border: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+    bg: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(19,30,40,0.93)',
+    title: cs.getPropertyValue('--text-secondary').trim() || (isLight ? '#6b5e4a' : '#8a98a8'),
+    label: cs.getPropertyValue('--text-primary').trim() || (isLight ? '#1c1208' : '#f0ebe0'),
+    border: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
   };
 
   const PAD = 12;
