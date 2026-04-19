@@ -348,13 +348,33 @@ let tweaks = { ...TWEAK_DEFAULTS, mode: window.matchMedia('(prefers-color-scheme
 let drawerPct = tweaks.drawerPct;
 const drawer = document.getElementById('query-drawer');
 const map    = document.getElementById('panel-map');
+const DRAWER_HEADER_H = 56; // drag-handle (18px) + tab-bar (38px)
+let drawerCollapsed = false;
+let drawerLastPct   = tweaks.drawerPct;
 
 function setDrawerHeight(pct) {
     drawerPct = pct;
     drawer.style.height = pct + '%';
-    // nudge map legend above the drawer
     const legend = document.getElementById('map-legend');
     if (legend) legend.style.bottom = `calc(${pct}% + 34px)`;
+}
+
+function drawerExpand(pct) {
+    drawerCollapsed = false;
+    drawer.classList.remove('drawer-collapsed');
+    drawer.style.transition = 'height 180ms ease';
+    setDrawerHeight(pct);
+    setTimeout(() => { drawer.style.transition = ''; }, 200);
+}
+
+function drawerCollapse() {
+    drawerCollapsed = true;
+    drawer.classList.add('drawer-collapsed');
+    drawer.style.transition = 'height 180ms ease';
+    drawer.style.height = DRAWER_HEADER_H + 'px';
+    const legend = document.getElementById('map-legend');
+    if (legend) legend.style.bottom = (DRAWER_HEADER_H + 26) + 'px';
+    setTimeout(() => { drawer.style.transition = ''; }, 200);
 }
 
 // ── Tab switching ─────────────────────────────────────────────
@@ -375,7 +395,9 @@ function switchPane(pane) {
 
 document.getElementById('drawer-tabs').addEventListener('click', e => {
     const tab = e.target.closest('.drawer-tab');
-    if (tab) switchPane(tab.dataset.pane);
+    if (!tab) return;
+    if (drawerCollapsed) drawerExpand(drawerLastPct);
+    switchPane(tab.dataset.pane);
 });
 
 // ── Auto-switch to results when table is populated ───────────
@@ -412,42 +434,16 @@ new MutationObserver(mutations => {
     const handle = document.getElementById('drawer-drag-handle');
     if (!handle) return;
     let dragging = false, startY = 0, startPct = drawerPct;
-    const SNAP_THRESHOLD = 8; // % below which drawer snaps closed
-    const HEADER_H = 56;      // drag-handle (18px) + tab-bar (38px)
-    let collapsed = false;
-    let lastExpandedPct = drawerPct;
+    const SNAP_THRESHOLD = 8;
 
-    function snapTo(heightPx) {
-        drawer.style.transition = 'height 180ms ease';
-        drawer.style.height = heightPx + 'px';
-        const legend = document.getElementById('map-legend');
-        if (legend) legend.style.bottom = (heightPx + 26) + 'px';
-        setTimeout(() => { drawer.style.transition = ''; }, 200);
-    }
-
-    function collapse() {
-        collapsed = true;
-        drawer.classList.add('drawer-collapsed');
-        snapTo(HEADER_H);
-    }
-
-    function expand(pct) {
-        collapsed = false;
-        drawer.classList.remove('drawer-collapsed');
-        drawer.style.transition = 'height 180ms ease';
-        setDrawerHeight(pct);
-        setTimeout(() => { drawer.style.transition = ''; }, 200);
-    }
-
-    // Click handle while collapsed → restore last height
     handle.addEventListener('click', () => {
-        if (collapsed) expand(lastExpandedPct);
+        if (drawerCollapsed) drawerExpand(drawerLastPct);
     });
 
     handle.addEventListener('mousedown', e => {
         dragging = true;
         startY = e.clientY;
-        startPct = collapsed ? 0 : drawerPct;
+        startPct = drawerCollapsed ? 0 : drawerPct;
         document.body.style.userSelect = 'none';
         handle.classList.add('dragging');
     });
@@ -457,12 +453,10 @@ new MutationObserver(mutations => {
         const delta = startY - e.clientY;
         const rawPct = startPct + (delta / mapH) * 100;
         if (rawPct < SNAP_THRESHOLD) {
-            if (!collapsed) collapse();
+            if (!drawerCollapsed) drawerCollapse();
         } else {
-            if (collapsed) {
-                collapsed = false;
-                drawer.classList.remove('drawer-collapsed');
-            }
+            if (drawerCollapsed) drawer.classList.remove('drawer-collapsed');
+            drawerCollapsed = false;
             setDrawerHeight(Math.min(80, rawPct));
         }
     });
@@ -471,7 +465,7 @@ new MutationObserver(mutations => {
         dragging = false;
         document.body.style.userSelect = '';
         handle.classList.remove('dragging');
-        if (!collapsed) lastExpandedPct = drawerPct;
+        if (!drawerCollapsed) drawerLastPct = drawerPct;
     });
 })();
 

@@ -37,7 +37,7 @@
     --shadow-float:   0 12px 40px rgba(0,0,0,0.6), 0 3px 10px rgba(0,0,0,0.4), 0 0 0 1px var(--border-bright);
     --shadow-drawer:  0 -4px 32px rgba(0,0,0,0.5), 0 -1px 0 var(--border-strong);
     --shadow-btn:     0 2px 10px rgba(251,191,36,0.22), 0 1px 4px rgba(0,0,0,0.35);
-    --shadow-btn-hover: 0 6px 28px rgba(251,191,36,0.55), 0 2px 8px rgba(0,0,0,0.45);
+    --shadow-btn-hover: var(--shadow-btn);
 
     --panel-left:  260px;
     --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
@@ -72,7 +72,7 @@
     --shadow-float:   0 12px 40px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.07), 0 0 0 1px var(--border-bright);
     --shadow-drawer:  0 -4px 24px rgba(0,0,0,0.08), 0 -1px 0 var(--border-strong);
     --shadow-btn:     0 2px 10px rgba(180,83,9,0.28), 0 1px 4px rgba(0,0,0,0.12);
-    --shadow-btn-hover: 0 6px 28px rgba(180,83,9,0.55), 0 2px 8px rgba(0,0,0,0.18);
+    --shadow-btn-hover: var(--shadow-btn);
 }
 
 /* ── Void ────────────────────────────────────────────────────── */
@@ -89,7 +89,7 @@
     --shadow-rail:    2px 0 40px rgba(0,0,0,0.8);
     --shadow-drawer:  0 -4px 40px rgba(0,0,0,0.7), 0 -1px 0 var(--border-strong);
     --shadow-btn:     0 2px 14px rgba(251,191,36,0.32), 0 1px 4px rgba(0,0,0,0.5);
-    --shadow-btn-hover: 0 6px 36px rgba(251,191,36,0.70), 0 2px 8px rgba(0,0,0,0.55);
+    --shadow-btn-hover: var(--shadow-btn);
 }
 
 /* ── Reset ───────────────────────────────────────────────────── */
@@ -115,7 +115,8 @@ html, body {
 #app {
     display: grid;
     grid-template-columns: var(--panel-left) 4px 1fr;
-    height: 100vh; height: 100dvh;
+    grid-template-rows: 1fr;
+    height: 100%;
     overflow: hidden;
 }
 
@@ -320,7 +321,7 @@ html, body {
     font-weight: 600; flex: 1; padding: 9px 16px; font-size: 12px; letter-spacing: 0.03em;
     box-shadow: var(--shadow-btn);
 }
-.btn-primary:hover { background: var(--accent); filter: brightness(1.18); box-shadow: var(--shadow-btn-hover); color: var(--accent-text); border-color: transparent; transform: translateY(-1px); }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.12); box-shadow: var(--shadow-btn), inset 0 1px 0 rgba(255,255,255,0.22); color: var(--accent-text); border-color: transparent; }
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.38; cursor: not-allowed; box-shadow: none; filter: none; }
 .btn-sm { font-size: 11px; padding: 4px 9px; }
