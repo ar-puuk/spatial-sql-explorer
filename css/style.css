@@ -115,7 +115,7 @@ html, body {
 #app {
     display: grid;
     grid-template-columns: var(--panel-left) 4px 1fr;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     overflow: hidden;
 }
 
@@ -320,7 +320,7 @@ html, body {
     font-weight: 600; flex: 1; padding: 9px 16px; font-size: 12px; letter-spacing: 0.03em;
     box-shadow: var(--shadow-btn);
 }
-.btn-primary:hover { filter: brightness(1.06); box-shadow: var(--shadow-btn-hover); color: var(--accent-text); border-color: transparent; }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); box-shadow: var(--shadow-btn-hover); color: var(--accent-text); border-color: transparent; }
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.38; cursor: not-allowed; box-shadow: none; filter: none; }
 .btn-sm { font-size: 11px; padding: 4px 9px; }

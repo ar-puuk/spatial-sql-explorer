@@ -338,11 +338,11 @@
 // ════════════════════════════════════════════════════════════
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "variant": "studio",
-  "mode": "dark",
+  "mode": "light",
   "drawerPct": 42,
   "railPx": 260
 }/*EDITMODE-END*/;
-let tweaks = { ...TWEAK_DEFAULTS };
+let tweaks = { ...TWEAK_DEFAULTS, mode: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' };
 
 // ── Drawer state ─────────────────────────────────────────────
 let drawerPct = tweaks.drawerPct;
@@ -412,24 +412,66 @@ new MutationObserver(mutations => {
     const handle = document.getElementById('drawer-drag-handle');
     if (!handle) return;
     let dragging = false, startY = 0, startPct = drawerPct;
+    const SNAP_THRESHOLD = 8; // % below which drawer snaps closed
+    const HEADER_H = 56;      // drag-handle (18px) + tab-bar (38px)
+    let collapsed = false;
+    let lastExpandedPct = drawerPct;
+
+    function snapTo(heightPx) {
+        drawer.style.transition = 'height 180ms ease';
+        drawer.style.height = heightPx + 'px';
+        const legend = document.getElementById('map-legend');
+        if (legend) legend.style.bottom = (heightPx + 26) + 'px';
+        setTimeout(() => { drawer.style.transition = ''; }, 200);
+    }
+
+    function collapse() {
+        collapsed = true;
+        drawer.classList.add('drawer-collapsed');
+        snapTo(HEADER_H);
+    }
+
+    function expand(pct) {
+        collapsed = false;
+        drawer.classList.remove('drawer-collapsed');
+        drawer.style.transition = 'height 180ms ease';
+        setDrawerHeight(pct);
+        setTimeout(() => { drawer.style.transition = ''; }, 200);
+    }
+
+    // Click handle while collapsed → restore last height
+    handle.addEventListener('click', () => {
+        if (collapsed) expand(lastExpandedPct);
+    });
 
     handle.addEventListener('mousedown', e => {
-        dragging = true; startY = e.clientY; startPct = drawerPct;
+        dragging = true;
+        startY = e.clientY;
+        startPct = collapsed ? 0 : drawerPct;
         document.body.style.userSelect = 'none';
         handle.classList.add('dragging');
     });
     document.addEventListener('mousemove', e => {
         if (!dragging) return;
-        const mapH  = map.getBoundingClientRect().height;
+        const mapH = map.getBoundingClientRect().height;
         const delta = startY - e.clientY;
-        const newPct = Math.max(18, Math.min(80, startPct + (delta / mapH) * 100));
-        setDrawerHeight(newPct);
+        const rawPct = startPct + (delta / mapH) * 100;
+        if (rawPct < SNAP_THRESHOLD) {
+            if (!collapsed) collapse();
+        } else {
+            if (collapsed) {
+                collapsed = false;
+                drawer.classList.remove('drawer-collapsed');
+            }
+            setDrawerHeight(Math.min(80, rawPct));
+        }
     });
     document.addEventListener('mouseup', () => {
         if (!dragging) return;
         dragging = false;
         document.body.style.userSelect = '';
         handle.classList.remove('dragging');
+        if (!collapsed) lastExpandedPct = drawerPct;
     });
 })();
 
