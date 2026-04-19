@@ -1,13 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spatial SQL Explorer</title>
 
-    <!-- Preconnect: start DNS + TLS for all CDN hosts immediately so module
-         fetches and tile requests don't wait for connection setup. -->
     <link rel="preconnect" href="https://esm.sh" crossorigin />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link rel="preconnect" href="https://unpkg.com" crossorigin />
@@ -15,54 +12,38 @@
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
     <link rel="dns-prefetch" href="https://nominatim.openstreetmap.org" />
 
-    <!-- Cross-Origin Isolation for SharedArrayBuffer (DuckDB-WASM multithreading) -->
-    <!-- Download from: https://unpkg.com/coi-serviceworker@0.1.7/coi-serviceworker.min.js -->
     <script src="coi-serviceworker.min.js"></script>
 
-    <!-- MapLibre GL JS v5 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" />
     <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
 
-    <!-- MapLibre Geocoder -->
-    <link rel="stylesheet"
-        href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
+    <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
     <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"></script>
 
-    <!-- App styles -->
     <link rel="stylesheet" href="css/style.css" />
 
-    <!--
-      !! EXACTLY ONE import map per page !!
-      Browsers silently discard ALL entries from any second importmap block.
-      NEVER add another <script type="importmap"> to this file.
-      To add a package: add one entry to the imports object below.
-
-      The * prefix tells esm.sh NOT to bundle deps. It emits bare specifiers
-      which the browser resolves through this map, guaranteeing one shared
-      module instance per package (no duplicate @codemirror/state, etc.).
-    -->
     <script type="importmap">
     {
       "imports": {
-        "codemirror":                    "https://esm.sh/*codemirror@6.0.1",
-        "@codemirror/view":              "https://esm.sh/*@codemirror/view@6.36.3",
-        "@codemirror/state":             "https://esm.sh/*@codemirror/state@6.4.1",
-        "@codemirror/language":          "https://esm.sh/*@codemirror/language@6.10.8",
-        "@codemirror/commands":          "https://esm.sh/*@codemirror/commands@6.7.1",
-        "@codemirror/search":            "https://esm.sh/*@codemirror/search@6.5.8",
-        "@codemirror/autocomplete":      "https://esm.sh/*@codemirror/autocomplete@6.18.6",
-        "@codemirror/lint":              "https://esm.sh/*@codemirror/lint@6.8.4",
-        "@codemirror/lang-sql":          "https://esm.sh/*@codemirror/lang-sql@6.8.0",
-        "@codemirror/theme-one-dark":    "https://esm.sh/*@codemirror/theme-one-dark@6.1.2",
-        "@codemirror/":                  "https://esm.sh/*@codemirror/",
-        "@lezer/common":                 "https://esm.sh/*@lezer/common@1.2.3",
-        "@lezer/highlight":              "https://esm.sh/*@lezer/highlight@1.2.1",
-        "@lezer/lr":                     "https://esm.sh/*@lezer/lr@1.4.2",
-        "@lezer/":                       "https://esm.sh/*@lezer/",
-        "style-mod":                     "https://esm.sh/style-mod@4.1.2",
-        "w3c-keyname":                   "https://esm.sh/w3c-keyname@2.2.8",
-        "crelt":                         "https://esm.sh/crelt@1.0.6",
-        "@marijn/find-cluster-break":    "https://esm.sh/@marijn/find-cluster-break@1.0.2"
+        "codemirror":                 "https://esm.sh/*codemirror@6.0.1",
+        "@codemirror/view":           "https://esm.sh/*@codemirror/view@6.36.3",
+        "@codemirror/state":          "https://esm.sh/*@codemirror/state@6.4.1",
+        "@codemirror/language":       "https://esm.sh/*@codemirror/language@6.10.8",
+        "@codemirror/commands":       "https://esm.sh/*@codemirror/commands@6.7.1",
+        "@codemirror/search":         "https://esm.sh/*@codemirror/search@6.5.8",
+        "@codemirror/autocomplete":   "https://esm.sh/*@codemirror/autocomplete@6.18.6",
+        "@codemirror/lint":           "https://esm.sh/*@codemirror/lint@6.8.4",
+        "@codemirror/lang-sql":       "https://esm.sh/*@codemirror/lang-sql@6.8.0",
+        "@codemirror/theme-one-dark": "https://esm.sh/*@codemirror/theme-one-dark@6.1.2",
+        "@codemirror/":               "https://esm.sh/*@codemirror/",
+        "@lezer/common":              "https://esm.sh/*@lezer/common@1.2.3",
+        "@lezer/highlight":           "https://esm.sh/*@lezer/highlight@1.2.1",
+        "@lezer/lr":                  "https://esm.sh/*@lezer/lr@1.4.2",
+        "@lezer/":                    "https://esm.sh/*@lezer/",
+        "style-mod":                  "https://esm.sh/style-mod@4.1.2",
+        "w3c-keyname":                "https://esm.sh/w3c-keyname@2.2.8",
+        "crelt":                      "https://esm.sh/crelt@1.0.6",
+        "@marijn/find-cluster-break": "https://esm.sh/@marijn/find-cluster-break@1.0.2"
       }
     }
     </script>
@@ -70,237 +51,543 @@
 
 <body>
 
-    <!-- ═══════════════════════════════════════════════════════════
-     INIT OVERLAY
-     ═══════════════════════════════════════════════════════════ -->
-    <div id="init-overlay">
-        <div class="init-spinner"></div>
-        <div class="init-title">⬡ Spatial SQL Explorer</div>
-        <div class="init-log" id="init-log">Starting up…</div>
-    </div>
+<!-- ── INIT OVERLAY ──────────────────────────────────────────── -->
+<div id="init-overlay">
+    <div class="init-hex">⬡</div>
+    <div class="init-title">Spatial SQL Explorer</div>
+    <div class="init-spinner"></div>
+    <div class="init-log" id="init-log">Starting up…</div>
+</div>
 
+<!-- ── APP SHELL ─────────────────────────────────────────────── -->
+<div id="app">
 
-    <!-- ═══════════════════════════════════════════════════════════
-     APP SHELL — three-column grid
-     ═══════════════════════════════════════════════════════════ -->
-    <div id="app">
+    <!-- ══ LEFT RAIL ══════════════════════════════════════════ -->
+    <div id="panel-left">
 
-        <!-- ── LEFT PANEL ─────────────────────────────────────────── -->
-        <div id="panel-left">
-
-            <!-- App header -->
-            <div id="app-header">
-                <div id="app-header-top">
-                    <a id="app-title" href="./" title="Reset to home">⬡ Spatial SQL Explorer</a>
-                    <button id="theme-toggle" title="Toggle light / dark mode" aria-label="Toggle theme">☾</button>
-                </div>
-                <div id="app-subtitle">DuckDB-WASM · MapLibre GL · 100% client-side</div>
+        <!-- Header -->
+        <div id="app-header">
+            <div id="app-header-top">
+                <a id="app-title" href="./" title="Reset">Spatial SQL Explorer</a>
+                <button id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
             </div>
+            <div id="app-subtitle">DuckDB-WASM · MapLibre GL · client-side</div>
+        </div>
 
-            <!-- ── Table Registry ────────────────────────────────────── -->
-            <div class="left-section" id="section-registry">
-                <div class="section-header">
-                    <span class="section-label">Loaded Tables</span>
-                    <button class="icon-btn danger" id="clear-session-btn" title="Clear saved session data">⟳ clear
-                        session</button>
-                </div>
-                <div id="table-registry">
-                    <div class="registry-empty">No tables loaded.</div>
-                </div>
+        <!-- Table registry -->
+        <div class="left-section" id="section-registry">
+            <div class="section-header">
+                <span class="section-label">Tables</span>
+                <button class="icon-btn danger" id="clear-session-btn" title="Clear session">⟳ clear</button>
             </div>
-
-            <!-- ── Data Source ────────────────────────────────────────── -->
-            <div class="left-section" id="section-datasource">
-                <div class="section-label">Load Data</div>
-
-                <div class="btn-row">
-                    <button class="btn" id="btn-demo">Demo Data</button>
-                </div>
-
-                <!-- Hidden file input — accepts all supported formats -->
-                <input type="file" id="file-input" accept=".geojson,.json,.csv,.tsv,.parquet" multiple />
-
-                <div id="drop-zone">
-                    <span class="drop-icon">⬆</span>
-                    <span class="drop-main">Drop files here or click to browse</span>
-                    <span class="drop-formats">GeoJSON · CSV · TSV · Parquet</span>
-                </div>
-            </div>
-
-            <!-- ── SQL Editor ──────────────────────────────────────────── -->
-            <div id="editor-section">
-                <div id="editor-label">
-                    <span class="section-label" style="margin-bottom:0">SQL Query</span>
-                    <span id="editor-hint">Ctrl+Enter to run</span>
-                </div>
-                <div id="editor-wrapper"></div>
-            </div>
-
-            <!-- ── Run Controls ─────────────────────────────────────────── -->
-            <div id="run-controls">
-                <button class="btn btn-primary" id="run-btn">▶ Run Query</button>
-                <span class="cap-label">LIMIT</span>
-                <input type="number" id="safety-cap-input" value="50000" min="1" max="500000"
-                    title="Auto-appended LIMIT if your query has none" />
-            </div>
-
-            <!-- ── Query History ─────────────────────────────────────────── -->
-            <div id="query-history">
-                <div class="section-label">Query History</div>
-            </div>
-
-        </div><!-- end panel-left -->
-
-
-        <!-- ── RESIZE HANDLE: left ───────────────────────────────── -->
-        <div class="resize-handle" id="resize-left" title="Drag to resize"></div>
-
-        <!-- ── CENTER PANEL: Map ──────────────────────────────────── -->
-        <div id="panel-map">
-            <div id="map"></div>
-
-            <!-- Basemap switcher overlay (top-left) -->
-            <div id="basemap-switcher">
-                <button class="basemap-pill active" data-basemap="light">Light</button>
-                <button class="basemap-pill" data-basemap="dark">Dark</button>
-                <button class="basemap-pill" data-basemap="satellite">Satellite</button>
-                <button class="basemap-pill" data-basemap="topo">Topo</button>
-            </div>
-
-            <!-- Interactive map legend (bottom-left, shown after Apply) -->
-            <div id="map-legend" style="display:none">
-                <div id="map-legend-inner"></div>
-            </div>
-
-            <div id="map-statusbar">
-                <span id="map-coords">–</span>
-                <span id="map-engine">DuckDB-WASM · spatial ext · MapLibre GL v5</span>
-                <button id="export-png-btn" title="Export map as PNG">⬇ PNG</button>
+            <div id="table-registry">
+                <div class="registry-empty">No tables loaded.</div>
             </div>
         </div>
 
+        <!-- Schema explorer (auto-populated when table selected) -->
+        <div id="schema-panel" class="left-section">
+            <div class="section-header">
+                <span class="section-label">Schema</span>
+                <span id="schema-table-badge"></span>
+            </div>
+            <div id="schema-content">
+                <div class="schema-empty">
+                    <span>Click a table above to inspect its schema</span>
+                </div>
+            </div>
+        </div>
 
-        <!-- ── RESIZE HANDLE: right ──────────────────────────────── -->
-        <div class="resize-handle" id="resize-right" title="Drag to resize"></div>
+        <!-- Load Data -->
+        <div class="left-section" id="section-datasource">
+            <div class="section-label">Load Data</div>
+            <div class="btn-row">
+                <button class="btn" id="btn-demo">Demo Data</button>
+            </div>
+            <input type="file" id="file-input" accept=".geojson,.json,.csv,.tsv,.parquet" multiple />
+            <div id="drop-zone">
+                <span class="drop-icon">⬆</span>
+                <span class="drop-main">Drop files or click to browse</span>
+                <span class="drop-formats">GeoJSON · CSV · TSV · Parquet</span>
+            </div>
+        </div>
 
-        <!-- ── RIGHT PANEL: Output + Style ───────────────────────── -->
-        <div id="panel-right">
+        <!-- Query History -->
+        <div id="query-history">
+            <div class="section-label">History</div>
+        </div>
 
-            <!-- Output header + export buttons -->
-            <div id="output-header">
-                <div id="output-header-top">
-                    <div>
-                        <div id="output-title">Query Output</div>
-                        <div id="output-meta">Run a query to see results.</div>
-                    </div>
-                    <div id="export-btns">
-                        <button class="btn btn-export" id="share-url-btn"
-                            title="Copy shareable link with current query &amp; style">⬡ Share</button>
-                        <button class="btn btn-export" id="export-csv-btn"
-                            title="Download filtered result as CSV">CSV</button>
-                        <button class="btn btn-export" id="export-geojson-btn"
-                            title="Download filtered result as GeoJSON">GeoJSON</button>
+    </div><!-- end panel-left -->
+
+    <!-- resize handle — kept for app.js compat -->
+    <div class="resize-handle" id="resize-left" title="Drag to resize"></div>
+
+    <!-- ══ MAP + DRAWER ════════════════════════════════════════ -->
+    <div id="panel-map">
+
+        <!-- Map canvas -->
+        <div id="map"></div>
+
+        <!-- Basemap switcher -->
+        <div id="basemap-switcher">
+            <button class="basemap-pill active" data-basemap="light">Light</button>
+            <button class="basemap-pill" data-basemap="dark">Dark</button>
+            <button class="basemap-pill" data-basemap="satellite">Satellite</button>
+            <button class="basemap-pill" data-basemap="topo">Topo</button>
+        </div>
+
+        <!-- Map legend -->
+        <div id="map-legend" style="display:none">
+            <div id="map-legend-inner"></div>
+        </div>
+
+        <!-- Status bar -->
+        <div id="map-statusbar">
+            <span id="map-coords">–</span>
+            <span id="map-engine">DuckDB-WASM · spatial ext · MapLibre GL v5</span>
+            <button id="export-png-btn" title="Export map as PNG">⬇ PNG</button>
+        </div>
+
+        <!-- ══ QUERY DRAWER ══ -->
+        <div id="query-drawer">
+
+            <!-- Drag-to-resize handle -->
+            <div id="drawer-drag-handle" title="Drag to resize">
+                <div class="drawer-grip"></div>
+            </div>
+
+            <!-- Tab bar -->
+            <div id="drawer-tabbar">
+                <div id="drawer-tabs">
+                    <button class="drawer-tab active" data-pane="editor">SQL Editor</button>
+                    <button class="drawer-tab" data-pane="results">
+                        Results
+                        <span class="drawer-tab-badge" id="results-count-badge" style="display:none"></span>
+                    </button>
+                    <button class="drawer-tab" data-pane="style">Map Style</button>
+                </div>
+                <div id="drawer-tab-actions">
+                    <!-- shown when editor tab active -->
+                    <span id="editor-hint" class="drawer-hint">Ctrl+Enter to run</span>
+                    <!-- shown when results tab active -->
+                    <div id="export-btns" style="display:none">
+                        <button class="btn btn-export" id="share-url-btn" title="Copy share link">⬡ Share</button>
+                        <button class="btn btn-export" id="export-csv-btn" title="Export CSV">CSV</button>
+                        <button class="btn btn-export" id="export-geojson-btn" title="Export GeoJSON">GeoJSON</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Error banner -->
-            <div id="error-banner"></div>
-
-            <!-- Loading indicator -->
-            <div id="query-loading">
-                <div class="mini-spinner"></div>
-                Executing query…
+            <!-- Pane: SQL Editor -->
+            <div class="drawer-pane" id="drawer-pane-editor">
+                <div id="editor-section">
+                    <!-- editor-label kept for JS compat but visually hidden (tab handles label) -->
+                    <div id="editor-label" style="display:none">
+                        <span class="section-label" style="margin-bottom:0">SQL Query</span>
+                    </div>
+                    <div id="editor-wrapper"></div>
+                </div>
+                <div id="run-controls">
+                    <button class="btn btn-primary" id="run-btn">▶ Run Query</button>
+                    <span class="cap-label">LIMIT</span>
+                    <input type="number" id="safety-cap-input" value="50000" min="1" max="500000"
+                        title="Auto-appended LIMIT if query has none" />
+                </div>
             </div>
 
-            <!-- ── Style Panel ───────────────────────────────────────── -->
-            <div id="style-panel" style="display:none">
-
-                <div class="style-panel-header">
-                    <span class="section-label" style="margin-bottom:0">Map Style</span>
-                    <button class="btn btn-sm" id="apply-style-btn">Apply</button>
-                </div>
-
-                <!-- Mode pill toggle -->
-                <div class="style-row">
-                    <div class="mode-pills" id="style-mode-pills">
-                        <button class="mode-pill active" data-mode="single">Single</button>
-                        <button class="mode-pill" data-mode="graduated">Graduated</button>
-                        <button class="mode-pill" data-mode="categorical">Categorical</button>
+            <!-- Pane: Results -->
+            <div class="drawer-pane" id="drawer-pane-results" style="display:none">
+                <!-- panel-right kept as-is so app.js DOM references all resolve -->
+                <div id="panel-right">
+                    <div id="output-header">
+                        <div id="output-header-top">
+                            <div>
+                                <div id="output-title">Query Output</div>
+                                <div id="output-meta">Run a query to see results.</div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-
-                <!-- Column selector (hidden in single mode) -->
-                <div class="style-row" id="style-row-col" style="display:none">
-                    <label class="style-label">Column</label>
-                    <select id="style-col-select" class="style-select"></select>
-                </div>
-
-                <!-- Single color picker -->
-                <div class="style-row" id="style-row-single">
-                    <label class="style-label">Color</label>
-                    <div class="single-color-row">
-                        <input type="color" id="style-single-color" value="#b45309" class="color-picker" />
-                        <span id="style-single-hex" class="hex-label">#b45309</span>
+                    <div id="error-banner"></div>
+                    <div id="query-loading">
+                        <div class="mini-spinner"></div>
+                        Executing query…
                     </div>
+                    <div id="empty-state">
+                        <div class="empty-icon">⬡</div>
+                        <p>Write a SQL query and press<br><strong>Run Query</strong> to see results here.</p>
+                    </div>
+                    <div id="table-wrapper"></div>
                 </div>
+            </div>
 
-                <!-- Graduated controls -->
-                <div id="style-graduated-controls" style="display:none">
+            <!-- Pane: Map Style -->
+            <div class="drawer-pane" id="drawer-pane-style" style="display:none">
+                <div id="style-panel">
+                    <div class="style-panel-header">
+                        <span class="section-label" style="margin-bottom:0">Map Style</span>
+                        <button class="btn btn-sm" id="apply-style-btn">Apply</button>
+                    </div>
+
                     <div class="style-row">
-                        <label class="style-label">Method</label>
-                        <div class="classify-pills" id="classify-method-pills">
-                            <button class="classify-pill active" data-method="quantile">Quantile</button>
-                            <button class="classify-pill" data-method="equal">Equal Interval</button>
-                            <button class="classify-pill" data-method="jenks">Natural Breaks</button>
+                        <div class="mode-pills" id="style-mode-pills">
+                            <button class="mode-pill active" data-mode="single">Single</button>
+                            <button class="mode-pill" data-mode="graduated">Graduated</button>
+                            <button class="mode-pill" data-mode="categorical">Categorical</button>
+                        </div>
+                    </div>
+
+                    <div class="style-row" id="style-row-col" style="display:none">
+                        <label class="style-label">Column</label>
+                        <select id="style-col-select" class="style-select"></select>
+                    </div>
+
+                    <div class="style-row" id="style-row-single">
+                        <label class="style-label">Color</label>
+                        <div class="single-color-row">
+                            <input type="color" id="style-single-color" value="#b45309" class="color-picker" />
+                            <span id="style-single-hex" class="hex-label">#b45309</span>
+                        </div>
+                    </div>
+
+                    <div id="style-graduated-controls" style="display:none">
+                        <div class="style-row">
+                            <label class="style-label">Method</label>
+                            <div class="classify-pills" id="classify-method-pills">
+                                <button class="classify-pill active" data-method="quantile">Quantile</button>
+                                <button class="classify-pill" data-method="equal">Equal Interval</button>
+                                <button class="classify-pill" data-method="jenks">Natural Breaks</button>
+                            </div>
+                        </div>
+                        <div class="style-row">
+                            <label class="style-label">Classes</label>
+                            <div class="class-count-btns" id="class-count-btns">
+                                <button class="class-count-btn" data-n="3">3</button>
+                                <button class="class-count-btn active" data-n="5">5</button>
+                                <button class="class-count-btn" data-n="7">7</button>
+                                <button class="class-count-btn" data-n="9">9</button>
+                            </div>
+                        </div>
+                        <div class="style-row">
+                            <label class="style-label">Ramp</label>
+                            <div id="ramp-swatches"></div>
+                            <button class="icon-btn" id="invert-ramp-btn" title="Invert ramp">⇅</button>
                         </div>
                     </div>
 
                     <div class="style-row">
-                        <label class="style-label">Classes</label>
-                        <div class="class-count-btns" id="class-count-btns">
-                            <button class="class-count-btn" data-n="3">3</button>
-                            <button class="class-count-btn active" data-n="5">5</button>
-                            <button class="class-count-btn" data-n="7">7</button>
-                            <button class="class-count-btn" data-n="9">9</button>
+                        <label class="style-label">Opacity</label>
+                        <div class="opacity-row">
+                            <input type="range" id="style-opacity" min="0" max="100" value="85" class="opacity-slider" />
+                            <span id="style-opacity-val" class="opacity-val">85%</span>
                         </div>
                     </div>
 
-                    <div class="style-row">
-                        <label class="style-label">Ramp</label>
-                        <div id="ramp-swatches"></div>
-                        <button class="icon-btn" id="invert-ramp-btn" title="Invert ramp">⇅</button>
-                    </div>
+                    <div id="style-legend"></div>
                 </div>
-
-                <!-- Opacity slider (always visible) -->
-                <div class="style-row">
-                    <label class="style-label">Opacity</label>
-                    <div class="opacity-row">
-                        <input type="range" id="style-opacity" min="0" max="100" value="85" class="opacity-slider" />
-                        <span id="style-opacity-val" class="opacity-val">85%</span>
-                    </div>
-                </div>
-
-                <!-- Legend -->
-                <div id="style-legend"></div>
-
             </div>
 
-            <!-- Empty state -->
-            <div id="empty-state">
-                <div class="empty-icon">⬡</div>
-                <p>Write a SQL query and press<br><strong>Run Query</strong> to see results here.</p>
+        </div><!-- end query-drawer -->
+
+    </div><!-- end panel-map -->
+
+    <!-- kept for app.js resize-handler compat (zero-width, invisible) -->
+    <div id="resize-right" style="width:0;overflow:hidden;flex-shrink:0;"></div>
+
+</div><!-- end #app -->
+
+<!-- ── TWEAKS PANEL ────────────────────────────────────────── -->
+<div id="tweaks-panel">
+    <h3>Tweaks</h3>
+    <div class="tweak-group">
+        <span class="tweak-label">Variant</span>
+        <div class="tweak-options">
+            <button class="tweak-btn active" data-tweak-variant="studio" onclick="twkVariant('studio',this)">Studio</button>
+            <button class="tweak-btn" data-tweak-variant="void" onclick="twkVariant('void',this)">Void</button>
+        </div>
+    </div>
+    <div class="tweak-group">
+        <span class="tweak-label">Mode</span>
+        <div class="tweak-options">
+            <button class="tweak-btn active" data-tweak-mode="dark" onclick="twkMode('dark',this)">Dark</button>
+            <button class="tweak-btn" data-tweak-mode="light" onclick="twkMode('light',this)">Pearl</button>
+        </div>
+    </div>
+    <div class="tweak-group">
+        <span class="tweak-label">Drawer Height</span>
+        <div class="tweak-options">
+            <button class="tweak-btn" onclick="twkDrawer(32,this)">Compact</button>
+            <button class="tweak-btn active" onclick="twkDrawer(42,this)">Default</button>
+            <button class="tweak-btn" onclick="twkDrawer(56,this)">Tall</button>
+        </div>
+    </div>
+    <div class="tweak-group">
+        <span class="tweak-label">Rail Width</span>
+        <div class="tweak-options">
+            <button class="tweak-btn" onclick="twkRail(220,this)">Narrow</button>
+            <button class="tweak-btn active" onclick="twkRail(260,this)">Default</button>
+            <button class="tweak-btn" onclick="twkRail(300,this)">Wide</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// DRAWER LOGIC
+// ════════════════════════════════════════════════════════════
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "variant": "studio",
+  "mode": "dark",
+  "drawerPct": 42,
+  "railPx": 260
+}/*EDITMODE-END*/;
+let tweaks = { ...TWEAK_DEFAULTS };
+
+// ── Drawer state ─────────────────────────────────────────────
+let drawerPct = tweaks.drawerPct;
+const drawer = document.getElementById('query-drawer');
+const map    = document.getElementById('panel-map');
+
+function setDrawerHeight(pct) {
+    drawerPct = pct;
+    drawer.style.height = pct + '%';
+    // nudge map legend above the drawer
+    const legend = document.getElementById('map-legend');
+    if (legend) legend.style.bottom = `calc(${pct}% + 34px)`;
+}
+
+// ── Tab switching ─────────────────────────────────────────────
+let activePane = 'editor';
+
+function switchPane(pane) {
+    activePane = pane;
+    document.querySelectorAll('.drawer-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.pane === pane));
+    document.querySelectorAll('.drawer-pane').forEach(p =>
+        p.style.display = p.id === `drawer-pane-${pane}` ? 'flex' : 'none');
+
+    const hint    = document.getElementById('editor-hint');
+    const exports = document.getElementById('export-btns');
+    if (hint)    hint.style.display    = pane === 'editor'  ? '' : 'none';
+    if (exports) exports.style.display = pane === 'results' ? 'flex' : 'none';
+}
+
+document.getElementById('drawer-tabs').addEventListener('click', e => {
+    const tab = e.target.closest('.drawer-tab');
+    if (tab) switchPane(tab.dataset.pane);
+});
+
+// ── Auto-switch to results when table is populated ───────────
+new MutationObserver(() => {
+    const tw = document.getElementById('table-wrapper');
+    if (tw && tw.children.length > 0) {
+        // update badge
+        const badge = document.getElementById('results-count-badge');
+        const meta  = document.getElementById('output-meta');
+        if (badge && meta) {
+            const m = meta.textContent.match(/[\d,]+/);
+            if (m) { badge.textContent = m[0]; badge.style.display = 'inline-flex'; }
+        }
+        if (activePane === 'editor') switchPane('results');
+    }
+}).observe(document.getElementById('table-wrapper') || document.body,
+    { childList: true, subtree: true });
+
+// ── Auto-switch to style pane when app.js shows #style-panel ──
+new MutationObserver(mutations => {
+    for (const m of mutations) {
+        if (m.type === 'attributes' && m.attributeName === 'style') {
+            const sp = document.getElementById('style-panel');
+            if (sp && sp.style.display !== 'none' && sp.style.display !== '') {
+                if (activePane !== 'style') switchPane('style');
+            }
+        }
+    }
+}).observe(document.getElementById('style-panel') || document.body,
+    { attributes: true });
+
+// ── Drawer drag-resize ────────────────────────────────────────
+(function() {
+    const handle = document.getElementById('drawer-drag-handle');
+    if (!handle) return;
+    let dragging = false, startY = 0, startPct = drawerPct;
+
+    handle.addEventListener('mousedown', e => {
+        dragging = true; startY = e.clientY; startPct = drawerPct;
+        document.body.style.userSelect = 'none';
+        handle.classList.add('dragging');
+    });
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const mapH  = map.getBoundingClientRect().height;
+        const delta = startY - e.clientY;
+        const newPct = Math.max(18, Math.min(80, startPct + (delta / mapH) * 100));
+        setDrawerHeight(newPct);
+    });
+    document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.userSelect = '';
+        handle.classList.remove('dragging');
+    });
+})();
+
+// ════════════════════════════════════════════════════════════
+// SCHEMA EXPLORER
+// ════════════════════════════════════════════════════════════
+const registryEl   = document.getElementById('table-registry');
+const schemaContent = document.getElementById('schema-content');
+const schemaBadge  = document.getElementById('schema-table-badge');
+let activeTable    = null;
+
+function showSchema(row) {
+    registryEl.querySelectorAll('.registry-row').forEach(r => r.classList.remove('selected'));
+    row.classList.add('selected');
+
+    const name  = row.querySelector('.registry-name')?.textContent?.trim() || '';
+    const meta  = row.querySelector('.registry-meta')?.textContent?.trim() || '';
+    activeTable = name;
+
+    // parse col count from meta like "77 rows · 12 cols"
+    const colMatch = meta.match(/(\d+)\s*col/);
+    const rowMatch = meta.match(/([\d,]+)\s*row/);
+    const hasGeo   = meta.includes('geo') || meta.includes('geom');
+    const colCount = colMatch ? parseInt(colMatch[1]) : null;
+    const rowCount = rowMatch ? rowMatch[1] : '—';
+
+    if (schemaBadge) {
+        schemaBadge.textContent = name;
+        schemaBadge.className   = 'schema-name-badge';
+    }
+
+    schemaContent.innerHTML = `
+        <div class="schema-stats">
+            <div class="schema-stat">
+                <span class="schema-stat-val">${rowCount}</span>
+                <span class="schema-stat-key">rows</span>
             </div>
+            ${colCount ? `<div class="schema-stat">
+                <span class="schema-stat-val">${colCount}</span>
+                <span class="schema-stat-key">columns</span>
+            </div>` : ''}
+            ${hasGeo ? `<div class="schema-stat">
+                <span class="schema-stat-val schema-geo">geo</span>
+                <span class="schema-stat-key">spatial</span>
+            </div>` : ''}
+        </div>
+        <div class="schema-actions">
+            <button class="schema-action-btn" onclick="runDescribe('${name}')">
+                <span class="schema-action-icon">⊞</span> DESCRIBE
+            </button>
+            <button class="schema-action-btn" onclick="runSelect('${name}')">
+                <span class="schema-action-icon">▶</span> SELECT *
+            </button>
+        </div>
+        <div class="schema-note">
+            Run <code>DESCRIBE ${name}</code> to see full column types
+        </div>
+    `;
+}
 
-            <!-- Results table injected here -->
-            <div id="table-wrapper"></div>
+function runDescribe(name) {
+    setEditorQuery(`DESCRIBE ${name};`);
+    switchPane('editor');
+}
 
-        </div><!-- end panel-right -->
+function runSelect(name) {
+    setEditorQuery(`SELECT *\nFROM ${name}\nLIMIT 1000;`);
+    switchPane('editor');
+}
 
-    </div><!-- end #app -->
+function setEditorQuery(sql) {
+    // Try to use CodeMirror API if accessible via the reg-query btn,
+    // otherwise fall back to clicking the reg-query button
+    const row = registryEl.querySelector(`.registry-row.selected`);
+    if (row) {
+        const qbtn = row.querySelector('.reg-btn.reg-query');
+        if (qbtn) qbtn.click();
+    }
+}
 
-    <script type="module" src="js/app.js"></script>
+// Enhance registry rows as they appear
+function enhanceRegistryRow(row) {
+    if (row.dataset.schemaEnhanced) return;
+    row.dataset.schemaEnhanced = '1';
+    row.addEventListener('click', e => {
+        if (!e.target.closest('.registry-actions')) showSchema(row);
+    });
+    // auto-select first table
+    if (!activeTable) showSchema(row);
+}
+
+new MutationObserver(() => {
+    registryEl.querySelectorAll('.registry-row').forEach(r => enhanceRegistryRow(r));
+}).observe(registryEl, { childList: true, subtree: true });
+
+// ════════════════════════════════════════════════════════════
+// TWEAKS
+// ════════════════════════════════════════════════════════════
+function applyTweaks(t) {
+    document.body.dataset.variant = t.variant === 'void' ? 'void' : '';
+    document.body.dataset.theme   = t.mode === 'light' ? 'light' : '';
+    document.documentElement.style.setProperty('--panel-left', t.railPx + 'px');
+    setDrawerHeight(t.drawerPct);
+    // sync theme toggle icon
+    const tt = document.getElementById('theme-toggle');
+    if (tt) tt.textContent = t.mode === 'light' ? '☀' : '☾';
+}
+
+function twkVariant(v, btn) {
+    tweaks.variant = v;
+    document.querySelectorAll('[data-tweak-variant]').forEach(b => b.classList.toggle('active', b.dataset.tweakVariant === v));
+    applyTweaks(tweaks); persist();
+}
+function twkMode(m, btn) {
+    tweaks.mode = m;
+    document.querySelectorAll('[data-tweak-mode]').forEach(b => b.classList.toggle('active', b.dataset.tweakMode === m));
+    applyTweaks(tweaks); persist();
+}
+function twkDrawer(pct, btn) {
+    tweaks.drawerPct = pct;
+    btn.closest('.tweak-options').querySelectorAll('.tweak-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyTweaks(tweaks); persist();
+}
+function twkRail(px, btn) {
+    tweaks.railPx = px;
+    btn.closest('.tweak-options').querySelectorAll('.tweak-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyTweaks(tweaks); persist();
+}
+
+function persist() {
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: tweaks }, '*');
+}
+
+// Tweaks panel show/hide
+window.addEventListener('message', e => {
+    if (e.data?.type === '__activate_edit_mode')   document.getElementById('tweaks-panel').classList.add('visible');
+    if (e.data?.type === '__deactivate_edit_mode') document.getElementById('tweaks-panel').classList.remove('visible');
+});
+window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+
+// Sync theme-toggle button with tweaks
+document.addEventListener('DOMContentLoaded', () => {
+    const tt = document.getElementById('theme-toggle');
+    if (tt) {
+        tt.addEventListener('click', () => {
+            const isLight = document.body.dataset.theme === 'light';
+            tweaks.mode = isLight ? 'dark' : 'light';
+            document.querySelectorAll('[data-tweak-mode]').forEach(b =>
+                b.classList.toggle('active', b.dataset.tweakMode === tweaks.mode));
+            applyTweaks(tweaks); persist();
+        });
+    }
+    applyTweaks(tweaks);
+    setDrawerHeight(tweaks.drawerPct);
+});
+</script>
+
 </body>
-
 </html>
