@@ -79,8 +79,6 @@ let lastMapData = null; // { points, lines, polygons, geojsonFC }
 // Whether a style has been applied (so we can re-apply after basemap switch)
 let styleApplied = false;
 
-// Pending URL state — persists across file uploads until all tables arrive
-let pendingUrlState = null; // { sql, style, tables, hasDemo }
 
 /* ============================================================
    BASEMAP DEFINITIONS
@@ -214,40 +212,19 @@ async function init() {
       updateInitLog('Spatial extension unavailable — geometry queries limited.');
     }
 
-    const urlSql = peekURLSql();
+    // Strip any stale #state= hash from the URL bar
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 
     // Restore session tables first — tables must exist before any query runs
     const { restored, lastSql } = await restoreSession();
 
-    // If URL requires demo data and we don't have it, load it
-    const needsDemo = pendingUrlState?.hasDemo && !loadedTablesMeta.some(t => t.name === 'nepal_districts');
-    if (!restored || needsDemo) {
+    if (!restored) {
       updateInitLog('Loading demo data…');
       await loadDemoData();
     }
 
-    // Check if URL-required tables are available
-    let urlSqlSafe = urlSql;
-    if (urlSql && pendingUrlState?.tables?.length) {
-      const available = new Set(loadedTablesMeta.map(t => t.name));
-      const missing = pendingUrlState.tables.filter(t => !available.has(t));
-      if (missing.length > 0) {
-        console.warn('Shared URL references missing tables:', missing);
-        urlSqlSafe = null;
-        setTimeout(() => {
-          showError(
-            `Shared link needs table(s): ${missing.join(', ')}. ` +
-            `Upload the file(s) — the query will run automatically.`
-          );
-          if (urlSql && editorView) {
-            editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: urlSql } });
-          }
-        }, 300);
-      }
-    }
-
-    // Decide which SQL to run: URL > lastSql > first table > demo default
-    const sqlToRun = urlSqlSafe || lastSql
+    // Decide which SQL to run: lastSql > first table > demo default
+    const sqlToRun = lastSql
       || (loadedTablesMeta.length ? `SELECT * FROM "${loadedTablesMeta[0].name}" LIMIT 100` : null);
 
     if (sqlToRun) {
@@ -725,27 +702,13 @@ async function runQuery() {
       updateOutputHeader(rowCount, elapsed, hasGeometry, mapped);
       // Auto-apply default style immediately after layers are added/updated.
       // Skip only when a URL state is pending — that path applies its own style below.
-      if (!pendingUrlState?.style) {
-        applyStyle(true);
-      }
+      applyStyle();
     } else {
       clearMapLayers();
     }
 
     addToHistory(rawSql, true, rowCount, elapsed);
     await idbPut('state', { key: 'lastQuery', value: rawSql });
-    updateURL();
-
-    // Apply shared URL style if pending
-    if (pendingUrlState?.style && hasGeometry && geojsonColName) {
-      const urlStyle = pendingUrlState.style;
-      pendingUrlState = null;
-      Object.assign(styleSettings, urlStyle);
-      syncStylePanelFromSettings();
-      applyStyle(true);
-    } else if (pendingUrlState && !pendingUrlState.tables?.length) {
-      pendingUrlState = null;
-    }
 
   } catch (err) {
     showError(err.message);
@@ -1508,7 +1471,7 @@ function renderCategoricalLegend(container, col) {
 /* ============================================================
    APPLY STYLE TO MAP
    ============================================================ */
-function applyStyle(silent = false) {
+function applyStyle() {
   if (!map) return;
   styleApplied = true;
   hiddenCategories = new Set();
@@ -1523,7 +1486,6 @@ function applyStyle(silent = false) {
   if (mode === 'single') {
     applySingleStyle(styleSettings.singleColor, opacity);
     renderInteractiveLegend();
-    if (!silent) updateURL();
     return;
   }
 
@@ -1539,7 +1501,6 @@ function applyStyle(silent = false) {
     applyCategoricalStyle(col, opacity);
   }
   renderInteractiveLegend();
-  if (!silent) updateURL();
 }
 
 // Apply or clear a MapLibre filter on all query layers
@@ -2062,7 +2023,7 @@ function switchBasemap(name) {
     map.setProjection({ type: 'globe' });
     if (lastMapData && currentGeomCol) {
       rehydrateMapLayers();
-      if (styleApplied) applyStyle(true); // re-apply style silently
+      if (styleApplied) applyStyle(); // re-apply style silently
     }
   });
 }
@@ -2124,66 +2085,11 @@ function rehydrateMapLayers() {
   });
 }
 
-/* ============================================================
-   URL STATE SHARING
-   ============================================================ */
-function encodeStateToURL() {
-  try {
-    const state = {
-      sql: editorView ? editorView.state.doc.toString() : '',
-      style: { ...styleSettings },
-      tables: loadedTablesMeta.map(t => t.name),
-      hasDemo: loadedTablesMeta.some(t => t.name === 'nepal_districts'),
-    };
-    const json = JSON.stringify(state);
-    const encoded = btoa(unescape(encodeURIComponent(json)));
-    return `${location.origin}${location.pathname}#state=${encoded}`;
-  } catch (e) {
-    console.warn('encodeStateToURL failed:', e);
-    return location.href;
-  }
-}
-
-function updateURL() {
-  try {
-    const state = {
-      sql: editorView ? editorView.state.doc.toString() : '',
-      style: { ...styleSettings },
-      tables: loadedTablesMeta.map(t => t.name),
-      hasDemo: loadedTablesMeta.some(t => t.name === 'nepal_districts'),
-    };
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
-    history.replaceState(null, '', `#state=${encoded}`);
-  } catch (e) { /* silently skip */ }
-}
-
-function peekURLSql() {
-  try {
-    const hash = location.hash;
-    if (!hash.startsWith('#state=')) return null;
-    const encoded = hash.slice(7);
-    const json = decodeURIComponent(escape(atob(encoded)));
-    const state = JSON.parse(json);
-    // Stash full state — style will be applied AFTER runQuery() finishes
-    pendingUrlState = {
-      sql: state.sql || null,
-      style: state.style || null,
-      tables: state.tables || [],
-      hasDemo: !!state.hasDemo,
-    };
-    return state.sql || null;
-  } catch (e) {
-    console.warn('peekURLSql failed:', e);
-    return null;
-  }
-}
-
 function copyShareURL() {
-  const url = encodeStateToURL();
+  const url = `${location.origin}${location.pathname}`;
   navigator.clipboard.writeText(url).then(() => {
     showToast('Link copied to clipboard!');
   }).catch(() => {
-    // Fallback for browsers without clipboard API
     prompt('Copy this link:', url);
   });
 }
@@ -2507,7 +2413,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-btn').addEventListener('click', runQuery);
   document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
   document.getElementById('export-geojson-btn').addEventListener('click', exportGeoJSON);
-  document.getElementById('apply-style-btn').addEventListener('click', () => applyStyle(false));
+  document.getElementById('apply-style-btn').addEventListener('click', () => applyStyle());
   document.getElementById('share-url-btn').addEventListener('click', copyShareURL);
   document.getElementById('export-png-btn').addEventListener('click', exportMapPNG);
   document.getElementById('theme-toggle').addEventListener('click', () => {
