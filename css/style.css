@@ -2119,6 +2119,15 @@ body {
     background: #1f2d3a !important;
 }
 
+/* Dark mode: invert the black SVG icons so they're visible on navy */
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: invert(1) brightness(0.85) !important;
+}
+
+[data-theme="light"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: none !important;
+}
+
 /* MapLibre navigation controls — light */
 [data-theme="light"] .maplibregl-ctrl-group {
     border-color: #d4c5a9 !important;
