@@ -88,7 +88,7 @@ silently.
       `apps/vscode-ext`; record the real `.vsix` size delta in
       `specs/001-quick-look/research.md` §3 and set a CI size-budget check
       (compare against `../omx-viewer`'s ~4.9MB baseline).
-- [ ] T008 Implement the `HostAdapter` interface and its supporting types
+- [X] T008 Implement the `HostAdapter` interface and its supporting types
       (`OpenedFileRef`) in `packages/core/src/hostAdapter.ts`, matching
       `contracts/host-adapter.md` exactly (interface + types only — no
       platform implementation here).
@@ -97,14 +97,14 @@ silently.
       spatial extension loaded from a bundled/local path (not the default CDN)
       per `research.md` §3. Depends on T005 and T006's confirmed approach —
       do not write this against assumed-working behavior.
-- [ ] T010 [P] Implement the CRS helper in `packages/core/src/crs.ts`:
+- [X] T010 [P] Implement the CRS helper in `packages/core/src/crs.ts`:
       `ST_Transform` to EPSG:4326 for display, preserving the original source
       CRS label (FR-007), plus the WGS84-assumed-and-disclosed path (FR-015).
-- [ ] T011 [P] Implement the `Layer`, `Feature`, `ViewerSession`, `CrsInfo`
+- [X] T011 [P] Implement the `Layer`, `Feature`, `ViewerSession`, `CrsInfo`
       types and the `loadState` transitions from `data-model.md` in
       `packages/core/src/models.ts`, including `Layer.featureCount` and
       `Layer.invalidGeometryCount` as independent fields (FR-012, FR-014).
-- [ ] T012 [P] Implement the basemap catalog data module in
+- [X] T012 [P] Implement the basemap catalog data module in
       `packages/core/src/basemapCatalog.ts`: the 5 OpenFreeMap styles plus a
       `blank` entry (id/name/type/url template/attribution/requiresKey/region
       shape per CLAUDE.md) — enough rows for US4's default+off behavior; the

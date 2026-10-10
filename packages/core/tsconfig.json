@@ -18,7 +18,8 @@
     "allowSyntheticDefaultImports": true,
     "sourceMap": true,
     "baseUrl": ".",
-    "ignoreDeprecations": "6.0"
+    "ignoreDeprecations": "6.0",
+    "types": ["geojson"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]
