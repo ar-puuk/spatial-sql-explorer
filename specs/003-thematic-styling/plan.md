@@ -35,7 +35,7 @@ MapLibre expression coercions. The result changed two spec details; see
   installed with MapLibre and added explicitly to `tests/core`, to evaluate
   the generated expressions in unit tests.
 - **Data**: ColorBrewer color specs (Apache-2.0, notice) and the Viridis,
-  Cividis and Magma anchors (CC0).
+  Plasma and Magma anchors (CC0).
 
 **Storage**:
 - The style: the QML sidecar, by explicit Save, as in spec 001.

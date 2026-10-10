@@ -58,11 +58,14 @@ Workflow).
 
 **Purpose**: test tooling, fixtures and licenses that every story needs.
 
-- [ ] T001 Add `@maplibre/maplibre-gl-style-spec` as a devDependency of `tests/core/package.json`, pinned to the installed version (26.4.4). Run `npm install`. Confirm `import { expression } from '@maplibre/maplibre-gl-style-spec'` works in a throwaway Vitest file, then delete that file.
-- [ ] T002 [P] Create `tests/core/fixtures/style/` with:
+- [X] T001 Add `@maplibre/maplibre-gl-style-spec` as a devDependency of `tests/core/package.json`, pinned to the installed version (26.4.4). Run `npm install`. Confirm `import { expression } from '@maplibre/maplibre-gl-style-spec'` works in a throwaway Vitest file, then delete that file.
+  - *Done*: pinned 26.4.4 (exact); a throwaway Vitest file confirmed createExpression works, then was deleted.
+- [X] T002 [P] Create `tests/core/fixtures/style/` with:
   - copies of `specs/003-thematic-styling/spikes/{categorized.qml,graduated.qml,values.json,qgis-breaks.json}`;
   - a `README.md` saying that the QML files and breaks were written by QGIS 4.2.3 via PyQGIS, and how to regenerate them (the spike script is `research.md` §1–§3).
-- [ ] T003 [P] Add the ColorBrewer (Apache-2.0, © Cynthia Brewer, Mark Harrower and The Pennsylvania State University) and Viridis/Cividis/Magma (CC0) entries to `THIRD-PARTY-NOTICES.md`, under a new "Color data" section.
+  - *Done*: 4 fixtures + README in tests/core/fixtures/style/.
+- [X] T003 [P] Add the ColorBrewer (Apache-2.0, © Cynthia Brewer, Mark Harrower and The Pennsylvania State University) and Viridis/Plasma/Magma (CC0) entries to `THIRD-PARTY-NOTICES.md`, under a new "Color data" section.
+  - *Done*: added a 'Color data' section. Cividis was swapped for Plasma, since the license of all three perceptual ramps must be CC0 (Cividis's provenance is matplotlib or its paper); plan, research and tasks updated.
 
 ---
 
@@ -98,7 +101,7 @@ spec 001.
   - `rampsFor('graduated')` holds only sequential and diverging ramps, and `rampsFor('categorized')` only qualitative palettes.
 - [ ] T008 Implement `packages/core/src/style/ramps.ts` per research §6:
   - `RAMPS` holds:
-    - Sequential: Viridis (graduated default), Cividis, Magma, and Brewer Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu.
+    - Sequential: Viridis (graduated default), Plasma, Magma, and Brewer Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu.
     - Diverging: Brewer RdBu, RdYlBu, BrBG, PiYG, Spectral.
     - Qualitative: Brewer Set2 (default up to 8), Dark2, Set1, Paired (default for 9–12).
   - `rampColors()` uses ColorBrewer's n-class lists where they exist and Lab interpolation otherwise.

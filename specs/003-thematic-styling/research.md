@@ -190,7 +190,7 @@ first page, and for DECIMAL-as-string.
 **Decision**: a fixed catalog as **data** (`style/ramps.ts`: id, name,
 kind, colors), in the same spirit as the basemap catalog.
 
-- **Sequential**: Viridis (default for Graduated), Cividis, Magma, plus
+- **Sequential**: Viridis (default for Graduated), Plasma, Magma, plus
   ColorBrewer Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu.
 - **Diverging**: ColorBrewer RdBu, RdYlBu, BrBG, PiYG, Spectral.
 - **Qualitative**: ColorBrewer Set2 (default for Categorized up to 8
@@ -204,7 +204,7 @@ repeat in order, with a notice in the panel.
 - Sequential and diverging ramps are sampled to the class count. For
   ColorBrewer, its own n-class definitions are used, up to its maximum,
   then interpolated in Lab space.
-- Viridis, Cividis and Magma are stored as 11 anchor colors and
+- Viridis, Plasma and Magma are stored as 11 anchor colors and
   interpolated.
 
 **"Other" and "No value"**: neutral grays, `#bdbdbd` and `#8c8c8c`,
@@ -213,7 +213,7 @@ outside every palette.
 **Licenses**:
 - ColorBrewer color specifications are Apache-2.0 (Cynthia Brewer, Penn
   State). The notice goes in THIRD-PARTY-NOTICES. They are data, not code.
-- Viridis, Magma and Cividis are CC0.
+- Viridis, Magma and Plasma are CC0.
 
 **Readability on both basemaps (FR-008)**:
 - The polygon outline (the shared symbol settings) separates pale

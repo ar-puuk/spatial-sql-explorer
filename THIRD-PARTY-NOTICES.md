@@ -2603,6 +2603,22 @@ THE SOFTWARE.
 
 ---
 
+## Color data (thematic styling ramps)
+
+The color ramps in `packages/core/src/style/ramps.ts` are data, not code.
+
+- **ColorBrewer** color specifications. Copyright (c) 2002 Cynthia Brewer,
+  Mark Harrower, and The Pennsylvania State University. Licensed under the
+  Apache License, Version 2.0 (the full text appears above, under Apache
+  Arrow). Used: Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu,
+  RdBu, RdYlBu, BrBG, PiYG, Spectral, Set1, Set2, Dark2, Paired.
+  https://colorbrewer2.org
+- **Viridis, Magma and Plasma** colormaps, by Stéfan van der Walt and
+  Nathaniel Smith. Released to the public domain under CC0 1.0.
+  https://bids.github.io/colormap/
+
+---
+
 ## Fetched at runtime, not bundled
 
 These are downloaded by the running app and are not redistributed with it.
