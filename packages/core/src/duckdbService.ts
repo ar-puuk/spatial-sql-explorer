@@ -96,6 +96,35 @@ export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection): 
   await conn.query('LOAD spatial;')
 }
 
+/** Every source file is registered under this directory (spec 002 research §2). */
+export const SOURCE_DIR = '/se-source/'
+
+/**
+ * Engine lockdown, applied once per instance right after spatial loads
+ * (spec 002, FR-013 / Constitution IV). Users can type arbitrary SQL from
+ * spec 002 on, so the engine itself must refuse anything outside the source
+ * files, whatever the statement allowlist lets through:
+ * - Only SOURCE_DIR is readable: no other virtual files, no URLs, no path
+ *   traversal (verified).
+ * - No more extension loading.
+ * - Configuration locked, so none of this can be SET back.
+ * Verified on DuckDB-WASM 1.32.0 (DuckDB v1.4.3): spatial stays usable, and
+ * GDAL can still probe sibling files (`/se-source/name.*`) for shapefiles.
+ * Order matters: allowed_directories must be set before access is disabled,
+ * and both before the configuration is locked.
+ */
+async function lockDown(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
+  // Extensions DuckDB would otherwise autoload on first use must be loaded
+  // now: after the lockdown, autoloading is refused. `parquet` is
+  // autoloaded by read_parquet() (GeoParquet, FR-018), and the
+  // format-matrix suite failed without this.
+  await conn.query('INSTALL parquet')
+  await conn.query('LOAD parquet')
+  await conn.query(`SET allowed_directories = ['${SOURCE_DIR}']`)
+  await conn.query('SET enable_external_access = false')
+  await conn.query('SET lock_configuration = true')
+}
+
 let sharedDb: Promise<duckdb.AsyncDuckDB> | null = null
 
 /**
@@ -119,6 +148,7 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
         const conn = await db.connect()
         try {
           await loadSpatialExtension(conn)
+          await lockDown(conn)
         } finally {
           await conn.close()
         }

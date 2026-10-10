@@ -11,7 +11,7 @@
 
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
-import { getDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { getDuckDb, SOURCE_DIR, type DuckDbAssetUrls } from './duckdbService.js'
 import { sidecarStyleFileName } from './style/index.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import {
@@ -86,7 +86,7 @@ function takeStyleSidecar(
 async function registerSourceFiles(db: AsyncDuckDB, files: Record<string, ArrayBuffer>): Promise<string[]> {
   const paths: string[] = []
   for (const [name, bytes] of Object.entries(files)) {
-    const path = `/tmp/${name}`
+    const path = `${SOURCE_DIR}${name}`
     await db.registerFileBuffer(path, new Uint8Array(bytes))
     paths.push(path)
   }
@@ -340,7 +340,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
 
   try {
     registered = await registerSourceFiles(db, dataFiles)
-    const vfsPath = `/tmp/${source.primaryFileName}`
+    const vfsPath = `${SOURCE_DIR}${source.primaryFileName}`
     materialized = source.totalBytes <= MATERIALIZE_MAX_BYTES
     const read = await buildFromExpr(conn, strategy, vfsPath, materialized)
     const { fromExpr, geomExpr: rawGeomExpr } = read

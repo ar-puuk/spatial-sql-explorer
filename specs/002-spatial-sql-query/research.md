@@ -69,6 +69,15 @@ The lockdown alone is not enough (INSTALL, ATTACH, and COPY into the
 allowed directory get through), and the allowlist alone is a parser that
 could have gaps. Together, each covers the other's holes.
 
+**Implementation finding (T008)**: DuckDB **autoloads** some extensions on
+first use, e.g. `parquet` on the first `read_parquet()`. The lockdown
+correctly refuses that autoload ("Extension Autoloading Error"), and the
+spec 001 format matrix failed for all three Parquet fixtures. `parquet` is now
+installed and loaded explicitly before the lockdown. Any other
+autoload-dependent function a user calls (e.g. from `json` or `icu`) fails
+with the engine's clear autoloading message rather than silently going to
+the network. That is accepted, and listed for review if users hit it.
+
 **Alternatives considered**:
 - `allowed_paths = ['/se-source/<file>']`. Fails, because GDAL opens
   `/se-source/<name>.*` to look for sidecar files.

@@ -114,11 +114,12 @@ checkpoint.
 
   Update `specs/001-quick-look/contracts/host-adapter.md` to point to the delta. Typecheck all workspaces.
   Verified: all workspaces typecheck. The VS Code `stateKey` falls back to the file name if the URI hasn't arrived yet; it always arrives with `assets`, before `openFiles` resolves.
-- [ ] T008 Add the engine lockdown in `packages/core/src/duckdbService.ts` (research §2):
+- [X] T008 Add the engine lockdown in `packages/core/src/duckdbService.ts` (research §2):
   - Inside `getDuckDb`, after `LOAD spatial` on the init connection, run `SET allowed_directories = ['/se-source/']`, then `SET enable_external_access = false`, then `SET lock_configuration = true`.
   - Export `SOURCE_DIR = '/se-source/'`.
   - In `packages/core/src/openFile.ts`, register every source file under `SOURCE_DIR` instead of `/tmp/` (registration API calls are not affected by the lockdown).
   - Run `npm run test:web` and `npm run test:vscode-ext`; they must still pass: all formats, including shapefile sidecars and GML.
+  Verified: web 12/12, VS Code 20/20. The first run failed for the 3 Parquet cases because the `parquet` extension autoload was blocked; fixed by loading parquet before the lockdown (research §2).
 - [ ] T009 Add the query data types to `packages/core/src/models.ts`, per `data-model.md`:
   - `QueryableTable`, `QueryResult`, `ResultCrsSource`, `QueryHistoryEntry`, `CatalogSnapshot`.
   - `Layer.rowCount: number` (all rows, including invalid geometry).
