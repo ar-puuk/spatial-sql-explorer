@@ -217,7 +217,10 @@ confirm all three are in the history and can be loaded into the editor.
   functions, file paths, formats). The name MUST be shown in the query area.
 - **FR-003**: When a file opens, the editor MUST contain the default query
   that produced the initial view: all columns of the file's table, limited
-  to 1,000 rows. Its result MUST be identical to spec 001's initial view.
+  to 1,000 rows. Its result MUST match spec 001's initial view in mapped
+  features, columns and order. Rows with invalid or missing geometry also
+  appear in the table, skipped on the map with a count (amended during
+  planning; see plan.md).
 - **FR-004**: Users MUST be able to run the current query with
   Ctrl+Enter (Cmd+Enter on macOS) and with a visible Run control. When text
   is selected, only the selection runs. Otherwise the statement under the
@@ -312,8 +315,9 @@ confirm all three are in the history and can be loaded into the editor.
 - **SC-001**: For a ~10 MB file, a filtering query returning up to 1,000
   rows shows its result on the map and in the table within 1 second of
   running it.
-- **SC-002**: The default query's result is identical to spec 001's initial
-  view (same rows, same columns, same order) for every supported format.
+- **SC-002**: For every supported format, the default query's mapped
+  features, columns and order are identical to spec 001's initial view.
+  Rows with invalid geometry are additionally listed in the table.
 - **SC-003**: 100% of invalid queries in a test set (syntax errors, unknown
   columns, unknown tables, unknown functions, type errors) produce a message
   naming the specific problem, and none blanks or breaks the viewer.
