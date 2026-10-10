@@ -11,6 +11,7 @@
 // duckdbService.ts (T009) must reuse this same technique.
 
 import * as duckdb from '@duckdb/duckdb-wasm'
+import { createDuckDb, loadSpatialExtension } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -113,110 +114,22 @@ async function runWorkerBootstrapSpike(
   duckdbWasmUrl: string,
   fixtureUris: Record<string, string>
 ): Promise<void> {
-  // A classic `new Worker(asWebviewUriString)` throws a SecurityError: the
-  // webview document's origin (vscode-webview://<uuid>) differs from where
-  // VS Code serves local resources (vscode-resource.vscode-cdn.net), and
-  // browsers require same-origin (or blob:/data:) for Worker construction.
-  // The standard workaround: fetch the script's source as text (allowed —
-  // our CSP's connect-src includes ${csp}, the webview's own resource
-  // origin) and construct the Worker from a blob: URL instead, which browsers
-  // always treat as same-origin-safe. See research.md §4.
-  const SPIKE_WASM_URL = 'https://spike-wasm.invalid/duckdb-eh.wasm'
-  let worker: Worker
+  // T009: this now exercises the REAL, shared packages/core/src/duckdbService.ts
+  // (not an inline duplicate of the spike logic) — see that file's doc
+  // comment, and research.md §4, for the full root-cause story: a classic
+  // `new Worker(asWebviewUriString)` throws a SecurityError in a VS Code
+  // webview (origin mismatch), and a worker's own `fetch()` of anything never
+  // reliably completes here either, so `createDuckDb()` fetches both the
+  // worker script and wasm module as bytes on this thread and patches the
+  // worker's own `self.fetch` to resolve its one wasm-module request locally.
   try {
-    post({ type: 'log', detail: 'fetching worker script…' })
-    const scriptText = await (await fetch(duckdbWorkerUrl)).text()
-    post({ type: 'log', detail: `fetched worker script (${scriptText.length} bytes), constructing blob Worker…` })
-    // Root cause (see research.md §4, traced through DuckDB-WASM's own
-    // source maps + confirmed by diagnostics): ANY network request a Worker
-    // in this webview makes for a `vscode-resource.vscode-cdn.net` /
-    // asWebviewUri URL simply never completes (no error, no response —
-    // VS Code's resource virtualization appears wired up only for the main
-    // frame, not dedicated Workers), and separately, a Worker's `fetch()` of
-    // a *different-realm* `blob:` URL fails immediately, while a *same-realm*
-    // blob fetched via XHR fails with a generic, unhelpful ProgressEvent
-    // error. None of the three "let the worker fetch something itself"
-    // strategies work. The robust fix: never let the worker do its own
-    // network fetch at all. The MAIN thread fetch of the asWebviewUri already
-    // works perfectly (proven: 41MB in well under a second) — so intercept
-    // `self.fetch` *inside* the worker (patched onto its script before
-    // blobbing it) to resolve the one URL DuckDB-WASM asks for directly from
-    // bytes delivered via `postMessage`, with a clean, correctly-content-typed
-    // Response object. This also sidesteps the two real DuckDB-WASM bugs
-    // found during this investigation: `instantiateStreaming`'s progress-path
-    // reconstructs the fetch Response via `new Response(body, response)`
-    // (not a valid ResponseInit shape — can silently drop the
-    // `Content-Type: application/wasm` header instantiateStreaming requires)
-    // and its whole `.then(success)` chain has no `.catch()` at all, so any
-    // rejection is swallowed — our Response always succeeds and is clean, so
-    // neither bug is ever triggered.
-    const patchedScript = `self.TransformStream = undefined;
-const __spikeWasmBytesPromise = new Promise((resolve) => {
-  self.addEventListener('message', function handler(e) {
-    if (e && e.data && e.data.__spikeWasmBytes) {
-      self.removeEventListener('message', handler);
-      resolve(e.data.__spikeWasmBytes);
-    }
-  });
-});
-const __origFetch = self.fetch.bind(self);
-self.fetch = async (input, init) => {
-  const url = typeof input === 'string' ? input : input.url;
-  if (url && url.indexOf('${SPIKE_WASM_URL}') !== -1) {
-    const bytes = await __spikeWasmBytesPromise;
-    return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/wasm' } });
-  }
-  // Note (T007 investigation): LOAD spatial's extension download does NOT
-  // pass through this override at all (confirmed by adding and then
-  // removing logging here) — extension loading is handled by a lower-level
-  // mechanism inside the compiled Emscripten/WASM runtime itself, not a
-  // JS-level self.fetch call. So this override only ever needs to handle
-  // the core module URL above; the extension file's exact size could not be
-  // measured this way — see research.md §3.
-  return __origFetch(input, init);
-};
-${scriptText}
-`
-    const blobUrl = URL.createObjectURL(new Blob([patchedScript], { type: 'application/javascript' }))
-    worker = new Worker(blobUrl)
-    post({ type: 'log', detail: 'blob Worker constructed OK (patched)' })
-  } catch (err) {
-    post({ type: 'spikeResult', ok: false, stage: 'new Worker() via blob', detail: String(err) })
-    return
-  }
-
-  worker.addEventListener('error', (e) => {
-    post({ type: 'log', detail: `worker error event: ${e.message}` })
-  })
-  worker.addEventListener('message', (e) => {
-    post({ type: 'log', detail: `worker message: ${JSON.stringify(e.data).slice(0, 300)}` })
-  })
-
-  try {
-    // Fetch the wasm bytes on the main thread — this demonstrably works
-    // (41MB, well under a second via asWebviewUri). The worker NEVER fetches
-    // anything itself; it receives these bytes via postMessage and its
-    // patched self.fetch override (see above) resolves DuckDB-WASM's own
-    // internal fetch(SPIKE_WASM_URL) call from them directly.
-    post({ type: 'log', detail: 'fetching wasm module…' })
+    post({ type: 'log', detail: 'running pre-flight WASM diagnostics…' })
     const wasmBytes = await (await fetch(duckdbWasmUrl)).arrayBuffer()
-    post({ type: 'log', detail: `fetched wasm module (${wasmBytes.byteLength} bytes), running diagnostics…` })
     const wasmBlobUrl = URL.createObjectURL(new Blob([wasmBytes], { type: 'application/wasm' }))
     await runWasmDiagnostics(wasmBytes, wasmBlobUrl)
 
-    post({ type: 'log', detail: 'delivering wasm bytes to the worker via postMessage…' })
-    worker.postMessage({ __spikeWasmBytes: wasmBytes.slice(0) })
-
-    const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
-    const db = new duckdb.AsyncDuckDB(logger, worker)
-    post({ type: 'log', detail: `instantiating DuckDB-WASM (worker's fetch() is patched to resolve locally)…` })
-    const timeoutMs = 15000
-    await Promise.race([
-      db.instantiate(SPIKE_WASM_URL),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`db.instantiate() did not resolve within ${timeoutMs}ms`)), timeoutMs)
-      ),
-    ])
+    post({ type: 'log', detail: 'creating DuckDB-WASM via packages/core/duckdbService…' })
+    const db = await createDuckDb({ workerUrl: duckdbWorkerUrl, wasmUrl: duckdbWasmUrl })
     post({ type: 'log', detail: 'DuckDB-WASM instantiated OK, connecting…' })
 
     const conn = await db.connect()
@@ -236,7 +149,6 @@ ${scriptText}
 
     await conn.close()
     await db.terminate()
-    worker.terminate()
   } catch (err) {
     post({ type: 'spikeResult', ok: false, stage: 'instantiate-or-query', detail: String(err) })
   }
@@ -270,8 +182,7 @@ async function runFormatSupportSpike(
 
   results.push(
     await reportFormat('spatial extension LOAD', async () => {
-      await conn.query(`INSTALL spatial;`)
-      await conn.query(`LOAD spatial;`)
+      await loadSpatialExtension(conn)
       return 'spatial extension installed and loaded'
     })
   )

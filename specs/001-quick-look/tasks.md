@@ -127,11 +127,26 @@ silently.
       (`OpenedFileRef`) in `packages/core/src/hostAdapter.ts`, matching
       `contracts/host-adapter.md` exactly (interface + types only — no
       platform implementation here).
-- [ ] T009 Implement the DuckDB-WASM bootstrap service in
-      `packages/core/src/duckdbService.ts`: single-threaded `eh` bundle (switched from `mvp` per T006's findings — see research.md §1),
-      spatial extension loaded from a bundled/local path (not the default CDN)
-      per `research.md` §3. Depends on T005 and T006's confirmed approach —
-      do not write this against assumed-working behavior.
+- [X] T009 Implemented the DuckDB-WASM bootstrap service in
+      `packages/core/src/duckdbService.ts`: single-threaded `eh` bundle
+      (switched from `mvp` per T006's findings — research.md §1), reusing the
+      exact `self.fetch`-interception technique T005 proved (never let the
+      worker fetch anything itself; fetch worker script + wasm bytes on the
+      calling thread, construct the worker from a same-realm `blob:` URL,
+      patch its `self.fetch` to resolve the one wasm-module request from
+      `postMessage`-delivered bytes). `loadSpatialExtension()` loads the
+      spatial extension over the **real CDN**, not a bundled/local path —
+      T007 found extension loading bypasses JS-level `fetch()` entirely
+      (handled inside the compiled Emscripten/WASM runtime), so the
+      bundle-and-serve-locally approach proven for the core module does not
+      directly apply; CLAUDE.md already permits network use for the spatial
+      extension "if needed", so this is a considered interim decision, not a
+      principle violation — see `research.md` §3. **Re-verified working for
+      real**: `apps/vscode-ext/src/webview/main.ts` now calls this shared
+      service (not an inline duplicate), and
+      `npm run test --workspace=tests/vscode-ext` still passes identically
+      (2/2), confirming the extracted service behaves exactly like the
+      proven spike code.
 - [X] T010 [P] Implement the CRS helper in `packages/core/src/crs.ts`:
       `ST_Transform` to EPSG:4326 for display, preserving the original source
       CRS label (FR-007), plus the WGS84-assumed-and-disclosed path (FR-015).

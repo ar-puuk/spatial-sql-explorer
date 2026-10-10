@@ -144,15 +144,14 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<!-- connect-src widened to https: for the T006 format-support spike only,
-     to test whether a worker's fetch of a REAL internet host (the DuckDB
-     extension CDN) hits the same "worker fetch never completes" limitation
-     found for VS Code's own vscode-resource.vscode-cdn.net virtual host
-     (research.md §4), or whether that limitation is specific to VS Code's
-     custom protocol interception. Narrow this back down once T006 is
-     resolved and the extension delivery decision (research.md §3: bundle,
-     don't rely on CDN) is implemented for real. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https:; img-src ${csp} data:; font-src ${csp};">
+<!-- connect-src allows extensions.duckdb.org: T007/T009 found extension
+     loading bypasses JS-level fetch() entirely (handled inside the compiled
+     Emscripten/WASM runtime), so the spatial extension is loaded from the
+     real CDN rather than bundled locally -- a considered, final decision
+     (research.md §3), not a temporary widening. Extend this list later for
+     basemap tile/style/sprite/glyph hosts per CLAUDE.md's basemap CSP notes
+     (spec 004). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org; img-src ${csp} data:; font-src ${csp};">
 <title>Spatial Explorer</title>
 </head>
 <body>

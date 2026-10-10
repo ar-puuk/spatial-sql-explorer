@@ -208,11 +208,24 @@ the slice's own clarified scope (small files) doesn't need yet.
 
 ## 3. Spatial extension delivery (bundled vs. CDN) and VSIX size
 
-**Decision**: Bundle the DuckDB spatial extension's `.duckdb_extension` wasm
-file inside the VSIX and serve it via a webview-local resource URI (not the
-default CDN fetch), so the extension works offline and under restrictive CSP
-(`connect-src`) / air-gapped environments, consistent with the Local-First
-principle.
+**Decision (REVISED by T007/T009 — see "T007 resolution" and T009's entry in
+`tasks.md`)**: the original plan below (bundle the extension, serve it
+locally) does **not** work the way it does for the core wasm module —
+extension loading bypasses JS-level `fetch()` entirely, handled inside the
+compiled Emscripten/WASM runtime, so there is no interception point to serve
+local bytes from. **Final decision: load the spatial extension from the real
+CDN** (`extensions.duckdb.org`, confirmed working when CSP `connect-src`
+allows it), accepting the network dependency. This is consistent with
+CLAUDE.md's existing allowance ("Network is used only for basemaps and, if
+needed, the DuckDB spatial extension") — it is a considered interim decision
+given what was actually found to work, not a Local-First principle
+violation. The original rationale is kept below as the investigation record.
+
+**Original decision (superseded)**: Bundle the DuckDB spatial extension's
+`.duckdb_extension` wasm file inside the VSIX and serve it via a
+webview-local resource URI (not the default CDN fetch), so the extension
+works offline and under restrictive CSP (`connect-src`) / air-gapped
+environments, consistent with the Local-First principle.
 
 **Rationale**:
 - DuckDB-WASM's extension loading model: `INSTALL` is a no-op (no durable
