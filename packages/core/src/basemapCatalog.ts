@@ -14,6 +14,12 @@ export interface BasemapCatalogEntry {
   region: string
   /** Which host theme kind this entry is the default for, if any. */
   defaultFor?: 'light' | 'dark'
+  /**
+   * Picker preview (CLAUDE.md: "background color first, then a snapshot"):
+   * the style's own background and water colors, read from the published
+   * style JSON. Null for the blank entry, which previews as the host background.
+   */
+  preview: { land: string; water: string } | null
 }
 
 export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
@@ -25,6 +31,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '',
     requiresKey: false,
     region: 'global',
+    preview: null,
   },
   {
     id: 'openfreemap-positron',
@@ -34,6 +41,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
+    preview: { land: '#f2f3f0', water: '#c2c8ca' },
     defaultFor: 'light',
   },
   {
@@ -44,6 +52,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
+    preview: { land: '#f8f4f0', water: '#9ebdff' },
   },
   {
     id: 'openfreemap-bright',
@@ -53,6 +62,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
+    preview: { land: '#f8f4f0', water: '#aecfe2' },
   },
   {
     id: 'openfreemap-dark',
@@ -62,6 +72,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
+    preview: { land: '#0c0c0c', water: '#1b1b1d' },
     defaultFor: 'dark',
   },
   {
@@ -72,6 +83,7 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
+    preview: { land: '#45516e', water: '#38435c' },
   },
 ]
 

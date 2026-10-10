@@ -16,7 +16,8 @@ out/
 apps/web/public/duckdb/
 apps/web/public/maplibre/
 
-# Playwright test output
+# Playwright test output + scripts/screenshots.mjs output
+screenshots/
 test-results/
 playwright-report/
 

@@ -22,7 +22,9 @@
 
   --se-text-primary: #1c1208;
   --se-text-secondary: #6b5e4a;
-  --se-text-muted: #a8977a;
+  /* Muted text darkened from the brand's #a8977a to meet WCAG AA (4.5:1) on
+     white and cream (T045 axe audit). */
+  --se-text-muted: #716250;
   --se-accent: #b45309;
   --se-focus: #b45309;
   --se-info: #0369a1;
@@ -60,7 +62,7 @@
   --se-row-height: 26px;
   --se-table-bg: #ffffff;
   --se-table-header-bg: #f8f4ec;
-  --se-table-header-fg: #a8977a;
+  --se-table-header-fg: #6b5e4a; /* brand spec's #a8977a fails AA contrast */
   --se-table-header-border: 2px solid #b8a88a;
   --se-table-header-font: 600 10px var(--se-font-mono);
   --se-table-header-transform: uppercase;
@@ -105,6 +107,7 @@
   --se-statusbar-accent: #fbbf24;
 
   /* Web-shell-only chrome */
+  --se-brand-text: #92400e; /* amber-800: the brand amber at AA contrast on the header */
   --se-header-bg: #f2ece0;
   --se-header-border: #d4c5a9;
   --se-dropzone-border: #d4c5a9;
@@ -123,7 +126,7 @@
 
     --se-text-primary: #f0ebe0;
     --se-text-secondary: #8a98a8;
-    --se-text-muted: #5d6e80;
+    --se-text-muted: #7f90a3;
     --se-accent: #fbbf24;
     --se-focus: #fbbf24;
     --se-info: #60a5fa;
@@ -184,6 +187,7 @@
     --se-statusbar-fg: #8a98a8;
     --se-statusbar-border: #253545;
 
+    --se-brand-text: #fbbf24;
     --se-header-bg: #131e28;
     --se-header-border: #253545;
     --se-dropzone-border: #2f4258;

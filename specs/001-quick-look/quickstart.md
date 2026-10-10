@@ -86,9 +86,54 @@ npm run build --workspace=packages/ui
 
 ## Definition of done for this quickstart
 
-- [ ] All five scenarios pass in both the VS Code extension and the web app
-      (SC-006).
-- [ ] SC-001 (small file, <2s to render) and SC-003 (CRS/count/type visible
+- [X] All five scenarios pass in both the VS Code extension and the web app
+      (SC-006). See "Results" below.
+- [X] SC-001 (small file, <2s to render) and SC-003 (CRS/count/type visible
       within 2s) measured, not just eyeballed.
-- [ ] Spike 1's T001 per-format results are recorded in `research.md` and the
-      format list actually exercised here matches what T001 confirmed.
+- [X] Spike 1's T001 per-format results are recorded in `research.md` and the
+      format list actually exercised here matches what T001 confirmed. The
+      end-to-end format matrix found and fixed two formats the spike had
+      passed (GeoParquet, GML); see research.md §9.
+
+## Results (T044 / T046, 2026-10-10)
+
+To re-run: `npm run test:core`, `npm run test:web`, and
+`npm run test:vscode-ext` (close other VS Code windows first). For a visual
+check of the real extension and web app, run `npm run screenshots`.
+
+### Scenarios
+
+| Scenario | VS Code extension | Web app |
+|---|---|---|
+| 1. Open a file; map fit and table; selection sync both ways; corrupt file gives a specific error | ✅ T014–T016 (`open-file*.test.ts`, `selection-sync.test.ts`); fit and sync confirmed in screenshots | ✅ `open-file.spec.ts`, `click-inspect.spec.ts` |
+| 2. Web: open via picker or drop; empty state | n/a | ✅ `open-file.spec.ts`, `empty-state.spec.ts` |
+| 3. Non-WGS84 CRS reported and reprojected; live cursor; WGS84-assumed disclosure | ✅ T034 (`open-file-crs.test.ts`, UTM 12N GeoPackage and GeoParquet); cursor in the native status bar (screenshot) | ✅ status bar (screenshots); same core code path |
+| 4. Theme-matched basemap; live theme switch; basemap off; offline falls back to blank with a message | ✅ `host-integration.test.ts`: Dark → Light → High Contrast while open | ✅ `basemap.spec.ts`: light/dark default; Blank and its remembered color; blocked basemap falls back to blank with a message, data intact |
+| 5. Click a feature to see its attributes | ✅ inspector confirmed in screenshots; T015 covers the selection path | ✅ `click-inspect.spec.ts` |
+
+Edge cases: zero features, mixed geometry and invalid geometries (T017). A
+multi-layer GeoPackage opens only its first layer, and every claimed format
+opens (`format-matrix.test.ts`, SC-002).
+
+### Timings (SC-001 / SC-003 / SC-004)
+
+Test file: a generated ~10.4 MB GeoJSON (22,000 polygons, 6 attributes).
+Map-side numbers come from headless Chromium with SwiftShader (software
+WebGL), so they are pessimistic compared with a real GPU.
+
+| Measure | Target | Web (warm) | Web (cold) | VS Code |
+|---|---|---|---|---|
+| SC-001: file chosen → rendered on map | < 2 s | **1.20 s** | 2.80 s | **1.64 s** (median of 3) |
+| SC-003: file chosen → CRS, count and type visible | < 2 s | **0.88 s** | 2.50 s | (same load) |
+| SC-004: table selection → map highlight | < 100 ms | **33 ms** (median) | | same UI code |
+| SC-004: map click → table row selected | < 100 ms | **≤ 7 ms** | | same UI code |
+
+- **Web, warm:** DuckDB pre-warmed while the user was choosing a file.
+- **Web, cold:** the file was chosen the instant the page loaded, so the
+  timing includes DuckDB-WASM start-up and the spatial-extension download.
+- **VS Code:** every webview starts its own DuckDB, overlapped with the file
+  transfer, so its figure includes start-up.
+- **Before the parse-once change:** the same file took 3.2 s warm
+  (research.md §9).
+- **Per-step breakdown:** each open is logged in VS Code's
+  "Spatial Explorer" output channel.

@@ -427,25 +427,43 @@ background with the data layer intact.
 
 ### Tests for User Story 4
 
-- [ ] T038 [P] [US4] Unit test: basemap failure (simulated offline/blocked
+- [X] T038 **[VERIFIED]** [P] [US4] Unit test: basemap failure (simulated offline/blocked
       request) degrades to blank + a short message without affecting the data
       layer, in `tests/core/basemap.test.ts`.
+      Covers offline, HTTP error, malformed/non-v8 style, timeout, theme
+      resolution, and the tile-failure threshold (`BasemapHealth`). Also
+      verified end to end in the browser: `tests/web/specs/basemap.spec.ts`
+      blocks `tiles.openfreemap.org` and asserts the blank fallback, the
+      message, and that the data still renders.
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] Implement theme detection and `onThemeChange` (MutationObserver
+- [X] T039 **[VERIFIED]** [US4] Implement theme detection and `onThemeChange` (MutationObserver
       on `documentElement`/`body` per CLAUDE.md) in both
       `apps/vscode-ext/src/webview/hostAdapter.ts` and
       `apps/web/src/hostAdapter.ts`.
-- [ ] T040 [US4] Implement the default-basemap-selection + blank-toggle UI in
+      Adds `high-contrast-light` (HC dark previously mapped to a light
+      basemap). `host-integration.test.ts` switches the real VS Code theme
+      while a viewer is open (Dark Modern → Light Modern → High Contrast) and
+      asserts the basemap follows (FR-017).
+- [X] T040 **[VERIFIED]** [US4] Implement the default-basemap-selection + blank-toggle UI in
       `packages/ui/src/BasemapToggle.svelte`, reading from T012's catalog.
       Depends on T012, T039.
-- [ ] T041 [US4] Implement graceful basemap-failure handling (offline, CSP
+      Built as `BasemapPicker.svelte`: catalog-driven, land/water previews
+      from each real style. Per the user (2026-10-10), there is no separate
+      "Match theme" entry: the theme default is simply checked until the user
+      picks, and Blank's color matches the theme unless the user sets one,
+      which is remembered (`HostAdapter.loadState/saveState`: VS Code
+      globalState, web localStorage).
+- [X] T041 **[VERIFIED]** [US4] Implement graceful basemap-failure handling (offline, CSP
       block, bad key → blank + short message, data layer unaffected — FR-016)
       in `packages/ui/src/MapView.svelte`.
+      Two layers: the style request (`loadBasemapStyle`) and tile/sprite/glyph
+      errors afterwards (`BasemapHealth`). The VS Code CSP allows
+      `tiles.openfreemap.org` (connect-src, img-src).
 
 **Checkpoint**: All P1/P2 stories work together; only click-to-inspect (P3)
-remains.
+remains. ✅ Reached 2026-10-10.
 
 ---
 
@@ -459,15 +477,18 @@ display, independent of any other feature in this spec.
 
 ### Tests for User Story 5
 
-- [ ] T042 [P] [US5] Browser test: clicking a map feature shows its
+- [X] T042 **[VERIFIED]** [P] [US5] Browser test: clicking a map feature shows its
       attributes (e.g. via table selection sync), in
       `tests/web/click-inspect.spec.ts`.
 
 ### Implementation for User Story 5
 
-- [ ] T043 [US5] Wire map-click → `ViewerSession.selectedFeatureId` →
+- [X] T043 **[VERIFIED]** [US5] Wire map-click → `ViewerSession.selectedFeatureId` →
       attribute display, reusing T025's selection-sync path, in
       `packages/ui/src/MapView.svelte` and `packages/ui/src/ViewerLayout.svelte`.
+      A map click selects and scrolls to the row, and opens
+      `FeatureInspector` (all attributes, zoom-to, close), since the drawer
+      may be collapsed. Verified in real VS Code with `npm run screenshots`.
 
 **Checkpoint**: All five user stories are independently functional.
 
@@ -475,16 +496,34 @@ display, independent of any other feature in this spec.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T044 [P] Run all five `quickstart.md` scenarios end to end in both
+- [X] T044 **[VERIFIED]** [P] Run all five `quickstart.md` scenarios end to end in both
       `apps/vscode-ext` and `apps/web`; record pass/fail and any deviation.
-- [ ] T045 [P] Accessibility pass: keyboard reachability and ARIA labeling for
+      Recorded in quickstart.md "Results". Running them surfaced and fixed
+      real bugs: GeoParquet and GML could not open, plus map-fit and camera
+      issues (research.md §9).
+- [X] T045 **[VERIFIED]** [P] Accessibility pass: keyboard reachability and ARIA labeling for
       the table, map controls, and basemap toggle (Constitution Principle VII).
-- [ ] T046 Measure SC-001 (<2s render for ~10MB files), SC-003 (<2s to
+      `tests/web/specs/accessibility.spec.ts`: axe-core reports zero
+      violations in every UI state (empty, loaded, selected, style panel,
+      export menu, basemap picker, inspector), in light and dark.
+      Keyboard test: Tab reaches every control; the grid supports arrows,
+      Home/End and Escape; the sash collapses; the basemap picker supports
+      arrows and Escape.
+      Fixed along the way: muted-text and table-header contrast, landmarks,
+      the missing h1, grid role/row structure, and the cursor label.
+- [X] T046 **[VERIFIED]** Measure SC-001 (<2s render for ~10MB files), SC-003 (<2s to
       identify CRS/count/type), and SC-004 (<100ms selection highlight)
       against real sample files; record results in `quickstart.md`.
-- [ ] T047 [P] Update `THIRD-PARTY-NOTICES.md`/`CHANGELOG.md` for the new
+      Web (warm): 1.20 s / 0.88 s / 33 ms. VS Code: 1.64 s. Asserted in
+      `tests/web/specs/performance.spec.ts`. The first measurement was 3.2 s;
+      fixed by parsing each file only once (research.md §9).
+- [X] T047 [P] Update `THIRD-PARTY-NOTICES.md`/`CHANGELOG.md` for the new
       dependencies introduced (`@duckdb/duckdb-wasm`, MapLibre GL JS), matching
       `../omx-viewer`'s existing convention for these files.
+      Includes full license texts for bundled code (DuckDB-Wasm, Apache
+      Arrow, MapLibre, Svelte) and lists what is fetched at runtime (spatial
+      extension, OpenFreeMap/OSM, web fonts). Changelog uses the Keep a
+      Changelog format.
 
 ---
 

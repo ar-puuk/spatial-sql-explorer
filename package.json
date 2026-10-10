@@ -16,6 +16,7 @@
     "typecheck:ui": "npm run typecheck --workspace=packages/ui",
     "test:core": "npm run test --workspace=tests/core",
     "test:web": "npm run test --workspace=tests/web",
-    "test:vscode-ext": "npm run test --workspace=tests/vscode-ext"
+    "test:vscode-ext": "npm run test --workspace=tests/vscode-ext",
+    "screenshots": "npm run build --workspace=apps/web && npm run build --workspace=apps/vscode-ext && node scripts/screenshots.mjs"
   }
 }

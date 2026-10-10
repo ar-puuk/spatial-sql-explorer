@@ -93,17 +93,118 @@ async function registerSourceFiles(db: AsyncDuckDB, files: Record<string, ArrayB
   return paths
 }
 
+interface FromExpr {
+  fromExpr: string
+  /** SQL yielding a GEOMETRY in the source CRS. */
+  geomExpr: string
+  /** The source column holding geometry, excluded from attributes. */
+  geometryColumn: string | null
+  /** Source CRS when the strategy itself knows it (GeoParquet); undefined = ask ST_Read_Meta. */
+  srid?: number | null
+  /** Source column names from the one DESCRIBE each open runs (every ST_Read bind re-ingests the file). */
+  columns: string[]
+}
+
+async function describeColumns(conn: AsyncDuckDBConnection, fromExpr: string): Promise<Array<{ name: string; type: string }>> {
+  const res = await conn.query(`DESCRIBE SELECT * FROM ${fromExpr}`)
+  return res.toArray().map((r) => {
+    const row = r.toJSON() as { column_name: string; column_type: string }
+    return { name: String(row.column_name), type: String(row.column_type) }
+  })
+}
+
+/** `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`. */
+function epsgFrom(text: string | null | undefined): number | null {
+  const m = /EPSG[:"\s,]*(?:code"?\s*:\s*)?(\d{4,6})/i.exec(text ?? '')
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * GeoParquet (https://geoparquet.org): the `geo` key-value metadata names the
+ * primary geometry column and its CRS (PROJJSON; absent = OGC:CRS84, i.e.
+ * WGS84 lon/lat). With the spatial extension loaded, current DuckDB already
+ * decodes that column to GEOMETRY, typed with its CRS: calling
+ * ST_GeomFromWKB on it fails, which broke every real GeoParquet file until
+ * this was fixed (research.md §9). Plain Parquet with a WKB BLOB column
+ * still goes through ST_GeomFromWKB.
+ */
+async function geoParquetFromExpr(conn: AsyncDuckDBConnection, vfsPath: string, materialize: boolean): Promise<FromExpr> {
+  const fromExpr = await readerSource(conn, `read_parquet('${vfsPath}')`, materialize)
+  const columns = await describeColumns(conn, fromExpr)
+
+  let primary: string | null = null
+  let metaSrid: number | null | undefined
+  try {
+    const meta = await conn.query(`SELECT decode(value) AS geo FROM parquet_kv_metadata('${vfsPath}') WHERE decode(key) = 'geo'`)
+    const raw = meta.toArray()[0]?.toJSON().geo as string | undefined
+    if (raw) {
+      const geo = JSON.parse(raw) as { primary_column?: string; columns?: Record<string, { crs?: unknown }> }
+      primary = geo.primary_column ?? null
+      const crs = primary ? geo.columns?.[primary]?.crs : undefined
+      // GeoParquet: an absent crs means OGC:CRS84 (WGS84 lon/lat), stated, not assumed.
+      metaSrid = crs === undefined ? 4326 : crs === null ? null : epsgFrom(JSON.stringify((crs as { id?: unknown }).id ?? crs))
+    }
+  } catch {
+    // Not GeoParquet metadata we can read; fall back to column types.
+  }
+
+  const pick =
+    columns.find((c) => c.name === primary) ??
+    columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY')) ??
+    columns.find((c) => c.name.toLowerCase() === 'geometry' || c.name.toLowerCase() === 'geom')
+  if (!pick) throw new Error('This Parquet file has no geometry column (no GeoParquet metadata, GEOMETRY column, or WKB "geometry" column).')
+
+  const col = quoteIdent(pick.name)
+  const names = columns.map((c) => c.name)
+  if (pick.type.toUpperCase().startsWith('GEOMETRY')) {
+    return { fromExpr, geomExpr: col, geometryColumn: pick.name, srid: epsgFrom(pick.type) ?? metaSrid ?? null, columns: names }
+  }
+  if (pick.type.toUpperCase() === 'BLOB') {
+    return { fromExpr, geomExpr: `ST_GeomFromWKB(${col})`, geometryColumn: pick.name, srid: metaSrid ?? null, columns: names }
+  }
+  throw new Error(`The Parquet column "${pick.name}" (${pick.type}) is not a geometry or WKB column.`)
+}
+
+/**
+ * Every ST_Read bind re-ingests the whole file (GDAL parses e.g. GeoJSON
+ * completely on open), and an open needs several passes (DESCRIBE, stats,
+ * rows). Up to MATERIALIZE_MAX_BYTES the reader's output is parsed exactly
+ * once into a temp table, and everything else reads that table; openFile
+ * drops it after loading. Larger files stream each pass rather than hold a
+ * second full copy against the ~512 MB WASM ceiling (CLAUDE.md performance
+ * rules). T046: this took a ~10 MB GeoJSON from 3.2 s to ~1 s warm.
+ */
+async function readerSource(conn: AsyncDuckDBConnection, reader: string, materialize: boolean): Promise<string> {
+  if (!materialize) return reader
+  await conn.query(`CREATE OR REPLACE TEMP TABLE ${TEMP_TABLE} AS SELECT * FROM ${reader}`)
+  return TEMP_TABLE
+}
+
 /** Builds the SQL FROM-source expression for a given read strategy. */
-async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string): Promise<{ fromExpr: string; geomExpr: string }> {
+async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string, materialize: boolean): Promise<FromExpr> {
   switch (strategy) {
-    case 'st_read':
-      return { fromExpr: `ST_Read('${vfsPath}')`, geomExpr: 'geom' }
+    case 'st_read': {
+      // ST_Read keeps the source's geometry field name: `geom` for most
+      // drivers, but e.g. GML exposes `geometryProperty` (a hard-coded `geom`
+      // broke every GML file; research.md §9). Use the GEOMETRY-typed column.
+      const fromExpr = await readerSource(conn, `ST_Read('${vfsPath}')`, materialize)
+      const columns = await describeColumns(conn, fromExpr)
+      const geometry = columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY'))
+      if (!geometry) throw new Error('This file has no geometry column.')
+      // Current DuckDB types the column with its CRS (`GEOMETRY('EPSG:4326')`),
+      // which saves the ST_Read_Meta call, itself another full ingest of the
+      // file. A plain GEOMETRY type falls back to ST_Read_Meta.
+      const typed = epsgFrom(geometry.type)
+      return {
+        fromExpr,
+        geomExpr: quoteIdent(geometry.name),
+        geometryColumn: geometry.name,
+        columns: columns.map((c) => c.name),
+        ...(typed !== null ? { srid: typed } : {}),
+      }
+    }
     case 'parquet':
-      // GeoParquet convention: a "geometry" column storing WKB bytes (per
-      // the GeoParquet spec's default primary column name). Real-world files
-      // with a differently-named primary geometry column are a known
-      // limitation of this heuristic.
-      return { fromExpr: `read_parquet('${vfsPath}')`, geomExpr: 'ST_GeomFromWKB(geometry)' }
+      return geoParquetFromExpr(conn, vfsPath, materialize)
     case 'csv': {
       // Heuristic column detection, per spec.md's assumption ("CSV with
       // coordinate columns or WKT"). Tries common lon/lat name variants
@@ -113,17 +214,17 @@ async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy
       // CASE/COALESCE expression at bind time regardless of which branch
       // would execute, so a single static expression referencing all three
       // naming variants fails outright on a CSV that only has `lon`/`lat`.
-      const fromExpr = `read_csv_auto('${vfsPath}')`
-      const describeRes = await conn.query(`DESCRIBE SELECT * FROM ${fromExpr}`)
-      const columns = new Set(describeRes.toArray().map((r) => String(r.toJSON().column_name).toLowerCase()))
+      const fromExpr = await readerSource(conn, `read_csv_auto('${vfsPath}')`, materialize)
+      const names = (await describeColumns(conn, fromExpr)).map((c) => c.name)
+      const columns = new Set(names.map((n) => n.toLowerCase()))
       if (columns.has('lon') && columns.has('lat')) {
-        return { fromExpr, geomExpr: 'ST_Point(lon, lat)' }
+        return { fromExpr, geomExpr: 'ST_Point(lon, lat)', geometryColumn: null, srid: null, columns: names }
       }
       if (columns.has('longitude') && columns.has('latitude')) {
-        return { fromExpr, geomExpr: 'ST_Point(longitude, latitude)' }
+        return { fromExpr, geomExpr: 'ST_Point(longitude, latitude)', geometryColumn: null, srid: null, columns: names }
       }
       if (columns.has('wkt')) {
-        return { fromExpr, geomExpr: 'ST_GeomFromText(wkt)' }
+        return { fromExpr, geomExpr: 'ST_GeomFromText(wkt)', geometryColumn: null, srid: null, columns: names }
       }
       throw new Error('CSV file has no recognized coordinate columns (lon/lat, longitude/latitude, or wkt).')
     }
@@ -143,12 +244,11 @@ async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy
  * existing "first layer only" scope decision, consistent with `buildFromExpr`
  * calling `ST_Read` without an explicit `layer=` argument.
  *
- * `read_parquet`/`read_csv_auto` (the `parquet`/`csv` strategies) expose no
- * comparable CRS metadata, and a non-EPSG authority (rare, e.g. an ESRI-only
- * WKID) can't be fed back into `ST_Transform`'s `'EPSG:<code>'` source-CRS
- * argument — both fall back to `null` (WGS84 assumed, disclosed via
- * `crsAssumed`), the same honest fallback FR-015 already requires when a
- * file truly has no CRS.
+ * GeoParquet's CRS comes from its own metadata instead (geoParquetFromExpr);
+ * CSV has none. A non-EPSG authority (rare, e.g. an ESRI-only WKID) can't be
+ * fed back into `ST_Transform`'s `'EPSG:<code>'` source-CRS argument, so it
+ * falls back to `null` (WGS84 assumed, disclosed via `crsAssumed`), the same
+ * honest fallback FR-015 already requires when a file truly has no CRS.
  */
 async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, strategy: ReadStrategy): Promise<number | null> {
   if (strategy !== 'st_read') return null
@@ -180,16 +280,11 @@ function quoteIdent(name: string): string {
  *   doesn't show it either. GeoPackage's real primary key arrives as `fid`
  *   instead and is kept, as in QGIS.
  */
-async function attributeProjection(conn: AsyncDuckDBConnection, strategy: ReadStrategy, fromExpr: string): Promise<string> {
-  const describeRes = await conn.query(`DESCRIBE SELECT * FROM ${fromExpr}`)
-  const columns = new Set(describeRes.toArray().map((r) => String(r.toJSON().column_name)))
+function attributeProjection(strategy: ReadStrategy, source: FromExpr): string {
+  const columns = new Set(source.columns)
   const exclude = ['geom_']
-  if (strategy === 'st_read') {
-    if (columns.has('geom')) exclude.push('geom')
-    if (columns.has('OGC_FID')) exclude.push('OGC_FID')
-  } else if (strategy === 'parquet' && columns.has('geometry')) {
-    exclude.push('geometry')
-  }
+  if (source.geometryColumn && columns.has(source.geometryColumn)) exclude.push(source.geometryColumn)
+  if (strategy === 'st_read' && columns.has('OGC_FID')) exclude.push('OGC_FID')
   return exclude.map(quoteIdent).join(', ')
 }
 
@@ -213,6 +308,10 @@ function sanitizeAttributes(raw: Record<string, unknown>): Feature['attributes']
   return result
 }
 
+/** Files up to this size are parsed once into a temp table (see openFile). */
+const MATERIALIZE_MAX_BYTES = 64 * 1024 * 1024
+const TEMP_TABLE = '__se_layer'
+
 export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<Layer> {
   const { hostAdapter, duckdbAssets } = deps
   const source = await hostAdapter.getFileSource(ref)
@@ -227,53 +326,62 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
   const db = await getDuckDb(duckdbAssets)
   const conn: AsyncDuckDBConnection = await db.connect()
   let registered: string[] = []
+  let materialized = false
+
+  // Per-step timings, surfaced in the VS Code output channel.
+  const timings: Record<string, number> = {}
+  let mark = performance.now()
+  const lap = (): number => {
+    const now = performance.now()
+    const ms = Math.round(now - mark)
+    mark = now
+    return ms
+  }
 
   try {
     registered = await registerSourceFiles(db, dataFiles)
     const vfsPath = `/tmp/${source.primaryFileName}`
-    const { fromExpr, geomExpr: rawGeomExpr } = await buildFromExpr(conn, strategy, vfsPath)
-    const sourceSrid = await detectSourceSrid(conn, vfsPath, strategy)
+    materialized = source.totalBytes <= MATERIALIZE_MAX_BYTES
+    const read = await buildFromExpr(conn, strategy, vfsPath, materialized)
+    const { fromExpr, geomExpr: rawGeomExpr } = read
+    const sourceSrid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, vfsPath, strategy)
     // Every query below reads this already-reprojected expression, so
     // Layer.extent and every Feature.geometry are WGS84 from here on, while
     // Layer.sourceCrs (below) still reports the file's real, original CRS.
     const geomExpr = reprojectToWgs84Sql(rawGeomExpr, sourceSrid)
 
-    // Total valid feature count (FR-006's "feature count", independent of
-    // the load cap) and invalid-geometry count (FR-014), in one pass.
-    const countRes = await conn.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)) AS valid_count,
-        COUNT(*) FILTER (WHERE geom_ IS NULL OR NOT ST_IsValid(geom_)) AS invalid_count
-      FROM (SELECT ${geomExpr} AS geom_ FROM ${fromExpr})
-    `)
-    const countRow = countRes.toArray()[0]?.toJSON() as { valid_count: bigint | number; invalid_count: bigint | number }
-    const featureCount = Number(countRow.valid_count)
-    const invalidGeometryCount = Number(countRow.invalid_count)
+    const base = `(SELECT *, ${geomExpr} AS geom_ FROM ${fromExpr})`
+    timings.prepare = lap()
 
-    // Full-source extent (FR-003/FR-019: must reflect the whole source, not
-    // just the loaded/capped subset).
-    const extentRes = await conn.query(`
-      SELECT MIN(ST_XMin(geom_)) AS min_x, MIN(ST_YMin(geom_)) AS min_y,
-             MAX(ST_XMax(geom_)) AS max_x, MAX(ST_YMax(geom_)) AS max_y
-      FROM (SELECT ${geomExpr} AS geom_ FROM ${fromExpr})
-      WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)
+    // One scan for everything the metadata needs: valid / invalid counts
+    // (FR-006, FR-014), the full-source extent (FR-003/FR-019: the whole
+    // source, not the capped subset) and the geometry-type mix (FR-013).
+    // These used to be three separate queries, and every ST_Read bind
+    // re-ingests the whole file, so a ~10 MB GeoJSON was parsed several times
+    // over (T046 measured 3.2 s; SC-001 asks for 2 s).
+    const statsRes = await conn.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE valid) AS valid_count,
+        COUNT(*) FILTER (WHERE NOT valid) AS invalid_count,
+        MIN(ST_XMin(g)) FILTER (WHERE valid) AS min_x, MIN(ST_YMin(g)) FILTER (WHERE valid) AS min_y,
+        MAX(ST_XMax(g)) FILTER (WHERE valid) AS max_x, MAX(ST_YMax(g)) FILTER (WHERE valid) AS max_y,
+        list(DISTINCT ST_GeometryType(g)) FILTER (WHERE valid) AS gtypes
+      FROM (SELECT geom_ AS g, (geom_ IS NOT NULL AND ST_IsValid(geom_)) AS valid FROM ${base})
     `)
-    const extentRow = extentRes.toArray()[0]?.toJSON() as {
+    const stats = statsRes.toArray()[0]?.toJSON() as {
+      valid_count: bigint | number
+      invalid_count: bigint | number
       min_x: number | null
       min_y: number | null
       max_x: number | null
       max_y: number | null
+      gtypes: { toArray?: () => unknown[] } | unknown[] | null
     }
-    const extent: Bbox | null =
-      extentRow.min_x === null ? null : [extentRow.min_x, extentRow.min_y!, extentRow.max_x!, extentRow.max_y!]
-
-    // Geometry type mix, from valid geometries only.
-    const typesRes = await conn.query(`
-      SELECT DISTINCT ST_GeometryType(geom_) AS gtype
-      FROM (SELECT ${geomExpr} AS geom_ FROM ${fromExpr})
-      WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)
-    `)
-    const rawTypes = typesRes.toArray().map((r) => String(r.toJSON().gtype))
+    timings.scan = lap()
+    const featureCount = Number(stats.valid_count)
+    const invalidGeometryCount = Number(stats.invalid_count)
+    const extent: Bbox | null = stats.min_x === null ? null : [stats.min_x, stats.min_y!, stats.max_x!, stats.max_y!]
+    const rawTypes = (Array.isArray(stats.gtypes) ? stats.gtypes : (stats.gtypes?.toArray?.() ?? [])).map(String)
     const normalizedTypes = new Set(rawTypes.map(normalizeGeometryType).filter((t): t is Exclude<GeometryType, 'Mixed'> => t !== null))
     const geometryType: GeometryType = normalizedTypes.size > 1 ? 'Mixed' : [...normalizedTypes][0] ?? 'Point'
 
@@ -288,10 +396,10 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     // native GEOMETRY type does not have a well-defined JS-side
     // representation once it crosses the Arrow boundary, so this is the
     // reliable way to get a real GeoJSON.Geometry on the JS side.
-    const exclude = await attributeProjection(conn, strategy, fromExpr)
+    const exclude = attributeProjection(strategy, read)
     const rowsRes = await conn.query(`
       SELECT * EXCLUDE (${exclude}), ST_AsGeoJSON(geom_) AS __geom_geojson
-      FROM (SELECT *, ${geomExpr} AS geom_ FROM ${fromExpr})
+      FROM ${base}
       WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)
       LIMIT ${DEFAULT_FEATURE_CAP}
     `)
@@ -304,6 +412,8 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
         attributes: sanitizeAttributes(rawAttributes),
       }
     })
+
+    timings.rows = lap()
 
     const layer: Layer = {
       id: ref.id,
@@ -318,6 +428,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
       extent,
       features,
       styleSidecar,
+      loadTimings: timings,
     }
     return layer
   } finally {
@@ -325,6 +436,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     // don't. Everything the viewer needs (at most DEFAULT_FEATURE_CAP
     // features) is materialized above, so the registered buffers are pure
     // WASM-heap weight against the ~512 MB ceiling (CLAUDE.md).
+    if (materialized) await conn.query(`DROP TABLE IF EXISTS ${TEMP_TABLE}`).catch(() => {})
     await conn.close().catch(() => {})
     for (const path of registered) await db.dropFile(path).catch(() => {})
   }

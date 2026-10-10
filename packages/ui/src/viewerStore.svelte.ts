@@ -9,6 +9,10 @@ import {
   importStyle,
   openFile,
   prewarmDuckDb,
+  resolveBasemap,
+  themeAppearance,
+  type BasemapCatalogEntry,
+  type BasemapChoice,
   sanitizeStyle,
   sidecarStyleFileName,
   styleFileName,
@@ -39,6 +43,20 @@ export interface ViewerStore {
   /** Bumps when a feature should be zoomed to; MapView reacts to it. */
   readonly zoomRequest: { id: string | number; seq: number } | null
   readonly canSaveSidecar: boolean
+  /** 'auto' (the initial value) follows the host theme (FR-009/FR-017) until the user picks one. */
+  readonly basemapChoice: BasemapChoice
+  /** User-chosen blank background color; null = match the host theme (the default). Remembered via HostAdapter.saveState. */
+  readonly blankColor: string | null
+  setBlankColor(color: string | null): void
+  readonly basemap: BasemapCatalogEntry
+  /** Short FR-016 message after a basemap failure; null when fine. */
+  readonly basemapNotice: string | null
+  /** The opened file changed on disk since it was loaded (hosts that can watch files). */
+  readonly sourceChanged: boolean
+  reloadSource(): void
+  setBasemap(choice: BasemapChoice): void
+  reportBasemapFailure(message: string): void
+  dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
   selectFeature(id: string | number | null): void
@@ -60,12 +78,45 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let styleDirty = $state(false)
   let themeRevision = $state(0)
   let zoomRequest = $state<{ id: string | number; seq: number } | null>(null)
+  let basemapChoice = $state<BasemapChoice>('auto')
+  let basemapNotice = $state<string | null>(null)
+  // Falls back to blank after a failure, until the user picks again.
+  let basemapFailed = $state(false)
+  let sourceChanged = $state(false)
+  let blankColor = $state<string | null>(null)
+  const BLANK_COLOR_KEY = 'basemap.blankColor'
+  void hostAdapter
+    .loadState<string | null>(BLANK_COLOR_KEY)
+    .then((saved) => {
+      if (typeof saved === 'string' && /^#[0-9a-f]{6}$/i.test(saved)) blankColor = saved
+    })
+    .catch(() => {})
+  hostAdapter.onSourceChanged?.(() => {
+    if (session.loadState === 'ready' || session.loadState === 'error') sourceChanged = true
+  })
 
-  session.basemapAppearance = hostAdapter.getTheme() === 'dark' ? 'dark' : 'light'
+  session.basemapAppearance = themeAppearance(hostAdapter.getTheme())
   hostAdapter.onThemeChange((theme) => {
-    session.basemapAppearance = theme === 'dark' ? 'dark' : 'light'
+    const appearance = themeAppearance(theme)
+    if (appearance !== session.basemapAppearance && basemapChoice === 'auto') {
+      // A theme switch is a fresh attempt at the new default (FR-017).
+      basemapFailed = false
+      basemapNotice = null
+    }
+    session.basemapAppearance = appearance
+    syncBasemapEnabled()
     themeRevision++
   })
+
+  const basemap = $derived.by(() => {
+    const entry = resolveBasemap(basemapChoice, session.basemapAppearance)
+    return basemapFailed ? resolveBasemap('blank', session.basemapAppearance) : entry
+  })
+  /** Keeps the session's informational flag in step with the derived entry. */
+  function syncBasemapEnabled(): void {
+    session.basemapEnabled = basemap.type !== 'blank'
+  }
+  syncBasemapEnabled()
 
   let currentFileName: string | null = null
 
@@ -174,6 +225,43 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get canSaveSidecar() {
       return typeof hostAdapter.saveSidecar === 'function'
+    },
+    get sourceChanged() {
+      return sourceChanged
+    },
+    reloadSource() {
+      sourceChanged = false
+      hostAdapter.reloadSource?.()
+    },
+    get basemapChoice() {
+      return basemapChoice
+    },
+    get blankColor() {
+      return blankColor
+    },
+    setBlankColor(color) {
+      blankColor = color
+      void hostAdapter.saveState(BLANK_COLOR_KEY, color).catch(() => {})
+    },
+    get basemap() {
+      return basemap
+    },
+    get basemapNotice() {
+      return basemapNotice
+    },
+    setBasemap(choice) {
+      basemapChoice = choice
+      basemapFailed = false
+      basemapNotice = null
+      syncBasemapEnabled()
+    },
+    reportBasemapFailure(message) {
+      basemapFailed = true
+      basemapNotice = message
+      syncBasemapEnabled()
+    },
+    dismissBasemapNotice() {
+      basemapNotice = null
     },
     prewarm() {
       prewarmDuckDb(duckdbAssets)

@@ -21,7 +21,7 @@
       {layer.sourceCrs.label}{layer.crsAssumed ? ' · assumed' : ''}
     </span>
     <span class="sep" aria-hidden="true"></span>
-    <span class="item">{nf.format(layer.featureCount)} features</span>
+    <span class="item">{nf.format(layer.featureCount)} {layer.featureCount === 1 ? 'feature' : 'features'}</span>
     <span class="sep" aria-hidden="true"></span>
     <span class="item">{layer.geometryType}</span>
     {#if layer.truncated}
@@ -31,7 +31,7 @@
       </span>
     {/if}
     <span class="spacer"></span>
-    <span class="item cursor" aria-label="Cursor coordinates">
+    <span class="item cursor" title="Cursor coordinates (lat, lon)">
       {#if session.cursorCoordinates}
         {session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}
       {/if}

@@ -63,9 +63,12 @@
 
 <input bind:this={input} type="file" multiple class="visually-hidden" tabindex="-1" aria-hidden="true" onchange={handlePickerChange} />
 
-<div class="shell" ondragover={handleDragOver} ondragleave={() => (isDragOver = false)} ondrop={handleDrop} role="application">
+<!-- File drag-and-drop target for the whole window; the drop zone and the
+     "Open file" button are the keyboard-accessible ways to open a file. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="shell" ondragover={handleDragOver} ondragleave={() => (isDragOver = false)} ondrop={handleDrop}>
   <header class="app-header">
-    <span class="brand"><span class="glyph" aria-hidden="true">⬡</span>Spatial Explorer</span>
+    <h1 class="brand"><span class="glyph" aria-hidden="true">⬡</span>Spatial Explorer</h1>
     {#if fileName && !idleState}
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
@@ -133,13 +136,14 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
   .brand {
+    margin: 0;
     display: inline-flex;
     align-items: center;
     gap: 8px;
     font: 700 11px var(--se-font-mono);
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    color: var(--se-accent);
+    color: var(--se-brand-text);
     white-space: nowrap;
   }
   .glyph {

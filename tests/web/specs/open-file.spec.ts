@@ -25,7 +25,7 @@ test('opening a real file renders the map and table with matching rows', async (
   // Rows are virtualized (design-plan.md §8.1), so count the grid's data
   // rows via aria-rowcount (data rows + 1 header row) rather than the DOM,
   // and check the drawer header reports the same count.
-  await expect(page.locator('.attribute-table')).toHaveAttribute('aria-rowcount', '180')
+  await expect(page.getByRole('grid', { name: 'Attribute table' })).toHaveAttribute('aria-rowcount', '180')
   await expect(page.locator('.drawer-header .count')).toHaveText('179 features')
   const rendered = await page.locator('.attribute-table table tbody tr:not(.spacer)').count()
   expect(rendered).toBeGreaterThan(0)

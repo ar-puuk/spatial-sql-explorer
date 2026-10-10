@@ -179,18 +179,13 @@
   })
 </script>
 
+<!-- The scroll container is presentational; the <table> is the ARIA grid
+     (it owns the rows) and the keyboard focus target. -->
 <div
   class="attribute-table"
-  role="grid"
-  aria-label="Attribute table"
-  aria-rowcount={rows.length + 1}
-  aria-colcount={columns.length + 1}
-  aria-activedescendant={selectedIndex >= 0 ? `row-${String(rows[selectedIndex].id)}` : undefined}
-  tabindex="0"
   bind:this={scroller}
   bind:clientHeight={viewportHeight}
   onscroll={() => (scrollTop = scroller.scrollTop)}
-  onkeydown={handleKeydown}
   style:--row-h="{rowHeight}px"
 >
   {#if loading}
@@ -198,7 +193,16 @@
   {:else if !layer || layer.features.length === 0}
     <p class="placeholder">No features to display.</p>
   {:else}
-    <table style:min-width="{tableWidth}px">
+    <table
+      style:min-width="{tableWidth}px"
+      role="grid"
+      aria-label="Attribute table"
+      aria-rowcount={rows.length + 1}
+      aria-colcount={columns.length + 1}
+      aria-activedescendant={selectedIndex >= 0 ? `row-${String(rows[selectedIndex].id)}` : undefined}
+      tabindex="0"
+      onkeydown={handleKeydown}
+    >
       <colgroup>
         <col style:width="{idWidth}px" />
         {#each colWidths as w, i (columns[i])}
@@ -269,7 +273,7 @@
     background: var(--se-table-bg);
     outline: none;
   }
-  .attribute-table:focus-visible {
+  table:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }

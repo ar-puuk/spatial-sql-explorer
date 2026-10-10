@@ -11,6 +11,8 @@
   import ErrorBanner from './ErrorBanner.svelte'
   import LayerWarningBanner from './LayerWarningBanner.svelte'
   import LayerStylePanel from './LayerStylePanel.svelte'
+  import BasemapPicker from './BasemapPicker.svelte'
+  import FeatureInspector from './FeatureInspector.svelte'
   import ProgressBar from './ProgressBar.svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -38,14 +40,37 @@
   let dragging = $state(false)
   let panesHeight = $state(0)
   let panes: HTMLDivElement
-  let styleOpen = $state(false)
+  /** One map popover at a time. */
+  let openPanel = $state<'style' | 'basemap' | null>(null)
+  /** Opened by a map click (FR-010); then follows the selection until closed. */
+  let inspectorOpen = $state(false)
 
   let drawerHeight = $derived(collapsed ? HEADER_H : Math.round(fraction * panesHeight))
+  let inspected = $derived(
+    inspectorOpen && layer && session.selectedFeatureId !== null ? (layer.features.find((f) => f.id === session.selectedFeatureId) ?? null) : null
+  )
 
-  // Close the style popover when the layer goes away (new file, error).
+  // Popovers that need a layer close when it goes away (new file, error).
   $effect(() => {
-    if (!layer) styleOpen = false
+    if (!layer) {
+      if (openPanel === 'style') openPanel = null
+      inspectorOpen = false
+    }
   })
+
+  function handleMapSelect(id: string | number | null): void {
+    store.selectFeature(id)
+    inspectorOpen = id !== null
+    openPanel = null // a click on the map dismisses popovers, as in any map app
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent): void {
+    // Escape closes the open popover from anywhere, not only from inside it.
+    if (e.key === 'Escape' && openPanel !== null) {
+      openPanel = null
+      e.preventDefault()
+    }
+  }
 
   function startDrag(e: PointerEvent): void {
     if (e.button !== 0) return
@@ -97,11 +122,20 @@
   })
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <div class="viewer-layout" class:dragging>
   {#if loading}
     <ProgressBar label="Loading file" />
   {/if}
   <ErrorBanner message={session.loadState === 'error' ? (session.loadError?.message ?? 'Unknown error') : null} />
+  {#if store.sourceChanged}
+    <div class="changed-banner" role="status">
+      <Icon name="info" />
+      <span>This file changed on disk. The view shows the version that was opened.</span>
+      <button type="button" onclick={() => store.reloadSource()}>Reload</button>
+    </div>
+  {/if}
   {#if layer}
     <LayerWarningBanner invalidGeometryCount={layer.invalidGeometryCount} />
   {/if}
@@ -115,12 +149,41 @@
         themeRevision={store.themeRevision}
         zoomRequest={store.zoomRequest}
         resizing={dragging}
-        {styleOpen}
-        onToggleStyle={() => (styleOpen = !styleOpen)}
-        onSelectFeature={(id) => store.selectFeature(id)}
+        basemap={store.basemap}
+        blankColor={store.blankColor}
+        onBasemapFailure={(message) => store.reportBasemapFailure(message)}
+        {openPanel}
+        onTogglePanel={(panel) => (openPanel = openPanel === panel ? null : panel)}
+        onSelectFeature={handleMapSelect}
         onCursorMove={(c) => store.setCursor(c)}
       />
-      {#if styleOpen && layer}
+      {#if inspected}
+        <div class="inspector-slot">
+          <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
+        </div>
+      {/if}
+      {#if openPanel === 'basemap'}
+        <div class="style-popover">
+          <BasemapPicker
+            activeId={store.basemap.id}
+            followingTheme={store.basemapChoice === 'auto'}
+            appearance={session.basemapAppearance}
+            blankColor={store.blankColor}
+            notice={store.basemapNotice}
+            onChoose={(choice) => store.setBasemap(choice)}
+            onBlankColor={(color) => store.setBlankColor(color)}
+            onClose={() => (openPanel = null)}
+          />
+        </div>
+      {/if}
+      {#if store.basemapNotice && openPanel !== 'basemap'}
+        <div class="map-notice" role="status">
+          <Icon name="warning" size={14} />
+          <span>{store.basemapNotice}</span>
+          <button type="button" aria-label="Dismiss" onclick={() => store.dismissBasemapNotice()}><Icon name="close" size={14} /></button>
+        </div>
+      {/if}
+      {#if openPanel === 'style' && layer}
         <div class="style-popover">
           <LayerStylePanel
             style={store.style}
@@ -136,7 +199,7 @@
             onImport={() => void store.importStyle()}
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
-            onClose={() => (styleOpen = false)}
+            onClose={() => (openPanel = null)}
           />
         </div>
       {/if}
@@ -220,6 +283,84 @@
     top: 10px;
     right: 48px;
     z-index: 6;
+  }
+  .inspector-slot {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
+    z-index: 6;
+    display: flex;
+    align-items: flex-start;
+    pointer-events: none;
+  }
+  .inspector-slot > :global(*) {
+    pointer-events: auto;
+  }
+  .map-notice {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 12px);
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(560px, calc(100% - 32px));
+    padding: 6px 6px 6px 10px;
+    transform: translateX(-50%);
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-left: 3px solid var(--se-warning);
+    border-radius: var(--se-radius);
+    box-shadow: var(--se-shadow-elevated);
+    font-size: 0.95em;
+  }
+  .map-notice > :global(.icon) {
+    color: var(--se-warning);
+  }
+  .map-notice button,
+  .changed-banner button {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: pointer;
+  }
+  .map-notice button {
+    width: 22px;
+    height: 22px;
+    border-radius: var(--se-radius-sm);
+  }
+  .map-notice button:hover {
+    background: var(--se-control-hover);
+  }
+  .changed-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 12px;
+    background: color-mix(in srgb, var(--se-info) 12%, var(--se-bg-base));
+    border-left: 3px solid var(--se-info);
+    border-bottom: 1px solid var(--se-border);
+  }
+  .changed-banner > :global(.icon) {
+    color: var(--se-info);
+  }
+  .changed-banner span {
+    flex: 1;
+  }
+  .changed-banner button {
+    height: 22px;
+    padding: 0 10px;
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-bg);
+    color: var(--se-button-fg);
+    font: inherit;
+  }
+  .changed-banner button:hover {
+    background: var(--se-button-hover);
   }
 
   /* VS Code-style sash: a thin line with a wider invisible hit area that

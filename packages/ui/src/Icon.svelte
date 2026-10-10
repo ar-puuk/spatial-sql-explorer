@@ -22,6 +22,9 @@
     | 'export'
     | 'import'
     | 'reset'
+    | 'layers'
+    | 'check'
+    | 'list'
 
   const PATHS: Record<IconName, string> = {
     plus: 'M8 3.5v9M3.5 8h9',
@@ -42,6 +45,9 @@
     export: 'M8 10V2M5 5l3-3 3 3M2.5 9v4.5h11V9',
     import: 'M8 2v8M5 7l3 3 3-3M2.5 9v4.5h11V9',
     reset: 'M3 8a5 5 0 105-5H5.5M5.5 1v2.5H8',
+    layers: 'M8 2l6 3.25-6 3.25-6-3.25zM2 8.25l6 3.25 6-3.25M2 11.25l6 3.25 6-3.25',
+    check: 'M3 8.5l3 3 7-7',
+    list: 'M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5',
   }
 </script>
 

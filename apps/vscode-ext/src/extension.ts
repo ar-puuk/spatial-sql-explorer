@@ -26,8 +26,14 @@ type WebviewToHostMessage =
       mapCanvasRect?: { width: number; height: number } | null
       renderedFeatureCount?: number | null
       styleSource?: string | null
+      loadMs?: number
+      loadTimings?: Record<string, number>
     }
   | { type: 'selectionChanged'; id: string | number | null }
+  | { type: 'viewState'; basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean }
+  | { type: 'reloadSource' }
+  | { type: 'loadState'; requestId: number; key: string }
+  | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
   | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
@@ -50,10 +56,25 @@ let lastLoadState: {
   mapCanvasRect?: { width: number; height: number } | null
   renderedFeatureCount?: number | null
   styleSource?: string | null
+  loadMs?: number
+  loadTimings?: Record<string, number>
 } | null = null
 
 /** Latest selection, same rationale as `lastLoadState` (T015). */
 let lastSelection: string | number | null = null
+
+/** Latest basemap/theme state, same rationale (T039-T041 tests). */
+let lastViewState: { basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean } | null = null
+
+/**
+ * Query logs and timings (CLAUDE.md "VS Code integration"): one line per
+ * open with format, counts, CRS and load time, plus errors and basemap
+ * fallbacks. View > Output > Spatial Explorer.
+ */
+let output: vscode.OutputChannel | null = null
+function log(line: string): void {
+  output?.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`)
+}
 
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
@@ -74,11 +95,35 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   async resolveCustomEditor(document: SpatialExplorerDocument, panel: vscode.WebviewPanel): Promise<void> {
     lastLoadState = null
     this.panels.add(panel)
+    // Spec edge case: a file changed on disk must not be silently presented
+    // as current. The webview shows a "changed on disk, Reload" banner.
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'), path.posix.basename(document.uri.path))
+    )
+    const notifyChanged = (): void => {
+      void panel.webview.postMessage({ type: 'sourceChanged' })
+    }
+    watcher.onDidChange(notifyChanged)
+    watcher.onDidCreate(notifyChanged)
+
     panel.onDidDispose(() => {
+      watcher.dispose()
       this.panels.delete(panel)
       this.statusBarCrs.hide()
       this.statusBarFeatureCount.hide()
       this.statusBarCursor.hide()
+    })
+    // Status bar items belong to the active viewer: hide them when another
+    // editor takes focus, restore them when this one comes back.
+    panel.onDidChangeViewState(() => {
+      if (panel.active) {
+        this.statusBarCrs.text && this.statusBarCrs.show()
+        this.statusBarFeatureCount.text && this.statusBarFeatureCount.show()
+      } else if (![...this.panels].some((p) => p.active)) {
+        this.statusBarCrs.hide()
+        this.statusBarFeatureCount.hide()
+        this.statusBarCursor.hide()
+      }
     })
 
     const webviewRoot = vscode.Uri.file(path.join(this.context.extensionPath, 'dist-webview'))
@@ -111,7 +156,24 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           mapCanvasRect: msg.mapCanvasRect,
           renderedFeatureCount: msg.renderedFeatureCount,
           styleSource: msg.styleSource,
+          loadMs: msg.loadMs,
+          loadTimings: msg.loadTimings,
         }
+      } else if (msg.type === 'viewState') {
+        lastViewState = { basemapId: msg.basemapId, appearance: msg.appearance, basemapNotice: msg.basemapNotice, sourceChanged: msg.sourceChanged }
+        if (msg.basemapNotice) log(`${path.posix.basename(document.uri.path)}: ${msg.basemapNotice}`)
+      } else if (msg.type === 'loadState') {
+        // Global, not per-workspace: a preference like the blank basemap
+        // color should follow the user to every file and window.
+        void panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: { value: this.context.globalState.get(`spatialExplorer.${msg.key}`) } })
+      } else if (msg.type === 'saveState') {
+        void this.context.globalState
+          .update(`spatialExplorer.${msg.key}`, msg.value ?? undefined)
+          .then(() => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: {} }))
+      } else if (msg.type === 'reloadSource') {
+        log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
+        lastLoadState = null
+        panel.webview.html = this.getHtml(panel.webview, webviewRoot) + `<!-- ${Date.now()} -->`
       } else if (msg.type === 'selectionChanged') {
         lastSelection = msg.id
       } else if (msg.type === 'saveFile' || msg.type === 'saveSidecar' || msg.type === 'pickTextFile') {
@@ -119,7 +181,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else if (msg.type === 'showInfo') {
         void vscode.window.showInformationMessage(msg.message)
       } else if (msg.type === 'log') {
-        console.log('[spatial-explorer webview]', msg.detail)
+        log(msg.detail)
       }
     })
 
@@ -197,7 +259,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarCrs.show()
     }
     if (msg.featureCount !== undefined) {
-      this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} features`
+      this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} ${msg.featureCount === 1 ? 'feature' : 'features'}`
       this.statusBarFeatureCount.show()
     }
     if (msg.cursor) {
@@ -288,12 +350,14 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     // from the real CDN rather than bundled locally — a considered, final
     // decision (research.md §3). Extend this list later for basemap
     // tile/style/sprite/glyph hosts per CLAUDE.md's basemap CSP notes
-    // (spec 004).
+    // (spec 004). tiles.openfreemap.org serves every basemap resource in the
+    // catalog (style JSON, vector + raster tiles, sprites, glyphs); a blocked
+    // request degrades to blank + message (FR-016), never breaks the viewer.
     return `<!DOCTYPE html>
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org; img-src ${csp} data:; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>
@@ -311,7 +375,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   }
 }
 
+/** Formats the 'default' editor claims; the rest open via the 'option' editor. */
+const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet'])
+
 export function activate(context: vscode.ExtensionContext): void {
+  output = vscode.window.createOutputChannel('Spatial Explorer')
+  context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
 
   context.subscriptions.push(
@@ -323,7 +392,16 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
     }),
+    // Explorer / editor-tab context menu (CLAUDE.md): "Open in Spatial Explorer".
+    vscode.commands.registerCommand('spatialExplorer.openInViewer', async (uri?: vscode.Uri) => {
+      const target = uri ?? vscode.window.activeTextEditor?.document.uri
+      if (!target) return
+      const ext = path.posix.extname(target.path).toLowerCase()
+      const viewType = DEFAULT_EDITOR_EXTENSIONS.has(ext) ? 'spatialExplorer.editor' : 'spatialExplorer.editorOption'
+      await vscode.commands.executeCommand('vscode.openWith', target, viewType)
+    }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
+    vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null
       provider.testSelectFeature(id)

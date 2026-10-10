@@ -91,9 +91,12 @@ function request<T>(msg: Record<string, unknown>): Promise<T> {
 }
 
 const themeListeners = new Set<(theme: ThemeKind) => void>()
+const sourceChangedListeners = new Set<() => void>()
 
 function detectTheme(): ThemeKind {
   const classes = document.body.classList
+  // Check high-contrast-light first: VS Code may set both HC classes on it.
+  if (classes.contains('vscode-high-contrast-light')) return 'high-contrast-light'
   if (classes.contains('vscode-high-contrast')) return 'high-contrast'
   if (classes.contains('vscode-dark')) return 'dark'
   return 'light'
@@ -159,6 +162,8 @@ window.addEventListener('message', (event: MessageEvent) => {
       }
       fileSourceResolve({ files, primaryFileName, totalBytes })
     }
+  } else if (msg.type === 'sourceChanged') {
+    sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
     fileSourceReject?.(new Error(msg.message))
   }
@@ -212,6 +217,20 @@ export function createVsCodeHostAdapter(): HostAdapter {
     setStatus(fields: StatusFields): void {
       post({ type: 'statusUpdate', ...fields })
     },
+    async loadState<T>(key: string): Promise<T | undefined> {
+      const result = await request<{ value?: T }>({ type: 'loadState', key })
+      return result?.value
+    },
+    async saveState(key: string, value: unknown): Promise<void> {
+      await request({ type: 'saveState', key, value })
+    },
+    onSourceChanged(cb: () => void): () => void {
+      sourceChangedListeners.add(cb)
+      return () => sourceChangedListeners.delete(cb)
+    },
+    reloadSource(): void {
+      post({ type: 'reloadSource' })
+    },
   }
 }
 
@@ -242,9 +261,21 @@ export function reportLoadState(
     mapCanvasRect?: { width: number; height: number } | null
     renderedFeatureCount?: number | null
     styleSource?: string | null
+    loadMs?: number
+    loadTimings?: Record<string, number>
   }
 ): void {
   post({ type: 'loadStateChanged', loadState, ...details })
+}
+
+/** Basemap/theme state for the extension's test hook and output channel. */
+export function reportViewState(state: { basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean }): void {
+  post({ type: 'viewState', ...state })
+}
+
+/** One line in the "Spatial Explorer" output channel. */
+export function logToHost(detail: string): void {
+  post({ type: 'log', detail })
 }
 
 /** Test-only hook (T015) — see main.ts's `testSelectFeature` listener. */

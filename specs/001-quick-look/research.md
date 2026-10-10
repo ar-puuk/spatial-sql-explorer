@@ -712,6 +712,60 @@ GPKG and CSV). `tests/web` 2/2. `tests/core` 7/7.
   register after the CLI file is opened. It has **not** been verified with
   an installed VSIX. Check this when packaging.
 
+## 9. Phases 6–8 findings (2026-10-10)
+
+**Format claims verified end to end** (`format-matrix.test.ts`, SC-002). Two
+formats that T006 had passed could not actually be opened:
+
+- **GeoParquet failed.**
+  - With spatial loaded, current DuckDB decodes the GeoParquet primary column
+    to `GEOMETRY('EPSG:…')`, so `ST_GeomFromWKB(geometry)` fails. T006 had
+    tested a differently-written file.
+  - Fix: read the `geo` key-value metadata for the primary column and CRS
+    (PROJJSON; absent means OGC:CRS84). Use `GEOMETRY` columns as-is, and
+    decode WKB only for `BLOB` columns.
+  - The parquet path now reports its real CRS instead of always "assumed".
+- **GML failed.**
+  - `ST_Read` keeps the source's geometry field name (`geometryProperty` for
+    GML), so the hard-coded `geom` broke it.
+  - Fix: use the `GEOMETRY`-typed column reported by `DESCRIBE`.
+
+**Parse once.**
+- GDAL re-ingests the file on every `ST_Read` bind. One open used to parse a
+  GeoJSON about seven times: two DESCRIBEs, `ST_Read_Meta`, the separate
+  count, extent and type scans, and the rows.
+- Now, for files up to 64 MB, the reader output is materialized once into a
+  temp table, which is dropped after loading.
+  - One aggregate query yields the count, extent and types.
+  - The CRS comes from the column type when DuckDB provides it.
+- Result: a ~10 MB file went from 3.2 s to 1.2 s (warm).
+- Above 64 MB the streaming path is kept, so a second full copy is never
+  held against the ~512 MB ceiling.
+
+**Basemap.**
+- The data is drawn on top of the basemap's own style. Switching basemaps
+  rebuilds the style but keeps the data, the selection and the camera; any
+  `center`/`zoom` in a basemap style is stripped.
+- `renderWorldCopies: false` clamps the view at ±180°. A layer whose extent
+  spans most of the world (e.g. the USA with Alaska) therefore can't be
+  centered horizontally. This is expected, and the zoom is still correct.
+- Failure handling has two layers: the style request, then tile, sprite and
+  glyph errors (`BasemapHealth`). Both are tested with the network blocked.
+- The VS Code CSP adds `https://tiles.openfreemap.org` to connect-src and
+  img-src.
+
+**Editor selectors.**
+- `.pmtiles` is removed from the default-editor selector. It was registered
+  as a default editor but cannot be read (it is not in FR-018), so opening
+  one showed "not a supported format". Re-add it when PMTiles support
+  exists; CLAUDE.md lists it as a target.
+- Added `.flatgeobuf` (default) and `.gml` (option). Both were verified but
+  missing from the selectors.
+
+**Dependency note.** `"@duckdb/duckdb-wasm": "latest"` currently resolves to
+`1.33.1-dev57.0`, a dev prerelease. Everything above was verified against it.
+Pin an exact version before publishing.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |

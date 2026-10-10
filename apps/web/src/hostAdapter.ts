@@ -99,6 +99,23 @@ export function createWebHostAdapter(): HostAdapter {
         input.click()
       })
     },
+    async loadState<T>(key: string): Promise<T | undefined> {
+      // Storage can be unavailable (private mode, blocked site data): treat as empty.
+      try {
+        const raw = window.localStorage.getItem(`spatial-explorer:${key}`)
+        return raw === null ? undefined : (JSON.parse(raw) as T)
+      } catch {
+        return undefined
+      }
+    },
+    async saveState(key: string, value: unknown): Promise<void> {
+      try {
+        if (value === null || value === undefined) window.localStorage.removeItem(`spatial-explorer:${key}`)
+        else window.localStorage.setItem(`spatial-explorer:${key}`, JSON.stringify(value))
+      } catch {
+        // Not persisted; the choice still applies for this session.
+      }
+    },
     setStatus(_fields: StatusFields): void {
       // No-op on the web shell (CLAUDE.md: "no-op on web" for setStatus).
     },

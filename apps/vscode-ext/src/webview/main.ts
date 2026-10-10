@@ -7,7 +7,18 @@
 import { mount } from 'svelte'
 import { setWorkerUrl } from 'maplibre-gl'
 import { ViewerLayout, createViewerStore } from '@spatial-explorer/ui'
-import { createVsCodeHostAdapter, getDuckDbAssets, getMaplibreWorkerUrl, getPrimaryFileName, reportLoadState, reportSelectionChanged, signalReady } from './hostAdapter.js'
+import {
+  createVsCodeHostAdapter,
+  getDuckDbAssets,
+  getMaplibreWorkerUrl,
+  getPrimaryFileName,
+  logToHost,
+  reportLoadState,
+  reportSelectionChanged,
+  reportViewState,
+  signalReady,
+} from './hostAdapter.js'
+import { watchViewState } from './viewState.svelte.js'
 // The VS Code token file: maps the shared --se-* tokens onto VS Code theme
 // variables. Vite bundles it into main.css, which getHtml() links.
 import './theme.css'
@@ -39,7 +50,25 @@ async function main(): Promise<void> {
     props: { store, fileName },
   })
 
+  watchViewState(store, reportViewState)
+
+  const started = performance.now()
   await store.load()
+  const elapsed = Math.round(performance.now() - started)
+  const loaded = store.session.layer
+  if (loaded) {
+    logToHost(
+      `Opened ${fileName}: ${loaded.featureCount.toLocaleString()} features` +
+        (loaded.truncated ? ` (showing ${loaded.features.length.toLocaleString()})` : '') +
+        (loaded.invalidGeometryCount ? `, ${loaded.invalidGeometryCount} invalid skipped` : '') +
+        `, ${loaded.geometryType}, ${loaded.sourceCrs.label}${loaded.crsAssumed ? ' (assumed)' : ''}` +
+        (store.styleSource ? `, style ${store.styleSource}` : '') +
+        ` in ${elapsed} ms` +
+        (loaded.loadTimings ? ` (${Object.entries(loaded.loadTimings).map(([k, v]) => `${k} ${v}`).join(', ')} ms)` : '')
+    )
+  } else {
+    logToHost(`Could not open ${fileName}: ${store.session.loadError?.message ?? 'unknown error'} (${elapsed} ms)`)
+  }
 
   // Regression guard (a real bug reached a real user: the webview's CSS —
   // including maplibre-gl's own required canvas-positioning rules — wasn't
@@ -74,6 +103,8 @@ async function main(): Promise<void> {
     mapCanvasRect,
     renderedFeatureCount,
     styleSource: store.styleSource,
+    loadMs: elapsed,
+    loadTimings: store.session.layer?.loadTimings,
   })
 
   // Test-only hook (T015): @vscode/test-electron cannot click inside this

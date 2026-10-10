@@ -1,16 +1,17 @@
 <script lang="ts">
   import {
+    AttributionControl,
     Map as MapLibreMap,
     ScaleControl,
     type GeoJSONSource,
-    type LayerSpecification,
     type MapGeoJSONFeature,
     type MapLayerMouseEvent,
     type MapMouseEvent,
+    type StyleSpecification,
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { onMount, onDestroy } from 'svelte'
-  import type { Layer, LayerStyle } from '@spatial-explorer/core'
+  import { BasemapHealth, loadBasemapStyle, type BasemapCatalogEntry, type BasemapStyle, type Layer, type LayerStyle } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   interface Props {
@@ -22,8 +23,12 @@
     zoomRequest: { id: string | number; seq: number } | null
     /** True while a splitter is being dragged: resizes are deferred to the end of the drag. */
     resizing: boolean
-    styleOpen: boolean
-    onToggleStyle: () => void
+    basemap: BasemapCatalogEntry
+    /** Blank background color chosen by the user; null = the theme's --se-map-bg. */
+    blankColor: string | null
+    onBasemapFailure: (message: string) => void
+    openPanel: 'style' | 'basemap' | null
+    onTogglePanel: (panel: 'style' | 'basemap') => void
     onSelectFeature: (id: string | number | null) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
   }
@@ -34,8 +39,11 @@
     themeRevision,
     zoomRequest,
     resizing,
-    styleOpen,
-    onToggleStyle,
+    basemap,
+    blankColor,
+    onBasemapFailure,
+    openPanel,
+    onTogglePanel,
     onSelectFeature,
     onCursorMove,
   }: Props = $props()
@@ -133,6 +141,7 @@
     if (!map || !mapReady) return
     const p = paints(style, selectionColor())
     for (const [layerId, props] of Object.entries(p)) {
+      if (!map.getLayer(layerId)) continue // mid basemap switch; buildStyle carries the current paints
       for (const [prop, value] of Object.entries(props)) {
         map.setPaintProperty(layerId, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
@@ -153,24 +162,100 @@
     return raw === undefined || raw === null ? null : (raw as string | number)
   }
 
-  function addLayers(): void {
-    if (!map) return
-    map.addSource(SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: ID_PROP })
+  // The data the source currently holds, so a basemap switch (which
+  // replaces the whole style) can carry it over without a reload.
+  let currentData: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+
+  /**
+   * One MapLibre style = the basemap's own style (nothing, for blank) + our
+   * data source and layers on top, so basemap labels sit under the data.
+   */
+  function buildStyle(base: BasemapStyle | null, entry: BasemapCatalogEntry): StyleSpecification {
+    const doc = (base ? JSON.parse(JSON.stringify(base)) : { version: 8, sources: {}, layers: [] }) as StyleSpecification & {
+      sources: Record<string, Record<string, unknown>>
+    }
+    // A basemap style's own camera (OpenFreeMap styles ship `center`/`zoom`)
+    // must never move the map: the view belongs to the data (fit-to-extent),
+    // and switching basemaps keeps wherever the user is.
+    const camera = doc as unknown as Record<string, unknown>
+    for (const key of ['center', 'zoom', 'bearing', 'pitch', 'roll']) delete camera[key]
+    // Always show the catalog's attribution (CLAUDE.md "Basemaps").
+    if (base && entry.attribution) {
+      const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
+      if (first && !first.attribution) first.attribution = entry.attribution
+    }
+    doc.sources[SOURCE_ID] = { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paints(style, selectionColor())
     for (const def of LAYER_DEFS) {
-      map.addLayer({ id: def.id, type: def.type, source: SOURCE_ID, filter: def.filter, layout: def.layout ?? {}, paint: p[def.id] } as unknown as LayerSpecification)
+      doc.layers.push({ id: def.id, type: def.type, source: SOURCE_ID, filter: def.filter, layout: def.layout ?? {}, paint: p[def.id] } as never)
     }
+    return doc
+  }
 
-    map.on('click', (e: MapMouseEvent) => {
-      const hit = map!.queryRenderedFeatures(e.point, { layers: INTERACTIVE_LAYERS })[0]
+  function registerHandlers(): void {
+    if (!map) return
+    const m = map
+    m.on('click', (e: MapMouseEvent) => {
+      const hit = m.queryRenderedFeatures(e.point, { layers: INTERACTIVE_LAYERS })[0]
       onSelectFeature(featureId(hit))
     })
     for (const id of INTERACTIVE_LAYERS) {
-      map.on('mousemove', id, (e: MapLayerMouseEvent) => setHover(featureId(e.features?.[0])))
-      map.on('mouseleave', id, () => setHover(null))
+      m.on('mousemove', id, (e: MapLayerMouseEvent) => setHover(featureId(e.features?.[0])))
+      m.on('mouseleave', id, () => setHover(null))
     }
-    map.on('mousemove', (e: MapMouseEvent) => onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat }))
-    map.on('mouseout', () => onCursorMove(null))
+    m.on('mousemove', (e: MapMouseEvent) => onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat }))
+    m.on('mouseout', () => onCursorMove(null))
+
+    // Tile/sprite/glyph failures after the style document itself loaded
+    // (e.g. tiles blocked by CSP): degrade to blank + message (FR-016).
+    // Errors from the data source are never counted.
+    m.on('error', (e: { sourceId?: string; error?: { message?: string } }) => {
+      if (!activeBasemap || activeBasemap.type === 'blank') return
+      const fromBasemap = (e.sourceId !== undefined && e.sourceId !== SOURCE_ID) || (basemapHost !== '' && String(e.error?.message ?? '').includes(basemapHost))
+      if (fromBasemap && health.recordFailure()) {
+        onBasemapFailure(`${activeBasemap.name} basemap unavailable (tiles could not be loaded). Showing a blank background.`)
+      }
+    })
+    // Observable proof the data was actually drawn, not just that a canvas
+    // exists: without MapLibre's worker the source never tiles and the map
+    // is blank while every other check passes (a real bug in the VS Code
+    // webview). Refreshed on every idle, since a basemap switch rebuilds
+    // the style. Read by the VS Code test hook and the browser tests.
+    m.on('idle', () => {
+      // Only meaningful once a layer is loaded: an idle before the data
+      // arrives must not publish a premature "0".
+      if (!layer) return
+      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
+    })
+    m.on('sourcedata', (e: { sourceId?: string; tile?: unknown }) => {
+      if (e.sourceId !== SOURCE_ID && e.tile) health.recordSuccess()
+    })
+  }
+
+  let activeBasemap: BasemapCatalogEntry | null = null
+  let basemapHost = ''
+  let health = new BasemapHealth()
+  let basemapRequest = 0
+
+  async function applyBasemap(entry: BasemapCatalogEntry): Promise<void> {
+    const request = ++basemapRequest
+    const result = await loadBasemapStyle(entry)
+    if (request !== basemapRequest || !map) return // superseded by a newer choice
+    if (!result.ok) {
+      onBasemapFailure(result.message) // the store falls back to blank, which comes back through here
+      return
+    }
+    activeBasemap = entry
+    basemapHost = entry.url ? new URL(entry.url).host : ''
+    health = new BasemapHealth()
+    const m = map
+    m.setStyle(buildStyle(result.style, entry), { diff: false })
+    m.once('style.load', () => {
+      // A new style is a new source: restore the state that lived on the old one.
+      hoveredId = null
+      if (selectedFeatureId !== null && selectedFeatureId !== undefined) m.setFeatureState({ source: SOURCE_ID, id: selectedFeatureId }, { selected: true })
+      previousSelected = selectedFeatureId ?? null
+    })
   }
 
   function fitExtent(animate: boolean): void {
@@ -178,6 +263,11 @@
     // Layer.featureCount === 0 (FR-012) — extent is null, so we just keep
     // the default view instead of calling fitBounds.
     if (!map || !layer?.extent) return
+    // Measure first: with trackResize off, the canvas can still have the
+    // size it had before the layout settled, and fitBounds would fit the
+    // extent into that stale (smaller) viewport, leaving the layer small
+    // and off-center.
+    map.resize()
     const [minX, minY, maxX, maxY] = layer.extent
     map.fitBounds(
       [
@@ -242,8 +332,9 @@
   onMount(() => {
     map = new MapLibreMap({
       container,
-      // Blank background — a basemap is User Story 4 / Phase 6.
-      style: { version: 8, sources: {}, layers: [] },
+      // Data only at first; the basemap effect swaps in the basemap style
+      // (with the data on top) as soon as the map is ready.
+      style: buildStyle(null, basemap),
       center: [0, 0],
       zoom: 1,
       attributionControl: false,
@@ -257,8 +348,9 @@
     })
     map.touchZoomRotate.disableRotation()
     map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-left')
+    map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     map.on('load', () => {
-      addLayers()
+      registerHandlers()
       mapReady = true
     })
     resizeObserver = new ResizeObserver(scheduleResize)
@@ -277,20 +369,12 @@
   $effect(() => {
     const current = layer
     if (!mapReady || !map) return
-    ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(
-      current ? toFeatureCollection(current) : { type: 'FeatureCollection', features: [] }
-    )
+    currentData = current ? toFeatureCollection(current) : { type: 'FeatureCollection', features: [] }
+    ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
     hoveredId = null
     fitExtent(false)
-    // Observable proof the data was actually drawn, not just that a canvas
-    // exists: without MapLibre's worker the source never tiles and the map
-    // is blank while every other check passes (a real bug in the VS Code
-    // webview). Read by the VS Code test hook (apps/vscode-ext main.ts).
-    const m = map
+    // Marks the rendered-feature count stale until the next idle (above).
     delete container.dataset.renderedFeatures
-    m.once('idle', () => {
-      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
-    })
   })
 
   $effect(() => {
@@ -314,6 +398,15 @@
     previousSelected = id ?? null
   })
 
+  // Basemap choice, theme default and failure fallback all arrive here.
+  let appliedBasemapId: string | null = null
+  $effect(() => {
+    const entry = basemap
+    if (!mapReady || entry.id === appliedBasemapId) return
+    appliedBasemapId = entry.id
+    void applyBasemap(entry)
+  })
+
   $effect(() => {
     const req = zoomRequest
     if (req && mapReady) zoomToFeature(req.id)
@@ -325,7 +418,7 @@
   })
 </script>
 
-<div class="map-view">
+<div class="map-view" style:background={blankColor ?? undefined}>
   <div class="canvas-host" bind:this={container}></div>
   <div class="controls" role="toolbar" aria-label="Map controls">
     <div class="group">
@@ -334,8 +427,26 @@
       <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
     </div>
     <div class="group">
-      <button type="button" title="Layer style" aria-label="Layer style" aria-pressed={styleOpen} class:active={styleOpen} disabled={!layer} onclick={onToggleStyle}>
+      <button
+        type="button"
+        title="Layer style"
+        aria-label="Layer style"
+        aria-pressed={openPanel === 'style'}
+        class:active={openPanel === 'style'}
+        disabled={!layer}
+        onclick={() => onTogglePanel('style')}
+      >
         <Icon name="paint" />
+      </button>
+      <button
+        type="button"
+        title="Basemap: {basemap.name}"
+        aria-label="Basemap"
+        aria-pressed={openPanel === 'basemap'}
+        class:active={openPanel === 'basemap'}
+        onclick={() => onTogglePanel('basemap')}
+      >
+        <Icon name="layers" />
       </button>
     </div>
   </div>
@@ -405,8 +516,21 @@
   }
 
   /* MapLibre's own controls, re-skinned onto the same tokens. */
-  .map-view :global(.maplibregl-ctrl-bottom-left) {
+  .map-view :global(.maplibregl-ctrl-bottom-left),
+  .map-view :global(.maplibregl-ctrl-bottom-right) {
     bottom: var(--se-map-bottom-inset, 0px);
+  }
+  .map-view :global(.maplibregl-ctrl-attrib) {
+    background: var(--se-control-bg);
+    color: var(--se-text-secondary);
+    font: 10px/1.5 var(--se-font-ui);
+    backdrop-filter: var(--se-overlay-blur);
+  }
+  .map-view :global(.maplibregl-ctrl-attrib a) {
+    color: inherit;
+  }
+  .map-view :global(.maplibregl-ctrl-attrib.maplibregl-compact) {
+    border: 1px solid var(--se-control-border);
   }
   .map-view :global(.maplibregl-ctrl-scale) {
     background: var(--se-control-bg);

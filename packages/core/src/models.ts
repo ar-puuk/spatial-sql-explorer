@@ -47,6 +47,8 @@ export interface Layer {
    * `importStyle()` and applied on open (design-plan.md §8.5).
    */
   styleSidecar: { fileName: string; text: string } | null
+  /** Milliseconds per load step (prepare, scan, rows), for logs. Diagnostic only. */
+  loadTimings?: Record<string, number>
 }
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error'
