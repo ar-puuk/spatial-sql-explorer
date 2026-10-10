@@ -11,6 +11,15 @@ out/
 # @vscode/test-electron's downloaded VS Code binary + test user profile
 .vscode-test/
 
+# apps/web's predev/prebuild-copied DuckDB-WASM + MapLibre worker assets
+# (copied from node_modules by apps/web/scripts/copy-wasm-assets.js)
+apps/web/public/duckdb/
+apps/web/public/maplibre/
+
+# Playwright test output
+test-results/
+playwright-report/
+
 # Env
 .env
 .env.*

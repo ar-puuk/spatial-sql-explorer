@@ -295,24 +295,47 @@ same rendering outcome as US1 (SC-006).
 
 ### Tests for User Story 2
 
-- [ ] T029 [P] [US2] Browser test: drag-and-drop file open renders the same
-      map+table outcome as the VS Code path, in
-      `tests/web/open-file.spec.ts`.
-- [ ] T030 [P] [US2] Browser test: the empty state (no file loaded) renders
-      correctly, in `tests/web/empty-state.spec.ts`.
+- [X] T029 **[RESOLVED, VERIFIED]** [P] [US2] Browser test: opening a file via
+      the web shell's file input renders the same map+table outcome as the
+      VS Code path (SC-006), in `tests/web/specs/open-file.spec.ts` (uses
+      `setInputFiles` against the real `<input type="file">`, which exercises
+      the same `handleFiles()` code a real OS-level drag would). Hit a real
+      bug along the way (**Bug 4**): `DataCloneError: Failed to execute
+      'postMessage' on 'Worker': ArrayBuffer at index 1 is a duplicate of an
+      earlier ArrayBuffer`, thrown from maplibre-gl's
+      `GeoJSONSource._sendWorkerUpdate` → `Actor.sendAsync`. Root-caused by
+      reading maplibre-gl's own source
+      (`node_modules/maplibre-gl/src/util/web_worker_transfer.ts`,
+      `util/actor.ts`): confirmed the data passed to `source.setData()` was a
+      Svelte 5 `$state` reactive Proxy (`structuredClone()` on it fails
+      outright with "could not be cloned" — proof it's a Proxy, not a plain
+      object), and maplibre's generic `serialize()` walk double-counts a
+      proxied value's transferables when traversing it. **Fix**: in
+      `packages/ui/src/MapView.svelte`'s `toFeatureCollection()`, run the
+      `FeatureCollection` through a `JSON.parse(JSON.stringify(...))` round
+      trip before calling `source.setData()`, which yields plain,
+      non-proxied objects. **Verified working for real**: `npx playwright
+      test` (real config, real `vite build` + `preview` server, real
+      Chromium/SwiftShader) against the 180-feature
+      `tests/vscode-ext/fixtures/world-boundaries.geojson` fixture —
+      `1 passed (2.1s)`, with `rowCount === 179` (one topologically invalid
+      geometry skipped per FR-014) and the MapLibre canvas visible.
+- [X] T030 **[VERIFIED]** [P] [US2] Browser test: the empty state (no file
+      loaded) renders correctly, in `tests/web/specs/empty-state.spec.ts`.
+      **Verified working for real**: `npx playwright test` — `1 passed`.
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement the web `HostAdapter` (File/Blob API via picker and
-      drag-and-drop; no message-passing boundary) in
+- [X] T031 [US2] Implemented the web `HostAdapter` (File/Blob API via picker
+      and drag-and-drop; no message-passing boundary) in
       `apps/web/src/hostAdapter.ts`, implementing `contracts/host-adapter.md`.
-- [ ] T032 [US2] Implement `FileDropZone`/picker entry UI reusing
+- [X] T032 [US2] Implemented `FileDropZone`/picker entry UI reusing
       `MapView`/`AttributeTable`/`ViewerLayout` (including the zero-feature
       empty states from T022/T023 and the `LayerWarningBanner` from T027,
       which come along for free as shared `packages/ui` components) in
       `apps/web/src/App.svelte`. Depends on T022, T023, T025, T027, T031.
-- [ ] T033 [US2] Implement the empty-state UI (no file loaded yet — distinct
-      from a loaded zero-feature file) in `apps/web/src/App.svelte`.
+- [X] T033 [US2] Implemented the empty-state UI (no file loaded yet —
+      distinct from a loaded zero-feature file) in `apps/web/src/App.svelte`.
 
 **Checkpoint**: User Stories 1 and 2 both work independently; the shared
 `packages/ui` components are now proven across both shells.

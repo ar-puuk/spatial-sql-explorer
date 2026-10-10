@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-wasm-assets.js",
     "dev": "vite",
+    "prebuild": "node scripts/copy-wasm-assets.js",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"

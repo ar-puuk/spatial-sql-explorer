@@ -1,0 +1,12 @@
+{
+  "name": "@spatial-explorer/tests-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest"
+  }
+}

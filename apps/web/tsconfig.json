@@ -21,7 +21,7 @@
     "outDir": "./dist",
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
-    "types": ["vite/client"]
+    "types": ["vite/client", "geojson"]
   },
   "include": ["src/**/*.ts", "src/**/*.svelte"],
   "exclude": ["node_modules", "dist"]

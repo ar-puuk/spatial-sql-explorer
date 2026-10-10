@@ -563,6 +563,57 @@ or any kind of URL directly. This applies to the spatial extension file too
 (research.md §3) once that's wired in — it will need the same treatment,
 not just the core wasm module.
 
+## 5. MapLibre `DataCloneError` with Svelte 5 `$state` data (Phase 4, Bug 4)
+
+**Symptom**: `tests/web/specs/open-file.spec.ts` (T029) consistently failed
+with `DataCloneError: Failed to execute 'postMessage' on 'Worker': ArrayBuffer
+at index 1 is a duplicate of an earlier ArrayBuffer`, thrown from
+`maplibre-gl`'s `GeoJSONSource._sendWorkerUpdate` → `Actor.sendAsync`, every
+time `packages/ui/src/MapView.svelte` called `source.setData(featureCollection)`
+with a real loaded `Layer`. Reproduced identically with both the 180-feature
+`world-boundaries.geojson` fixture and a trivial 3-feature fixture, ruling out
+data size/complexity. An initial hypothesis — that `addLayers()`'s
+`map.addSource(...)` (seeded with an empty `FeatureCollection`) and a reactive
+`$effect` were both calling `setData()` in quick succession — was tested by
+refactoring to a single `mapReady`-gated effect as the sole call site; the bug
+persisted identically, disproving that theory.
+
+**Root cause**: `packages/ui/src/viewerStore.svelte.ts` stores the loaded
+`Layer` in a Svelte 5 `$state` object (`session.layer = layer`). Svelte 5
+deep-wraps plain objects/arrays assigned to `$state` in reactive `Proxy`
+objects. `MapView.svelte`'s `toFeatureCollection()` built its output
+`Feature.geometry` by assigning `f.geometry` directly (not copying it), so
+the object handed to `source.setData()` still contained live Svelte
+`Proxy` objects, not plain data. Confirmed directly: calling
+`structuredClone()` on that same object threw `Failed to execute
+'structuredClone' on 'Window': #<Object> could not be cloned` — proof the
+value was a Proxy, not plain. Reading maplibre-gl's own source
+(`node_modules/maplibre-gl/src/util/web_worker_transfer.ts`'s `serialize()`
+and `util/actor.ts`'s `sendAsync()`) showed that `serialize()` walks the
+message tree pushing every `ArrayBuffer`/`ArrayBufferView` it finds onto a
+`transferables` array with no deduplication; traversing a Proxy through its
+`get` traps caused the same underlying transferable to be visited and pushed
+twice, and the browser's `postMessage({ transfer: buffers })` rejects a
+transfer list containing the same `ArrayBuffer` twice.
+
+**Fix**: `toFeatureCollection()` now runs its output through
+`JSON.parse(JSON.stringify(...))` before returning it. Proxies support
+`JSON.stringify`'s traversal (unlike `structuredClone`), so this reliably
+strips all reactivity and yields plain, non-proxied objects before they ever
+reach `maplibre-gl`'s worker-message serializer.
+
+**Verified working for real**: `npx playwright test` (the real,
+production-build-backed config, real Chromium + SwiftShader software WebGL)
+— `2 passed`, including `open-file.spec.ts` against the real 180-feature
+`world-boundaries.geojson` fixture (`rowCount === 179`, canvas visible,
+`1 passed (2.1s)`).
+
+**Takeaway for future `packages/ui` work**: any data read from a Svelte 5
+`$state` store and handed to a non-Svelte library's worker/message-passing
+boundary (here, `maplibre-gl`'s `GeoJSONSource.setData`) must be deep-cloned
+to plain data first. This is not specific to geometry — it applies to any
+`$state`-derived object crossing a `postMessage`/structured-clone boundary.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |

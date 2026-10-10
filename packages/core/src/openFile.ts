@@ -93,6 +93,26 @@ function buildFromExpr(strategy: ReadStrategy, vfsPath: string): { fromExpr: str
   }
 }
 
+/**
+ * DuckDB-WASM returns BIGINT columns as native JS `bigint` values, which
+ * `JSON.stringify`-based serialization (used internally by MapLibre's
+ * actor/worker messaging, confirmed via a real browser error: "can't
+ * serialize object of type bigint") cannot handle. Converts each `bigint` to
+ * a `number` when it safely fits, otherwise to a `string`, so
+ * `Feature.attributes` is always safe to pass to `MapView`/MapLibre.
+ */
+function sanitizeAttributes(raw: Record<string, unknown>): Feature['attributes'] {
+  const result: Feature['attributes'] = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'bigint') {
+      result[key] = Number.isSafeInteger(Number(value)) ? Number(value) : value.toString()
+    } else {
+      result[key] = value as Feature['attributes'][string]
+    }
+  }
+  return result
+}
+
 export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<Layer> {
   const { hostAdapter, duckdbAssets } = deps
   const source = await hostAdapter.getFileSource(ref)
@@ -174,11 +194,11 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     `)
     const rawRows = rowsRes.toArray().map((r) => r.toJSON())
     const features: Feature[] = rawRows.map((row, index) => {
-      const { __geom_geojson, ...attributes } = row as Record<string, unknown>
+      const { __geom_geojson, ...rawAttributes } = row as Record<string, unknown>
       return {
         id: index,
         geometry: __geom_geojson ? (JSON.parse(String(__geom_geojson)) as GeoJSON.Geometry) : null,
-        attributes: attributes as Feature['attributes'],
+        attributes: sanitizeAttributes(rawAttributes),
       }
     })
 

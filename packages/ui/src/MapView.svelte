@@ -48,16 +48,29 @@
   ]
 
   function toFeatureCollection(l: Layer): GeoJSON.FeatureCollection {
-    return {
-      type: 'FeatureCollection',
-      features: l.features
-        .filter((f) => f.geometry !== null)
-        .map((f) => ({
-          type: 'Feature',
-          properties: { ...f.attributes, __id: String(f.id) },
-          geometry: f.geometry as GeoJSON.Geometry,
-        })),
-    }
+    // Svelte 5's $state wraps Layer (and its nested features/geometry) in
+    // reactive Proxy objects (structuredClone refuses to clone them
+    // directly: "could not be cloned", confirmed via Playwright). Passing a
+    // geometry Proxy straight into maplibre-gl's worker-update serializer
+    // (the $effect below reads the reactive `layer` to call this) hits a
+    // real MapLibre bug: its generic serialize() walk re-visits the proxied
+    // object's underlying target through proxy traps and double-counts its
+    // transferables, throwing "DataCloneError: ArrayBuffer at index N is a
+    // duplicate of an earlier ArrayBuffer". A JSON round-trip (proxies
+    // support JSON.stringify's traps fine, unlike structuredClone) yields
+    // plain, non-proxied objects before they ever reach MapLibre.
+    return JSON.parse(
+      JSON.stringify({
+        type: 'FeatureCollection',
+        features: l.features
+          .filter((f) => f.geometry !== null)
+          .map((f) => ({
+            type: 'Feature',
+            properties: { ...f.attributes, __id: String(f.id) },
+            geometry: f.geometry as GeoJSON.Geometry,
+          })),
+      })
+    ) as GeoJSON.FeatureCollection
   }
 
   function addLayers(): void {
@@ -107,6 +120,13 @@
     )
   }
 
+  // A single $effect (depending on both mapReady and layer) is the only
+  // place that calls source.setData() — addSource() itself can't be given
+  // the real data up front, since the layer may not have loaded yet when
+  // the map first mounts, so this effect is what delivers it once both the
+  // map and the layer are ready.
+  let mapReady = $state(false)
+
   onMount(() => {
     map = new MapLibreMap({
       container,
@@ -118,8 +138,7 @@
     })
     map.on('load', () => {
       addLayers()
-      updateData()
-      fitExtent()
+      mapReady = true
     })
   })
 
@@ -130,7 +149,7 @@
 
   $effect(() => {
     layer
-    if (map?.loaded()) {
+    if (mapReady) {
       updateData()
       fitExtent()
     }
