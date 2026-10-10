@@ -66,7 +66,7 @@ export async function buildQueryResult(ctx: BuildContext, statement: string): Pr
     // Errors from our own follow-up SQL must not point into the user's
     // statement: drop the LINE block (and so the position).
     const first = (err instanceof Error ? err.message : String(err)).split('\n')[0]
-    throw new Error(`Internal Error: The result could not be prepared (${first})`)
+    throw new Error(`Internal Error: The result could not be prepared (${first})`, { cause: err })
   }
 }
 
