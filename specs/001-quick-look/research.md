@@ -312,6 +312,58 @@ interactive DevTools access or more iteration time than this pass budgeted):
    combination of facts (VS Code webview + blob-proxied worker + mvp bundle)
    confirmed against DuckDB-WASM's own GitHub issues in this research pass.
 
+### Follow-up round: isolating the exact failure point
+
+Three further diagnostics were added directly to the spike (same test,
+re-run for real each time) to narrow down *why* `instantiate()` hangs rather
+than just confirming that it does:
+
+- **Diag A** — plain `WebAssembly.compile(wasmBytes)` on the webview's main
+  thread: **succeeds, 62ms.** Raw WASM compilation of this exact 41MB module
+  is not broken in this environment.
+- **Diag B** — the same `WebAssembly.compile(wasmBytes)`, but inside a
+  minimal, non-DuckDB worker (bytes delivered via `postMessage`, zero
+  DuckDB-WASM involvement): **succeeds, 57ms.** WASM compilation inside a
+  worker, in this exact webview, is also not broken.
+- **Diag C** — confirmed via `grep` that `duckdb-browser-mvp.worker.js` uses
+  `instantiateStreaming` (5 occurrences) internally, i.e. it does its own
+  `WebAssembly.instantiateStreaming(fetch(url))` inside the worker rather
+  than accepting raw bytes. So a minimal worker was given the *blob: URL
+  string* (not bytes) that the main thread had created for the wasm file,
+  and asked to `fetch()` it: **fails immediately and cleanly**, 0ms:
+  `TypeError: Failed to fetch`. This is the first clean (non-hanging) error
+  in the whole investigation, and it directly explains the mechanism: a
+  worker's `fetch()` of a blob: URL created by a *different* realm (the main
+  thread) does not work in this environment, and DuckDB-WASM's internal
+  `instantiateStreaming(fetch(...))` call swallows that rejection somewhere
+  in its own error handling instead of surfacing it back through its
+  message protocol — which is why `db.instantiate()` hangs on the main
+  thread instead of rejecting.
+
+**Follow-up fix attempt based on that diagnosis**: if the problem is a
+foreign-realm blob, the fix should be to have the *worker itself* create the
+blob URL (same-realm) instead of the main thread. This was implemented by
+appending an extra `message` listener onto the DuckDB worker's own script
+text (before blobbing it) that, on receiving wasm bytes via `postMessage`,
+creates its own `URL.createObjectURL(...)` and reports the resulting blob
+URL string back to the main thread. This worked exactly as designed — the
+worker successfully reported back a real, self-created blob URL
+(`worker self-created blob URL OK: blob:vscode-webview://...`). That
+self-created blob URL was then passed to `db.instantiate()`.
+
+**Result: it still hangs, with no error — but differently from Diag C.**
+Diag C's foreign-realm blob fetch failed instantly (0ms). The worker's own
+*same-realm* blob, fed to DuckDB-WASM's real `instantiate()` call, hangs for
+the full timeout instead. This is a meaningfully different symptom and means
+the root cause is **not simply blob-URL realm/origin scoping** — something
+else inside DuckDB-WASM's actual `INSTANTIATE` message handling (beyond a
+plain `fetch()` + `instantiateStreaming()`) is where this actually breaks,
+and that requires reading DuckDB-WASM's real (unminified) source or its
+issue tracker to pin down further — beyond what trial-and-error in the
+webview alone can resolve efficiently. This research pass stops here and
+hands off to a source-level/issue-tracker investigation (a second pass, see
+commit history around this point) rather than continuing to guess blindly.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |
