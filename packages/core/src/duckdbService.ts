@@ -95,3 +95,53 @@ export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection): 
   await conn.query('INSTALL spatial;')
   await conn.query('LOAD spatial;')
 }
+
+let sharedDb: Promise<duckdb.AsyncDuckDB> | null = null
+
+/**
+ * One DuckDB instance (with spatial loaded) per webview / page, shared by
+ * every open in that session (CLAUDE.md: each custom-editor webview owns its
+ * own instance). Previously every openFile() instantiated and terminated its
+ * own, re-paying the ~36 MB wasm compile and the spatial extension's CDN
+ * fetch on each open.
+ *
+ * Self-healing (GeoLibre post-launch fix #1045): a rejected init is not
+ * memoized, so a transient failure (offline extension CDN, a webview that
+ * was briefly hidden) can be retried by the next open instead of being
+ * cached forever. The identity check stops a stale failure from clearing a
+ * newer, healthy attempt.
+ */
+export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> {
+  if (!sharedDb) {
+    const attempt = (async () => {
+      const db = await createDuckDb(assets)
+      try {
+        const conn = await db.connect()
+        try {
+          await loadSpatialExtension(conn)
+        } finally {
+          await conn.close()
+        }
+        return db
+      } catch (err) {
+        await db.terminate().catch(() => {})
+        throw err
+      }
+    })()
+    sharedDb = attempt
+    attempt.catch(() => {
+      if (sharedDb === attempt) sharedDb = null
+    })
+  }
+  return sharedDb
+}
+
+/**
+ * Starts DuckDB + spatial initialization early, so it overlaps with the file
+ * transfer (VS Code) or with the user choosing a file (web) instead of
+ * starting only once the bytes have arrived. Never throws: a failure here
+ * resurfaces, with its real message, from the open that awaits it.
+ */
+export function prewarmDuckDb(assets: DuckDbAssetUrls): void {
+  getDuckDb(assets).catch(() => {})
+}

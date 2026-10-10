@@ -1,64 +1,89 @@
 <script lang="ts">
   // T035 (specs/001-quick-look/tasks.md, User Story 3): CRS, feature count,
   // geometry type, CRS-assumed disclosure (FR-015), truncation notice
-  // (FR-019), and live cursor coordinates (FR from US3's acceptance scenario
-  // 3). This is the web shell's only metadata display — VS Code additionally
-  // (and primarily) shows the same fields via its native status bar, wired
-  // separately through HostAdapter.setStatus (apps/vscode-ext/src/extension.ts).
+  // (FR-019), and live cursor coordinates. Web-shell chrome only
+  // (design-plan.md §4.3), docked over the bottom of the map like the legacy
+  // app's map status bar. VS Code shows the same fields in its native status
+  // bar via HostAdapter.setStatus (apps/vscode-ext/src/extension.ts).
   import type { ViewerSession } from '@spatial-explorer/core'
 
   interface Props {
     session: ViewerSession
   }
   let { session }: Props = $props()
+  const nf = new Intl.NumberFormat()
 </script>
 
 {#if session.layer}
   {@const layer = session.layer}
   <div class="status-bar" role="status">
-    <span class="item" title={layer.crsAssumed ? 'No CRS information found in the file — WGS84 was assumed' : undefined}>
-      {layer.sourceCrs.label}{layer.crsAssumed ? ' (assumed)' : ''}
+    <span class="item crs" class:assumed={layer.crsAssumed} title={layer.crsAssumed ? 'No CRS information found in the file — WGS84 was assumed' : 'Source CRS (reprojected to WGS84 for display)'}>
+      {layer.sourceCrs.label}{layer.crsAssumed ? ' · assumed' : ''}
     </span>
-    <span class="item">{layer.featureCount.toLocaleString()} features</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="item">{nf.format(layer.featureCount)} features</span>
+    <span class="sep" aria-hidden="true"></span>
     <span class="item">{layer.geometryType}</span>
     {#if layer.truncated}
+      <span class="sep" aria-hidden="true"></span>
       <span class="item truncated">
-        Showing {Math.min(layer.features.length, layer.featureCount).toLocaleString()} of {layer.featureCount.toLocaleString()} features
+        Showing {nf.format(Math.min(layer.features.length, layer.featureCount))} of {nf.format(layer.featureCount)}
       </span>
     {/if}
     <span class="spacer"></span>
-    {#if session.cursorCoordinates}
-      <span class="item cursor">{session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}</span>
-    {/if}
+    <span class="item cursor" aria-label="Cursor coordinates">
+      {#if session.cursorCoordinates}
+        {session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}
+      {/if}
+    </span>
   </div>
 {/if}
 
 <style>
   .status-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 2px 12px;
-    background: var(--vscode-sideBar-background, var(--vscode-editor-background, #252526));
-    border-top: 1px solid var(--vscode-panel-border, #2b2b2b);
-    color: var(--vscode-descriptionForeground, #ccc);
-    font-family: var(--vscode-font-family, sans-serif);
-    font-size: 0.85em;
+    gap: 10px;
+    height: 24px;
+    padding: 0 10px;
+    background: var(--se-statusbar-bg);
+    color: var(--se-statusbar-fg);
+    border-top: 1px solid var(--se-statusbar-border);
+    backdrop-filter: var(--se-overlay-blur);
+    font-family: var(--se-font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    overflow-x: auto;
+    overflow: hidden;
   }
   .item {
     flex-shrink: 0;
   }
+  .crs {
+    color: var(--se-statusbar-accent);
+  }
+  .crs.assumed {
+    color: var(--se-warning-fg);
+  }
   .truncated {
-    color: var(--vscode-foreground, #fff);
+    color: var(--se-warning-fg);
+  }
+  .sep {
+    width: 1px;
+    height: 12px;
+    background: var(--se-statusbar-border);
   }
   .spacer {
     flex: 1;
     min-width: 8px;
   }
   .cursor {
-    font-variant-numeric: tabular-nums;
-    color: var(--vscode-foreground, #fff);
+    min-width: 19ch;
+    text-align: right;
   }
 </style>

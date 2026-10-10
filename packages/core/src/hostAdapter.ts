@@ -35,7 +35,29 @@ export interface HostAdapter {
 
   getFileSource(ref: OpenedFileRef): Promise<FileSource>
 
-  saveFile(name: string, content: Uint8Array | string): Promise<void>
+  /**
+   * Saves content to a user-chosen location: VS Code shows a save dialog
+   * defaulting to `name` next to the opened file; the web shell downloads it.
+   * Resolves `{ saved: false }` if the user cancels.
+   */
+  saveFile(name: string, content: Uint8Array | string): Promise<SaveResult>
+
+  /**
+   * Writes `name` directly next to the opened data file (the QGIS style
+   * sidecar convention), asking before overwriting an existing file. Only
+   * hosts with filesystem access implement it — the web shell cannot write
+   * next to a picked file, so UI falls back to `saveFile` (a download).
+   */
+  saveSidecar?(name: string, content: string): Promise<SaveResult>
+
+  /** Lets the user pick one text file (e.g. a style to import). Resolves null if cancelled. */
+  pickTextFile(options: { title: string; extensions: readonly string[] }): Promise<{ name: string; text: string } | null>
 
   setStatus(fields: StatusFields): void
+}
+
+export interface SaveResult {
+  saved: boolean
+  /** Display location for confirmation messages (a file name or path). */
+  location?: string
 }

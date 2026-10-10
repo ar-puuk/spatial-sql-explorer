@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
+
   interface Props {
     message: string | null
   }
@@ -6,22 +8,34 @@
 </script>
 
 {#if message}
-  <div class="error-banner" role="alert">
-    <span aria-hidden="true">⚠</span>
-    <span>{message}</span>
+  <div class="banner" role="alert">
+    <Icon name="error" />
+    <span class="message">{message}</span>
   </div>
 {/if}
 
 <style>
-  .error-banner {
-    padding: 8px 12px;
-    background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
-    border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
-    color: var(--vscode-foreground, #fff);
+  .banner {
     display: flex;
+    align-items: flex-start;
     gap: 8px;
-    align-items: center;
-    font-family: var(--vscode-font-family, sans-serif);
-    font-size: var(--vscode-font-size, 13px);
+    padding: 8px 12px;
+    background: var(--se-error-bg);
+    border-left: 3px solid var(--se-error);
+    border-bottom: 1px solid var(--se-error-border);
+    color: var(--se-text-primary);
+    font-family: var(--se-font-ui);
+    font-size: var(--se-font-size);
+    line-height: 1.45;
+  }
+  .banner > :global(.icon) {
+    margin-top: 1px;
+    color: var(--se-error);
+  }
+  .message {
+    font-family: var(--se-font-mono);
+    font-size: 0.95em;
+    overflow-wrap: anywhere;
+    user-select: text;
   }
 </style>

@@ -25,3 +25,15 @@ for (const file of files) {
   copyFileSync(join(srcDir, file), join(destDir, file))
   console.log(`Copied ${file} -> dist-webview/duckdb/${file}`)
 }
+
+// MapLibre GL v6's worker: maplibre-gl derives its worker URL at runtime, so
+// no bundler emits it, and without a worker a GeoJSON source never tiles: the
+// map draws nothing, silently (GeoLibre hit the same, lib/maplibre-worker.ts).
+// main.ts loads this through a same-origin blob: URL, like DuckDB's worker
+// (research.md §4: a worker constructed directly from an asWebviewUri() URL
+// is blocked in a webview).
+const maplibreSrc = join(__dirname, '..', '..', '..', 'node_modules', 'maplibre-gl', 'dist', 'maplibre-gl-worker.mjs')
+const maplibreDestDir = join(__dirname, '..', 'dist-webview', 'maplibre')
+mkdirSync(maplibreDestDir, { recursive: true })
+copyFileSync(maplibreSrc, join(maplibreDestDir, 'maplibre-gl-worker.mjs'))
+console.log('Copied maplibre-gl-worker.mjs -> dist-webview/maplibre/maplibre-gl-worker.mjs')

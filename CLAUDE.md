@@ -85,8 +85,9 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 
 ## Styling and export
 - Styling: single, categorized, graduated (equal/quantile/jenks), inline color-ramp picker with previews, legend.
-- Style persistence: sidecar next to the data file. FORMAT IS OPEN: own JSON vs QGIS QML / SLD / Mapbox style JSON
-  for interop. Decide in /speckit.clarify, and prefer interop if the cost is moderate.
+- Style persistence: DECIDED (2026-10-10, specs/001-quick-look/design-plan.md §8.5). The sidecar is QGIS QML
+  (`<basename>.qml` next to the data, which QGIS auto-loads too). Export and import QML, OGC SLD and Mapbox GL style JSON.
+  Serializers live in packages/core/src/style/.
 - Export: via DuckDB COPY/ST_Write: GeoJSON, GeoParquet, CSV, and others only if the WASM build supports them.
 
 ## Query UX

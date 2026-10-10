@@ -1,6 +1,7 @@
 import { mount } from 'svelte'
 import { setWorkerUrl } from 'maplibre-gl'
 import App from './App.svelte'
+import './theme.css'
 
 // Must run before any maplibregl.Map is constructed (MapView.svelte, once a
 // file loads). See scripts/copy-wasm-assets.js's comment: MapLibre's

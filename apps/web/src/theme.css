@@ -1,0 +1,229 @@
+/*
+ * Web token file: maps the shared `--se-*` design tokens used by packages/ui
+ * onto the brand palette ("Pukar Bhandari Web Tools Brand Theme",
+ * webapp-theme.md in the legacy-v1 app; values copied as data). Same token
+ * names as apps/vscode-ext/src/webview/theme.css, different values
+ * (CLAUDE.md: "same token names, different token file"). A token added to one
+ * file must be added to both.
+ *
+ * Light/dark follows the OS (`prefers-color-scheme`), with `data-theme` on
+ * <html> as an explicit override.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  color-scheme: light;
+
+  --se-bg-base: #fffbf2;
+  --se-bg-panel: #f2ece0;
+  --se-bg-elevated: #ffffff;
+  --se-bg-hover: #fef3c7;
+  --se-border: #e8dfc8;
+
+  --se-text-primary: #1c1208;
+  --se-text-secondary: #6b5e4a;
+  --se-text-muted: #a8977a;
+  --se-accent: #b45309;
+  --se-focus: #b45309;
+  --se-info: #0369a1;
+
+  --se-font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --se-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', SFMono-Regular, Menlo, monospace;
+  --se-font-data: var(--se-font-mono);
+  --se-font-size: 12px;
+  --se-section-title-font: 700 10px var(--se-font-mono);
+  --se-section-title-transform: uppercase;
+  --se-section-title-tracking: 0.12em;
+  --se-section-title-fg: #6b5e4a;
+
+  --se-radius-sm: 4px;
+  --se-radius: 6px;
+  --se-shadow-card: 0 1px 3px rgba(28, 18, 8, 0.1), 0 1px 2px rgba(28, 18, 8, 0.06);
+  --se-shadow-elevated: 0 10px 28px rgba(28, 18, 8, 0.16), 0 2px 6px rgba(28, 18, 8, 0.08);
+  --se-overlay-blur: blur(8px);
+
+  --se-progress: #b45309;
+  --se-sash-hover: #b45309;
+  --se-sash-grip-display: block;
+
+  --se-map-bg: #f5efe3;
+  --se-map-selection: #d97706;
+  --se-map-bottom-inset: 24px;
+
+  --se-control-bg: rgba(255, 251, 242, 0.9);
+  --se-control-border: #d4c5a9;
+  --se-control-fg: #6b5e4a;
+  --se-control-hover: #f2ece0;
+  --se-control-active-bg: #fef3c7;
+  --se-control-active-fg: #92400e;
+
+  --se-row-height: 26px;
+  --se-table-bg: #ffffff;
+  --se-table-header-bg: #f8f4ec;
+  --se-table-header-fg: #a8977a;
+  --se-table-header-border: 2px solid #b8a88a;
+  --se-table-header-font: 600 10px var(--se-font-mono);
+  --se-table-header-transform: uppercase;
+  --se-table-header-tracking: 0.06em;
+  --se-table-stripe: #fdf9f4;
+  --se-table-row-border: #f2ece0;
+  --se-table-number-fg: #1c1208;
+
+  --se-selected-bg: #fde68a;
+  --se-selected-fg: #1c1208;
+  --se-selected-outline: transparent;
+  --se-selected-inactive-bg: #fef3c7;
+  --se-selected-inactive-fg: #1c1208;
+  --se-selected-indicator: #b45309;
+
+  --se-input-bg: #ffffff;
+  --se-input-border: #d4c5a9;
+  --se-button-bg: #b45309;
+  --se-button-fg: #ffffff;
+  --se-button-hover: #92400e;
+  --se-button-border: transparent;
+  --se-button-secondary-bg: transparent;
+  --se-button-secondary-fg: #6b5e4a;
+  --se-button-secondary-hover: #f2ece0;
+  --se-menu-bg: #ffffff;
+  --se-menu-border: #d4c5a9;
+  --se-menu-fg: #1c1208;
+  --se-menu-hover-bg: #fef3c7;
+  --se-menu-hover-fg: #92400e;
+
+  --se-warning: #d97706;
+  --se-warning-fg: #92400e;
+  --se-warning-bg: #fef3c7;
+  --se-warning-border: #fde68a;
+  --se-error: #dc2626;
+  --se-error-bg: #fef2f2;
+  --se-error-border: #fecaca;
+
+  --se-statusbar-bg: rgba(14, 23, 30, 0.74);
+  --se-statusbar-fg: #d6cfc2;
+  --se-statusbar-border: rgba(255, 255, 255, 0.1);
+  --se-statusbar-accent: #fbbf24;
+
+  /* Web-shell-only chrome */
+  --se-header-bg: #f2ece0;
+  --se-header-border: #d4c5a9;
+  --se-dropzone-border: #d4c5a9;
+  --se-dropzone-active-bg: #fef3c7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --se-bg-base: #0e171e;
+    --se-bg-panel: #131e28;
+    --se-bg-elevated: #192430;
+    --se-bg-hover: #2d1c04;
+    --se-border: #1e2e3c;
+
+    --se-text-primary: #f0ebe0;
+    --se-text-secondary: #8a98a8;
+    --se-text-muted: #5d6e80;
+    --se-accent: #fbbf24;
+    --se-focus: #fbbf24;
+    --se-info: #60a5fa;
+    --se-section-title-fg: #8a98a8;
+
+    --se-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --se-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+
+    --se-progress: #fbbf24;
+    --se-sash-hover: #fbbf24;
+
+    --se-map-bg: #101820;
+    --se-map-selection: #fbbf24;
+
+    --se-control-bg: rgba(19, 30, 40, 0.88);
+    --se-control-border: #253545;
+    --se-control-fg: #8a98a8;
+    --se-control-hover: #1e2e3c;
+    --se-control-active-bg: #2d1c04;
+    --se-control-active-fg: #fcd34d;
+
+    --se-table-bg: #0e171e;
+    --se-table-header-bg: #131e28;
+    --se-table-header-fg: #8a98a8;
+    --se-table-header-border: 2px solid #2f4258;
+    --se-table-stripe: #101820;
+    --se-table-row-border: #192430;
+    --se-table-number-fg: #e8c87a;
+
+    --se-selected-bg: #3a2606;
+    --se-selected-fg: #fcd34d;
+    --se-selected-inactive-bg: #2d1c04;
+    --se-selected-inactive-fg: #fcd34d;
+    --se-selected-indicator: #fbbf24;
+
+    --se-input-bg: #192430;
+    --se-input-border: #253545;
+    --se-button-bg: #fbbf24;
+    --se-button-fg: #1c1208;
+    --se-button-hover: #f59e0b;
+    --se-button-secondary-fg: #8a98a8;
+    --se-button-secondary-hover: #1e2e3c;
+    --se-menu-bg: #1f2d3a;
+    --se-menu-border: #2f4258;
+    --se-menu-fg: #f0ebe0;
+    --se-menu-hover-bg: #2d1c04;
+    --se-menu-hover-fg: #fcd34d;
+
+    --se-warning: #f59e0b;
+    --se-warning-fg: #fcd34d;
+    --se-warning-bg: #2d1c04;
+    --se-warning-border: #4a3008;
+    --se-error: #ef4444;
+    --se-error-bg: #2a1215;
+    --se-error-border: #5c1d22;
+
+    --se-statusbar-bg: rgba(14, 23, 30, 0.82);
+    --se-statusbar-fg: #8a98a8;
+    --se-statusbar-border: #253545;
+
+    --se-header-bg: #131e28;
+    --se-header-border: #253545;
+    --se-dropzone-border: #2f4258;
+    --se-dropzone-active-bg: #2d1c04;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--se-bg-base);
+  color: var(--se-text-primary);
+  font-family: var(--se-font-ui);
+  font-size: var(--se-font-size);
+  font-feature-settings: 'cv02', 'cv03', 'cv04';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#app {
+  height: 100%;
+}
+
+/* Thin scrollbars, matching the legacy app. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--se-input-border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--se-input-border);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

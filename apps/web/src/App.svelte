@@ -1,15 +1,33 @@
 <script lang="ts">
-  import { ViewerLayout, createViewerStore } from '@spatial-explorer/ui'
+  // Web shell chrome (design-plan.md §4.3, §5.4): a slim branded header, the
+  // legacy app's drop zone as the empty state, and the shared ViewerLayout
+  // with the status bar docked over the map. VS Code renders none of this —
+  // it has native chrome for each.
+  import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
   import { createWebHostAdapter, provideFiles } from './hostAdapter.js'
 
-  // Served from public/duckdb/ — see scripts/copy-duckdb-wasm.js.
+  // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
   const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm' }
   const hostAdapter = createWebHostAdapter()
   const store = createViewerStore(hostAdapter, duckdbAssets)
 
+  // Warm DuckDB up while the user is still choosing a file (design-plan.md
+  // §8.2), but after first paint so the drop zone shows immediately.
+  const idle = (cb: () => void): void => {
+    if ('requestIdleCallback' in window) window.requestIdleCallback(cb, { timeout: 2000 })
+    else setTimeout(cb, 300)
+  }
+  idle(() => store.prewarm())
+
+  const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML']
+
   let isDragOver = $state(false)
+  let fileName = $state<string | null>(null)
+  let input: HTMLInputElement
 
   function handleFiles(fileList: FileList): void {
+    const files = Array.from(fileList)
+    if (files.length === 0) return
     // Order matters: store.load() must run first so its internal
     // hostAdapter.openFiles() call registers its pending-resolve callback
     // (synchronously, inside the Promise executor, before load()'s first
@@ -19,7 +37,8 @@
     // resolves — a real bug caught via Playwright testing, not a platform
     // issue (see tasks.md T029/T030's notes).
     void store.load()
-    provideFiles(Array.from(fileList))
+    provideFiles(files)
+    fileName = files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
   }
 
   function handleDrop(e: DragEvent): void {
@@ -33,68 +52,248 @@
     isDragOver = true
   }
 
-  function handleDragLeave(): void {
-    isDragOver = false
+  function handlePickerChange(): void {
+    if (input.files && input.files.length > 0) handleFiles(input.files)
+    // Allow re-picking the same file.
+    input.value = ''
   }
 
-  function handlePickerChange(e: Event): void {
-    const input = e.target as HTMLInputElement
-    if (input.files && input.files.length > 0) handleFiles(input.files)
-  }
+  let idleState = $derived(store.session.loadState === 'idle')
 </script>
 
-{#if store.session.loadState === 'idle'}
-  <!-- Empty state (no file loaded yet) — distinct from a loaded zero-feature
-       file, which reaches 'ready' and is rendered by ViewerLayout instead. -->
-  <div
-    class="empty-state"
-    class:drag-over={isDragOver}
-    ondragover={handleDragOver}
-    ondragleave={handleDragLeave}
-    ondrop={handleDrop}
-    role="region"
-    aria-label="Drop a geospatial file here"
-  >
-    <p>Drag a geospatial file here</p>
-    <p class="or">or</p>
-    <label class="picker-button">
-      Choose a file
-      <input type="file" multiple onchange={handlePickerChange} style="display: none" />
-    </label>
-  </div>
-{:else}
-  <ViewerLayout session={store.session} onSelectFeature={(id) => store.selectFeature(id)} onCursorMove={(c) => store.setCursor(c)} />
-{/if}
+<input bind:this={input} type="file" multiple class="visually-hidden" tabindex="-1" aria-hidden="true" onchange={handlePickerChange} />
+
+<div class="shell" ondragover={handleDragOver} ondragleave={() => (isDragOver = false)} ondrop={handleDrop} role="application">
+  <header class="app-header">
+    <span class="brand"><span class="glyph" aria-hidden="true">⬡</span>Spatial Explorer</span>
+    {#if fileName && !idleState}
+      <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
+    {/if}
+    <span class="spacer"></span>
+    {#if !idleState}
+      <button type="button" class="open" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
+    {/if}
+  </header>
+
+  <main class="content">
+    {#if idleState}
+      <!-- Empty state (no file loaded yet) — distinct from a loaded zero-feature
+           file, which reaches 'ready' and is rendered by ViewerLayout instead. -->
+      <div class="empty">
+        <div class="drop-zone" class:drag-over={isDragOver} role="region" aria-label="Drop a geospatial file here">
+          <div class="drop-icon" aria-hidden="true"><Icon name="file" size={28} /></div>
+          <p class="title">Drag a geospatial file here</p>
+          <p class="or">or</p>
+          <button type="button" class="primary" onclick={() => input.click()}>Choose a file</button>
+          <ul class="formats" aria-label="Supported formats">
+            {#each FORMATS as f (f)}<li>{f}</li>{/each}
+          </ul>
+          <p class="footnote">
+            Shapefiles: select the .shp together with its .shx, .dbf and .prj. Add a same-name .qml to load its QGIS style.<br />
+            Files are read in your browser and never uploaded.
+          </p>
+        </div>
+      </div>
+    {:else}
+      <ViewerLayout {store} {fileName}>
+        {#snippet mapOverlay()}
+          <StatusBar session={store.session} />
+        {/snippet}
+      </ViewerLayout>
+    {/if}
+    {#if isDragOver && !idleState}
+      <div class="drop-overlay" aria-hidden="true"><span>Drop to open</span></div>
+    {/if}
+  </main>
+</div>
 
 <style>
-  .empty-state {
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .app-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+    height: 40px;
+    padding: 0 12px 0 14px;
+    background: var(--se-header-bg);
+    border-bottom: 1px solid var(--se-header-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 700 11px var(--se-font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--se-accent);
+    white-space: nowrap;
+  }
+  .glyph {
+    font-size: 16px;
+    letter-spacing: 0;
+  }
+  .file {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--se-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-bg-base);
+    color: var(--se-text-secondary);
+    font-family: var(--se-font-mono);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .open {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+    font: 500 12px var(--se-font-ui);
+    cursor: pointer;
+  }
+  .open:hover {
+    background: var(--se-button-secondary-hover);
+    color: var(--se-text-primary);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+
+  .content {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  .empty {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+  .drop-zone {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    height: 100vh;
-    gap: 8px;
-    border: 2px dashed #ccc;
-    margin: 16px;
-    border-radius: 8px;
-    font-family: system-ui, sans-serif;
-    color: #555;
-    transition: background-color 0.15s;
+    gap: 10px;
+    width: min(560px, 100%);
+    padding: 48px 32px 32px;
+    box-sizing: border-box;
+    border: 2px dashed var(--se-dropzone-border);
+    border-radius: 12px;
+    background: var(--se-bg-elevated);
+    text-align: center;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
   }
-  .empty-state.drag-over {
-    background-color: #eef6ff;
-    border-color: #3388ff;
+  .drop-zone.drag-over {
+    background: var(--se-dropzone-active-bg);
+    border-color: var(--se-accent);
+    border-style: solid;
+  }
+  .drop-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--se-control-active-bg);
+    color: var(--se-accent);
+  }
+  .title {
+    margin: 6px 0 0;
+    font: 600 15px var(--se-font-ui);
+    color: var(--se-text-primary);
   }
   .or {
-    font-size: 0.85em;
-    color: #999;
+    margin: 0;
+    font: 500 10px var(--se-font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--se-text-muted);
   }
-  .picker-button {
-    padding: 8px 16px;
-    background: #3388ff;
-    color: white;
-    border-radius: 4px;
+  .primary {
+    height: 34px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: var(--se-radius);
+    background: var(--se-button-bg);
+    color: var(--se-button-fg);
+    font: 600 13px var(--se-font-ui);
+    box-shadow: var(--se-shadow-card);
     cursor: pointer;
-    font-size: 0.95em;
+  }
+  .primary:hover {
+    background: var(--se-button-hover);
+  }
+  .formats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .formats li {
+    padding: 2px 8px;
+    border: 1px solid var(--se-border);
+    border-radius: 999px;
+    background: var(--se-bg-base);
+    color: var(--se-text-secondary);
+    font: 500 10.5px var(--se-font-mono);
+  }
+  .footnote {
+    margin: 8px 0 0;
+    color: var(--se-text-muted);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .drop-overlay {
+    position: absolute;
+    inset: 8px;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--se-accent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--se-dropzone-active-bg) 70%, transparent);
+    pointer-events: none;
+  }
+  .drop-overlay span {
+    padding: 8px 14px;
+    border-radius: var(--se-radius);
+    background: var(--se-bg-elevated);
+    box-shadow: var(--se-shadow-elevated);
+    font: 600 13px var(--se-font-ui);
   }
 </style>

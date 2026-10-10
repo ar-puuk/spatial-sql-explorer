@@ -24,8 +24,13 @@ type WebviewToHostMessage =
       crsAssumed?: boolean
       extent?: [number, number, number, number] | null
       mapCanvasRect?: { width: number; height: number } | null
+      renderedFeatureCount?: number | null
+      styleSource?: string | null
     }
   | { type: 'selectionChanged'; id: string | number | null }
+  | { type: 'saveFile'; requestId: number; name: string; text: string }
+  | { type: 'saveSidecar'; requestId: number; name: string; text: string }
+  | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
 
 const CHUNK_BYTES = 32 * 1024 * 1024
 
@@ -43,6 +48,8 @@ let lastLoadState: {
   crsAssumed?: boolean
   extent?: [number, number, number, number] | null
   mapCanvasRect?: { width: number; height: number } | null
+  renderedFeatureCount?: number | null
+  styleSource?: string | null
 } | null = null
 
 /** Latest selection, same rationale as `lastLoadState` (T015). */
@@ -102,9 +109,13 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           crsAssumed: msg.crsAssumed,
           extent: msg.extent,
           mapCanvasRect: msg.mapCanvasRect,
+          renderedFeatureCount: msg.renderedFeatureCount,
+          styleSource: msg.styleSource,
         }
       } else if (msg.type === 'selectionChanged') {
         lastSelection = msg.id
+      } else if (msg.type === 'saveFile' || msg.type === 'saveSidecar' || msg.type === 'pickTextFile') {
+        void this.handleFileRequest(panel, document.uri, msg)
       } else if (msg.type === 'showInfo') {
         void vscode.window.showInformationMessage(msg.message)
       } else if (msg.type === 'log') {
@@ -113,6 +124,67 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     })
 
     panel.webview.html = this.getHtml(panel.webview, webviewRoot)
+  }
+
+  /**
+   * Host side of the webview's style save/export/import requests
+   * (HostAdapter.saveFile / saveSidecar / pickTextFile). Paths are resolved
+   * relative to the document URI with Uri.joinPath, not fsPath, so this also
+   * works on remote and virtual file systems.
+   */
+  private async handleFileRequest(
+    panel: vscode.WebviewPanel,
+    documentUri: vscode.Uri,
+    msg: Extract<WebviewToHostMessage, { type: 'saveFile' | 'saveSidecar' | 'pickTextFile' }>
+  ): Promise<void> {
+    const reply = (result: unknown): Thenable<boolean> => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+    const dir = vscode.Uri.joinPath(documentUri, '..')
+    const docName = path.posix.basename(documentUri.path)
+    try {
+      if (msg.type === 'pickTextFile') {
+        const picked = await vscode.window.showOpenDialog({
+          title: msg.title,
+          defaultUri: dir,
+          canSelectMany: false,
+          filters: { 'Layer styles': msg.extensions.map((e) => e.replace(/^\./, '')), 'All files': ['*'] },
+        })
+        if (!picked?.[0]) return void reply(null)
+        const bytes = await vscode.workspace.fs.readFile(picked[0])
+        return void reply({ name: path.posix.basename(picked[0].path), text: new TextDecoder().decode(bytes) })
+      }
+
+      const content = new TextEncoder().encode(msg.text)
+      if (msg.type === 'saveSidecar') {
+        const target = vscode.Uri.joinPath(dir, msg.name)
+        const exists = await vscode.workspace.fs.stat(target).then(
+          () => true,
+          () => false
+        )
+        if (exists) {
+          const choice = await vscode.window.showWarningMessage(
+            `"${msg.name}" already exists next to "${docName}". Replace it?`,
+            { modal: true, detail: "QGIS loads this file as the layer's default style. Spatial Explorer writes a single-symbol style, so a categorized or graduated QGIS style in it would be replaced." },
+            'Replace'
+          )
+          if (choice !== 'Replace') return void reply({ saved: false })
+        }
+        await vscode.workspace.fs.writeFile(target, content)
+        return void reply({ saved: true, location: msg.name })
+      }
+
+      const lower = msg.name.toLowerCase()
+      const filters: Record<string, string[]> = lower.endsWith('.qml')
+        ? { 'QGIS style': ['qml'] }
+        : lower.endsWith('.sld')
+          ? { 'OGC SLD': ['sld'] }
+          : { 'Mapbox GL style': ['json'] }
+      const uri = await vscode.window.showSaveDialog({ title: 'Export layer style', defaultUri: vscode.Uri.joinPath(dir, msg.name), filters })
+      if (!uri) return void reply({ saved: false })
+      await vscode.workspace.fs.writeFile(uri, content)
+      return void reply({ saved: true, location: path.posix.basename(uri.path) })
+    } catch (err) {
+      return void reply({ error: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   private updateStatusBar(
@@ -148,11 +220,13 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   private async sendAssetsAndFile(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri, documentUri: vscode.Uri): Promise<void> {
     const workerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js'))
     const wasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm'))
+    const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
     const primaryName = path.basename(documentUri.fsPath)
     await panel.webview.postMessage({
       type: 'assets',
       duckdbWorkerUrl: workerUri.toString(),
       duckdbWasmUrl: wasmUri.toString(),
+      maplibreWorkerUrl: maplibreWorkerUri.toString(),
       primaryFileName: primaryName,
     })
 
@@ -222,7 +296,6 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org; img-src ${csp} data:; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
-<style>html,body,#app{height:100%;margin:0;padding:0}body{background:var(--vscode-editor-background)}</style>
 </head>
 <body>
 <div id="app"></div>

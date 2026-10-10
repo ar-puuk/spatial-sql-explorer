@@ -5,28 +5,38 @@
 // packages/core/src/duckdbService.ts — see research.md §4/§1 for the full
 // investigation.
 import { mount } from 'svelte'
+import { setWorkerUrl } from 'maplibre-gl'
 import { ViewerLayout, createViewerStore } from '@spatial-explorer/ui'
-import { createVsCodeHostAdapter, getDuckDbAssets, reportLoadState, reportSelectionChanged, signalReady } from './hostAdapter.js'
+import { createVsCodeHostAdapter, getDuckDbAssets, getMaplibreWorkerUrl, getPrimaryFileName, reportLoadState, reportSelectionChanged, signalReady } from './hostAdapter.js'
+// The VS Code token file: maps the shared --se-* tokens onto VS Code theme
+// variables. Vite bundles it into main.css, which getHtml() links.
+import './theme.css'
 
 async function main(): Promise<void> {
   signalReady()
 
   const hostAdapter = createVsCodeHostAdapter()
   const duckdbAssets = await getDuckDbAssets()
+  const fileName = await getPrimaryFileName()
   const store = createViewerStore(hostAdapter, duckdbAssets)
+  // The asset URLs arrive before the file's bytes do: start DuckDB + spatial
+  // now so initialization overlaps the transfer (design-plan.md §8.2).
+  store.prewarm()
+
+  // MapLibre's worker must be set before the first Map is constructed. A
+  // worker can't be constructed straight from an asWebviewUri() URL in a
+  // webview (research.md §4), so fetch the script on this thread and run it
+  // from a same-origin blob: URL — the same technique as DuckDB's worker.
+  // Without it the map silently draws no data at all.
+  const workerSource = await (await fetch(await getMaplibreWorkerUrl())).text()
+  setWorkerUrl(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })))
 
   const appRoot = document.getElementById('app')
   if (!appRoot) throw new Error('Missing #app root element')
 
   mount(ViewerLayout, {
     target: appRoot,
-    props: {
-      get session() {
-        return store.session
-      },
-      onSelectFeature: (id: string | number | null) => store.selectFeature(id),
-      onCursorMove: (coords: { lon: number; lat: number } | null) => store.setCursor(coords),
-    },
+    props: { store, fileName },
   })
 
   await store.load()
@@ -39,12 +49,15 @@ async function main(): Promise<void> {
   // MapLibre canvas's real bounding-box size so a test can assert it's
   // actually nonzero, not just that the element exists in the DOM.
   let mapCanvasRect: { width: number; height: number } | null = null
+  let renderedFeatureCount: number | null = null
   if (store.session.loadState === 'ready') {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 40; i++) {
       const canvas = document.querySelector('.maplibregl-canvas')
-      if (canvas) {
+      const rendered = (document.querySelector('.canvas-host') as HTMLElement | null)?.dataset.renderedFeatures
+      if (canvas && rendered !== undefined) {
         const rect = canvas.getBoundingClientRect()
         mapCanvasRect = { width: rect.width, height: rect.height }
+        renderedFeatureCount = Number(rendered)
         break
       }
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -59,6 +72,8 @@ async function main(): Promise<void> {
     crsAssumed: store.session.layer?.crsAssumed,
     extent: store.session.layer?.extent,
     mapCanvasRect,
+    renderedFeatureCount,
+    styleSource: store.styleSource,
   })
 
   // Test-only hook (T015): @vscode/test-electron cannot click inside this

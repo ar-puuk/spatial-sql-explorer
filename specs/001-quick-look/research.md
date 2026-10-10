@@ -669,6 +669,49 @@ round-trip. This is §5's lesson again, at a different boundary.
 **Verified**: `tests/vscode-ext` 8/8 passing (T014, T015, T016, T017a/b, T034
 GPKG and CSV). `tests/web` 2/2. `tests/core` 7/7.
 
+## 8. Design/engine pass findings (2026-10-10)
+
+**MapLibre's worker in a VS Code webview.**
+- MapLibre GL v6 derives its worker URL at runtime, so Vite never emits
+  `maplibre-gl-worker.mjs`.
+- The web shell already handled this with `setWorkerUrl()`. The VS Code
+  webview did not, so its GeoJSON source never tiled and the map drew no data
+  with no error.
+- Confirmed by screenshotting the real Extension Development Host, driven
+  through Playwright's Electron launcher.
+- Fixed with §4's technique: the host announces the bundled worker's
+  `asWebviewUri()`, and the webview fetches the text and calls
+  `setWorkerUrl(blob:)`. The file has no imports, so a `blob:` module worker
+  is enough.
+- T014 now asserts `renderedFeatureCount > 0`. With the fix removed, it
+  fails.
+
+**GDAL's synthetic `OGC_FID`.**
+- Every `ST_Read` of GeoJSON, FlatGeobuf, Shapefile or GML includes
+  `OGC_FID`, the FID that GDAL's Arrow stream adds. It is not an OGR field:
+  `COPY … TO GPKG` fails with "Cannot find OGR field for Arrow array
+  OGC_FID".
+- GeoPackage instead exposes its real primary key as `fid`.
+- Attributes now drop `OGC_FID` (the table's `#` column shows row order) and
+  the raw source geometry column, but keep `fid`.
+
+**GPKG on the single-threaded `eh` bundle.**
+- GeoLibre moved GeoPackage reads to sql.js after GDAL thread-creation
+  crashes (#258/#376/#393).
+- Re-tested here with a 50,000-point GPKG in the real VS Code webview: it
+  reached `ready` in about 2.2 s with the correct count and the 1000 cap.
+- Not reproducible with our DuckDB-WASM version, so no fallback was added.
+  Re-test if DuckDB-WASM is upgraded.
+
+**Opening from the command line.**
+- In the Extension Development Host, `code <dir> <dir>/sample.fgb` at launch
+  opened the `.fgb` in the text editor.
+- Opening the same file via Quick Open after startup used Spatial Explorer as
+  the default editor, as contributed.
+- Likely a dev-host-only artifact: the development extension's contributions
+  register after the CLI file is opened. It has **not** been verified with
+  an installed VSIX. Check this when packaging.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |

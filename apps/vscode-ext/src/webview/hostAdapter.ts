@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import type { FileSource, HostAdapter, OpenedFileRef, StatusFields, ThemeKind } from '@spatial-explorer/core'
+import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -24,6 +24,16 @@ function post(msg: unknown): void {
 export interface DuckDbAssets {
   workerUrl: string
   wasmUrl: string
+}
+
+let maplibreWorkerUrlResolve: ((url: string) => void) | null = null
+const maplibreWorkerUrlPromise = new Promise<string>((resolve) => {
+  maplibreWorkerUrlResolve = resolve
+})
+
+/** asWebviewUri() of the bundled maplibre-gl worker, announced with the other assets. */
+export function getMaplibreWorkerUrl(): Promise<string> {
+  return maplibreWorkerUrlPromise
 }
 
 interface PendingFile {
@@ -66,6 +76,20 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer
 }
 
+// Request/response over postMessage for host-side file dialogs and writes
+// (style save/export/import). The host answers each request with a
+// `<type>Result` message carrying the same requestId.
+let nextRequestId = 1
+const pendingRequests = new Map<number, (result: unknown) => void>()
+
+function request<T>(msg: Record<string, unknown>): Promise<T> {
+  const requestId = nextRequestId++
+  return new Promise<T>((resolve) => {
+    pendingRequests.set(requestId, resolve as (result: unknown) => void)
+    post({ ...msg, requestId })
+  })
+}
+
 const themeListeners = new Set<(theme: ThemeKind) => void>()
 
 function detectTheme(): ThemeKind {
@@ -90,6 +114,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     type: string
     duckdbWorkerUrl?: string
     duckdbWasmUrl?: string
+    maplibreWorkerUrl?: string
     primaryFileName?: string
     fileName?: string
     totalBytes?: number
@@ -98,10 +123,19 @@ window.addEventListener('message', (event: MessageEvent) => {
     index?: number
     bytesBase64?: string
     message?: string
+    requestId?: number
+    result?: unknown
+  }
+
+  if (msg.type === 'requestResult' && msg.requestId !== undefined) {
+    pendingRequests.get(msg.requestId)?.(msg.result)
+    pendingRequests.delete(msg.requestId)
+    return
   }
 
   if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
     assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl })
+    if (msg.maplibreWorkerUrl) maplibreWorkerUrlResolve?.(msg.maplibreWorkerUrl)
     if (msg.primaryFileName && !primaryFileNameFromAssets) {
       primaryFileNameFromAssets = msg.primaryFileName
       primaryFileNameResolve?.(msg.primaryFileName)
@@ -152,13 +186,38 @@ export function createVsCodeHostAdapter(): HostAdapter {
     async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
       return ensureFileSourcePromise()
     },
-    async saveFile(): Promise<void> {
-      // No-op for spec 001 — persistence lands in later specs.
+    async saveFile(name: string, content: Uint8Array | string): Promise<SaveResult> {
+      const result = await request<SaveResult & { error?: string }>({
+        type: 'saveFile',
+        name,
+        text: typeof content === 'string' ? content : new TextDecoder().decode(content),
+      })
+      if (result.error) throw new Error(result.error)
+      return result
+    },
+    async saveSidecar(name: string, content: string): Promise<SaveResult> {
+      const result = await request<SaveResult & { error?: string }>({ type: 'saveSidecar', name, text: content })
+      if (result.error) throw new Error(result.error)
+      return result
+    },
+    async pickTextFile(options: { title: string; extensions: readonly string[] }): Promise<{ name: string; text: string } | null> {
+      const result = await request<{ name: string; text: string } | { error: string } | null>({
+        type: 'pickTextFile',
+        title: options.title,
+        extensions: [...options.extensions],
+      })
+      if (result && 'error' in result) throw new Error(result.error)
+      return result
     },
     setStatus(fields: StatusFields): void {
       post({ type: 'statusUpdate', ...fields })
     },
   }
+}
+
+/** The opened document's file name, as announced by the host with the assets. */
+export function getPrimaryFileName(): Promise<string> {
+  return primaryFileNamePromise
 }
 
 export function getDuckDbAssets(): Promise<DuckDbAssets> {
@@ -181,6 +240,8 @@ export function reportLoadState(
     crsAssumed?: boolean
     extent?: [number, number, number, number] | null
     mapCanvasRect?: { width: number; height: number } | null
+    renderedFeatureCount?: number | null
+    styleSource?: string | null
   }
 ): void {
   post({ type: 'loadStateChanged', loadState, ...details })

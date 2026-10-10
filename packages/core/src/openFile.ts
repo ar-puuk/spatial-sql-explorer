@@ -9,9 +9,10 @@
 // GML. Shapefile needs its sidecar files (.shx/.dbf/.prj) — see
 // HostAdapter.getFileSource's multi-file FileSource shape.
 
-import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
+import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
-import { createDuckDb, loadSpatialExtension, type DuckDbAssetUrls } from './duckdbService.js'
+import { getDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { sidecarStyleFileName } from './style/index.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import {
   DEFAULT_FEATURE_CAP,
@@ -56,13 +57,40 @@ function normalizeGeometryType(raw: string): Exclude<GeometryType, 'Mixed'> | nu
   return null
 }
 
-async function registerSourceFiles(
-  db: Awaited<ReturnType<typeof createDuckDb>>,
-  files: Record<string, ArrayBuffer>
-): Promise<void> {
+const STYLE_SIDECAR_EXTENSIONS = ['.qml', '.sld']
+
+/**
+ * Splits off the QGIS-convention style sidecar (`<basename>.qml`, see
+ * style/index.ts) before anything is handed to DuckDB: registerFileBuffer
+ * transfers (detaches) the bytes, so they can't be read afterwards. Other
+ * style files are skipped too; they're never data.
+ */
+function takeStyleSidecar(
+  files: Record<string, ArrayBuffer>,
+  primaryFileName: string
+): { dataFiles: Record<string, ArrayBuffer>; styleSidecar: Layer['styleSidecar'] } {
+  const wanted = sidecarStyleFileName(primaryFileName).toLowerCase()
+  const dataFiles: Record<string, ArrayBuffer> = {}
+  let styleSidecar: Layer['styleSidecar'] = null
   for (const [name, bytes] of Object.entries(files)) {
-    await db.registerFileBuffer(`/tmp/${name}`, new Uint8Array(bytes))
+    const lower = name.toLowerCase()
+    if (name !== primaryFileName && STYLE_SIDECAR_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+      if (lower === wanted) styleSidecar = { fileName: name, text: new TextDecoder().decode(bytes) }
+      continue
+    }
+    dataFiles[name] = bytes
   }
+  return { dataFiles, styleSidecar }
+}
+
+async function registerSourceFiles(db: AsyncDuckDB, files: Record<string, ArrayBuffer>): Promise<string[]> {
+  const paths: string[] = []
+  for (const [name, bytes] of Object.entries(files)) {
+    const path = `/tmp/${name}`
+    await db.registerFileBuffer(path, new Uint8Array(bytes))
+    paths.push(path)
+  }
+  return paths
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
@@ -135,6 +163,36 @@ async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, st
   return Number.isFinite(srid) ? srid : null
 }
 
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`
+}
+
+/**
+ * Which source columns become attributes. Two things must not:
+ * - The source geometry column (`geom` from ST_Read, `geometry` in
+ *   GeoParquet). It arrives as raw WKB bytes and would show up in the table
+ *   as `{"0":1,"1":3,...}`. The reprojected `geom_` is excluded likewise.
+ * - `OGC_FID`, the synthetic feature id GDAL's Arrow stream adds for formats
+ *   without a native FID (GeoJSON, FlatGeobuf, Shapefile, GML). It is not an
+ *   OGR field: a real `duckdb` run fails with "Cannot find OGR field for
+ *   Arrow array OGC_FID" (GeoLibre hit the same duplicate, #499). It is just
+ *   0..n-1, which the table already shows as its row number, and QGIS
+ *   doesn't show it either. GeoPackage's real primary key arrives as `fid`
+ *   instead and is kept, as in QGIS.
+ */
+async function attributeProjection(conn: AsyncDuckDBConnection, strategy: ReadStrategy, fromExpr: string): Promise<string> {
+  const describeRes = await conn.query(`DESCRIBE SELECT * FROM ${fromExpr}`)
+  const columns = new Set(describeRes.toArray().map((r) => String(r.toJSON().column_name)))
+  const exclude = ['geom_']
+  if (strategy === 'st_read') {
+    if (columns.has('geom')) exclude.push('geom')
+    if (columns.has('OGC_FID')) exclude.push('OGC_FID')
+  } else if (strategy === 'parquet' && columns.has('geometry')) {
+    exclude.push('geometry')
+  }
+  return exclude.map(quoteIdent).join(', ')
+}
+
 /**
  * DuckDB-WASM returns BIGINT columns as native JS `bigint` values, which
  * `JSON.stringify`-based serialization (used internally by MapLibre's
@@ -165,20 +223,21 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     )
   }
 
-  const db = await createDuckDb(duckdbAssets)
+  const { dataFiles, styleSidecar } = takeStyleSidecar(source.files, source.primaryFileName)
+  const db = await getDuckDb(duckdbAssets)
   const conn: AsyncDuckDBConnection = await db.connect()
-  await loadSpatialExtension(conn)
-  await registerSourceFiles(db, source.files)
-
-  const vfsPath = `/tmp/${source.primaryFileName}`
-  const { fromExpr, geomExpr: rawGeomExpr } = await buildFromExpr(conn, strategy, vfsPath)
-  const sourceSrid = await detectSourceSrid(conn, vfsPath, strategy)
-  // Every query below reads this already-reprojected expression, so
-  // Layer.extent and every Feature.geometry are WGS84 from here on, while
-  // Layer.sourceCrs (below) still reports the file's real, original CRS.
-  const geomExpr = reprojectToWgs84Sql(rawGeomExpr, sourceSrid)
+  let registered: string[] = []
 
   try {
+    registered = await registerSourceFiles(db, dataFiles)
+    const vfsPath = `/tmp/${source.primaryFileName}`
+    const { fromExpr, geomExpr: rawGeomExpr } = await buildFromExpr(conn, strategy, vfsPath)
+    const sourceSrid = await detectSourceSrid(conn, vfsPath, strategy)
+    // Every query below reads this already-reprojected expression, so
+    // Layer.extent and every Feature.geometry are WGS84 from here on, while
+    // Layer.sourceCrs (below) still reports the file's real, original CRS.
+    const geomExpr = reprojectToWgs84Sql(rawGeomExpr, sourceSrid)
+
     // Total valid feature count (FR-006's "feature count", independent of
     // the load cap) and invalid-geometry count (FR-014), in one pass.
     const countRes = await conn.query(`
@@ -229,8 +288,9 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     // native GEOMETRY type does not have a well-defined JS-side
     // representation once it crosses the Arrow boundary, so this is the
     // reliable way to get a real GeoJSON.Geometry on the JS side.
+    const exclude = await attributeProjection(conn, strategy, fromExpr)
     const rowsRes = await conn.query(`
-      SELECT * EXCLUDE (geom_), ST_AsGeoJSON(geom_) AS __geom_geojson
+      SELECT * EXCLUDE (${exclude}), ST_AsGeoJSON(geom_) AS __geom_geojson
       FROM (SELECT *, ${geomExpr} AS geom_ FROM ${fromExpr})
       WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)
       LIMIT ${DEFAULT_FEATURE_CAP}
@@ -257,14 +317,15 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
       truncated: featureCount > DEFAULT_FEATURE_CAP,
       extent,
       features,
+      styleSidecar,
     }
-
-    await conn.close()
-    await db.terminate()
     return layer
-  } catch (err) {
+  } finally {
+    // The shared instance stays alive for the next open; this file's bytes
+    // don't. Everything the viewer needs (at most DEFAULT_FEATURE_CAP
+    // features) is materialized above, so the registered buffers are pure
+    // WASM-heap weight against the ~512 MB ceiling (CLAUDE.md).
     await conn.close().catch(() => {})
-    await db.terminate().catch(() => {})
-    throw err
+    for (const path of registered) await db.dropFile(path).catch(() => {})
   }
 }

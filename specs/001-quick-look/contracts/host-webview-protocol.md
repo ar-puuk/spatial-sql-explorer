@@ -45,9 +45,16 @@ type HostToWebviewMessage =
   | { type: 'initFileStart'; fileName: string; totalBytes: number; chunkCount: number; isPrimary: boolean }
   | { type: 'initFileChunk'; fileName: string; index: number; bytesBase64: string }
   | { type: 'initFilesDone' }
+  | { type: 'assets'; duckdbWorkerUrl: string; duckdbWasmUrl: string; maplibreWorkerUrl: string; primaryFileName: string }
   | { type: 'themeChange'; theme: 'light' | 'dark' | 'high-contrast' }
-  | { type: 'triggerError'; message: string };
+  | { type: 'triggerError'; message: string }
+  // Reply to any webview request below, matched by requestId.
+  | { type: 'requestResult'; requestId: number; result: unknown };
 ```
+
+`maplibreWorkerUrl` is required: the webview fetches it and runs MapLibre's
+worker from a same-origin `blob:` URL (research.md §8). Without a worker,
+the map draws no data at all.
 
 Webview → extension host:
 
@@ -56,8 +63,20 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null };
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null }
+  // Test observability (spatialExplorer._getLoadState), see main.ts.
+  | { type: 'loadStateChanged'; loadState: string; /* counts, CRS, extent, mapCanvasRect, renderedFeatureCount, styleSource */ }
+  | { type: 'selectionChanged'; id: string | number | null }
+  // Style file I/O (HostAdapter.saveFile / saveSidecar / pickTextFile). The host answers with requestResult.
+  | { type: 'saveFile'; requestId: number; name: string; text: string }      // save dialog, defaults next to the data file
+  | { type: 'saveSidecar'; requestId: number; name: string; text: string }   // writes <basename>.qml next to the data; modal confirm before replacing
+  | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] };
 ```
+
+Every webview→host message passes through one `post()` that normalizes it via
+a JSON round-trip. `postMessage` structured-clones its payload, and Svelte 5
+`$state` Proxies make that throw a `DataCloneError` before anything is sent
+(research.md §7).
 
 ## Sequencing (mirrors omx-viewer's proven flow)
 

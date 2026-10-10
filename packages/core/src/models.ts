@@ -41,6 +41,12 @@ export interface Layer {
   extent: Bbox | null
   /** The loaded/rendered subset actually held in memory — at most DEFAULT_FEATURE_CAP entries (FR-019). */
   features: Feature[]
+  /**
+   * The QGIS-convention style sidecar found next to the data file
+   * (`<basename>.qml`), as raw text, or null. Parsed by the UI via
+   * `importStyle()` and applied on open (design-plan.md §8.5).
+   */
+  styleSidecar: { fileName: string; text: string } | null
 }
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error'

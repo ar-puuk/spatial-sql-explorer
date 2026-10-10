@@ -372,18 +372,47 @@ reprojected rendering.
       The component and its data are done. Its placement is restyled by
       `design-plan.md` §4.3: it becomes web-shell-only chrome, docked to the
       map.
-- [ ] T036 [US3] Wire VS Code native status bar items (CRS, feature count,
+- [X] T036 **[VERIFIED]** [US3] Wire VS Code native status bar items (CRS, feature count,
       cursor coordinates) via `HostAdapter.setStatus` in
       `apps/vscode-ext/src/extension.ts` (no-op on web, per CLAUDE.md).
-      Implemented (`updateStatusBar`). Still needs a manual check in the
-      Extension Development Host; there's no automated assertion yet.
-- [ ] T037 [US3] Implement live cursor-coordinate tracking on map hover in
+      Verified in a real Extension Development Host, driven by Playwright's
+      Electron launcher: the status bar shows `EPSG:4326 (WGS84)`,
+      `179 features`, and live cursor coordinates while hovering the map.
+- [X] T037 **[VERIFIED]** [US3] Implement live cursor-coordinate tracking on map hover in
       `packages/ui/src/MapView.svelte` (depends on T022).
-      Implemented (`mousemove`/`mouseout` → `setCursor`). Same pending manual
-      check as T036.
+      Verified the same way as T036 (`-29.73035, 21.96608` shown while
+      hovering). The web shell shows it in its map-docked status bar.
 
 **Checkpoint**: Users can now identify what they're looking at, on top of
 US1/US2's render pipeline.
+
+### Design & engine pass (`design-plan.md`, approved 2026-10-10)
+
+Not a user story. A cross-cutting polish and quality pass, done between
+Phase 5 and Phase 6. Recorded here so the task list reflects the codebase.
+
+- [X] D001 `--se-*` token layer with two token files:
+      `apps/vscode-ext/src/webview/theme.css` maps it to VS Code theme
+      variables, including high contrast; `apps/web/src/theme.css` maps it to
+      the brand palette (§4, §8.4).
+- [X] D002 Map-first layout: a resizable, collapsible attribute drawer;
+      `ProgressBar` while loading; restyled banners (§5.1, §5.3, §8.3).
+- [X] D003 Attribute grid: virtualized rows, sticky header, resizable
+      columns, sort, keyboard navigation, scroll-to-selected, double-click to
+      zoom (§8.1).
+- [X] D004 Map: zoom/fit/style controls, metric scale bar, feature-state
+      selection and hover, theme-read selection color, owned resize (§8.1,
+      §8.2).
+- [X] D005 Engine: shared self-healing DuckDB instance plus pre-warm;
+      registered files dropped after each load (§8.2).
+- [X] D006 Style interchange: QML sidecar save/auto-load, and QML/SLD/Mapbox
+      export and import (§8.5). `tests/core/style.test.ts`, plus a sidecar
+      integration test in T014's suite.
+- [X] D007 Web shell: branded header, legacy drop zone, map-docked status
+      bar, "Open file", drop-to-replace (§5.4).
+- [X] D008 Real bugs found by inspecting the running app: VS Code map drew
+      no data (missing MapLibre worker), attribute leaks, map→table selection
+      mismatch, no point highlight (§8.6; research.md §8).
 
 ---
 

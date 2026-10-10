@@ -19,6 +19,8 @@ type LoadState = {
   invalidGeometryCount?: number
   errorMessage?: string
   mapCanvasRect?: { width: number; height: number } | null
+  renderedFeatureCount?: number | null
+  styleSource?: string | null
 } | null
 
 async function waitForLoadState(deadlineMs: number): Promise<LoadState> {
@@ -56,6 +58,12 @@ suite('T014: open a file from VS Code', () => {
     assert.ok(result!.mapCanvasRect, 'Expected the webview to report the MapLibre canvas bounding rect')
     assert.ok(result!.mapCanvasRect!.width > 50, `Expected map canvas width > 50px, got ${result!.mapCanvasRect!.width}`)
     assert.ok(result!.mapCanvasRect!.height > 50, `Expected map canvas height > 50px, got ${result!.mapCanvasRect!.height}`)
+
+    // Regression guard #2: a correctly sized canvas can still draw nothing.
+    // MapLibre's worker was never configured in the webview, so the GeoJSON
+    // source never tiled and the map was blank while every check above
+    // passed. Assert MapLibre actually rendered features.
+    assert.ok((result!.renderedFeatureCount ?? 0) > 0, `Expected MapLibre to render features, got ${result!.renderedFeatureCount}`)
   })
 
   test('opening a non-GeoJSON format (FlatGeobuf) also reaches ready', async function () {
@@ -71,5 +79,19 @@ suite('T014: open a file from VS Code', () => {
     console.log(`T014 sample.fgb: featureCount=${result!.featureCount}, invalidGeometryCount=${result!.invalidGeometryCount}`)
     const total = (result!.featureCount ?? 0) + (result!.invalidGeometryCount ?? 0)
     assert.strictEqual(total, 180, `Expected featureCount + invalidGeometryCount === 180, got ${total}`)
+    assert.ok((result!.renderedFeatureCount ?? 0) > 0, `Expected MapLibre to render features, got ${result!.renderedFeatureCount}`)
+  })
+
+  test('a same-name .qml next to the data is applied as the layer style (QGIS sidecar)', async function () {
+    this.timeout(60000)
+
+    const fixtureUri = vscode.Uri.file(path.resolve(__dirname, '../../fixtures/styled-points.csv'))
+    await vscode.commands.executeCommand('vscode.openWith', fixtureUri, 'spatialExplorer.editorOption')
+
+    const result = await waitForLoadState(45000)
+
+    assert.ok(result, 'Expected a loadStateChanged message from the webview within 45s, got none.')
+    assert.strictEqual(result!.loadState, 'ready', `Expected loadState "ready", got "${result!.loadState}": ${result!.errorMessage ?? ''}`)
+    assert.strictEqual(result!.styleSource, 'styled-points.qml')
   })
 })

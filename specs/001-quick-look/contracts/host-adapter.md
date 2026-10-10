@@ -37,8 +37,23 @@ export interface HostAdapter {
    */
   getFileSource(ref: OpenedFileRef): Promise<FileSource>;
 
-  /** No-op on the web shell for spec 001 (styling/export persistence lands in specs 003/005). */
-  saveFile(name: string, content: Uint8Array | string): Promise<void>;
+  /**
+   * Saves to a user-chosen location: a VS Code save dialog defaulting next to
+   * the opened file, or a browser download on the web shell. Resolves
+   * { saved: false } when cancelled. Used for style export (design-plan.md §8.5).
+   */
+  saveFile(name: string, content: Uint8Array | string): Promise<{ saved: boolean; location?: string }>;
+
+  /**
+   * Writes `name` directly next to the opened data file (the QGIS .qml
+   * sidecar convention), asking before replacing an existing file. Optional:
+   * only hosts that can write there implement it (VS Code). The web shell
+   * omits it, and the UI falls back to saveFile, a download.
+   */
+  saveSidecar?(name: string, content: string): Promise<{ saved: boolean; location?: string }>;
+
+  /** Lets the user pick one text file, e.g. a style to import. Resolves null when cancelled. */
+  pickTextFile(options: { title: string; extensions: readonly string[] }): Promise<{ name: string; text: string } | null>;
 
   /** Status bar item content (VS Code) / no-op (web) — CRS, feature count, cursor coordinates (FR-006, FR-008). */
   setStatus(fields: { crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null }): void;

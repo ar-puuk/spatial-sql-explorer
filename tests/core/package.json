@@ -10,6 +10,7 @@
     "@spatial-explorer/core": "*"
   },
   "devDependencies": {
+    "happy-dom": "^20.14.6",
     "vitest": "latest"
   }
 }

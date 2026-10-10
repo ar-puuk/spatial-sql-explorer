@@ -22,7 +22,16 @@ layer only, per the clarified multi-layer decision — FR-018, Edge Cases).
 | `invalidGeometryCount` | number | Count of geometries skipped during rendering (FR-014); `0` when none were skipped. |
 | `truncated` | boolean | `true` when `featureCount > 1000` and only the first 1000 were loaded into `features` (FR-019). |
 | `extent` | `BBox` (`[minX, minY, maxX, maxY]`, EPSG:4326) | Used to fit the map view on open (FR-003). Computed from the *full* source extent (query-level, e.g. `ST_Extent`), not just the loaded/rendered subset, so the fit is correct even when `truncated` is `true`. `null` for a zero-feature layer (Edge Cases). |
-| `features` | `Feature[]` | The loaded/rendered subset actually held in memory — at most 1000 entries (FR-019; `features.length <= 1000`, and `features.length === featureCount` only when `!truncated`). Ordered collection; order defines the table's row order and is stable for the session. |
+| `features` | `Feature[]` | The loaded/rendered subset actually held in memory — at most 1000 entries (FR-019; `features.length <= 1000`, and `features.length === featureCount` only when `!truncated`). Ordered collection; order defines the table's default row order and is stable for the session (the table can re-sort its *view* of these rows). Attributes exclude the source geometry column and GDAL's synthetic `OGC_FID` (research.md §8). |
+| `styleSidecar` | `{ fileName: string; text: string } \| null` | The QGIS-convention style sidecar (`<basename>.qml`) found next to the data file, as raw text, or `null`. Parsed and applied by the UI on open (design-plan.md §8.5). |
+
+### LayerStyle (UI state, not persisted in the session)
+
+Single-symbol style applied to the layer (design-plan.md §8.5): `fillColor`,
+`fillOpacity`, `strokeColor`, `strokeOpacity`, `strokeWidth` (px),
+`pointRadius` (px). Fixed, theme-independent data colors (CLAUDE.md). It is
+saved and exchanged only as files: the QML sidecar, plus QML/SLD/Mapbox GL
+export and import. It is never stored in webview storage.
 
 ### CrsInfo
 
