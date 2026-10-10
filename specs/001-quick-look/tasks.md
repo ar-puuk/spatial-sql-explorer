@@ -353,22 +353,34 @@ reprojected rendering.
 
 ### Tests for User Story 3
 
-- [ ] T034 [P] [US3] Unit test: CRS reprojection renders at the correct
+- [X] T034 **[VERIFIED]** [P] [US3] Unit test: CRS reprojection renders at the correct
       location while `Layer.sourceCrs` reports the *original* CRS, and the
       "WGS84 assumed" disclosure fires only when the file truly has no CRS, in
       `tests/core/crs.test.ts`.
+      Done as `tests/core/crs.test.ts` (7/7, Vitest) plus a real-pipeline
+      integration test, `tests/vscode-ext/src/suite/open-file-crs.test.ts`.
+      `usa-utm12n.gpkg` reports `EPSG:26912` and reprojects to a real USA
+      extent; `points.csv` reports `crsAssumed: true`. Full suite 8/8 —
+      see research.md §7, including the three real bugs this surfaced.
 
 ### Implementation for User Story 3
 
-- [ ] T035 [P] [US3] Implement the `StatusBar`/metadata display component
+- [X] T035 [P] [US3] Implement the `StatusBar`/metadata display component
       (CRS, feature count, geometry type, CRS-assumed disclosure, and a
       truncation notice — e.g. "Showing 1,000 of 4,213 features" — when
       `Layer.truncated` is `true`, FR-019) in `packages/ui/src/StatusBar.svelte`.
+      The component and its data are done. Its placement is restyled by
+      `design-plan.md` §4.3: it becomes web-shell-only chrome, docked to the
+      map.
 - [ ] T036 [US3] Wire VS Code native status bar items (CRS, feature count,
       cursor coordinates) via `HostAdapter.setStatus` in
       `apps/vscode-ext/src/extension.ts` (no-op on web, per CLAUDE.md).
+      Implemented (`updateStatusBar`). Still needs a manual check in the
+      Extension Development Host; there's no automated assertion yet.
 - [ ] T037 [US3] Implement live cursor-coordinate tracking on map hover in
       `packages/ui/src/MapView.svelte` (depends on T022).
+      Implemented (`mousemove`/`mouseout` → `setCursor`). Same pending manual
+      check as T036.
 
 **Checkpoint**: Users can now identify what they're looking at, on top of
 US1/US2's render pipeline.

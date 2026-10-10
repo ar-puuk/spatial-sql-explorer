@@ -1,0 +1,15 @@
+{
+  "name": "@spatial-explorer/tests-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@spatial-explorer/core": "*"
+  },
+  "devDependencies": {
+    "vitest": "latest"
+  }
+}

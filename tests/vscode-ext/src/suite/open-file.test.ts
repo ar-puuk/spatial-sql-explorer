@@ -13,7 +13,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-type LoadState = { loadState: string; featureCount?: number; invalidGeometryCount?: number; errorMessage?: string } | null
+type LoadState = {
+  loadState: string
+  featureCount?: number
+  invalidGeometryCount?: number
+  errorMessage?: string
+  mapCanvasRect?: { width: number; height: number } | null
+} | null
 
 async function waitForLoadState(deadlineMs: number): Promise<LoadState> {
   const deadline = Date.now() + deadlineMs
@@ -40,6 +46,16 @@ suite('T014: open a file from VS Code', () => {
     console.log(`T014 world-boundaries.geojson: featureCount=${result!.featureCount}, invalidGeometryCount=${result!.invalidGeometryCount}`)
     const total = (result!.featureCount ?? 0) + (result!.invalidGeometryCount ?? 0)
     assert.strictEqual(total, 180, `Expected featureCount + invalidGeometryCount === 180, got ${total}`)
+
+    // Regression guard: the webview's CSS (including maplibre-gl's own
+    // required canvas-positioning rules) wasn't being linked into the HTML
+    // at all, so the map rendered at a zero/invisible size while the table
+    // looked fine — a real bug a real user hit, invisible to a test that
+    // only checked the canvas *element* existed. Assert its real rendered
+    // size instead.
+    assert.ok(result!.mapCanvasRect, 'Expected the webview to report the MapLibre canvas bounding rect')
+    assert.ok(result!.mapCanvasRect!.width > 50, `Expected map canvas width > 50px, got ${result!.mapCanvasRect!.width}`)
+    assert.ok(result!.mapCanvasRect!.height > 50, `Expected map canvas height > 50px, got ${result!.mapCanvasRect!.height}`)
   })
 
   test('opening a non-GeoJSON format (FlatGeobuf) also reaches ready', async function () {

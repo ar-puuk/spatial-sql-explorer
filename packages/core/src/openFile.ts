@@ -12,7 +12,7 @@
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { createDuckDb, loadSpatialExtension, type DuckDbAssetUrls } from './duckdbService.js'
-import { resolveCrsInfo } from './crs.js'
+import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import {
   DEFAULT_FEATURE_CAP,
   type Bbox,
@@ -66,7 +66,7 @@ async function registerSourceFiles(
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
-function buildFromExpr(strategy: ReadStrategy, vfsPath: string): { fromExpr: string; geomExpr: string } {
+async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string): Promise<{ fromExpr: string; geomExpr: string }> {
   switch (strategy) {
     case 'st_read':
       return { fromExpr: `ST_Read('${vfsPath}')`, geomExpr: 'geom' }
@@ -76,21 +76,63 @@ function buildFromExpr(strategy: ReadStrategy, vfsPath: string): { fromExpr: str
       // with a differently-named primary geometry column are a known
       // limitation of this heuristic.
       return { fromExpr: `read_parquet('${vfsPath}')`, geomExpr: 'ST_GeomFromWKB(geometry)' }
-    case 'csv':
+    case 'csv': {
       // Heuristic column detection, per spec.md's assumption ("CSV with
       // coordinate columns or WKT"). Tries common lon/lat name variants
-      // first, then a WKT column.
-      return {
-        fromExpr: `read_csv_auto('${vfsPath}')`,
-        geomExpr: `COALESCE(
-          CASE WHEN lon IS NOT NULL AND lat IS NOT NULL THEN ST_Point(lon, lat) END,
-          CASE WHEN longitude IS NOT NULL AND latitude IS NOT NULL THEN ST_Point(longitude, latitude) END,
-          CASE WHEN wkt IS NOT NULL THEN ST_GeomFromText(wkt) END
-        )`,
+      // first, then a WKT column. Must pick ONE geomExpr referencing only
+      // columns that actually exist: a real browser run surfaced "Referenced
+      // column 'longitude' not found" — DuckDB binds every column named in a
+      // CASE/COALESCE expression at bind time regardless of which branch
+      // would execute, so a single static expression referencing all three
+      // naming variants fails outright on a CSV that only has `lon`/`lat`.
+      const fromExpr = `read_csv_auto('${vfsPath}')`
+      const describeRes = await conn.query(`DESCRIBE SELECT * FROM ${fromExpr}`)
+      const columns = new Set(describeRes.toArray().map((r) => String(r.toJSON().column_name).toLowerCase()))
+      if (columns.has('lon') && columns.has('lat')) {
+        return { fromExpr, geomExpr: 'ST_Point(lon, lat)' }
       }
+      if (columns.has('longitude') && columns.has('latitude')) {
+        return { fromExpr, geomExpr: 'ST_Point(longitude, latitude)' }
+      }
+      if (columns.has('wkt')) {
+        return { fromExpr, geomExpr: 'ST_GeomFromText(wkt)' }
+      }
+      throw new Error('CSV file has no recognized coordinate columns (lon/lat, longitude/latitude, or wkt).')
+    }
     case 'unsupported':
       throw new Error('Unsupported file format')
   }
+}
+
+/**
+ * Reads the source CRS's EPSG code for `st_read`-backed formats (GeoJSON,
+ * FlatGeobuf, GeoPackage, Shapefile, GML) via `ST_Read_Meta`'s nested
+ * `layers[1].geometry_fields[1].crs` struct, selecting only its scalar
+ * `auth_name`/`auth_code` leaves (a real `duckdb` CLI spike confirmed: this
+ * is populated and correct for every `st_read` format spec 001 supports,
+ * contradicting an earlier, mistaken assumption that it wasn't — see
+ * research.md §5). `layers[1]`/`geometry_fields[1]` match this project's
+ * existing "first layer only" scope decision, consistent with `buildFromExpr`
+ * calling `ST_Read` without an explicit `layer=` argument.
+ *
+ * `read_parquet`/`read_csv_auto` (the `parquet`/`csv` strategies) expose no
+ * comparable CRS metadata, and a non-EPSG authority (rare, e.g. an ESRI-only
+ * WKID) can't be fed back into `ST_Transform`'s `'EPSG:<code>'` source-CRS
+ * argument — both fall back to `null` (WGS84 assumed, disclosed via
+ * `crsAssumed`), the same honest fallback FR-015 already requires when a
+ * file truly has no CRS.
+ */
+async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, strategy: ReadStrategy): Promise<number | null> {
+  if (strategy !== 'st_read') return null
+  const metaRes = await conn.query(`
+    SELECT layers[1].geometry_fields[1].crs.auth_name AS auth_name,
+           layers[1].geometry_fields[1].crs.auth_code AS auth_code
+    FROM ST_Read_Meta('${vfsPath}')
+  `)
+  const row = metaRes.toArray()[0]?.toJSON() as { auth_name: string | null; auth_code: string | null } | undefined
+  if (!row || row.auth_name !== 'EPSG' || !row.auth_code) return null
+  const srid = Number(row.auth_code)
+  return Number.isFinite(srid) ? srid : null
 }
 
 /**
@@ -129,7 +171,12 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
   await registerSourceFiles(db, source.files)
 
   const vfsPath = `/tmp/${source.primaryFileName}`
-  const { fromExpr, geomExpr } = buildFromExpr(strategy, vfsPath)
+  const { fromExpr, geomExpr: rawGeomExpr } = await buildFromExpr(conn, strategy, vfsPath)
+  const sourceSrid = await detectSourceSrid(conn, vfsPath, strategy)
+  // Every query below reads this already-reprojected expression, so
+  // Layer.extent and every Feature.geometry are WGS84 from here on, while
+  // Layer.sourceCrs (below) still reports the file's real, original CRS.
+  const geomExpr = reprojectToWgs84Sql(rawGeomExpr, sourceSrid)
 
   try {
     // Total valid feature count (FR-006's "feature count", independent of
@@ -171,13 +218,9 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     const normalizedTypes = new Set(rawTypes.map(normalizeGeometryType).filter((t): t is Exclude<GeometryType, 'Mixed'> => t !== null))
     const geometryType: GeometryType = normalizedTypes.size > 1 ? 'Mixed' : [...normalizedTypes][0] ?? 'Point'
 
-    // CRS: no portable, reliable way to read the source CRS via SQL across
-    // every format this build's ST_Read/read_parquet/read_csv_auto cover
-    // (confirmed during T024 — ST_Read_Meta's CRS field was not consistently
-    // populated across the formats tested). Per FR-015, default to
-    // WGS84-assumed-and-disclosed rather than guess silently; a per-format
-    // CRS-reading improvement is a known follow-up, not a silent gap.
-    const crsResolution = resolveCrsInfo(null)
+    // Report the file's real, original source CRS (FR-007) — never the
+    // WGS84 `geomExpr` has already reprojected everything else to.
+    const crsResolution = resolveCrsInfo(sourceSrid)
     const sourceCrs: CrsInfo = crsResolution.crs
     const crsAssumed = crsResolution.assumed
 

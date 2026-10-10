@@ -30,10 +30,35 @@ async function main(): Promise<void> {
   })
 
   await store.load()
+
+  // Regression guard (a real bug reached a real user: the webview's CSS —
+  // including maplibre-gl's own required canvas-positioning rules — wasn't
+  // being linked into the HTML at all, so the map canvas rendered at its
+  // default zero/intrinsic size and was effectively invisible, while the
+  // table, unaffected by that missing CSS, rendered fine). Reports the
+  // MapLibre canvas's real bounding-box size so a test can assert it's
+  // actually nonzero, not just that the element exists in the DOM.
+  let mapCanvasRect: { width: number; height: number } | null = null
+  if (store.session.loadState === 'ready') {
+    for (let i = 0; i < 20; i++) {
+      const canvas = document.querySelector('.maplibregl-canvas')
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect()
+        mapCanvasRect = { width: rect.width, height: rect.height }
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+
   reportLoadState(store.session.loadState, {
     featureCount: store.session.layer?.featureCount,
     invalidGeometryCount: store.session.layer?.invalidGeometryCount,
     errorMessage: store.session.loadError?.message,
+    sourceCrsLabel: store.session.layer?.sourceCrs.label,
+    crsAssumed: store.session.layer?.crsAssumed,
+    extent: store.session.layer?.extent,
+    mapCanvasRect,
   })
 
   // Test-only hook (T015): @vscode/test-electron cannot click inside this

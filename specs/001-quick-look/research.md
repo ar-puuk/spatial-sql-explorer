@@ -614,6 +614,61 @@ boundary (here, `maplibre-gl`'s `GeoJSONSource.setData`) must be deep-cloned
 to plain data first. This is not specific to geometry — it applies to any
 `$state`-derived object crossing a `postMessage`/structured-clone boundary.
 
+## 6. VS Code webview rendered with no CSS at all (Phase 5)
+
+**Symptom (reported by the user)**: in a real Extension Development Host the map
+never appeared, only the table rendered, and everything looked like unstyled
+HTML.
+
+**Root cause**: `getHtml()` in `apps/vscode-ext/src/extension.ts` hand-builds the
+webview HTML and only referenced `main.js`. Vite emits the bundled CSS
+(component styles plus `maplibre-gl.css`) as a separate `main.css`. Vite injects
+that `<link>` automatically into the web shell's `index.html`, but not into HTML
+the extension host builds by hand. Without `maplibre-gl.css` the map canvas has
+no positioning rules and collapses to an invisible size. The table still showed
+because it needs no CSS to be visible.
+
+**Fix**: `<link rel="stylesheet" href="${asWebviewUri(main.css)}">` plus an
+`html,body,#app{height:100%}` reset.
+
+**Regression guard**: the webview now reports the real `.maplibregl-canvas`
+bounding rect (`mapCanvasRect`), and T014 asserts it is wider and taller than
+50px. The old test only checked that the canvas element existed, which is why
+it missed this.
+
+## 7. Phase 5 CRS work: three real bugs found and fixed
+
+1. **`ST_Transform` axis order.** Without `always_xy := true`, DuckDB spatial
+   reads a geographic source CRS (e.g. EPSG:4326) in its authority axis order
+   (lat, lon). `GEOMETRY` stores (lon, lat), so the output was silently
+   `POINT (inf inf)`. Confirmed with the `duckdb` CLI. `reprojectToWgs84Sql`
+   always passes `always_xy := true` now. GeoLibre does the same
+   (`duckdb-geometry.ts`).
+2. **CRS detection works.** An earlier comment said `ST_Read_Meta` CRS
+   metadata "was not consistently populated". That was wrong.
+   `layers[1].geometry_fields[1].crs.{auth_name,auth_code}` is populated for
+   every `ST_Read` format tested and is `NULL` when the file has no CRS. This
+   is the same path GeoLibre uses. Verified with `usa-utm12n.gpkg`
+   (EPSG:26912), which reports `EPSG:26912` and reprojects to a real USA
+   extent.
+3. **CSV column binding.** One static `CASE` across `lon/lat`,
+   `longitude/latitude` and `wkt` failed, because DuckDB binds every column a
+   `CASE` references, even in branches that never run. `buildFromExpr` now
+   runs `DESCRIBE` first and emits exactly one geometry expression.
+
+**The "hang" seen during this work was real, not a test artifact.** Every
+non-empty load in the VS Code suite timed out with no `loadStateChanged`
+message, while the web Playwright suite passed against the same `core` code.
+Cause: the webview's `reportLoadState` started sending `layer.extent`, which
+is a Svelte `$state` Proxy. `vscode.postMessage` structured-clones its payload
+and threw a `DataCloneError` before posting anything. Zero-feature files
+(`extent: null`) and error cases (no extent) were unaffected, which is what
+pointed to the cause. Fixed once, in the webview's single `post()`, with a JSON
+round-trip. This is §5's lesson again, at a different boundary.
+
+**Verified**: `tests/vscode-ext` 8/8 passing (T014, T015, T016, T017a/b, T034
+GPKG and CSV). `tests/web` 2/2. `tests/core` 7/7.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |

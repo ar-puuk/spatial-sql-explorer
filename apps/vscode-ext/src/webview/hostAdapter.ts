@@ -10,8 +10,15 @@ declare function acquireVsCodeApi(): {
 
 const vscode = acquireVsCodeApi()
 
+// postMessage structured-clones its payload, and Svelte 5 `$state` values
+// (e.g. `session.layer.extent`) are Proxies that structuredClone rejects with
+// a DataCloneError — thrown synchronously, so the message is silently never
+// sent (this hung every non-empty load in the T014/T034 suites). Every
+// webview->host message is small, so normalize through JSON here, once, rather
+// than trusting each call site to snapshot its fields (same root cause as
+// research.md §5's MapLibre DataCloneError).
 function post(msg: unknown): void {
-  vscode.postMessage(msg)
+  vscode.postMessage(JSON.parse(JSON.stringify(msg)))
 }
 
 export interface DuckDbAssets {
@@ -164,7 +171,18 @@ export function getDuckDbAssets(): Promise<DuckDbAssets> {
  * this webview's rendered DOM) via `spatialExplorer._getLoadState`, and
  * doubles as the hook a future host-side loading/error indicator would use.
  */
-export function reportLoadState(loadState: string, details: { featureCount?: number; invalidGeometryCount?: number; errorMessage?: string }): void {
+export function reportLoadState(
+  loadState: string,
+  details: {
+    featureCount?: number
+    invalidGeometryCount?: number
+    errorMessage?: string
+    sourceCrsLabel?: string
+    crsAssumed?: boolean
+    extent?: [number, number, number, number] | null
+    mapCanvasRect?: { width: number; height: number } | null
+  }
+): void {
   post({ type: 'loadStateChanged', loadState, ...details })
 }
 

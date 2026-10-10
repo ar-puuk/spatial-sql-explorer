@@ -3,6 +3,7 @@
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
   import LayerWarningBanner from './LayerWarningBanner.svelte'
+  import StatusBar from './StatusBar.svelte'
   import type { ViewerSession } from '@spatial-explorer/core'
 
   interface Props {
@@ -26,6 +27,7 @@
       <AttributeTable layer={session.layer} selectedFeatureId={session.selectedFeatureId} {onSelectFeature} />
     </div>
   </div>
+  <StatusBar {session} />
 </div>
 
 <style>

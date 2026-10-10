@@ -14,7 +14,17 @@ type WebviewToHostMessage =
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
   | { type: 'statusUpdate'; crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null }
-  | { type: 'loadStateChanged'; loadState: string; featureCount?: number; invalidGeometryCount?: number; errorMessage?: string }
+  | {
+      type: 'loadStateChanged'
+      loadState: string
+      featureCount?: number
+      invalidGeometryCount?: number
+      errorMessage?: string
+      sourceCrsLabel?: string
+      crsAssumed?: boolean
+      extent?: [number, number, number, number] | null
+      mapCanvasRect?: { width: number; height: number } | null
+    }
   | { type: 'selectionChanged'; id: string | number | null }
 
 const CHUNK_BYTES = 32 * 1024 * 1024
@@ -24,7 +34,16 @@ const CHUNK_BYTES = 32 * 1024 * 1024
  * command so @vscode/test-electron integration tests can observe the
  * webview's result without being able to inspect its rendered DOM directly.
  */
-let lastLoadState: { loadState: string; featureCount?: number; invalidGeometryCount?: number; errorMessage?: string } | null = null
+let lastLoadState: {
+  loadState: string
+  featureCount?: number
+  invalidGeometryCount?: number
+  errorMessage?: string
+  sourceCrsLabel?: string
+  crsAssumed?: boolean
+  extent?: [number, number, number, number] | null
+  mapCanvasRect?: { width: number; height: number } | null
+} | null = null
 
 /** Latest selection, same rationale as `lastLoadState` (T015). */
 let lastSelection: string | number | null = null
@@ -74,7 +93,16 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else if (msg.type === 'statusUpdate') {
         this.updateStatusBar(panel, msg)
       } else if (msg.type === 'loadStateChanged') {
-        lastLoadState = { loadState: msg.loadState, featureCount: msg.featureCount, invalidGeometryCount: msg.invalidGeometryCount, errorMessage: msg.errorMessage }
+        lastLoadState = {
+          loadState: msg.loadState,
+          featureCount: msg.featureCount,
+          invalidGeometryCount: msg.invalidGeometryCount,
+          errorMessage: msg.errorMessage,
+          sourceCrsLabel: msg.sourceCrsLabel,
+          crsAssumed: msg.crsAssumed,
+          extent: msg.extent,
+          mapCanvasRect: msg.mapCanvasRect,
+        }
       } else if (msg.type === 'selectionChanged') {
         lastSelection = msg.id
       } else if (msg.type === 'showInfo') {
@@ -177,6 +205,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private getHtml(webview: vscode.Webview, webviewRoot: vscode.Uri): string {
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.js'))
+    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.css'))
     const csp = webview.cspSource
 
     // connect-src allows extensions.duckdb.org: T007/T009 found extension
@@ -191,7 +220,9 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org; img-src ${csp} data:; font-src ${csp};">
+<link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
+<style>html,body,#app{height:100%;margin:0;padding:0}body{background:var(--vscode-editor-background)}</style>
 </head>
 <body>
 <div id="app"></div>

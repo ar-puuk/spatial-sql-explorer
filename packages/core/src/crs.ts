@@ -10,12 +10,20 @@ export const WGS84: CrsInfo = { label: 'EPSG:4326 (WGS84)', isWgs84: true }
  * Builds the `ST_Transform`-to-4326 expression DuckDB spatial needs to
  * reproject a geometry column for display, given the column's source SRID.
  * Returns the column expression unchanged when the source is already WGS84.
+ *
+ * `always_xy := true` is required, not optional: confirmed via a real
+ * `duckdb` CLI spike that without it, `ST_Transform` treats a *geographic*
+ * source CRS like EPSG:4326 in authority-defined [lat, lon] axis order, while
+ * DuckDB spatial's `GEOMETRY` type always stores coordinates as [lon, lat]
+ * internally — the mismatch silently produces `POINT (inf inf)` instead of
+ * erroring. `always_xy := true` forces [lon, lat] (= [easting, northing]) on
+ * both ends, matching how every geometry in this codebase is stored.
  */
 export function reprojectToWgs84Sql(geometryColumn: string, sourceSrid: number | null): string {
   if (sourceSrid === null || sourceSrid === 4326) {
     return geometryColumn
   }
-  return `ST_Transform(${geometryColumn}, 'EPSG:${sourceSrid}', 'EPSG:4326')`
+  return `ST_Transform(${geometryColumn}, 'EPSG:${sourceSrid}', 'EPSG:4326', always_xy := true)`
 }
 
 /**
