@@ -348,7 +348,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
          max(ST_XMax(${g})) FILTER (WHERE ok) AS sx1, max(ST_YMax(${g})) FILTER (WHERE ok) AS sy1,
          min(ST_XMin(w)) FILTER (WHERE ok) AS wx0, min(ST_YMin(w)) FILTER (WHERE ok) AS wy0,
          max(ST_XMax(w)) FILTER (WHERE ok) AS wx1, max(ST_YMax(w)) FILTER (WHERE ok) AS wy1,
-         list(DISTINCT ST_GeometryType(${g})) FILTER (WHERE ok) AS gtypes
+         list(DISTINCT ST_GeometryType(${g})::VARCHAR) FILTER (WHERE ok) AS gtypes
        FROM (SELECT ${g}, CASE WHEN ok THEN ${wgs} END AS w, ok
              FROM (SELECT ${g}, (${g} IS NOT NULL AND ST_IsValid(${g})) AS ok FROM layer))`,
       () => false
@@ -379,7 +379,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     timings.scan = lap()
 
     // The initial view IS the default query's result (FR-003, SC-002).
-    session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered)
+    session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered, hostAdapter.log?.bind(hostAdapter))
     const initial = await session.runDefault()
     timings.rows = lap()
 

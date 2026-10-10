@@ -14,6 +14,9 @@
   import BasemapPicker from './BasemapPicker.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import ProgressBar from './ProgressBar.svelte'
+  import QueryPanel from './QueryPanel.svelte'
+  import LargeResultDialog from './LargeResultDialog.svelte'
+  import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
@@ -45,7 +48,61 @@
   /** Opened by a map click (FR-010); then follows the selection until closed. */
   let inspectorOpen = $state(false)
 
-  let drawerHeight = $derived(collapsed ? HEADER_H : Math.round(fraction * panesHeight))
+  // Spec 002: the query panel shares the drawer with the attribute table.
+  // Collapsed by default (a header strip above the attributes), so spec 001's
+  // view is unchanged until the user opens it (contracts/ui-query-panel.md).
+  let queryOpen = $state(false)
+  let queryFraction = $state(0.42)
+  let drawerWidth = $state(0)
+  let queryPanel = $state<QueryPanel>()
+  const NARROW_PX = 720
+  const narrow = $derived(drawerWidth > 0 && drawerWidth < NARROW_PX)
+  const queryStripH = $derived(queryOpen ? 0 : HEADER_H)
+
+  let drawerHeight = $derived(collapsed ? HEADER_H + queryStripH : Math.round(fraction * panesHeight))
+
+  async function toggleQuery(open = !queryOpen): Promise<void> {
+    queryOpen = open
+    if (open) {
+      collapsed = false
+      if (fraction < 0.3) fraction = 0.38
+      await tick()
+      queryPanel?.focusEditor()
+    }
+  }
+
+  function startColDrag(e: PointerEvent): void {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const sash = e.currentTarget as HTMLElement
+    const drawer = sash.parentElement as HTMLElement
+    sash.setPointerCapture(e.pointerId)
+    dragging = true
+    const move = (ev: PointerEvent): void => {
+      const rect = drawer.getBoundingClientRect()
+      const f = narrow ? (ev.clientY - rect.top) / rect.height : (ev.clientX - rect.left) / rect.width
+      queryFraction = Math.min(0.8, Math.max(0.2, f))
+    }
+    const up = (): void => {
+      dragging = false
+      sash.removeEventListener('pointermove', move)
+      sash.removeEventListener('pointerup', up)
+      sash.removeEventListener('pointercancel', up)
+    }
+    sash.addEventListener('pointermove', move)
+    sash.addEventListener('pointerup', up)
+    sash.addEventListener('pointercancel', up)
+  }
+
+  function colSashKeydown(e: KeyboardEvent): void {
+    const step = e.shiftKey ? 0.1 : 0.03
+    const less = narrow ? 'ArrowUp' : 'ArrowLeft'
+    const more = narrow ? 'ArrowDown' : 'ArrowRight'
+    if (e.key === less) queryFraction = Math.max(0.2, queryFraction - step)
+    else if (e.key === more) queryFraction = Math.min(0.8, queryFraction + step)
+    else return
+    e.preventDefault()
+  }
   let inspected = $derived(
     inspectorOpen && layer && session.selectedFeatureId !== null ? (layer.features.find((f) => f.id === session.selectedFeatureId) ?? null) : null
   )
@@ -65,6 +122,12 @@
   }
 
   function handleWindowKeydown(e: KeyboardEvent): void {
+    // Ctrl/Cmd+Shift+Q opens the query panel and focuses the editor (spec 002).
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'Q' || e.key === 'q')) {
+      e.preventDefault()
+      void toggleQuery()
+      return
+    }
     // Escape closes the open popover from anywhere, not only from inside it.
     if (e.key === 'Escape' && openPanel !== null) {
       openPanel = null
@@ -145,7 +208,8 @@
   <div class="panes" bind:this={panes} bind:clientHeight={panesHeight}>
     <div class="map-pane">
       <MapView
-        {layer}
+        layer={store.mapLayer ?? layer}
+        dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}
         style={store.style}
         themeRevision={store.themeRevision}
@@ -178,7 +242,12 @@
           />
         </div>
       {/if}
-      {#if store.basemapNotice && openPanel !== 'basemap'}
+      {#if store.mapDimmed}
+        <div class="map-notice no-geometry" role="status">
+          <Icon name="info" size={14} />
+          <span>This result has no geometry to map. The previous layer is shown dimmed.</span>
+        </div>
+      {:else if store.basemapNotice && openPanel !== 'basemap'}
         <div class="map-notice" role="status">
           <Icon name="warning" size={14} />
           <span>{store.basemapNotice}</span>
@@ -206,6 +275,9 @@
         </div>
       {/if}
       {@render mapOverlay?.()}
+      {#if store.pendingLargeResult}
+        <LargeResultDialog rowCount={store.pendingLargeResult.rowCount} onChoose={(c) => store.answerLargeResult(c)} />
+      {/if}
     </div>
 
     <!-- A focusable separator is the WAI-ARIA "window splitter" pattern: it is
@@ -227,26 +299,46 @@
       <span class="grip" aria-hidden="true"></span>
     </div>
 
-    <div class="drawer" style:height="{drawerHeight}px">
-      <div class="drawer-header">
-        <button type="button" class="collapse" aria-expanded={!collapsed} aria-controls="attribute-drawer" onclick={() => (collapsed = !collapsed)}>
-          <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
-          <span class="title">Attributes</span>
-        </button>
-        <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
-        <span class="spacer"></span>
-        {#if layer && layer.features.length > 0 && !collapsed}
-          <span class="hint">Double-click a row to zoom</span>
-        {/if}
+    <div class="drawer" class:query-open={queryOpen} class:narrow style:height="{drawerHeight}px" bind:clientWidth={drawerWidth}>
+      <div class="query-col" style:flex-basis={queryOpen ? `${queryFraction * 100}%` : undefined}>
+        <QueryPanel bind:this={queryPanel} {store} collapsed={!queryOpen} onToggle={() => void toggleQuery()} />
       </div>
-      <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
-        <AttributeTable
-          {layer}
-          {loading}
-          selectedFeatureId={session.selectedFeatureId}
-          onSelectFeature={(id) => store.selectFeature(id)}
-          onZoomToFeature={(id) => store.zoomToFeature(id)}
-        />
+      {#if queryOpen}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div
+          class="col-sash"
+          role="separator"
+          aria-orientation={narrow ? 'horizontal' : 'vertical'}
+          aria-label="Resize query panel"
+          aria-valuemin={20}
+          aria-valuemax={80}
+          aria-valuenow={Math.round(queryFraction * 100)}
+          tabindex="0"
+          onpointerdown={startColDrag}
+          onkeydown={colSashKeydown}
+        ></div>
+      {/if}
+      <div class="attributes-col">
+        <div class="drawer-header">
+          <button type="button" class="collapse" aria-expanded={!collapsed} aria-controls="attribute-drawer" onclick={() => (collapsed = !collapsed)}>
+            <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
+            <span class="title">Attributes</span>
+          </button>
+          <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
+          <span class="spacer"></span>
+          {#if layer && layer.features.length > 0 && !collapsed}
+            <span class="hint">Double-click a row to zoom</span>
+          {/if}
+        </div>
+        <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
+          <AttributeTable
+            {layer}
+            {loading}
+            selectedFeatureId={session.selectedFeatureId}
+            onSelectFeature={(id) => store.selectFeature(id)}
+            onZoomToFeature={(id) => store.zoomToFeature(id)}
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -417,6 +509,61 @@
     flex-direction: column;
     min-height: 0;
     background: var(--se-bg-base);
+  }
+  .query-col {
+    flex: none;
+    height: 28px;
+    min-width: 0;
+  }
+  .attributes-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  /* Open: query beside the attributes (stacked when narrow). */
+  .drawer.query-open:not(.narrow) {
+    flex-direction: row;
+  }
+  .drawer.query-open .query-col {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .drawer.query-open.narrow .query-col {
+    min-height: 120px;
+  }
+  .drawer.query-open:not(.narrow) .query-col {
+    min-width: 260px;
+  }
+  .col-sash {
+    position: relative;
+    flex: none;
+    z-index: 3;
+    background: var(--se-border);
+    outline: none;
+    touch-action: none;
+  }
+  .drawer:not(.narrow) .col-sash {
+    width: 1px;
+    cursor: col-resize;
+  }
+  .drawer.narrow .col-sash {
+    height: 1px;
+    cursor: row-resize;
+  }
+  .col-sash::before {
+    content: '';
+    position: absolute;
+    inset: 0 -3px;
+  }
+  .drawer.narrow .col-sash::before {
+    inset: -3px 0;
+  }
+  .col-sash:hover,
+  .col-sash:focus-visible {
+    background: var(--se-sash-hover);
   }
   .drawer-header {
     display: flex;

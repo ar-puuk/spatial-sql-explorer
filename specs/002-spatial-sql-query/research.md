@@ -237,6 +237,10 @@ The editor surface uses `--vscode-editor-*` (background, foreground,
 selection, cursor, line numbers, find match). The web shell maps the same
 `--se-sql-*` tokens to the brand palette.
 
+**Measured in the product (T021)**: the webview `main.js` went from
+1,331,711 to 1,754,640 bytes (+423 KB minified). That is the editor plus lint
+plus the new query code, in line with the 379 KB estimate.
+
 **Alternatives considered**:
 - **Monaco**, the VS Code editor. Several MB plus language workers, which
   need `worker-src` and style-injection exemptions in the webview CSP, and

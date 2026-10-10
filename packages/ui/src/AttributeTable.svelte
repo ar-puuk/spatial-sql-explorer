@@ -32,6 +32,8 @@
   let sort = $state<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   let widths = $state<Record<string, number>>({})
 
+  // Spec 002: rows whose geometry is missing or invalid are listed, not drawn.
+  let hasGeometry = $derived(!!layer && layer.featureCount + layer.invalidGeometryCount > 0)
   let columns = $derived(layer && layer.features.length > 0 ? Object.keys(layer.features[0].attributes) : [])
 
   // Reset per-layer view state when a different file is opened.
@@ -246,7 +248,9 @@
             onclick={() => onSelectFeature(feature.id)}
             ondblclick={() => onZoomToFeature(feature.id)}
           >
-            <td class="id" role="gridcell">{typeof feature.id === 'number' ? feature.id + 1 : feature.id}</td>
+            <td class="id" role="gridcell">
+              {#if hasGeometry && feature.geometry === null}<span class="no-geom" title="No valid geometry: listed here, not drawn on the map" aria-label="no geometry">∅</span>{/if}{typeof feature.id === 'number' ? feature.id + 1 : feature.id}
+            </td>
             {#each columns as col (col)}
               {@const v = feature.attributes[col]}
               <td role="gridcell" class:num={typeof v === 'number'} class:null={v === null || v === undefined} title={display(v)}>{display(v)}</td>
@@ -367,6 +371,11 @@
     color: var(--se-text-muted);
     font-family: var(--se-font-mono);
     font-size: 0.92em;
+  }
+  .no-geom {
+    margin-right: 4px;
+    color: var(--se-warning-fg);
+    font-family: var(--se-font-ui);
   }
   td.num {
     text-align: right;

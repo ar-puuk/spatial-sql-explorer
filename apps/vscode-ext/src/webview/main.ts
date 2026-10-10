@@ -14,11 +14,13 @@ import {
   getPrimaryFileName,
   logToHost,
   reportLoadState,
+  reportQueryState,
   reportSelectionChanged,
   reportViewState,
   signalReady,
 } from './hostAdapter.js'
 import { watchViewState } from './viewState.svelte.js'
+import { watchQueryState } from './queryState.svelte.js'
 // The VS Code token file: maps the shared --se-* tokens onto VS Code theme
 // variables. Vite bundles it into main.css, which getHtml() links.
 import './theme.css'
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
   })
 
   watchViewState(store, reportViewState)
+  watchQueryState(store, reportQueryState)
 
   const started = performance.now()
   await store.load()
@@ -115,8 +118,20 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null }
-    if (msg.type === 'testSelectFeature') {
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; confirm?: 'all' | 'first' | 'cancel' }
+    if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
+      // Test-only (spec 002 T028): the same store action the Run button uses,
+      // with the whole text selected, auto-answering the large-result dialog.
+      const sql = msg.sql
+      const confirm = msg.confirm ?? 'first'
+      store.setQueryText(sql)
+      const answer = setInterval(() => {
+        if (store.pendingLargeResult) store.answerLargeResult(confirm)
+      }, 50)
+      void store.runQuery({ from: 0, to: sql.length }).finally(() => clearInterval(answer))
+    } else if (msg.type === 'testCancelQuery') {
+      void store.cancelQuery()
+    } else if (msg.type === 'testSelectFeature') {
       store.selectFeature(msg.id ?? null)
       reportSelectionChanged(store.session.selectedFeatureId)
     }

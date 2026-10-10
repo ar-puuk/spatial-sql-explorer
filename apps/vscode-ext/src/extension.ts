@@ -33,6 +33,7 @@ type WebviewToHostMessage =
   | { type: 'selectionChanged'; id: string | number | null }
   | { type: 'viewState'; basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean }
   | { type: 'reloadSource' }
+  | { type: 'queryState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
@@ -65,6 +66,11 @@ let lastLoadState: {
 /** Latest selection, same rationale as `lastLoadState` (T015). */
 let lastSelection: string | number | null = null
 
+/** Latest query state, same rationale (spec 002 test hooks). */
+let lastQueryState: unknown = null
+/** Last logged lines (spec 002 T037: tests assert what reached the output channel). */
+const recentLogLines: string[] = []
+
 /** Latest basemap/theme state, same rationale (T039-T041 tests). */
 let lastViewState: { basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean } | null = null
 
@@ -76,6 +82,8 @@ let lastViewState: { basemapId: string; appearance: string; basemapNotice: strin
 let output: vscode.OutputChannel | null = null
 function log(line: string): void {
   output?.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`)
+  recentLogLines.push(line)
+  if (recentLogLines.length > 50) recentLogLines.shift()
 }
 
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
@@ -173,6 +181,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         void this.context.globalState
           .update(`spatialExplorer.${msg.key}`, msg.value ?? undefined)
           .then(() => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: {} }))
+      } else if (msg.type === 'queryState') {
+        lastQueryState = msg.state
       } else if (msg.type === 'reloadSource') {
         log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
         lastLoadState = null
@@ -373,6 +383,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 </html>`
   }
 
+  /** Test-only: posts a message to whichever viewer is active (or the only one). */
+  postToActive(message: unknown): void {
+    const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
+    void panel?.webview.postMessage(message)
+  }
+
   /** Test-only (T015): posts a testSelectFeature message to whichever panel is active. */
   testSelectFeature(id: string | number | null): void {
     const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
@@ -429,6 +445,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
+    // Spec 002 test hooks: drive and observe queries in the active viewer.
+    vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string, confirm?: 'all' | 'first' | 'cancel') =>
+      provider.postToActive({ type: 'testRunQuery', sql, confirm })
+    ),
+    vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),
+    vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
+    vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null
       provider.testSelectFeature(id)

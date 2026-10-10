@@ -173,30 +173,30 @@ and 7).
 
 ### Tests for User Story 1 ⚠️ (write first; they must fail)
 
-- [ ] T013 [P] [US1] Write `tests/core/result-crs.test.ts` for `resolveResultCrs(...)` (research §4):
+- [X] T013 [P] [US1] Write `tests/core/result-crs.test.ts` for `resolveResultCrs(...)` (research §4):
   - precedence override > engine-typed `GEOMETRY('EPSG:x')` > extent detection > layer;
   - detection only when the layer CRS is projected (not 4326) **and** the result extent is within ±180/±90 while the layer's isn't;
   - no detection for a WGS84 layer;
   - the `source` field reported correctly in each case.
-- [ ] T014 [P] [US1] Write `tests/web/specs/query.spec.ts` (Playwright, production build), covering quickstart Scenario 1 steps 1–4 and Scenario 6 (with `usa-utm12n.gpkg`):
+- [X] T014 [P] [US1] Write `tests/web/specs/query.spec.ts` (Playwright, production build), covering quickstart Scenario 1 steps 1–4 and Scenario 6 (with `usa-utm12n.gpkg`):
   - Open the panel with Ctrl+Shift+Q; assert the editor text is `SELECT * FROM layer LIMIT 1000` and the header reads `layer · EPSG:4326 · 180 rows`.
   - Type a filter, press Ctrl+Enter, and assert the grid `aria-rowcount`, the status line "✓ N rows · N mapped" and the rendered features.
   - Run a `GROUP BY` and assert the "no geometry to map" note.
   - For CRS: assert km² ≈ 10.18e6 and the chip reads `EPSG:26912 (layer)`, then `EPSG:4326 (detected)` after the `ST_Transform` query.
   - Add an SC-001 timing check on the generated ~10 MB parcels file: a filtering query renders in under 1000 ms.
-- [ ] T015 [P] [US1] Write `tests/web/specs/query-large.spec.ts` for quickstart Scenario 7, using a generated 60,000-point GeoJSON written to a temp dir as in `performance.spec.ts`:
+- [X] T015 [P] [US1] Write `tests/web/specs/query-large.spec.ts` for quickstart Scenario 7, using a generated 60,000-point GeoJSON written to a temp dir as in `performance.spec.ts`:
   - `SELECT * FROM layer` shows the dialog with the row count;
   - "Show first 50,000" renders 50,000 rows and says so;
   - "Cancel" keeps the previous result.
-- [ ] T016 [P] [US1] Write `tests/vscode-ext/src/suite/query.test.ts`. It uses the `spatialExplorer._runQuery` and `_getQueryState` hooks (contract: `host-webview-protocol-delta.md`).
+- [X] T016 [P] [US1] Write `tests/vscode-ext/src/suite/query.test.ts`. It uses the `spatialExplorer._runQuery` and `_getQueryState` hooks (contract: `host-webview-protocol-delta.md`).
   - **SC-002 parity**: for each format in spec 001's `format-matrix.test.ts` cases, the default query's `mappedCount` equals spec 001's `featureCount`.
   - **A filter query**: `rowCount` and `mappedCount` as expected.
   - **A UTM transform query**: `resultCrsSource === 'detected'`.
 
 ### Implementation for User Story 1
 
-- [ ] T017 [P] [US1] Implement `packages/core/src/query/resultCrs.ts`: `resolveResultCrs({ override, engineType, resultExtent, layerCrs, layerExtent })` → `{ crs: CrsInfo; source }` (research §4). Make T013 pass.
-- [ ] T018 [US1] Complete `QuerySession.run()` in `packages/core/src/query/run.ts` for `kind: 'query'` (research §5):
+- [X] T017 [P] [US1] Implement `packages/core/src/query/resultCrs.ts`: `resolveResultCrs({ override, engineType, resultExtent, layerCrs, layerExtent })` → `{ crs: CrsInfo; source }` (research §4). Make T013 pass.
+- [X] T018 [US1] Complete `QuerySession.run()` in `packages/core/src/query/run.ts` for `kind: 'query'` (research §5):
   1. **Pick and classify**: `statementToRun` then `classifyStatement`; a refusal returns a `refused` outcome.
   2. **Materialize**: `CREATE OR REPLACE TEMP TABLE __se_result AS` + `'\n'` + the statement text, via `send`. Drain the reader and await it, so the run is cancellable.
   3. **Describe**: `DESCRIBE __se_result` gives the first `GEOMETRY` column as the mapped one; the others are rendered as `left(ST_AsText(col), 200)` text.
@@ -208,43 +208,55 @@ and 7).
   9. **Log**: call `hostAdapter.log?.(...)` once (contract guarantee 5).
 
   Keep the previous result untouched on any non-result outcome.
-- [ ] T019 [US1] Add the remaining kinds to `packages/core/src/query/run.ts`:
+- [X] T019 [US1] Add the remaining kinds to `packages/core/src/query/run.ts`:
   - **`utility`** (`DESCRIBE`, `SHOW`, `SUMMARIZE`, `EXPLAIN`): stream directly into a table-only `QueryResult` (`geometryColumn: null`). Stringify `EXPLAIN` plan text into a single `explain_value` column.
   - **`tempDdl`**: execute via `send`, then return `{ kind: 'ddl', summary }` with a row count for `CREATE … AS` (`SELECT count(*) FROM <name>`), e.g. "Created temp table `buffers` (1,204 rows)" or "Dropped view `v`".
-- [ ] T020 [US1] Route the initial open through the session in `packages/core/src/openFile.ts`. The layer returned by `openFile()` must be the result of `session.run({ editorText: DEFAULT_QUERY, … })`, so the default query and the initial view are the same code path (FR-003, SC-002). Delete the now-duplicate stats and rows code from `openFile.ts`.
-- [ ] T021 [P] [US1] Create `packages/ui/src/SqlEditor.svelte`, a CodeMirror 6 wrapper:
+- [X] T020 [US1] Route the initial open through the session in `packages/core/src/openFile.ts`. The layer returned by `openFile()` must be the result of `session.run({ editorText: DEFAULT_QUERY, … })`, so the default query and the initial view are the same code path (FR-003, SC-002). Delete the now-duplicate stats and rows code from `openFile.ts`.
+- [X] T021 [P] [US1] Create `packages/ui/src/SqlEditor.svelte`, a CodeMirror 6 wrapper:
   - **Props**: `value`, `onChange`, `onRun(selection)`, `readonly`, `diagnostics`, `completionSources`.
   - **Extensions**: line numbers, history, bracket matching, active line, `sql()` from `@codemirror/lang-sql`, and a `HighlightStyle` built only from the `--se-sql-*` tokens (T002), via `EditorView.theme` with `var(...)` values.
   - **Keys**: `Mod-Enter` runs; Tab moves focus out of the editor and indent moves to `Ctrl-]` (`contracts/ui-query-panel.md`).
   - **Accessibility**: `aria-label="SQL query"`.
   - **Font**: `var(--se-font-mono)`, plus the editor font size in VS Code.
-- [ ] T022 [P] [US1] Create `packages/ui/src/ResultCrsChip.svelte`: shows `EPSG:x (layer|detected|engine|override)`. Its dropdown takes an EPSG code input or "Same as layer"; on change it calls `onOverride(code | null)`, and the store re-runs the last query. It uses `--se-*` tokens, has a label, and is keyboard-operable.
-- [ ] T023 [P] [US1] Create `packages/ui/src/LargeResultDialog.svelte` (FR-012; text and buttons from `contracts/ui-query-panel.md`): a modal over the map pane, focus-trapped, with "Show first 50,000" as the default button and Esc meaning Cancel. It returns `'all' | 'first' | 'cancel'`.
-- [ ] T024 [US1] Add the query state machine to `packages/ui/src/viewerStore.svelte.ts` (`data-model.md`, Query state transitions):
+- [X] T022 [P] [US1] Create `packages/ui/src/ResultCrsChip.svelte`: shows `EPSG:x (layer|detected|engine|override)`. Its dropdown takes an EPSG code input or "Same as layer"; on change it calls `onOverride(code | null)`, and the store re-runs the last query. It uses `--se-*` tokens, has a label, and is keyboard-operable.
+- [X] T023 [P] [US1] Create `packages/ui/src/LargeResultDialog.svelte` (FR-012; text and buttons from `contracts/ui-query-panel.md`): a modal over the map pane, focus-trapped, with "Show first 50,000" as the default button and Esc meaning Cancel. It returns `'all' | 'first' | 'cancel'`.
+- [X] T024 [US1] Add the query state machine to `packages/ui/src/viewerStore.svelte.ts` (`data-model.md`, Query state transitions):
   - **State**: `queryText` (initialized to `DEFAULT_QUERY`), `queryPhase`, `lastOutcome`, `crsOverride`, `fetchProgress`, `pendingLargeResult` (a promise resolver the dialog answers).
   - **`runQuery(selection)`**: calls `session.run` and, on `result`, replaces `session.layer` (`ViewerSession.layer`), clears the selection, keeps the style, and fits the extent.
   - Any non-result outcome leaves the layer untouched.
-- [ ] T025 [US1] Create `packages/ui/src/QueryPanel.svelte`:
+- [X] T025 [US1] Create `packages/ui/src/QueryPanel.svelte`:
   - **Header**: `layer` (+ alias) · CRS · total rows, a "?" docs link, and the Run button.
   - **Body**: `SqlEditor` and an `aria-live="polite"` status line with all success states from `contracts/ui-query-panel.md` (✓ rows · mapped · ms; table-only; temp DDL; Running… with a live timer; Fetching N / M).
   - **Footer**: `ResultCrsChip`.
   - Show the existing `ProgressBar` while running.
-- [ ] T026 [US1] Integrate the panel into `packages/ui/src/ViewerLayout.svelte`:
+- [X] T026 [US1] Integrate the panel into `packages/ui/src/ViewerLayout.svelte`:
   - Split the bottom drawer into `[QueryPanel | sash (col-resize, keyboard-operable like the row sash) | AttributeTable]`.
   - The query panel is **collapsed to its header strip by default**, opened by clicking the header or Ctrl/Cmd+Shift+Q (a window keydown handler).
   - Stack the two vertically when the viewer is narrower than 720 px.
   - Render `LargeResultDialog` when the store has a pending large result.
   - For a table-only result (FR-006): keep the previous map layer at 35% opacity (MapView `dimmed` prop) and show a map notice "This result has no geometry to map".
-- [ ] T027 [US1] Update `packages/ui/src/AttributeTable.svelte` and `packages/ui/src/MapView.svelte` for results:
+- [X] T027 [US1] Update `packages/ui/src/AttributeTable.svelte` and `packages/ui/src/MapView.svelte` for results:
   - **Table**: show `otherGeometryColumns` as monospace truncated text with a title tooltip; rows whose `geometry` is null get a muted "no geometry" marker in the `#` cell.
   - **Map**: `toFeatureCollection` skips null geometries (already the case); add the `dimmed` prop.
   - **Feature inspector**: shows result attributes unchanged.
-- [ ] T028 [US1] Add the VS Code test hooks and output logging (`contracts/host-webview-protocol-delta.md`):
+- [X] T028 [US1] Add the VS Code test hooks and output logging (`contracts/host-webview-protocol-delta.md`):
   - **Host** (`apps/vscode-ext/src/extension.ts`): commands `spatialExplorer._runQuery(sql, confirm?)` and `_getQueryState()`, which post `testRunQuery` and store the last `queryState`.
   - **Webview** (`apps/vscode-ext/src/webview/main.ts`): handle `testRunQuery` by setting the store's `queryText` and calling `runQuery` with the whole text selected, auto-answering the dialog with `confirm`. Report `queryState` from a `$effect.root` in a new `apps/vscode-ext/src/webview/queryState.svelte.ts` (pattern: `viewState.svelte.ts`).
   - **Logging**: query lines reach the "Spatial Explorer" output channel through `HostAdapter.log`.
 
 **Checkpoint**: T013–T016 pass. Quickstart Scenarios 1, 6 and 7 pass by hand in both shells. `npm run screenshots` shows the panel looking native in all three VS Code themes and in web light/dark.
+
+✅ **US1 checkpoint reached (2026-10-10)**: core 104/104; web `query.spec` 3/3 and `query-large.spec` 1/1; VS Code 32/32 (ten-format default-query parity, filter, CRS detection, plus every spec 001 test). Screenshots reviewed: VS Code Dark and Light Modern, web light and dark.
+
+Deviations and notes:
+- **Shared pipeline.** T020's "route the initial open through the session" landed with T010/T011: `openFile` calls `session.runDefault()`, which is the same `buildQueryResult` as `run()`.
+- **SC-001 timing location.** The SC-001 query timing is in `performance.spec.ts` (run alone), not `query.spec.ts`.
+- **Contract change.** `QueryStateReport` gained `runCount` (contract updated).
+- **Bugs found by screenshots and fixed:**
+  - A new result replayed the previous zoom request: MapView's zoom effect tracked `layer`, so it is now `untrack`ed.
+  - `ST_GeometryType` enum lists arrived as dictionary codes, so every layer read as "Point" (open and results alike). Now cast to `VARCHAR`.
+  - The status line split "38 ms" across lines; NBSP fixed it.
+- **Bundle size**: +423 KB, recorded in research §6 (closes T001).
 
 ---
 

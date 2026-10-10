@@ -20,7 +20,14 @@ import {
   type DuckDbAssetUrls,
   type HostAdapter,
   type LayerStyle,
+  type QueryHistoryEntry,
   type QuerySession,
+  type RunOutcome,
+  type EngineError,
+  type Layer,
+  DEFAULT_QUERY,
+  describeOutcome,
+  layerFromResult,
   type StyleFormat,
   type ViewerSession,
 } from '@spatial-explorer/core'
@@ -31,10 +38,50 @@ export interface StyleNotice {
   text: string
 }
 
+/** Query lifecycle (spec 002 data-model.md, "Query state transitions"). */
+export type QueryPhase = 'idle' | 'running' | 'awaitingConfirm' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
+
+export interface QueryTableInfo {
+  name: string
+  alias: string | null
+  crsLabel: string
+  rows: number
+}
+
 export interface ViewerStore {
   readonly session: ViewerSession
   /** The open file's query session (spec 002), or null before a file is open. */
   readonly querySession: QuerySession | null
+  // --- spec 002: query ---------------------------------------------------
+  readonly queryText: string
+  setQueryText(text: string): void
+  readonly queryPhase: QueryPhase
+  /** The status line text (FR-010), e.g. "✓ 8 rows · 8 mapped · 84 ms". */
+  readonly queryStatus: string
+  readonly queryError: EngineError | null
+  /** Position of the last error in editor offsets, for the editor squiggle (FR-008). */
+  readonly queryErrorRange: { from: number; to: number } | null
+  readonly queryTable: QueryTableInfo | null
+  readonly resultCrs: { label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null
+  readonly crsOverride: number | null
+  setCrsOverride(epsg: number | null): void
+  readonly fetchProgress: { fetched: number; total: number } | null
+  readonly runStartedAt: number | null
+  readonly pendingLargeResult: { rowCount: number } | null
+  answerLargeResult(choice: 'all' | 'first' | 'cancel'): void
+  /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
+  readonly mapLayer: Layer | null
+  readonly mapDimmed: boolean
+  /** Bumps after every finished run (test hooks wait on it). */
+  readonly runCount: number
+  /** Text of the last statement that actually ran. */
+  readonly lastRunText: string | null
+  /** The displayed result's mapped geometry column, or null for a table-only result. */
+  readonly resultGeometryColumn: string | null
+  /** Recent queries for the open file, newest first (FR-016; US5). */
+  readonly history: QueryHistoryEntry[]
+  runQuery(selection: { from: number; to: number }): Promise<void>
+  cancelQuery(): Promise<void>
   readonly style: LayerStyle
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
   readonly styleSource: string | null
@@ -126,6 +173,129 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // live engine connections, which must never be proxied or posted.
   let querySession: QuerySession | null = null
 
+  // --- spec 002: query state ------------------------------------------------
+  let queryText = $state(DEFAULT_QUERY)
+  let queryPhase = $state<QueryPhase>('idle')
+  let queryStatus = $state('')
+  let queryError = $state<EngineError | null>(null)
+  let queryErrorRange = $state<{ from: number; to: number } | null>(null)
+  let queryTable = $state<QueryTableInfo | null>(null)
+  let resultCrs = $state<{ label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null>(null)
+  let crsOverride = $state<number | null>(null)
+  let fetchProgress = $state<{ fetched: number; total: number } | null>(null)
+  let runStartedAt = $state<number | null>(null)
+  let pendingLargeResult = $state<{ rowCount: number } | null>(null)
+  let largeResultResolve: ((choice: 'all' | 'first' | 'cancel') => void) | null = null
+  let mapLayer = $state.raw<Layer | null>(null)
+  let mapDimmed = $state(false)
+  let runCount = $state(0)
+  let lastRun: { text: string; selection: { from: number; to: number } } | null = null
+  let lastRunText = $state<string | null>(null)
+  let resultGeometryColumn = $state<string | null>('geom')
+  let history = $state<QueryHistoryEntry[]>([])
+
+  function resetQueryState(): void {
+    queryText = DEFAULT_QUERY
+    queryPhase = 'idle'
+    queryStatus = ''
+    queryError = null
+    queryErrorRange = null
+    crsOverride = null
+    fetchProgress = null
+    runStartedAt = null
+    pendingLargeResult = null
+    mapLayer = null
+    mapDimmed = false
+    lastRun = null
+    lastRunText = null
+    resultGeometryColumn = 'geom'
+    const t = querySession?.table
+    queryTable = t ? { name: t.name, alias: t.alias, crsLabel: t.crs.label, rows: t.totals.rows } : null
+    resultCrs = t ? { label: t.crs.label, source: 'layer' } : null
+  }
+
+  async function runQuery(selection: { from: number; to: number }): Promise<void> {
+    const qs = querySession
+    if (!qs || queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+    queryPhase = 'running'
+    queryError = null
+    queryErrorRange = null
+    fetchProgress = null
+    runStartedAt = performance.now()
+    lastRun = { text: queryText, selection }
+    const outcome: RunOutcome = await qs.run(
+      { editorText: queryText, selection, crsOverride },
+      {
+        confirmLargeResult: (rowCount) =>
+          new Promise((resolve) => {
+            queryPhase = 'awaitingConfirm'
+            pendingLargeResult = { rowCount }
+            largeResultResolve = (choice) => {
+              pendingLargeResult = null
+              largeResultResolve = null
+              queryPhase = 'running'
+              runStartedAt = performance.now()
+              resolve(choice)
+            }
+          }),
+        onProgress: (fetched, total) => {
+          if (total > 2000) fetchProgress = { fetched, total }
+        },
+      }
+    )
+    applyOutcome(outcome)
+  }
+
+  function applyOutcome(outcome: RunOutcome): void {
+    fetchProgress = null
+    runStartedAt = null
+    queryStatus = describeOutcome(outcome)
+    switch (outcome.kind) {
+      case 'result': {
+        const built = outcome.result
+        const previous = session.layer
+        if (built.geometryColumn) {
+          mapLayer = null
+          mapDimmed = false
+        } else {
+          // FR-006: nothing to map; keep the last drawn layer, dimmed.
+          mapLayer = mapDimmed ? mapLayer : previous
+          mapDimmed = true
+        }
+        if (previous) session.layer = layerFromResult(previous, built)
+        session.selectedFeatureId = null
+        resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
+        resultGeometryColumn = built.geometryColumn
+        queryPhase = 'succeeded'
+        lastRunText = outcome.statement.text
+        break
+      }
+      case 'ddl':
+        queryPhase = 'succeeded'
+        lastRunText = outcome.statement.text
+        break
+      case 'refused':
+        queryPhase = 'refused'
+        break
+      case 'error':
+        queryPhase = 'failed'
+        queryError = outcome.error
+        lastRunText = outcome.statement.text
+        if (outcome.error.position) {
+          const from = outcome.error.position.offset
+          queryErrorRange = { from, to: Math.min(queryText.length, from + 1) }
+        }
+        break
+      case 'cancelled':
+        queryPhase = 'cancelled'
+        break
+      case 'empty':
+        queryPhase = 'idle'
+        break
+    }
+    runCount++
+  }
+
   async function load(): Promise<void> {
     session.loadState = 'loading'
     session.loadError = null
@@ -139,6 +309,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       querySession = null
       const opened = await openFile(ref, { hostAdapter, duckdbAssets })
       querySession = opened.session
+      resetQueryState()
       const layer = opened.layer
       session.layer = layer
       session.loadState = 'ready'
@@ -220,6 +391,80 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get querySession() {
       return querySession
+    },
+    get queryText() {
+      return queryText
+    },
+    setQueryText(text) {
+      queryText = text
+      // An edit invalidates the error squiggle (FR-008).
+      if (queryErrorRange) queryErrorRange = null
+    },
+    get queryPhase() {
+      return queryPhase
+    },
+    get queryStatus() {
+      return queryStatus
+    },
+    get queryError() {
+      return queryError
+    },
+    get queryErrorRange() {
+      return queryErrorRange
+    },
+    get queryTable() {
+      return queryTable
+    },
+    get resultCrs() {
+      return resultCrs
+    },
+    get crsOverride() {
+      return crsOverride
+    },
+    setCrsOverride(epsg) {
+      crsOverride = epsg
+      // Re-run what's displayed with the new CRS.
+      if (lastRun && queryPhase !== 'running') {
+        const { selection } = lastRun
+        queryText = lastRun.text
+        void runQuery(selection)
+      }
+    },
+    get fetchProgress() {
+      return fetchProgress
+    },
+    get runStartedAt() {
+      return runStartedAt
+    },
+    get pendingLargeResult() {
+      return pendingLargeResult
+    },
+    answerLargeResult(choice) {
+      largeResultResolve?.(choice)
+    },
+    get mapLayer() {
+      return mapLayer
+    },
+    get mapDimmed() {
+      return mapDimmed
+    },
+    get runCount() {
+      return runCount
+    },
+    get lastRunText() {
+      return lastRunText
+    },
+    get resultGeometryColumn() {
+      return resultGeometryColumn
+    },
+    get history() {
+      return history
+    },
+    runQuery,
+    async cancelQuery() {
+      // A pending large-result question is answered "cancel"; otherwise the engine is interrupted.
+      if (largeResultResolve) largeResultResolve('cancel')
+      await querySession?.cancel()
     },
     get style() {
       return style

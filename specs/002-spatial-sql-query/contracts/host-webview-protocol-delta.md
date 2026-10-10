@@ -14,6 +14,8 @@ Every webview → host message still passes through the single JSON-normalizing
 ```ts
 interface QueryStateReport {
   phase: 'idle' | 'running' | 'awaitingConfirm' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
+  /** Increments when a run finishes, so tests can wait for *their* result. Added in T016. */
+  runCount: number
   outcome?: 'result' | 'ddl'
   rowCount?: number
   mappedCount?: number

@@ -82,7 +82,7 @@ export async function buildQueryResult(ctx: BuildContext, statement: string): Pr
            count(*) FILTER (WHERE ok) AS valid,
            min(ST_XMin(${g})) FILTER (WHERE ok) AS min_x, min(ST_YMin(${g})) FILTER (WHERE ok) AS min_y,
            max(ST_XMax(${g})) FILTER (WHERE ok) AS max_x, max(ST_YMax(${g})) FILTER (WHERE ok) AS max_y,
-           list(DISTINCT ST_GeometryType(${g})) FILTER (WHERE ok) AS gtypes
+           list(DISTINCT ST_GeometryType(${g})::VARCHAR) FILTER (WHERE ok) AS gtypes
          FROM (SELECT ${g}, (${g} IS NOT NULL AND ST_IsValid(${g})) AS ok FROM ${RESULT_TABLE})`
       : `SELECT count(*) AS n, NULL AS valid, NULL AS min_x, NULL AS min_y, NULL AS max_x, NULL AS max_y, NULL AS gtypes FROM ${RESULT_TABLE}`,
     isCancelled

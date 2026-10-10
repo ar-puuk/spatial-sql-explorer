@@ -10,7 +10,7 @@
     type StyleSpecification,
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount, onDestroy, untrack } from 'svelte'
   import { BasemapHealth, loadBasemapStyle, type BasemapCatalogEntry, type BasemapStyle, type Layer, type LayerStyle } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
@@ -26,6 +26,8 @@
     basemap: BasemapCatalogEntry
     /** Blank background color chosen by the user; null = the theme's --se-map-bg. */
     blankColor: string | null
+    /** Spec 002 FR-006: a table-only result keeps the last layer visible, dimmed. */
+    dimmed?: boolean
     onBasemapFailure: (message: string) => void
     openPanel: 'style' | 'basemap' | null
     onTogglePanel: (panel: 'style' | 'basemap') => void
@@ -41,6 +43,7 @@
     resizing,
     basemap,
     blankColor,
+    dimmed = false,
     onBasemapFailure,
     openPanel,
     onTogglePanel,
@@ -409,7 +412,10 @@
 
   $effect(() => {
     const req = zoomRequest
-    if (req && mapReady) zoomToFeature(req.id)
+    // Only a NEW zoom request zooms. zoomToFeature reads `layer`, and must not
+    // subscribe to it: a new query result would otherwise replay the last
+    // request against the new rows (found in spec 002 screenshots).
+    if (req && mapReady) untrack(() => zoomToFeature(req.id))
   })
 
   $effect(() => {
@@ -419,7 +425,7 @@
 </script>
 
 <div class="map-view" style:background={blankColor ?? undefined}>
-  <div class="canvas-host" bind:this={container}></div>
+  <div class="canvas-host" class:dimmed bind:this={container}></div>
   <div class="controls" role="toolbar" aria-label="Map controls">
     <div class="group">
       <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
@@ -465,6 +471,10 @@
   .canvas-host {
     position: absolute;
     inset: 0;
+    transition: opacity 0.15s;
+  }
+  .canvas-host.dimmed {
+    opacity: 0.35;
   }
   .controls {
     position: absolute;

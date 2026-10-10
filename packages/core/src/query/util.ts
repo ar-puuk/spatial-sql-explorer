@@ -15,6 +15,12 @@ export function normalizeGeometryType(raw: string): Exclude<GeometryType, 'Mixed
   return null
 }
 
+/**
+ * `rawTypes` is a list of ST_GeometryType values. Queries must cast them to
+ * VARCHAR: the type is an enum, and Arrow's conversion of an enum list yields
+ * dictionary codes, not names, which silently turned every layer into
+ * 'Point'.
+ */
 export function geometryTypeOf(rawTypes: unknown): GeometryType {
   const list = Array.isArray(rawTypes) ? rawTypes : ((rawTypes as { toArray?: () => unknown[] } | null)?.toArray?.() ?? [])
   const types = new Set(list.map(String).map(normalizeGeometryType).filter((t): t is Exclude<GeometryType, 'Mixed'> => t !== null))

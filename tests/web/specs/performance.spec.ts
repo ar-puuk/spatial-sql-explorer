@@ -119,3 +119,17 @@ test('SC-004: selection highlight, table -> map and map -> table', async ({ page
 
   expect(tableToMap, 'SC-004: table selection highlighted on the map in under 100 ms').toBeLessThan(100)
 })
+
+test('SC-001 (spec 002): a filtering query on the ~10 MB file renders in under 1 s', async ({ page }) => {
+  test.setTimeout(120000)
+  const { openFile, openQueryPanel, setQuery, editor, status } = await import('./helpers')
+  await openFile(page, fixture)
+  await openQueryPanel(page)
+  await setQuery(page, "SELECT * FROM layer WHERE zone = 'R1' AND acres > 2.5 LIMIT 1000")
+  const t0 = Date.now()
+  await editor(page).press('Control+Enter')
+  await expect(status(page)).toContainText('✓', { timeout: 30000 })
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached' })
+  results.queryFilterMs = Date.now() - t0
+  expect(results.queryFilterMs as number, 'SC-001 (002): filtering query rendered in under 1 s').toBeLessThan(1000)
+})
