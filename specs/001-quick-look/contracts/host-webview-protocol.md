@@ -1,0 +1,76 @@
+# Contract: VS Code extension-host ↔ webview message protocol
+
+This is the VS Code-specific transport underneath `HostAdapter.getFileSource`
+(it has no equivalent in the web shell, where the browser context reads file
+bytes directly with no process boundary to cross).
+
+## Transport decision: base64-chunked by default
+
+**Decision**: transfer file bytes from the extension host to the webview as
+base64-encoded chunks over `panel.webview.postMessage`, matching the pattern
+already shipped and proven in `../omx-viewer/apps/vscode-ext/src/extension.ts`,
+rather than assuming native binary `ArrayBuffer` transfer.
+
+**Why not native binary transfer by default**: VS Code has documented
+efficient `ArrayBuffer`/`TypedArray` support over `postMessage` for
+`WebviewPanel` since 1.57+, but omx-viewer's own shipped extension —
+targeting the same `WebviewPanel`/`customEditors` surface this project
+uses — empirically found this did not work as documented and ships
+base64-chunked transfer instead (see `research.md` §2). Given that direct,
+contradicting, tested evidence on the exact boundary this project needs,
+the safer default is the approach already proven to ship. Chunking (not one
+base64 blob) is required regardless, because a single `base64` string for a
+file above ~400MB can exceed V8's max string length — not a concern for
+spec 001's ~10MB target today, but cheap to do right from the start and
+avoids a breaking protocol change later.
+
+**Upgrade path**: if a future spike confirms native binary transfer is
+reliable on this project's actual target VS Code `engines` version inside a
+real custom editor, the chunk messages can carry `ArrayBuffer`/`Uint8Array`
+payloads instead of base64 strings without changing the message *shape*
+below — only the `bytesBase64` field's encoding would change.
+
+## Message shapes
+
+Extension host → webview:
+
+```ts
+type HostToWebviewMessage =
+  | { type: 'initStart'; name: string; totalBytes: number; chunkCount: number }
+  | { type: 'initChunk'; index: number; bytesBase64: string }
+  | { type: 'themeChange'; theme: 'light' | 'dark' | 'high-contrast' }
+  | { type: 'triggerError'; message: string };
+```
+
+Webview → extension host:
+
+```ts
+type WebviewToHostMessage =
+  | { type: 'ready' }
+  | { type: 'log'; detail: string }
+  | { type: 'showInfo'; message: string }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null };
+```
+
+## Sequencing (mirrors omx-viewer's proven flow)
+
+1. Webview boots, registers its message listener, then posts `{ type: 'ready' }`.
+2. Extension host — **must already have its listener registered before
+   `panel.webview.html` is set**, or a `ready` sent before the listener
+   exists is silently lost (documented omx-viewer gotcha) — reads the file via
+   `vscode.workspace.fs.readFile`, then sends `initStart` followed by
+   `initChunk` messages (chunk size: 32MB of raw bytes per chunk, matching
+   omx-viewer's proven constant, pre-base64-inflation).
+3. Webview reassembles chunks, decodes base64, parses the file, and populates
+   `ViewerSession`/`Layer` per `data-model.md`.
+4. On error at any point, the host sends `triggerError` (or the webview sets
+   its own `ViewerSession.loadState = 'error'` for parse-time failures) — see
+   FR-011.
+
+## Constitution compliance
+
+This protocol lives entirely inside `apps/vscode-ext` (both the
+`extension.ts` side and the webview-side adapter that implements
+`HostAdapter` for the VS Code target). `packages/core`/`packages/ui` never see
+these message types directly — they only see the resolved `ArrayBuffer` that
+`HostAdapter.getFileSource` returns once reassembly is complete.
