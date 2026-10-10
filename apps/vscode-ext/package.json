@@ -43,7 +43,7 @@
   },
   "scripts": {
     "build:extension": "node esbuild.js",
-    "build:webview": "vite build --config vite.webview.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && node scripts/copy-duckdb-wasm.js",
     "build": "npm run build:extension && npm run build:webview",
     "vscode:prepublish": "npm run build"
   },

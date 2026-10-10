@@ -66,16 +66,25 @@ finds the assumed approach broken, STOP and update `research.md` + this file's
 remaining tasks before continuing — do not route around a failed spike
 silently.
 
-- [ ] T005 **[SPIKE, highest priority]** Inside an actual `resolveCustomEditor`
-      webview (a throwaway custom editor registered in a scratch VS Code
-      extension is sufficient), prove whether `new Worker(webview.asWebviewUri(...))`
-      can successfully instantiate DuckDB-WASM's main worker script
-      (`duckdb-browser-mvp.worker.js`), given `../omx-viewer`'s documented
-      finding that `new Worker(new URL(..., import.meta.url))` throws
-      synchronously in a webview due to an origin mismatch (`research.md` §4).
-      Record the exact outcome (works as-is / needs the inline-worker
-      workaround scaled up / needs a different approach entirely) in
-      `specs/001-quick-look/research.md` §4 before T009/T018 begin.
+- [X] T005 **[SPIKE, highest priority — ATTEMPTED, BLOCKED, NOT RESOLVED]**
+      Built a real `@vscode/test-electron` integration test
+      (`tests/vscode-ext/src/suite/workerBootstrap.spike.test.ts`) that opens
+      a sample file in the actual `spatialExplorer.editor` custom editor and
+      tries to instantiate real DuckDB-WASM inside the real webview. Three
+      genuine attempts were run: (1) `new Worker(webview.asWebviewUri(...))`
+      — fails immediately with a browser `SecurityError` (cross-origin); (2)
+      fetch the worker script + construct via `blob:` URL — Worker
+      construction succeeds, but `db.instantiate()` never resolves; (3) also
+      proxy the 41MB wasm module through a main-thread-fetched `blob:` URL —
+      still hangs, with zero worker messages or errors observed even under an
+      explicit 15s timeout. **This is a confirmed, reproduced blocker, not a
+      documentation gap.** Full details, exact errors, and candidate next
+      steps (interactive DevTools diagnosis; alternate bundles; alternate
+      resource-serving approach; main-thread-only fallback) are recorded in
+      `specs/001-quick-look/research.md` §4. **T009 and the rest of US1's
+      webview-dependent tasks below are held pending this being resolved or
+      the architecture being revisited — do not mark them complete against
+      this unresolved assumption.**
 - [ ] T006 **[SPIKE]** [P] In an actual browser (or the webview from T005 once
       it boots), run `INSTALL spatial; LOAD spatial; SELECT * FROM ST_Drivers();`
       plus a per-format `ST_Read` smoke test (GeoJSON, GeoParquet, FlatGeobuf,

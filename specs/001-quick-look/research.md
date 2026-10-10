@@ -182,78 +182,148 @@ offline/air-gapped use and requires widening webview CSP `connect-src` to an
 external host, which conflicts with the Local-First principle unless the user
 explicitly opts into CDN delivery as a fallback.
 
+
+
 ## 4. Worker bootstrapping and CSP in a VS Code webview
 
-**Decision**: Reuse the CSP shape already shipped and working in
-`../omx-viewer`'s custom editor, and budget real engineering time for DuckDB-WASM's
-worker bootstrapping specifically — treat it as the highest-risk item in this
-plan, not a routine integration step.
+**Decision**: CSP shape is settled (reuse `../omx-viewer`'s shipped policy).
+Worker bootstrapping is **NOT settled** — it is a confirmed, reproduced
+blocker. T005 was executed for real, three times, against an actual VS Code
+instance, and none of the three attempts got DuckDB-WASM running inside the
+webview. **This blocks T009 and all of US1's webview-dependent work until
+resolved; do not build on top of it.**
 
-**Rationale / Evidence gathered**:
-- omx-viewer's shipped, working CSP for a WASM-plus-worker VS Code webview
-  (`apps/vscode-ext/src/extension.ts`):
-  ```
-  default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline';
-  worker-src ${csp} blob: data:; img-src ${csp} data:; font-src ${csp};
-  ```
-  (`${csp}` is `webview.cspSource`.) This matches CLAUDE.md's stated
-  requirement (`worker-src blob:`, `script-src 'wasm-unsafe-eval'`) and is
-  real, shipped, working policy — adopt it as the starting point, extending
-  `img-src`/`connect-src` for basemap tile/style/sprite/glyph hosts per
-  CLAUDE.md's basemap CSP notes (omx-viewer has no basemaps, so that part is
-  new).
-- **Worker bootstrapping is a confirmed, non-hypothetical risk**, documented
-  firsthand in omx-viewer's own source comments
-  (`packages/engine/src/services/duckdbService.ts`): constructing a Worker via
-  `new Worker(new URL(..., import.meta.url), {type:'module'})` throws
-  *synchronously* inside a VS Code webview, because the webview document's
-  origin (`vscode-webview://<uuid>`) does not match the origin scripts are
-  actually served from (`vscode-resource.vscode-cdn.net`), and browsers
-  require same-origin for Worker construction. Their *second* attempted
-  workaround — `fetch()` the same script as text and construct a `blob:` URL
-  Worker from it — **also failed** ("Failed to fetch"), apparently hitting the
-  same cross-origin restriction even for programmatic fetch. Their working
-  fix was Vite's `?worker&inline` suffix, which inlines the worker as a
-  base64 `data:` URL at build time, so there is no separate cross-origin
-  resource to load at all. This worked because their worker is tiny (~1KB).
-  **DuckDB-WASM's main worker is not tiny** (tens to low hundreds of KB per
-  the published bundle sizes) and is normally instantiated from a *separate*
-  worker script file via `duckdb.selectBundle()` + `new Worker(bundle.mainWorker)`
-  — the standard DuckDB-WASM pattern does not inline the worker. Whether the
-  same-origin failure omx-viewer hit also applies when the worker URL is
-  produced via `webview.asWebviewUri()` (same webview-resource origin as the
-  main script, rather than a dev-server-relative `import.meta.url`) is
-  untested and is the single most important open question for Spike 4.
-- The from-scratch Node DuckDB-WASM harness attempted for Spike 1 (see
-  above) independently reinforces that this library's worker instantiation
-  is sensitive to the exact host environment's Worker semantics — it is not
-  a "just works everywhere" dependency.
+**How T005 was actually run**: `tests/vscode-ext` was built as a real
+`@vscode/test-electron` integration test, not a manual/GUI spike. It launches
+an actual VS Code Extension Development Host, opens a sample `.geojson`
+fixture via `vscode.openWith` against the real `spatialExplorer.editor`
+custom editor (`apps/vscode-ext/src/extension.ts`, built with esbuild) and
+the real Vite-built webview bundle (`apps/vscode-ext/src/webview/main.ts`,
+including the actual `@duckdb/duckdb-wasm` npm package and its real `mvp`
+worker + wasm files, copied into `dist-webview/duckdb/` by
+`scripts/copy-duckdb-wasm.js`). The webview reports its result back to the
+extension host via a `spikeResult` postMessage, retrievable by the test
+through a `spatialExplorer._getSpikeResult` command (needed because the test
+runs in the extension host process, which cannot directly observe the
+webview's renderer-process postMessage traffic). This test is committed at
+`tests/vscode-ext/src/suite/workerBootstrap.spike.test.ts` and can be re-run
+with `npm run test --workspace=tests/vscode-ext`.
 
-**Follow-up task**: the very first implementation task touching DuckDB-WASM
-must prove worker instantiation inside an actual `resolveCustomEditor`
-webview before any feature logic is built on top of it — either (a) a plain
-`new Worker(asWebviewUriToWorkerScript)` works because both main script and
-worker share the webview-resource origin, or (b) it needs the same
-inline/blob workaround omx-viewer used, scaled up for a much larger script,
-or (c) a different bootstrapping approach entirely. Record the real outcome
-here before Phase 1 design assumptions about "one DuckDB instance per
-webview" are treated as settled.
+**Attempt 1 — plain `new Worker(webview.asWebviewUri(...))`**: not the
+`import.meta.url` pattern omx-viewer found broken — this is the "obvious
+fix" of using the correctly-resolved webview resource URI instead. **Result:
+fails immediately**, with a real, captured browser-level error:
 
-**Alternatives considered**: Assume the standard browser DuckDB-WASM
-instantiation pattern "just works" in a webview because it works in an
-ordinary web page. Rejected — omx-viewer's own documented, tested experience
-with a *different* but analogous worker in the exact same kind of webview
-directly contradicts that assumption for at least one construction method.
+```
+SecurityError: Failed to construct 'Worker': Script at
+'https://file+.vscode-resource.vscode-cdn.net/d%3A/GitHub/spatial-sql-explorer/apps/vscode-ext/dist-webview/duckdb/duckdb-browser-mvp.worker.js'
+cannot be accessed from origin
+'vscode-webview://02o4of8gklgqjmkm3caaqjt556c7ctr8h26671bnm1508cs469ii'.
+```
+
+This proves the risk flagged from omx-viewer's analogy generalizes: it is
+not specific to `import.meta.url`-style URL construction — any absolute
+cross-origin URL fails classic Worker construction in a VS Code webview,
+because the webview document's origin (`vscode-webview://<uuid>`) and the
+origin VS Code serves local resources from
+(`vscode-resource.vscode-cdn.net`) are never the same, regardless of how the
+URL was obtained.
+
+**Attempt 2 — fetch the worker script as text, construct from a `blob:`
+URL** (the standard cross-origin-worker workaround, and also the first thing
+omx-viewer tried before their fetch failed with "Failed to fetch"): the
+fetch and the blob Worker construction both succeeded this time —
+`fetched worker script (839642 bytes)` and `blob Worker constructed OK` were
+both observed. This is new information beyond omx-viewer's experience: with
+the CSP's `connect-src ${csp}` directive explicitly present (added for this
+spike) and a correctly asWebviewUri-resolved URL (not a baked dev-time
+`import.meta.url` path), the fetch that failed for omx-viewer succeeds here.
+**However, instantiating DuckDB-WASM through that worker still did not
+complete** — `db.instantiate(duckdbWasmUrl)` never resolved or rejected
+within the test's wait window, with no worker `error` event fired either.
+
+**Attempt 3 — also fetch the 41MB wasm module on the main thread and hand
+the worker a `blob:` URL for it too** (eliminating the worker's own
+cross-origin fetch of the `.wasm` file as a variable, since blob: URLs
+created on the main thread are resolvable from a same-origin worker):
+fetching 41,325,187 bytes of wasm on the main thread via `asWebviewUri`
+worked and was fast (local disk, effectively instant). Constructing the blob
+URL succeeded. **`db.instantiate()` still did not complete.** Wrapping the
+call in an explicit 15-second race timeout confirmed it is a genuine hang,
+not a slow-but-working call: `db.instantiate() did not resolve within
+15000ms`. A raw `worker.addEventListener("message", ...)` listener was also
+attached to catch any traffic AsyncDuckDB's internal protocol might produce
+— zero messages of any kind were observed from the worker during the entire
+15-second window. The worker neither errored nor responded; it appears to go
+silent the moment `instantiate` asks it to do real work (compile/instantiate
+the actual WebAssembly module), whereas the worker's outer script clearly
+did start running (it received and presumably processed the initial
+instantiate command without throwing).
+
+**What this rules in and out**:
+- It is **not** a CSP `connect-src`/`worker-src` blocking problem in the way
+  initially hypothesized — both main-thread fetches (839KB and 41MB) worked
+  fine under the CSP used (`worker-src ${csp} blob: data:; connect-src
+  ${csp}`).
+- It is **not** a slow-large-file problem — the 41MB wasm fetch was fast;
+  the hang is specifically inside `instantiate`, after the worker has the
+  bytes.
+- It is consistent with either: (a) WebAssembly compilation being silently
+  blocked inside a `blob:`-origin worker under this CSP (a worker spawned
+  from a `blob:` URL may not cleanly inherit `wasm-unsafe-eval` the way the
+  main document does — unconfirmed), or (b) some other Electron/Chromium
+  sandboxing of worker-thread capabilities in a webview that doesn't
+  manifest as a catchable JS error at all.
+- **Diagnosing further requires live DevTools** (CLAUDE.md's own suggested
+  tool, "Developer: Open Webview Developer Tools" — for the worker
+  specifically, its devtools open from the main webview's devtools "Workers"
+  panel) to see the worker's actual console output and any network or
+  WebAssembly-related warnings Chromium would log there but does not surface
+  as a JS-catchable error. **This automated test harness cannot open
+  interactive DevTools**, so this is the limit of what could be verified
+  here.
+
+**This is a real, reproduced architectural blocker, not a documentation
+gap.** Three independent, genuinely-executed attempts — the two obvious
+"textbook" fixes for cross-origin Worker construction, applied to the real
+dependency this project plans to build on — all failed to get DuckDB-WASM
+running inside an actual VS Code custom editor webview.
+
+**Candidate next steps** (none attempted further here — this needs either
+interactive DevTools access or more iteration time than this pass budgeted):
+
+1. Open the failing webview's dedicated worker DevTools interactively and
+   read whatever Chromium actually logs during the hang.
+2. Try the `eh` (exception-handling) or `coi` DuckDB-WASM bundles instead of
+   `mvp`, in case the hang is specific to that bundle variant (though `coi`
+   requires `SharedArrayBuffer`, which CLAUDE.md already rules out for VS
+   Code webviews).
+3. Try running DuckDB-WASM's worker un-wrapped (no blob proxy) but with the
+   extension host pre-registering the resource via a custom
+   `registerUriHandler`/webview message-channel approach instead of
+   `asWebviewUri`, to see whether the issue is specific to the
+   `vscode-resource.vscode-cdn.net` virtual host rather than blob origins.
+4. As a fallback architecture if the worker approach cannot be made to work
+   at all: investigate whether DuckDB-WASM can run directly on the webview's
+   main thread without a dedicated Worker (likely at the cost of blocking
+   the UI during queries — a real UX regression, not a free substitution).
+5. Search DuckDB-WASM's own issue tracker for "vscode webview" or "blob
+   worker instantiate hang" — this project did not have this specific
+   combination of facts (VS Code webview + blob-proxied worker + mvp bundle)
+   confirmed against DuckDB-WASM's own GitHub issues in this research pass.
 
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |
 |---|-------|--------|-------------------------|
-| 1 | Format support | Documentation + real prior-art evidence gathered; hands-on WASM test not completed in this environment (tooling limitation, see above) | GeoPackage support claim in FR-018 could be false; mitigated by sql.js fallback plan |
+| 1 | Format support | Documentation + real prior-art evidence gathered; hands-on WASM test not completed in this environment (tooling limitation, see §1) | GeoPackage support claim in FR-018 could be false; mitigated by sql.js fallback plan |
 | 2 | Range reads | Deferred — not required by spec 001's clarified (small-file) scope | None for 001; relevant again once large-file hardening begins |
-| 3 | Extension delivery / VSIX size | Override mechanism confirmed to exist; exact size not measured against pinned versions | VSIX could exceed a reasonable size budget; mitigated by an early build-time size check |
-| 4 | Worker bootstrapping / CSP | CSP shape confirmed working (omx-viewer); worker instantiation confirmed risky by direct analogy, not yet proven for DuckDB-WASM specifically | Could block the entire "DuckDB-WASM per webview" architecture decision if it fails; HIGHEST priority spike to run first in tasks.md |
+| 3 | Extension delivery / VSIX size | Override mechanism confirmed to exist; real size now measured: the `mvp` bundle alone is ~41.3MB (`duckdb-mvp.wasm`) + ~0.8MB (worker script) uncompressed, before the spatial extension (fetched separately at runtime) or MapLibre are added | VSIX will very likely need a dedicated size-budget decision, not just a CI alert; this is now a known, not estimated, number |
+| 4 | Worker bootstrapping / CSP | **BLOCKED.** CSP shape confirmed working; three real, hands-on instantiation attempts in an actual VS Code webview all failed, the last one with no error signal at all. This is the single highest-risk open item in the entire plan | Blocks the "DuckDB-WASM per webview" architecture as currently designed. Implementation should not proceed past this point on the current architecture until resolved — either via interactive DevTools diagnosis or an architecture change (see candidate next steps above) |
 
-All four items are carried into `tasks.md` as explicit, early, spike-first
-tasks per the constitution's Verified Claims principle and the project's
-working rule to spike before building on a risky assumption.
+Item 4 is not resolved. Per the constitution's Verified Claims principle and
+the project's working rule to spike before building on a risky assumption,
+`tasks.md` reflects T005 as attempted and blocked, not complete, and T009
+(DuckDB bootstrap service) and the rest of US1's webview-dependent tasks are
+held pending this finding being resolved or the architecture being
+revisited.
