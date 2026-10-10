@@ -23,32 +23,89 @@ export interface Feature {
   attributes: Record<string, string | number | boolean | null>
 }
 
+/**
+ * What the map and table display. Since spec 002 this is a query result: the
+ * initial view is the result of DEFAULT_QUERY, and every later query replaces
+ * it. The map, table, inspector, style panel and status bar all render from
+ * this one shape.
+ */
 export interface Layer {
   id: string
   sourceUri: string
   sourceFormat: string
   geometryType: GeometryType
+  /**
+   * CRS of the displayed geometry before reprojection: the file's CRS for the
+   * initial view, the resolved result CRS for queries (spec 002 FR-014).
+   */
   sourceCrs: CrsInfo
-  /** True when the file had no CRS information and WGS84 was assumed (FR-015). */
+  /** True when the CRS is an assumption, not read from the file (FR-015). */
   crsAssumed: boolean
-  /** Total count of valid features in the source — shown in metadata displays (FR-006), independent of how many are actually loaded. */
+  /** Rows in this result, all of them listed in the table (spec 002 plan, "Spec amendments"). */
+  rowCount: number
+  /** Rows drawn on the map: valid geometry. */
   featureCount: number
-  /** Geometries skipped during rendering/parsing because they were invalid (FR-014). */
+  /** Rows whose geometry is missing or invalid: listed in the table, not drawn (FR-014). */
   invalidGeometryCount: number
-  /** True when featureCount > DEFAULT_FEATURE_CAP and only the first DEFAULT_FEATURE_CAP were loaded into `features` (FR-019). */
+  /** True when this result is a subset: the default query's cap, or "Show first 50,000" (spec 002 FR-012). */
   truncated: boolean
-  /** Computed from the full source extent, not just the loaded subset, so fit-to-extent is correct even when truncated. */
+  /** WGS84 extent to fit. For the initial view this is the whole file's extent, not just the loaded subset. */
   extent: Bbox | null
-  /** The loaded/rendered subset actually held in memory — at most DEFAULT_FEATURE_CAP entries (FR-019). */
+  /** All rows of the result. `geometry` is null when the row's geometry is missing or invalid. */
   features: Feature[]
+  /** Whole-file totals, independent of the displayed result: what metadata displays report (FR-006). */
+  source: { rows: number; features: number; invalid: number }
   /**
    * The QGIS-convention style sidecar found next to the data file
    * (`<basename>.qml`), as raw text, or null. Parsed by the UI via
    * `importStyle()` and applied on open (design-plan.md §8.5).
    */
   styleSidecar: { fileName: string; text: string } | null
-  /** Milliseconds per load step (prepare, scan, rows), for logs. Diagnostic only. */
+  /** Milliseconds per load step, for logs. Diagnostic only. */
   loadTimings?: Record<string, number>
+}
+
+// --- Spec 002: query ------------------------------------------------------------
+
+/** The initial view's query (spec 002 FR-003); Reset restores it (FR-011). */
+export const DEFAULT_QUERY = 'SELECT * FROM layer LIMIT 1000'
+
+/** Results larger than this ask before rendering (spec 002 FR-012). */
+export const LARGE_RESULT_THRESHOLD = 50_000
+
+/** The opened file as SQL sees it (spec 002 data-model.md). */
+export interface QueryableTable {
+  /** Always `layer`. */
+  name: 'layer'
+  /** The file's base name, when it's a valid identifier (e.g. `parcels`). */
+  alias: string | null
+  columns: Array<{ name: string; type: string }>
+  /** The file's original CRS. `geom` stays in it (FR-014). */
+  crs: CrsInfo
+  crsAssumed: boolean
+  /** EPSG code of `crs`, or null when unknown (treated as WGS84). */
+  srid: number | null
+  backing: 'materialized' | 'streamed'
+  totals: { rows: number; features: number; invalid: number }
+  /** Whole-file WGS84 extent, and whether it's within lon/lat bounds in the source CRS (for result-CRS detection). */
+  extent: Bbox | null
+  sourceExtent: Bbox | null
+  geometryType: GeometryType
+}
+
+export type ResultCrsSource = 'override' | 'engine' | 'detected' | 'layer'
+
+export interface QueryHistoryEntry {
+  text: string
+  /** ISO 8601. */
+  ranAt: string
+  outcome: { ok: true; rows: number } | { ok: false; error: string }
+}
+
+export interface CatalogSnapshot {
+  tables: Array<{ name: string; kind: 'table' | 'view'; columns: Array<{ name: string; type: string }> }>
+  functions: Array<{ name: string; signatures: string[]; description: string; spatial: boolean }>
+  keywords: string[]
 }
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error'

@@ -58,9 +58,9 @@ async function main(): Promise<void> {
   const loaded = store.session.layer
   if (loaded) {
     logToHost(
-      `Opened ${fileName}: ${loaded.featureCount.toLocaleString()} features` +
-        (loaded.truncated ? ` (showing ${loaded.features.length.toLocaleString()})` : '') +
-        (loaded.invalidGeometryCount ? `, ${loaded.invalidGeometryCount} invalid skipped` : '') +
+      `Opened ${fileName}: ${loaded.source.features.toLocaleString()} features` +
+        (loaded.truncated ? ` (showing ${loaded.rowCount.toLocaleString()})` : '') +
+        (loaded.source.invalid ? `, ${loaded.source.invalid} with invalid geometry` : '') +
         `, ${loaded.geometryType}, ${loaded.sourceCrs.label}${loaded.crsAssumed ? ' (assumed)' : ''}` +
         (store.styleSource ? `, style ${store.styleSource}` : '') +
         ` in ${elapsed} ms` +
@@ -94,8 +94,10 @@ async function main(): Promise<void> {
   }
 
   reportLoadState(store.session.loadState, {
-    featureCount: store.session.layer?.featureCount,
-    invalidGeometryCount: store.session.layer?.invalidGeometryCount,
+    // File-level totals (spec 001's meaning); rowCount is the displayed result.
+    featureCount: store.session.layer?.source.features,
+    invalidGeometryCount: store.session.layer?.source.invalid,
+    rowCount: store.session.layer?.rowCount,
     errorMessage: store.session.loadError?.message,
     sourceCrsLabel: store.session.layer?.sourceCrs.label,
     crsAssumed: store.session.layer?.crsAssumed,

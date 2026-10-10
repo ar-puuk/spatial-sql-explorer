@@ -19,6 +19,7 @@ type WebviewToHostMessage =
       loadState: string
       featureCount?: number
       invalidGeometryCount?: number
+      rowCount?: number
       errorMessage?: string
       sourceCrsLabel?: string
       crsAssumed?: boolean
@@ -49,6 +50,7 @@ let lastLoadState: {
   loadState: string
   featureCount?: number
   invalidGeometryCount?: number
+  rowCount?: number
   errorMessage?: string
   sourceCrsLabel?: string
   crsAssumed?: boolean
@@ -149,6 +151,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           loadState: msg.loadState,
           featureCount: msg.featureCount,
           invalidGeometryCount: msg.invalidGeometryCount,
+          rowCount: msg.rowCount,
           errorMessage: msg.errorMessage,
           sourceCrsLabel: msg.sourceCrsLabel,
           crsAssumed: msg.crsAssumed,

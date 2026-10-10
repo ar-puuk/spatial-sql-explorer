@@ -20,6 +20,7 @@ import {
   type DuckDbAssetUrls,
   type HostAdapter,
   type LayerStyle,
+  type QuerySession,
   type StyleFormat,
   type ViewerSession,
 } from '@spatial-explorer/core'
@@ -32,6 +33,8 @@ export interface StyleNotice {
 
 export interface ViewerStore {
   readonly session: ViewerSession
+  /** The open file's query session (spec 002), or null before a file is open. */
+  readonly querySession: QuerySession | null
   readonly style: LayerStyle
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
   readonly styleSource: string | null
@@ -119,6 +122,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   syncBasemapEnabled()
 
   let currentFileName: string | null = null
+  // The viewer's query session (spec 002). Deliberately not $state: it holds
+  // live engine connections, which must never be proxied or posted.
+  let querySession: QuerySession | null = null
 
   async function load(): Promise<void> {
     session.loadState = 'loading'
@@ -127,11 +133,18 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     try {
       const [ref] = await hostAdapter.openFiles()
       currentFileName = ref.displayName
-      const layer = await openFile(ref, { hostAdapter, duckdbAssets })
+      // One file per viewer: the previous file's views, tables and session
+      // go before the next file's `layer` view is created.
+      await querySession?.dispose().catch(() => {})
+      querySession = null
+      const opened = await openFile(ref, { hostAdapter, duckdbAssets })
+      querySession = opened.session
+      const layer = opened.layer
       session.layer = layer
       session.loadState = 'ready'
       applySidecar(layer.styleSidecar)
-      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.featureCount })
+      // File-level metadata (FR-006): the whole file, not the displayed result.
+      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features })
     } catch (err) {
       session.layer = null
       session.loadState = 'error'
@@ -204,6 +217,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   return {
     get session() {
       return session
+    },
+    get querySession() {
+      return querySession
     },
     get style() {
       return style

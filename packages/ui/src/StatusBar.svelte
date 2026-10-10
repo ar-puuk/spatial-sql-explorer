@@ -21,13 +21,13 @@
       {layer.sourceCrs.label}{layer.crsAssumed ? ' · assumed' : ''}
     </span>
     <span class="sep" aria-hidden="true"></span>
-    <span class="item">{nf.format(layer.featureCount)} {layer.featureCount === 1 ? 'feature' : 'features'}</span>
+    <span class="item">{nf.format(layer.source.features)} {layer.source.features === 1 ? 'feature' : 'features'}</span>
     <span class="sep" aria-hidden="true"></span>
     <span class="item">{layer.geometryType}</span>
     {#if layer.truncated}
       <span class="sep" aria-hidden="true"></span>
       <span class="item truncated">
-        Showing {nf.format(Math.min(layer.features.length, layer.featureCount))} of {nf.format(layer.featureCount)}
+        Showing {nf.format(layer.rowCount)} of {nf.format(layer.source.rows)}
       </span>
     {/if}
     <span class="spacer"></span>

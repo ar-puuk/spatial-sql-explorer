@@ -1,7 +1,8 @@
 <script lang="ts">
   // Visually distinct from ErrorBanner — a skipped-geometry count is a
-  // successful load with a caveat (FR-014), not a failure. Dismissible, since
-  // it stays true for as long as the file is open.
+  // successful load with a caveat (FR-014), not a failure. Since spec 002
+  // those rows stay in the table and are only left off the map. Dismissible,
+  // since it stays true for as long as the result is shown.
   import Icon from './Icon.svelte'
 
   interface Props {
@@ -16,7 +17,7 @@
     <Icon name="warning" />
     <span class="message">
       {invalidGeometryCount.toLocaleString()}
-      {invalidGeometryCount === 1 ? 'invalid geometry was skipped. It is' : 'invalid geometries were skipped. They are'} not shown on the map or in the table.
+      {invalidGeometryCount === 1 ? 'row has' : 'rows have'} invalid or missing geometry: listed in the table, not drawn on the map.
     </span>
     <button type="button" aria-label="Dismiss" title="Dismiss" onclick={() => (dismissed = true)}><Icon name="close" size={14} /></button>
   </div>

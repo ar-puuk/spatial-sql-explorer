@@ -260,6 +260,7 @@ export function reportLoadState(
   details: {
     featureCount?: number
     invalidGeometryCount?: number
+    rowCount?: number
     errorMessage?: string
     sourceCrsLabel?: string
     crsAssumed?: boolean

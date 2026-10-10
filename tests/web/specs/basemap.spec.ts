@@ -76,6 +76,6 @@ test('a blocked basemap degrades to blank with a short message; data unaffected 
   await expect(notice).toContainText('Showing a blank background')
   await expect(page.getByRole('button', { name: 'Basemap' })).toHaveAttribute('title', 'Basemap: Blank')
   await expect.poll(() => renderedFeatures(page)).toBeGreaterThan(0)
-  await expect(page.locator('.drawer-header .count')).toHaveText('179 features')
+  await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })

@@ -120,11 +120,11 @@ checkpoint.
   - In `packages/core/src/openFile.ts`, register every source file under `SOURCE_DIR` instead of `/tmp/` (registration API calls are not affected by the lockdown).
   - Run `npm run test:web` and `npm run test:vscode-ext`; they must still pass: all formats, including shapefile sidecars and GML.
   Verified: web 12/12, VS Code 20/20. The first run failed for the 3 Parquet cases because the `parquet` extension autoload was blocked; fixed by loading parquet before the lockdown (research §2).
-- [ ] T009 Add the query data types to `packages/core/src/models.ts`, per `data-model.md`:
+- [X] T009 Add the query data types to `packages/core/src/models.ts`, per `data-model.md`:
   - `QueryableTable`, `QueryResult`, `ResultCrsSource`, `QueryHistoryEntry`, `CatalogSnapshot`.
   - `Layer.rowCount: number` (all rows, including invalid geometry).
   - `LARGE_RESULT_THRESHOLD = 50_000` and `DEFAULT_QUERY = 'SELECT * FROM layer LIMIT 1000'`.
-- [ ] T010 Refactor `packages/core/src/openFile.ts` to create the queryable table and keep it alive (`contracts/query-service.md`, "openFile() changes"; research §5).
+- [X] T010 Refactor `packages/core/src/openFile.ts` to create the queryable table and keep it alive (`contracts/query-service.md`, "openFile() changes"; research §5).
   - **Backing table** (internal `__se_source`):
     - files ≤ 64 MB: `CREATE OR REPLACE TABLE __se_source AS SELECT * FROM <reader>`;
     - larger files: no table; the view reads the reader directly.
@@ -133,7 +133,7 @@ checkpoint.
   - **Initial view**: build it by running `DEFAULT_QUERY` through the query session (T011). The query-service result path doesn't exist yet in Phase 2, so implement the minimal version now, reusing the existing stats and rows code, and route it through T011's `run()` in US1.
   - **Invalid geometry** (plan, Spec amendments): rows with invalid or NULL geometry are kept in `features` with `geometry: null`. Set `rowCount = all rows` and `featureCount = valid`.
   - Drop registered files only when the backing is materialized. Return `{ layer, session }`.
-- [ ] T011 Implement `packages/core/src/query/session.ts`, the `QuerySession` skeleton from `contracts/query-service.md`:
+- [X] T011 Implement `packages/core/src/query/session.ts`, the `QuerySession` skeleton from `contracts/query-service.md`:
   - It owns a **dedicated** query connection (separate from the open connection).
   - Fields: `table` and `defaultQuery`.
   - `cancel()` calls `connection.cancelSent()` and awaits the in-flight promise's settlement.
@@ -141,7 +141,7 @@ checkpoint.
   - `dispose()` drops `__se_result`, temp objects and views, then closes connections.
   - A `runRaw(sql)` that streams through `send` (for internal use and the e2e hook in T036). `run()` itself is completed in US1.
   - Export it from `packages/core/src/index.ts`.
-- [ ] T012 Update `packages/ui/src/viewerStore.svelte.ts` and both shell entry points (`apps/web/src/App.svelte`, `apps/vscode-ext/src/webview/main.ts`) for `openFile()`'s new `{ layer, session }` return:
+- [X] T012 Update `packages/ui/src/viewerStore.svelte.ts` and both shell entry points (`apps/web/src/App.svelte`, `apps/vscode-ext/src/webview/main.ts`) for `openFile()`'s new `{ layer, session }` return:
   - The store keeps `session` and disposes the previous one on reload or re-open.
   - Update spec 001's table-count expectations for the invalid-geometry amendment:
     - `tests/web/specs/open-file.spec.ts`: grid `aria-rowcount` = 181 (180 rows + header); drawer count text "180 rows · 179 mapped";
@@ -150,6 +150,14 @@ checkpoint.
   - Update `packages/ui/src/ViewerLayout.svelte`'s count label to "N rows · M mapped". When `rowCount === featureCount`, show "N features" as today.
 
 **Checkpoint**: `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext` and `npm run lint` all pass. The app behaves like spec 001, except that invalid-geometry rows are listed in the table.
+
+✅ **Phase 2 checkpoint reached (2026-10-10)**: core 96/96, web 12/12, VS Code 20/20 (full format matrix and CRS), lint 0.
+
+Implementation notes:
+- **No temp backing table.** `__se_source` and `layer` are regular objects, not TEMP: DuckDB temp tables are visible only to the connection that created them, and queries run on the session's own connection.
+- **Result pipeline.** `query/run.ts` (`buildQueryResult`) already is the shared pipeline: it executes once into `__se_result` and streams everything via `send`. The initial view is `DEFAULT_QUERY` through it (FR-003); US1 adds policy, CRS and size handling around it.
+- **Two kinds of counts.** `Layer` now separates result-level counts (`rowCount`, `featureCount` = mapped, `invalidGeometryCount`) from whole-file `source` totals, which the status bar and the VS Code test hook report (spec 001 semantics kept).
+- **Performance.** Warm ~10 MB open: 1.40 s run alone (spec 001: 1.20 s). The full suite had measured 2.27 s because the timing spec ran alongside other tests. `performance.spec.ts` now runs in its own Playwright project after all others.
 
 ---
 

@@ -14,14 +14,9 @@ import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { getDuckDb, SOURCE_DIR, type DuckDbAssetUrls } from './duckdbService.js'
 import { sidecarStyleFileName } from './style/index.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
-import {
-  DEFAULT_FEATURE_CAP,
-  type Bbox,
-  type CrsInfo,
-  type Feature,
-  type GeometryType,
-  type Layer,
-} from './models.js'
+import type { Bbox, Layer, QueryableTable } from './models.js'
+import { QuerySession, SOURCE_TABLE } from './query/session.js'
+import { geometryTypeOf, quoteIdent, singleRow } from './query/util.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -46,15 +41,6 @@ function detectStrategy(fileName: string): ReadStrategy {
     return 'st_read'
   }
   return 'unsupported'
-}
-
-/** Normalizes a DuckDB spatial geometry-type string to this project's GeometryType. */
-function normalizeGeometryType(raw: string): Exclude<GeometryType, 'Mixed'> | null {
-  const upper = raw.toUpperCase()
-  if (upper.includes('POINT')) return 'Point'
-  if (upper.includes('LINESTRING') || upper.includes('LINE')) return 'LineString'
-  if (upper.includes('POLYGON')) return 'Polygon'
-  return null
 }
 
 const STYLE_SIDECAR_EXTENSIONS = ['.qml', '.sld']
@@ -176,8 +162,11 @@ async function geoParquetFromExpr(conn: AsyncDuckDBConnection, vfsPath: string, 
  */
 async function readerSource(conn: AsyncDuckDBConnection, reader: string, materialize: boolean): Promise<string> {
   if (!materialize) return reader
-  await conn.query(`CREATE OR REPLACE TEMP TABLE ${TEMP_TABLE} AS SELECT * FROM ${reader}`)
-  return TEMP_TABLE
+  // A regular table, not TEMP: DuckDB temp tables are visible only to the
+  // connection that created them, and queries run on the session's own
+  // connection (spec 002). QuerySession.dispose() drops it.
+  await conn.query(`CREATE OR REPLACE TABLE ${SOURCE_TABLE} AS SELECT * FROM ${reader}`)
+  return SOURCE_TABLE
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
@@ -263,62 +252,46 @@ async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, st
   return Number.isFinite(srid) ? srid : null
 }
 
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`
-}
-
-/**
- * Which source columns become attributes. Two things must not:
- * - The source geometry column (`geom` from ST_Read, `geometry` in
- *   GeoParquet). It arrives as raw WKB bytes and would show up in the table
- *   as `{"0":1,"1":3,...}`. The reprojected `geom_` is excluded likewise.
- * - `OGC_FID`, the synthetic feature id GDAL's Arrow stream adds for formats
- *   without a native FID (GeoJSON, FlatGeobuf, Shapefile, GML). It is not an
- *   OGR field: a real `duckdb` run fails with "Cannot find OGR field for
- *   Arrow array OGC_FID" (GeoLibre hit the same duplicate, #499). It is just
- *   0..n-1, which the table already shows as its row number, and QGIS
- *   doesn't show it either. GeoPackage's real primary key arrives as `fid`
- *   instead and is kept, as in QGIS.
- */
-function attributeProjection(strategy: ReadStrategy, source: FromExpr): string {
-  const columns = new Set(source.columns)
-  const exclude = ['geom_']
-  if (source.geometryColumn && columns.has(source.geometryColumn)) exclude.push(source.geometryColumn)
-  if (strategy === 'st_read' && columns.has('OGC_FID')) exclude.push('OGC_FID')
-  return exclude.map(quoteIdent).join(', ')
-}
-
-/**
- * DuckDB-WASM returns BIGINT columns as native JS `bigint` values, which
- * `JSON.stringify`-based serialization (used internally by MapLibre's
- * actor/worker messaging, confirmed via a real browser error: "can't
- * serialize object of type bigint") cannot handle. Converts each `bigint` to
- * a `number` when it safely fits, otherwise to a `string`, so
- * `Feature.attributes` is always safe to pass to `MapView`/MapLibre.
- */
-function sanitizeAttributes(raw: Record<string, unknown>): Feature['attributes'] {
-  const result: Feature['attributes'] = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === 'bigint') {
-      result[key] = Number.isSafeInteger(Number(value)) ? Number(value) : value.toString()
-    } else {
-      result[key] = value as Feature['attributes'][string]
-    }
-  }
-  return result
-}
-
-/** Files up to this size are parsed once into a temp table (see openFile). */
+/** Files up to this size are parsed once into a table (see readerSource). */
 const MATERIALIZE_MAX_BYTES = 64 * 1024 * 1024
-const TEMP_TABLE = '__se_layer'
 
-export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<Layer> {
+/** A file name usable as an unquoted SQL alias for `layer` (e.g. `parcels`). */
+async function aliasFor(conn: AsyncDuckDBConnection, primaryFileName: string): Promise<string | null> {
+  const base = primaryFileName.replace(/\.[^.]+$/, '')
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) return null
+  const lower = base.toLowerCase()
+  if (lower === 'layer' || lower.startsWith('__se_')) return null
+  const kw = await conn.query(`SELECT count(*) AS n FROM duckdb_keywords() WHERE keyword_name = '${lower}'`)
+  return Number(kw.toArray()[0]?.toJSON().n ?? 0) > 0 ? null : base
+}
+
+export interface OpenedFile {
+  /** The initial view: DEFAULT_QUERY's result, fitted to the whole file. */
+  layer: Layer
+  /** The viewer's query session over the `layer` view (spec 002). */
+  session: QuerySession
+}
+
+/**
+ * Opens a file as the queryable `layer` view (spec 002 FR-002) and returns
+ * the initial view, which is DEFAULT_QUERY run through the same pipeline as
+ * every user query (FR-003, SC-002).
+ *
+ * `layer` is a VIEW so the engine itself refuses writes to it (research §2):
+ * - its geometry column is `geom`, in the file's ORIGINAL CRS (FR-014);
+ * - GDAL's synthetic OGC_FID is dropped and GeoPackage `fid` is kept (spec 001
+ *   attribute rules).
+ * It reads a table materialized once (files up to 64 MB) or the reader
+ * directly (larger files, which stay readable under the lockdown's
+ * allowed_directories).
+ */
+export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<OpenedFile> {
   const { hostAdapter, duckdbAssets } = deps
   const source = await hostAdapter.getFileSource(ref)
   const strategy = detectStrategy(source.primaryFileName)
   if (strategy === 'unsupported') {
     throw new Error(
-      `"${ref.displayName}" is not a supported format. Spec 001 supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, and GML.`
+      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, and GML.`
     )
   }
 
@@ -326,7 +299,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
   const db = await getDuckDb(duckdbAssets)
   const conn: AsyncDuckDBConnection = await db.connect()
   let registered: string[] = []
-  let materialized = false
+  let session: QuerySession | null = null
 
   // Per-step timings, surfaced in the VS Code output channel.
   const timings: Record<string, number> = {}
@@ -341,104 +314,100 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
   try {
     registered = await registerSourceFiles(db, dataFiles)
     const vfsPath = `${SOURCE_DIR}${source.primaryFileName}`
-    materialized = source.totalBytes <= MATERIALIZE_MAX_BYTES
+    const materialized = source.totalBytes <= MATERIALIZE_MAX_BYTES
     const read = await buildFromExpr(conn, strategy, vfsPath, materialized)
-    const { fromExpr, geomExpr: rawGeomExpr } = read
-    const sourceSrid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, vfsPath, strategy)
-    // Every query below reads this already-reprojected expression, so
-    // Layer.extent and every Feature.geometry are WGS84 from here on, while
-    // Layer.sourceCrs (below) still reports the file's real, original CRS.
-    const geomExpr = reprojectToWgs84Sql(rawGeomExpr, sourceSrid)
+    const srid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, vfsPath, strategy)
+    const crs = resolveCrsInfo(srid)
 
-    const base = `(SELECT *, ${geomExpr} AS geom_ FROM ${fromExpr})`
+    // The `layer` view: attributes, then the geometry as `geom` (source CRS).
+    const exclude = [read.geometryColumn, strategy === 'st_read' && read.columns.includes('OGC_FID') ? 'OGC_FID' : null].filter(
+      (c): c is string => c !== null && read.columns.includes(c)
+    )
+    const geomName = read.columns.includes('geom') && read.geometryColumn !== 'geom' ? 'geometry' : 'geom'
+    const star = exclude.length ? `* EXCLUDE (${exclude.map(quoteIdent).join(', ')})` : '*'
+    await conn.query(`CREATE OR REPLACE VIEW layer AS SELECT ${star}, ${read.geomExpr} AS ${quoteIdent(geomName)} FROM ${read.fromExpr}`)
+    const alias = await aliasFor(conn, source.primaryFileName)
+    if (alias) await conn.query(`CREATE OR REPLACE VIEW ${quoteIdent(alias)} AS SELECT * FROM layer`)
     timings.prepare = lap()
 
-    // One scan for everything the metadata needs: valid / invalid counts
-    // (FR-006, FR-014), the full-source extent (FR-003/FR-019: the whole
-    // source, not the capped subset) and the geometry-type mix (FR-013).
-    // These used to be three separate queries, and every ST_Read bind
-    // re-ingests the whole file, so a ~10 MB GeoJSON was parsed several times
-    // over (T046 measured 3.2 s; SC-001 asks for 2 s).
-    const statsRes = await conn.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE valid) AS valid_count,
-        COUNT(*) FILTER (WHERE NOT valid) AS invalid_count,
-        MIN(ST_XMin(g)) FILTER (WHERE valid) AS min_x, MIN(ST_YMin(g)) FILTER (WHERE valid) AS min_y,
-        MAX(ST_XMax(g)) FILTER (WHERE valid) AS max_x, MAX(ST_YMax(g)) FILTER (WHERE valid) AS max_y,
-        list(DISTINCT ST_GeometryType(g)) FILTER (WHERE valid) AS gtypes
-      FROM (SELECT geom_ AS g, (geom_ IS NOT NULL AND ST_IsValid(geom_)) AS valid FROM ${base})
-    `)
-    const stats = statsRes.toArray()[0]?.toJSON() as {
-      valid_count: bigint | number
-      invalid_count: bigint | number
-      min_x: number | null
-      min_y: number | null
-      max_x: number | null
-      max_y: number | null
-      gtypes: { toArray?: () => unknown[] } | unknown[] | null
+    // Whole-file metadata in one scan (FR-006): totals, extent in the source
+    // CRS (for result-CRS detection) and in WGS84 (for the initial fit), and
+    // the geometry type mix.
+    const g = quoteIdent(geomName)
+    const wgs = reprojectToWgs84Sql(g, srid)
+    const stats = await singleRow<{
+      n: bigint | number
+      valid: bigint | number
+      sx0: number | null; sy0: number | null; sx1: number | null; sy1: number | null
+      wx0: number | null; wy0: number | null; wx1: number | null; wy1: number | null
+      gtypes: unknown
+    }>(
+      conn,
+      `SELECT count(*) AS n, count(*) FILTER (WHERE ok) AS valid,
+         min(ST_XMin(${g})) FILTER (WHERE ok) AS sx0, min(ST_YMin(${g})) FILTER (WHERE ok) AS sy0,
+         max(ST_XMax(${g})) FILTER (WHERE ok) AS sx1, max(ST_YMax(${g})) FILTER (WHERE ok) AS sy1,
+         min(ST_XMin(w)) FILTER (WHERE ok) AS wx0, min(ST_YMin(w)) FILTER (WHERE ok) AS wy0,
+         max(ST_XMax(w)) FILTER (WHERE ok) AS wx1, max(ST_YMax(w)) FILTER (WHERE ok) AS wy1,
+         list(DISTINCT ST_GeometryType(${g})) FILTER (WHERE ok) AS gtypes
+       FROM (SELECT ${g}, CASE WHEN ok THEN ${wgs} END AS w, ok
+             FROM (SELECT ${g}, (${g} IS NOT NULL AND ST_IsValid(${g})) AS ok FROM layer))`,
+      () => false
+    )
+    const box = (a: number | null, b: number | null, c: number | null, d: number | null): Bbox | null =>
+      a === null || b === null || c === null || d === null ? null : [a, b, c, d]
+    const rows = Number(stats.n)
+    const features = Number(stats.valid)
+    const columns: QueryableTable['columns'] = []
+    const described = await conn.query('DESCRIBE layer')
+    for (const r of described.toArray()) {
+      const j = r.toJSON() as { column_name: string; column_type: string }
+      columns.push({ name: String(j.column_name), type: String(j.column_type) })
+    }
+    const table: QueryableTable = {
+      name: 'layer',
+      alias,
+      columns,
+      crs: crs.crs,
+      crsAssumed: crs.assumed,
+      srid,
+      backing: materialized ? 'materialized' : 'streamed',
+      totals: { rows, features, invalid: rows - features },
+      extent: box(stats.wx0, stats.wy0, stats.wx1, stats.wy1),
+      sourceExtent: box(stats.sx0, stats.sy0, stats.sx1, stats.sy1),
+      geometryType: geometryTypeOf(stats.gtypes),
     }
     timings.scan = lap()
-    const featureCount = Number(stats.valid_count)
-    const invalidGeometryCount = Number(stats.invalid_count)
-    const extent: Bbox | null =
-      stats.min_x === null || stats.min_y === null || stats.max_x === null || stats.max_y === null ? null : [stats.min_x, stats.min_y, stats.max_x, stats.max_y]
-    const rawTypes = (Array.isArray(stats.gtypes) ? stats.gtypes : (stats.gtypes?.toArray?.() ?? [])).map(String)
-    const normalizedTypes = new Set(rawTypes.map(normalizeGeometryType).filter((t): t is Exclude<GeometryType, 'Mixed'> => t !== null))
-    const geometryType: GeometryType = normalizedTypes.size > 1 ? 'Mixed' : [...normalizedTypes][0] ?? 'Point'
 
-    // Report the file's real, original source CRS (FR-007) — never the
-    // WGS84 `geomExpr` has already reprojected everything else to.
-    const crsResolution = resolveCrsInfo(sourceSrid)
-    const sourceCrs: CrsInfo = crsResolution.crs
-    const crsAssumed = crsResolution.assumed
-
-    // Load at most DEFAULT_FEATURE_CAP features (FR-019). Geometry is
-    // serialized to GeoJSON in SQL via ST_AsGeoJSON — DuckDB spatial's
-    // native GEOMETRY type does not have a well-defined JS-side
-    // representation once it crosses the Arrow boundary, so this is the
-    // reliable way to get a real GeoJSON.Geometry on the JS side.
-    const exclude = attributeProjection(strategy, read)
-    const rowsRes = await conn.query(`
-      SELECT * EXCLUDE (${exclude}), ST_AsGeoJSON(geom_) AS __geom_geojson
-      FROM ${base}
-      WHERE geom_ IS NOT NULL AND ST_IsValid(geom_)
-      LIMIT ${DEFAULT_FEATURE_CAP}
-    `)
-    const rawRows = rowsRes.toArray().map((r) => r.toJSON())
-    const features: Feature[] = rawRows.map((row, index) => {
-      const { __geom_geojson, ...rawAttributes } = row as Record<string, unknown>
-      return {
-        id: index,
-        geometry: __geom_geojson ? (JSON.parse(String(__geom_geojson)) as GeoJSON.Geometry) : null,
-        attributes: sanitizeAttributes(rawAttributes),
-      }
-    })
-
+    // The initial view IS the default query's result (FR-003, SC-002).
+    session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered)
+    const initial = await session.runDefault()
     timings.rows = lap()
 
     const layer: Layer = {
+      ...initial.layer,
       id: ref.id,
       sourceUri: ref.id,
       sourceFormat: strategy,
-      geometryType,
-      sourceCrs,
-      crsAssumed,
-      featureCount,
-      invalidGeometryCount,
-      truncated: featureCount > DEFAULT_FEATURE_CAP,
-      extent,
-      features,
+      // Spec 001 behavior: fit and type describe the whole file, not just
+      // the first 1,000 rows, and "Showing 1,000 of N" is a truncation.
+      extent: table.extent,
+      geometryType: table.geometryType,
+      sourceCrs: table.crs,
+      crsAssumed: table.crsAssumed,
+      truncated: rows > initial.layer.rowCount,
+      source: table.totals,
       styleSidecar,
       loadTimings: timings,
     }
-    return layer
+    return { layer, session }
+  } catch (err) {
+    await session?.dispose().catch(() => {})
+    throw err
   } finally {
-    // The shared instance stays alive for the next open; this file's bytes
-    // don't. Everything the viewer needs (at most DEFAULT_FEATURE_CAP
-    // features) is materialized above, so the registered buffers are pure
-    // WASM-heap weight against the ~512 MB ceiling (CLAUDE.md).
-    if (materialized) await conn.query(`DROP TABLE IF EXISTS ${TEMP_TABLE}`).catch(() => {})
     await conn.close().catch(() => {})
-    for (const path of registered) await db.dropFile(path).catch(() => {})
+    // Materialized files' bytes are no longer needed: the WASM heap keeps
+    // only the table (~512 MB ceiling, CLAUDE.md). Streamed files stay
+    // registered until the session is disposed.
+    if (source.totalBytes <= MATERIALIZE_MAX_BYTES) for (const path of registered) await db.dropFile(path).catch(() => {})
   }
 }

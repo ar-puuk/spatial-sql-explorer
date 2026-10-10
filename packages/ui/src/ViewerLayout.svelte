@@ -5,7 +5,7 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { sidecarStyleFileName, DEFAULT_FEATURE_CAP } from '@spatial-explorer/core'
+  import { sidecarStyleFileName } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -117,7 +117,9 @@
   let countLabel = $derived.by(() => {
     if (loading) return 'Loading…'
     if (!layer) return ''
-    if (layer.truncated) return `Showing ${nf.format(Math.min(layer.features.length, DEFAULT_FEATURE_CAP))} of ${nf.format(layer.featureCount)} features`
+    if (layer.truncated) return `Showing ${nf.format(layer.rowCount)} of ${nf.format(layer.source.rows)} rows`
+    // Rows with invalid geometry are listed but not drawn (spec 002 amendment).
+    if (layer.rowCount !== layer.featureCount) return `${nf.format(layer.rowCount)} rows · ${nf.format(layer.featureCount)} mapped`
     return `${nf.format(layer.featureCount)} ${layer.featureCount === 1 ? 'feature' : 'features'}`
   })
 </script>
