@@ -347,3 +347,15 @@ The query area always shows the duration and row count itself.
 | "Show all" on a multi-million-row result exhausts memory | Confirmation first. If it still fails, catch it, show a clear message, and keep the previous result. Viewport loading is a later slice. |
 | The extent heuristic misjudges a result CRS | The chip always states the assumed CRS and can be overridden (§4). |
 | A future DuckDB-WASM types `GEOMETRY` with a CRS | Picked up automatically at precedence step 2 (§4). |
+
+### Implementation finding: syntax colors in VS Code (T049)
+
+The `--vscode-symbolIcon-*Foreground` colors chosen in §6 turned out to be
+plain `#CCCCCC` in Dark Modern and Light Modern for keywords, strings, numbers
+and operators, so the SQL looked uncolored. The debug-hover token colors
+(`--vscode-debugTokenExpression-boolean/string/number`) are syntax-like and
+defined by every built-in theme, including both high-contrast themes. They now
+come first, with symbolIcon as the fallback. In High Contrast the selection
+background is solid white and VS Code relies on `editor.selectionForeground`,
+which a CodeMirror selection layer can't apply. The webview tones the selection
+down to 40% with `color-mix` instead.

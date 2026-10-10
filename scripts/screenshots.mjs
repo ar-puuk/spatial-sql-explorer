@@ -145,27 +145,12 @@ async function captureVsCode() {
         await win.waitForTimeout(800)
         await shot(win, `${name}-inspect`)
       })
-      await step('query panel with a result', async () => {
+      await step('open the query panel', async () => {
         await win.keyboard.press('Escape')
         await view.locator('.attribute-table table').focus()
         await win.keyboard.press('Control+Shift+Q')
-        const editor = view.getByRole('textbox', { name: 'SQL query' })
-        await editor.click()
-        await win.keyboard.press('Control+A')
-        await win.keyboard.insertText("SELECT name, round(ST_Area(geom)) AS area, geom\nFROM layer\nWHERE name LIKE 'S%'\nORDER BY area DESC")
-        await win.keyboard.press('End')
-        await win.keyboard.press('Control+Enter')
-        await view.locator('.query-status').filter({ hasText: '✓' }).waitFor({ timeout: 30000 })
-        await win.waitForTimeout(1200)
-        await shot(win, `${name}-query`)
-        await editor.click()
-        await win.keyboard.press('Control+A')
-        await win.keyboard.insertText('SELECT nope FROM layer')
-        await win.keyboard.press('End')
-        await win.keyboard.press('Control+Enter')
-        await win.waitForTimeout(1200)
-        await shot(win, `${name}-query-error`)
       })
+      await queryScenes(view, win, name)
       await step('native status bar while hovering', async () => {
         const box = await win.locator('iframe.webview').boundingBox()
         await win.mouse.move(box.x + box.width / 2 - 20, box.y + box.height * 0.3)
@@ -178,6 +163,64 @@ async function captureVsCode() {
       fs.rmSync(profile, { recursive: true, force: true })
     }
   }
+}
+
+/**
+ * Spec 002 scenes, shared by both shells (T049): a result, an error with its
+ * squiggle, the autocomplete list, the history popover and the large-result
+ * dialog. `ui` finds elements (the webview frame in VS Code), `win` types and
+ * captures.
+ */
+async function queryScenes(ui, win, prefix) {
+  const editor = ui.getByRole('textbox', { name: 'SQL query' })
+  const replace = async (sql) => {
+    await editor.click()
+    await win.keyboard.press('Control+A')
+    // VS Code applies a webview's select-all asynchronously; let it land
+    // before the replacement text goes in.
+    await win.waitForTimeout(250)
+    await win.keyboard.press('Delete')
+    await win.keyboard.insertText(sql)
+    await win.keyboard.press('Escape')
+  }
+  await step('query panel with a result', async () => {
+    await replace("SELECT name, round(ST_Area(geom)) AS area, geom\nFROM layer\nWHERE name LIKE 'S%'\nORDER BY area DESC")
+    await win.keyboard.press('Control+Enter')
+    await ui.locator('.query-status').filter({ hasText: '✓' }).waitFor({ timeout: 30000 })
+    await win.waitForTimeout(1200)
+    await shot(win, `${prefix}-query`)
+  })
+  await step('query error with a squiggle', async () => {
+    await replace('SELECT *\nFORM layer')
+    await win.keyboard.press('Control+Enter')
+    await ui.locator('.cm-lintRange-error').waitFor({ timeout: 30000 })
+    await win.waitForTimeout(400)
+    await shot(win, `${prefix}-query-error`)
+  })
+  await step('autocomplete list', async () => {
+    await replace('SELECT ')
+    await win.keyboard.press('End')
+    await win.keyboard.type('ST_Ar', { delay: 40 })
+    await ui.locator('.cm-tooltip-autocomplete').waitFor({ timeout: 10000 })
+    await win.waitForTimeout(400)
+    await shot(win, `${prefix}-query-autocomplete`)
+    await win.keyboard.press('Escape')
+  })
+  await step('history popover', async () => {
+    await ui.getByRole('button', { name: 'Query history' }).click()
+    await ui.getByRole('listbox', { name: 'Query history' }).waitFor({ timeout: 5000 })
+    await win.waitForTimeout(300)
+    await shot(win, `${prefix}-query-history`)
+    await win.keyboard.press('Escape')
+  })
+  await step('large-result dialog', async () => {
+    await replace('SELECT * FROM range(60000)')
+    await win.keyboard.press('Control+Enter')
+    await ui.getByRole('dialog', { name: 'Large result' }).waitFor({ timeout: 30000 })
+    await win.waitForTimeout(300)
+    await shot(win, `${prefix}-query-large`)
+    await win.keyboard.press('Escape')
+  })
 }
 
 // --- Web -------------------------------------------------------------------
@@ -234,18 +277,10 @@ async function captureWeb() {
         await page.waitForTimeout(800)
         await shot(page, `web-${scheme}-inspect`)
       })
-      await step('query panel with a result', async () => {
+      await step('open the query panel', async () => {
         await page.keyboard.press('Control+Shift+Q')
-        const editor = page.getByRole('textbox', { name: 'SQL query' })
-        await editor.click()
-        await page.keyboard.press('Control+A')
-        await page.keyboard.insertText("SELECT name, round(ST_Area(geom)) AS area, geom\nFROM layer\nWHERE name LIKE 'S%'\nORDER BY area DESC")
-        await page.keyboard.press('Escape')
-        await page.keyboard.press('Control+Enter')
-        await page.locator('.query-status').filter({ hasText: '✓' }).waitFor({ timeout: 30000 })
-        await page.waitForTimeout(1200)
-        await shot(page, `web-${scheme}-query`)
       })
+      await queryScenes(page, page, `web-${scheme}`)
       await page.close()
     }
   } finally {

@@ -1,7 +1,9 @@
 // T045 (specs/001-quick-look/tasks.md, Constitution Principle VII):
 // accessibility pass with axe-core over every state of the viewer, light and
 // dark, plus keyboard reachability of the table, map controls, basemap
-// picker, style panel and inspector.
+// picker, style panel and inspector. T048 (spec 002, FR-017) adds the query
+// panel: open, with an error, with the large-result dialog and with the
+// history popover, and Tab through its controls.
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import path from 'node:path'
@@ -100,4 +102,96 @@ test('keyboard: every control is reachable and the grid is navigable without a m
   await expect(page.getByRole('radio', { checked: true })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Basemap' })).toHaveCount(0)
+})
+
+const editor = (page: Page) => page.getByRole('textbox', { name: 'SQL query' })
+
+async function runSql(page: Page, sql: string): Promise<void> {
+  await editor(page).click()
+  await page.keyboard.press('Control+A')
+  await page.keyboard.press('Delete')
+  await page.keyboard.insertText(sql)
+  await editor(page).press('Control+Enter')
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the query states (${scheme})`, async ({ page }) => {
+    test.setTimeout(120000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/')
+    await page.locator('input[type="file"]').setInputFiles(fixture)
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await page.keyboard.press('Control+Shift+Q')
+    await expect(editor(page)).toBeVisible()
+    await audit(page, 'query panel')
+
+    await runSql(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
+    await expect(page.locator('.query-status')).toContainText('8 rows', { timeout: 60000 })
+    await audit(page, 'query result')
+
+    await runSql(page, 'SELECT *\nFORM layer')
+    await expect(page.locator('.query-status')).toContainText('Parser Error')
+    await audit(page, 'query error')
+
+    await runSql(page, 'SELECT * FROM range(60000)')
+    const dialog = page.getByRole('dialog', { name: 'Large result' })
+    await expect(dialog).toBeVisible({ timeout: 60000 })
+    await audit(page, 'large-result dialog')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+
+    await page.getByRole('button', { name: 'Query history' }).click()
+    await expect(page.getByRole('listbox', { name: 'Query history' })).toBeVisible()
+    await audit(page, 'history popover')
+  })
+}
+
+test('keyboard: every query control is reachable, and Tab leaves the editor', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
+    route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
+  )
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles(fixture)
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+
+  // The shortcut opens the panel and puts focus in the editor.
+  await page.keyboard.press('Control+Shift+Q')
+  await expect(editor(page)).toBeFocused()
+
+  // Tab leaves the editor (no keyboard trap) and the header controls are
+  // reachable with Shift+Tab.
+  await page.keyboard.press('Tab')
+  await expect(editor(page)).not.toBeFocused()
+  await editor(page).focus()
+  const label = () =>
+    page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return el ? (el.getAttribute('aria-label') ?? el.textContent?.trim().replace(/\s+/g, ' ').slice(0, 30) ?? el.tagName) : ''
+    })
+  const reached: string[] = []
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Shift+Tab')
+    reached.push(await label())
+  }
+  await editor(page).focus()
+  await page.keyboard.press('Tab')
+  reached.push(await label())
+  for (const name of ['Run', 'Reset to the original view', 'Query history', 'Spatial SQL function reference', 'Result CRS']) {
+    expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
+  }
+
+  // While a query runs, Cancel takes Run's place and is reachable too.
+  await editor(page).focus()
+  await page.keyboard.press('Control+A')
+  await page.keyboard.insertText('SELECT sum(a.range * b.range) FROM range(200000) a, range(200000) b')
+  await editor(page).press('Control+Enter')
+  const cancel = page.getByRole('button', { name: 'Cancel' })
+  await expect(cancel).toBeVisible()
+  await editor(page).focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(cancel).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.query-status')).toContainText('Cancelled', { timeout: 10000 })
 })

@@ -382,8 +382,9 @@
   .badge {
     padding: 0 6px;
     border-radius: var(--se-radius-sm);
-    background: color-mix(in srgb, var(--se-error) 16%, transparent);
-    color: var(--se-error);
+    border: 1px solid var(--se-error-border);
+    background: var(--se-error-bg);
+    color: var(--se-error-fg);
     font-weight: 600;
   }
   .msg {

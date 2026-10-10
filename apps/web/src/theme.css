@@ -98,6 +98,7 @@
   --se-warning-bg: #fef3c7;
   --se-warning-border: #fde68a;
   --se-error: #dc2626;
+  --se-error-fg: #b91c1c;
   --se-error-bg: #fef2f2;
   --se-error-border: #fecaca;
 
@@ -198,6 +199,7 @@
     --se-warning-bg: #2d1c04;
     --se-warning-border: #4a3008;
     --se-error: #ef4444;
+    --se-error-fg: #fca5a5;
     --se-error-bg: #2a1215;
     --se-error-border: #5c1d22;
 

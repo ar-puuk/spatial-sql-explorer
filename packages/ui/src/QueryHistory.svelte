@@ -161,6 +161,10 @@
     color: var(--se-menu-hover-fg);
   }
   .text {
+    /* VS Code styles <code> (textPreformat colors); entries follow the row. */
+    padding: 0;
+    background: none;
+    color: inherit;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -182,7 +186,7 @@
     text-overflow: ellipsis;
   }
   .outcome.failed {
-    color: var(--se-error);
+    color: var(--se-error-fg);
   }
   li.active .outcome.failed {
     color: inherit;

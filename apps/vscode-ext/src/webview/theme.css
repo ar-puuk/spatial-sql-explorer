@@ -114,6 +114,8 @@
   --se-warning-bg: var(--vscode-inputValidation-warningBackground);
   --se-warning-border: var(--vscode-inputValidation-warningBorder, transparent);
   --se-error: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+  /* Text on --se-error-bg / panels (contrast-safe, unlike the squiggle color). */
+  --se-error-fg: var(--vscode-errorForeground, var(--vscode-foreground));
   --se-error-bg: var(--vscode-inputValidation-errorBackground);
   --se-error-border: var(--vscode-inputValidation-errorBorder, transparent);
 
@@ -124,8 +126,10 @@
   --se-statusbar-accent: var(--vscode-statusBar-foreground);
 
   /* SQL editor (spec 002). VS Code doesn't expose its syntax-token colors to
-     webviews; the symbol-icon colors are the closest theme-driven set that
-     does exist (spec 002 research §6). */
+     webviews. The debug-hover token colors (debugTokenExpression.*) are
+     syntax-like and defined by every built-in theme, light, dark and high
+     contrast. The symbol-icon colors are fallbacks only: in the Modern themes
+     most of them are plain #CCCCCC (spec 002 research §6). */
   --se-sql-bg: var(--vscode-editor-background);
   --se-sql-fg: var(--vscode-editor-foreground);
   --se-sql-selection: var(--vscode-editor-selectionBackground);
@@ -134,9 +138,9 @@
   --se-sql-gutter-active-fg: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editor-foreground));
   --se-sql-gutter-bg: var(--vscode-editorGutter-background, var(--vscode-editor-background));
   --se-sql-active-line: var(--vscode-editor-lineHighlightBackground, transparent);
-  --se-sql-keyword: var(--vscode-symbolIcon-keywordForeground, var(--vscode-editor-foreground));
-  --se-sql-string: var(--vscode-symbolIcon-stringForeground, var(--vscode-editor-foreground));
-  --se-sql-number: var(--vscode-symbolIcon-numberForeground, var(--vscode-editor-foreground));
+  --se-sql-keyword: var(--vscode-debugTokenExpression-boolean, var(--vscode-symbolIcon-keywordForeground, var(--vscode-editor-foreground)));
+  --se-sql-string: var(--vscode-debugTokenExpression-string, var(--vscode-symbolIcon-stringForeground, var(--vscode-editor-foreground)));
+  --se-sql-number: var(--vscode-debugTokenExpression-number, var(--vscode-symbolIcon-numberForeground, var(--vscode-editor-foreground)));
   --se-sql-function: var(--vscode-symbolIcon-functionForeground, var(--vscode-editor-foreground));
   --se-sql-operator: var(--vscode-symbolIcon-operatorForeground, var(--vscode-editor-foreground));
   --se-sql-comment: var(--vscode-descriptionForeground);
@@ -159,6 +163,10 @@ body.vscode-high-contrast-light {
   --se-shadow-card: none;
   --se-shadow-elevated: none;
   --se-sql-active-line: transparent;
+  /* High-contrast selections are solid (white on HC Dark), and VS Code paints
+     the text in editor.selectionForeground over them. The webview editor can't
+     recolor selected text, so the selection is toned down to keep it readable. */
+  --se-sql-selection: color-mix(in srgb, var(--vscode-editor-selectionBackground) 40%, transparent);
 }
 
 html,

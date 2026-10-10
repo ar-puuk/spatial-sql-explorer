@@ -20,7 +20,7 @@ export function functionSource(catalog: CatalogSnapshot | null): CompletionSourc
       label: f.name,
       type: 'function',
       detail: f.signatures[0]?.slice(f.name.length) ?? '',
-      info: [f.description, ...f.signatures].filter(Boolean).join('\n\n'),
+      info: [f.description, f.signatures.join('\n')].filter(Boolean).join('\n\n'),
       boost: f.spatial ? 2 : 0,
       apply: f.name,
     })

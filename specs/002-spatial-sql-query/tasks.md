@@ -406,14 +406,20 @@ history (quickstart Scenario 5).
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T048 [P] Extend `tests/web/specs/accessibility.spec.ts`: run axe with the query panel open, with an error shown, with the large-result dialog open, and with the history popover open (light and dark). Extend the keyboard test so Tab reaches the editor, Run, Cancel, Reset, History and the CRS chip, and Tab leaves the editor. Fix any violations.
-- [ ] T049 [P] Extend `scripts/screenshots.mjs` with query scenes in both shells:
+- [X] T048 [P] Extend `tests/web/specs/accessibility.spec.ts`: run axe with the query panel open, with an error shown, with the large-result dialog open, and with the history popover open (light and dark). Extend the keyboard test so Tab reaches the editor, Run, Cancel, Reset, History and the CRS chip, and Tab leaves the editor. Fix any violations.
+  - *Done*: `accessibility.spec` passes 6/6, including query states light/dark and query keyboard. Fixed one violation axe found: the error badge's contrast. A new `--se-error-fg` token was added in both theme files (VS Code: `errorForeground`), with the badge on `--se-error-bg`/`--se-error-border`.
+- [X] T049 [P] Extend `scripts/screenshots.mjs` with query scenes in both shells:
   - the panel open with a result;
   - an error with a squiggle;
   - the autocomplete list open;
   - the large-result dialog.
 
   Run `npm run screenshots` and visually review all three VS Code themes and the web light/dark scenes.
+  - *Done*: the shared `queryScenes()` captures query, query-error, query-autocomplete, query-history and query-large in all three VS Code themes and web light/dark; all were reviewed. Fixes from the review:
+    - In High Contrast, the selection made SQL text unreadable (white on white). It is now toned down with `color-mix`.
+    - The Modern themes painted keywords, strings and numbers plain `#CCCCCC` (the symbolIcon colors). They now use `--vscode-debugTokenExpression-*` first (research §6 updated).
+    - VS Code's `<code>` styling hid the selected history entry's text.
+    - The script waits after Ctrl+A, because VS Code applies webview select-all asynchronously.
 - [ ] T050 Measure and record, in `specs/002-spatial-sql-query/quickstart.md`, a new "Results" section:
   - SC-001 (filtering query on the ~10 MB parcels file, both shells);
   - SC-004 (cancel latency);
