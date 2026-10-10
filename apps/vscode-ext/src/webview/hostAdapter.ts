@@ -48,6 +48,7 @@ const assetsPromise = new Promise<DuckDbAssets>((resolve) => {
 })
 
 let primaryFileNameFromAssets: string | null = null
+let primaryFileUri: string | null = null
 let primaryFileNameResolve: ((name: string) => void) | null = null
 const primaryFileNamePromise = new Promise<string>((resolve) => {
   primaryFileNameResolve = resolve
@@ -119,6 +120,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     duckdbWasmUrl?: string
     maplibreWorkerUrl?: string
     primaryFileName?: string
+    primaryFileUri?: string
     fileName?: string
     totalBytes?: number
     chunkCount?: number
@@ -139,6 +141,7 @@ window.addEventListener('message', (event: MessageEvent) => {
   if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
     assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl })
     if (msg.maplibreWorkerUrl) maplibreWorkerUrlResolve?.(msg.maplibreWorkerUrl)
+    if (msg.primaryFileUri) primaryFileUri = msg.primaryFileUri
     if (msg.primaryFileName && !primaryFileNameFromAssets) {
       primaryFileNameFromAssets = msg.primaryFileName
       primaryFileNameResolve?.(msg.primaryFileName)
@@ -186,7 +189,7 @@ export function createVsCodeHostAdapter(): HostAdapter {
     async openFiles(): Promise<OpenedFileRef[]> {
       await assetsPromise
       const displayName = await primaryFileNamePromise
-      return [{ id: 'document', displayName }]
+      return [{ id: 'document', displayName, stateKey: primaryFileUri ?? displayName }]
     },
     async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
       return ensureFileSourcePromise()
@@ -223,6 +226,9 @@ export function createVsCodeHostAdapter(): HostAdapter {
     },
     async saveState(key: string, value: unknown): Promise<void> {
       await request({ type: 'saveState', key, value })
+    },
+    log(line: string): void {
+      post({ type: 'log', detail: line })
     },
     onSourceChanged(cb: () => void): () => void {
       sourceChangedListeners.add(cb)

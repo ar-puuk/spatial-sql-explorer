@@ -106,13 +106,14 @@ checkpoint.
 
   Make T004 pass.
   Verified: `tests/core` has 96/96 passing (scanner 10, policy 49, plus the existing 37).
-- [ ] T007 Extend the HostAdapter contract per `contracts/host-adapter-delta.md`:
+- [X] T007 Extend the HostAdapter contract per `contracts/host-adapter-delta.md`:
   - **Core** (`packages/core/src/hostAdapter.ts`): add `OpenedFileRef.stateKey: string` and optional `log?(line: string): void`.
   - **Web** (`apps/web/src/hostAdapter.ts`): `stateKey` is `${name}|${size}|${lastModified}` of the primary file; `log` is omitted.
   - **VS Code host** (`apps/vscode-ext/src/extension.ts`): add `primaryFileUri: document.uri.toString()` to the `assets` message.
   - **VS Code webview** (`apps/vscode-ext/src/webview/hostAdapter.ts`): `stateKey` is that URI; `log` posts the existing `{ type: 'log', detail }`.
 
   Update `specs/001-quick-look/contracts/host-adapter.md` to point to the delta. Typecheck all workspaces.
+  Verified: all workspaces typecheck. The VS Code `stateKey` falls back to the file name if the URI hasn't arrived yet; it always arrives with `assets`, before `openFiles` resolves.
 - [ ] T008 Add the engine lockdown in `packages/core/src/duckdbService.ts` (research §2):
   - Inside `getDuckDb`, after `LOAD spatial` on the init connection, run `SET allowed_directories = ['/se-source/']`, then `SET enable_external_access = false`, then `SET lock_configuration = true`.
   - Export `SOURCE_DIR = '/se-source/'`.

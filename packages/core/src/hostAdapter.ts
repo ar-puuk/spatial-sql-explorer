@@ -14,6 +14,12 @@ export interface OpenedFileRef {
   id: string
   /** Display name only (e.g. for error messages); not a path to read from directly. */
   displayName: string
+  /**
+   * Stable identity for per-file persisted state, e.g. query history (spec
+   * 002). The same value is returned when the same file is opened again later.
+   * Opaque: used only as part of a state key, never read as a path.
+   */
+  stateKey: string
 }
 
 export interface FileSource {
@@ -78,6 +84,13 @@ export interface HostAdapter {
 
   /** Re-opens the current file from disk. Paired with onSourceChanged. */
   reloadSource?(): void
+
+  /**
+   * One line of diagnostic output: query text, outcome, timing (spec 002,
+   * FR-010). VS Code writes it to the "Spatial Explorer" output channel;
+   * hosts without one omit it. Never carries file contents.
+   */
+  log?(line: string): void
 }
 
 export interface SaveResult {

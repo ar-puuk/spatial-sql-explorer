@@ -290,6 +290,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       duckdbWasmUrl: wasmUri.toString(),
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
       primaryFileName: primaryName,
+      // Stable per-file key for persisted webview state (spec 002 history).
+      primaryFileUri: documentUri.toString(),
     })
 
     try {

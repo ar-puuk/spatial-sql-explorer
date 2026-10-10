@@ -95,3 +95,8 @@ export interface FileSource {
   transport-agnostic: the VS Code implementation's internal choice of binary
   vs. base64-chunked transfer (research.md §2) is entirely hidden behind this
   method and can change without affecting `packages/core`/`packages/ui`.
+
+## Later additions
+
+Spec 002 adds `OpenedFileRef.stateKey` and an optional `HostAdapter.log()`.
+See `specs/002-spatial-sql-query/contracts/host-adapter-delta.md`.

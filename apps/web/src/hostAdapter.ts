@@ -31,7 +31,9 @@ export function provideFiles(files: File[]): void {
   const primary = files.find((f) => !isLikelySidecar(f.name)) ?? files[0]
   const id = crypto.randomUUID()
   fileMap.set(id, files)
-  pendingOpenFilesResolve?.([{ id, displayName: primary.name }])
+  // No path exists in the browser: name + size + mtime identifies "the same
+  // file" across sessions well enough for query history (spec 002).
+  pendingOpenFilesResolve?.([{ id, displayName: primary.name, stateKey: `${primary.name}|${primary.size}|${primary.lastModified}` }])
   pendingOpenFilesResolve = null
 }
 
