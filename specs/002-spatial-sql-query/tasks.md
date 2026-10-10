@@ -271,23 +271,23 @@ unchanged (quickstart Scenario 2).
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T029 [P] [US2] Write `tests/core/sql-errors.test.ts` for `parseEngineError(message, { statementOffset, ctasLineOffset: 1, editorText })`, using the exact research §8 samples:
+- [X] T029 [P] [US2] Write `tests/core/sql-errors.test.ts` for `parseEngineError(message, { statementOffset, ctasLineOffset: 1, editorText })`, using the exact research §8 samples:
   - **Kind and message**: the parser, binder and catalog errors are split into kind and message.
   - **Duplication**: the duplicated LINE block is collapsed.
   - **Position**: the line and column come from the caret, mapped through the CTAS newline (`line - 1`) and the statement offset to an editor `{ line, column, offset }`.
   - **Hints**: "Candidate bindings" is kept; engine-internal "Did you mean" suggestions (`pg_*`, `duckdb_*`, `list_aggregate`, `str_split`) are dropped and real ones kept.
   - **No position**: messages without a LINE block have no position.
-- [ ] T030 [P] [US2] Write `tests/web/specs/query-errors.spec.ts` for quickstart Scenario 2, steps 1–4:
+- [X] T030 [P] [US2] Write `tests/web/specs/query-errors.spec.ts` for quickstart Scenario 2, steps 1–4:
   - the syntax error message and a `.cm-lintRange-error` on line 2;
   - the binder error names `nope` and lists candidates;
   - `COPY` and `INSERT INTO layer` are refused with the contract reasons and the previous result is unchanged (assert the grid row count before and after);
   - **engine lockdown**: navigate with `?e2e=1` and call `window.__spatialExplorerE2E.runRaw("COPY layer TO '/tmp/x.csv'")` and `runRaw("SELECT * FROM read_csv('https://example.com/x.csv')")`; both must reject with "Permission Error".
-- [ ] T031 [P] [US2] Write `tests/web/specs/query-cancel.spec.ts` for quickstart Scenario 2, step 5:
+- [X] T031 [P] [US2] Write `tests/web/specs/query-cancel.spec.ts` for quickstart Scenario 2, step 5:
   - run the 200,000² cross join;
   - click Cancel after 500 ms, and assert "Cancelled after" appears within 3,000 ms (SC-004);
   - then run `SELECT 1` successfully;
   - repeat with Esc in the editor.
-- [ ] T032 [P] [US2] Extend `tests/vscode-ext/src/suite/query.test.ts`:
+- [X] T032 [P] [US2] Extend `tests/vscode-ext/src/suite/query.test.ts`:
   - a refused `COPY` gives `phase: 'refused'` with the reason;
   - an invalid query gives `errorPosition`;
   - cancel via `spatialExplorer._cancelQuery` during the cross join gives `phase: 'cancelled'` within 3 s;
@@ -295,21 +295,29 @@ unchanged (quickstart Scenario 2).
 
 ### Implementation for User Story 2
 
-- [ ] T033 [P] [US2] Implement `packages/core/src/sql/errors.ts`, `parseEngineError()` as in T029, and use it in `run.ts` for `kind: 'error'` outcomes. Make T029 pass.
-- [ ] T034 [US2] Show errors and refusals in `packages/ui/src/QueryPanel.svelte` and `SqlEditor.svelte`:
+- [X] T033 [P] [US2] Implement `packages/core/src/sql/errors.ts`, `parseEngineError()` as in T029, and use it in `run.ts` for `kind: 'error'` outcomes. Make T029 pass.
+- [X] T034 [US2] Show errors and refusals in `packages/ui/src/QueryPanel.svelte` and `SqlEditor.svelte`:
   - **Status line**: an error badge with the kind, plus the message and hints; refusals show "⛔ reason".
   - **Editor diagnostics** (via `@codemirror/lint`'s `setDiagnostics`): an error range from the position offset to the end of its token, and a gutter marker. Cleared on the next edit or run.
   - Add `@codemirror/lint` to the T001 dependency set (MIT), pinned.
-- [ ] T035 [US2] Add the Cancel flow:
+- [X] T035 [US2] Add the Cancel flow:
   - **UI** (`QueryPanel.svelte`): a Cancel button visible while running or fetching; Esc in the editor while running cancels.
   - **Store** (`viewerStore.svelte.ts`): `cancelQuery()` calls `session.cancel()`, and the status shows "Cancelled after N s". Make sure fetching (T018 step 7) also stops: the batch loop checks a cancelled flag and the reader is cancelled.
-- [ ] T036 [US2] Add the e2e escape hatch for T030 in `apps/web/src/App.svelte`: only when `new URLSearchParams(location.search).has('e2e')`, expose `window.__spatialExplorerE2E = { runRaw: (sql) => session.runRaw(sql) }`. Document in a comment that the engine lockdown, not this hook, is the security boundary.
-- [ ] T037 [US2] VS Code test support in `apps/vscode-ext/src/extension.ts`:
+- [X] T036 [US2] Add the e2e escape hatch for T030 in `apps/web/src/App.svelte`: only when `new URLSearchParams(location.search).has('e2e')`, expose `window.__spatialExplorerE2E = { runRaw: (sql) => session.runRaw(sql) }`. Document in a comment that the engine lockdown, not this hook, is the security boundary.
+- [X] T037 [US2] VS Code test support in `apps/vscode-ext/src/extension.ts`:
   - `spatialExplorer._cancelQuery` posts `testCancelQuery`;
   - `_getLogLines` keeps the last 50 logged lines in memory in addition to the output channel.
   - Handle `testCancelQuery` in `apps/vscode-ext/src/webview/main.ts`.
 
 **Checkpoint**: T029–T032 pass. Quickstart Scenario 2 passes in both shells.
+
+✅ **US2 checkpoint reached (2026-10-10)**: core 112/112, web `query-errors` 4/4 and `query-cancel` 2/2, VS Code 35/35.
+
+Implementation notes:
+- **Errors from `send` are JSON** (research §8 addendum): the parser unwraps them and uses their exact `position`.
+- **Esc cancels via a capture-phase handler on the panel**, not a CodeMirror binding, which the editor's own Escape bindings could swallow.
+- **Follow-up step errors carry no position.** Errors from our own steps after the user's statement executed (describe, stats, fetch) are re-raised without a LINE block, so they never point into the user's SQL.
+- **Status wording**: "1 row", not "1 rows".
 
 ---
 

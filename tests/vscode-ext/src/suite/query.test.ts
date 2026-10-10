@@ -107,3 +107,49 @@ suite('Spec 002 US1: run a query in VS Code', () => {
     assert.strictEqual(s?.resultCrs, 'EPSG:4326 (WGS84)')
   })
 })
+
+suite('Spec 002 US2: errors, refusals and cancel in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('a refused statement reports the policy reason', async function () {
+    this.timeout(60000)
+    await openAndWait('sample.gpkg')
+    const s = await run("COPY layer TO 'x.csv'")
+    assert.strictEqual(s?.phase, 'refused')
+    assert.strictEqual(s?.refusedReason, "Exporting results isn't available yet.")
+  })
+
+  test('an engine error reports its position', async function () {
+    this.timeout(60000)
+    await openAndWait('sample.gpkg')
+    const s = await run('SELECT *\nFORM layer')
+    assert.strictEqual(s?.phase, 'failed')
+    assert.match(s?.errorMessage ?? '', /^Parser Error: syntax error/)
+    assert.deepStrictEqual(s?.errorPosition, { line: 2, column: 6 })
+  })
+
+  test('a running query is cancelled in under 3 s, and every query reached the output channel', async function () {
+    this.timeout(90000)
+    await openAndWait('sample.gpkg')
+    const before = ((await vscode.commands.executeCommand('spatialExplorer._getLogLines')) as string[]).length
+    const runCount = (await queryStateNow())?.runCount ?? 0
+    await vscode.commands.executeCommand('spatialExplorer._runQuery', 'SELECT sum(a.range * b.range) FROM range(200000) a, range(200000) b')
+    await sleep(1000)
+    const t0 = Date.now()
+    await vscode.commands.executeCommand('spatialExplorer._cancelQuery')
+    let s = await queryStateNow()
+    while (!(s && s.runCount > runCount) && Date.now() - t0 < 10000) {
+      await sleep(100)
+      s = await queryStateNow()
+    }
+    assert.strictEqual(s?.phase, 'cancelled')
+    assert.ok(Date.now() - t0 < 3000, `cancel took ${Date.now() - t0} ms`)
+    const lines = (await vscode.commands.executeCommand('spatialExplorer._getLogLines')) as string[]
+    const queryLines = lines.slice(before).filter((l) => l.startsWith('[query]'))
+    assert.ok(queryLines.some((l) => /cancelled after/i.test(l)), queryLines.join('\n'))
+  })
+})
+
+const queryStateNow = (): Thenable<QueryState> => vscode.commands.executeCommand('spatialExplorer._getQueryState')

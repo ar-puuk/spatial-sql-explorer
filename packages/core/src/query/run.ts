@@ -6,9 +6,11 @@
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { reprojectToWgs84Sql, resolveCrsInfo } from '../crs.js'
 import type { Bbox, CrsInfo, Feature, GeometryType, Layer, QueryableTable, ResultCrsSource } from '../models.js'
-import { geometryTypeOf, quoteIdent, sanitizeAttributes, singleRow, streamRows, yieldToUi } from './util.js'
+import { geometryTypeOf, QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows, yieldToUi } from './util.js'
 
 export const RESULT_TABLE = '__se_result'
+/** Prepended to every query; the newline keeps engine LINE numbers mappable (research §8). */
+export const CTAS_PREFIX = `CREATE OR REPLACE TEMP TABLE ${RESULT_TABLE} AS\n`
 /** Rows longer than this in "other" geometry columns are cut in the table (WKT can be huge). */
 const OTHER_GEOMETRY_TEXT_MAX = 200
 
@@ -55,7 +57,21 @@ const bbox = (r: { min_x: number | null; min_y: number | null; max_x: number | n
  */
 export async function buildQueryResult(ctx: BuildContext, statement: string): Promise<BuiltResult> {
   const { conn, isCancelled } = ctx
-  await streamRows(conn, `CREATE OR REPLACE TEMP TABLE ${RESULT_TABLE} AS\n${statement}`, isCancelled)
+  // Only this step runs the user's SQL; its errors carry positions in it.
+  await streamRows(conn, CTAS_PREFIX + statement, isCancelled)
+  try {
+    return await describeAndFetch(ctx)
+  } catch (err) {
+    if (err instanceof QueryCancelledError || err instanceof ResultDeclinedError) throw err
+    // Errors from our own follow-up SQL must not point into the user's
+    // statement: drop the LINE block (and so the position).
+    const first = (err instanceof Error ? err.message : String(err)).split('\n')[0]
+    throw new Error(`Internal Error: The result could not be prepared (${first})`)
+  }
+}
+
+async function describeAndFetch(ctx: BuildContext): Promise<BuiltResult> {
+  const { conn, isCancelled } = ctx
 
   const columns: Array<{ name: string; type: string }> = []
   await streamRows(conn, `DESCRIBE ${RESULT_TABLE}`, isCancelled, (rows) => {

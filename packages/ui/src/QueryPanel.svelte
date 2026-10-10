@@ -70,7 +70,20 @@
   }
 </script>
 
-<section class="query-panel" class:collapsed aria-label="Query">
+<!-- Esc cancels a running query from anywhere in the panel, handled in the
+     capture phase so the editor's own Escape bindings can't swallow it. -->
+<section
+  class="query-panel"
+  class:collapsed
+  aria-label="Query"
+  onkeydowncapture={(e) => {
+    if (e.key === 'Escape' && busy) {
+      e.preventDefault()
+      e.stopPropagation()
+      void store.cancelQuery()
+    }
+  }}
+>
   <header>
     <button type="button" class="toggle" aria-expanded={!collapsed} aria-controls="query-body" onclick={onToggle} title="Toggle the query panel (Ctrl+Shift+Q)">
       <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />

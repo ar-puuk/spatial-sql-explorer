@@ -298,6 +298,20 @@ LINE 2: FORM layer
   `list_aggregate`, …) are dropped as noise. In the spike they did, e.g. for
   `ST_Aera` and for the missing table.
 
+**Implementation finding (T030)**: errors from the **streaming API**
+(`send`, which every user query uses so it can be cancelled) arrive as
+**JSON**, not the text above, which is what `query()` produced in the spike:
+
+```
+{"exception_type":"Parser","exception_message":"syntax error at or near \"layer\"
+
+LINE 3: …","error_subtype":"SYNTAX_ERROR","position":"58"}
+```
+
+`parseEngineError` unwraps both forms. When the JSON carries `position` (an
+exact character offset into the SQL sent, CTAS prefix included), it is
+preferred over the caret maths.
+
 ---
 
 ## 9. Query history persistence (FR-016)

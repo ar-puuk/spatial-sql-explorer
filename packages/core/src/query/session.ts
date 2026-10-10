@@ -4,9 +4,10 @@
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { DEFAULT_QUERY, LARGE_RESULT_THRESHOLD, type Layer, type QueryableTable } from '../models.js'
+import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
-import { buildQueryResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
+import { buildQueryResult, CTAS_PREFIX, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
 
@@ -47,11 +48,19 @@ export type RunOutcome =
   | { kind: 'cancelled'; durationMs: number; statement: ExecutedStatement }
   | { kind: 'empty' }
 
-/** Minimal engine-error mapping; US2 (T033) replaces it with positions and hints. */
-function toEngineError(err: unknown, _statement: ExecutedStatement, _editorText: string): EngineError {
+/**
+ * Engine error -> EngineError with hints and an editor position (FR-008).
+ * `ctasLineOffset` is 1 for queries, which run as "CREATE … AS\n" + the
+ * statement (research §5/§8).
+ */
+function toEngineError(err: unknown, statement: ExecutedStatement, editorText: string, wrapped: boolean): EngineError {
   const text = err instanceof Error ? err.message : String(err)
-  const m = /^([A-Za-z ]+?) Error: ([^\n]*)/.exec(text)
-  return m ? { kind: m[1], message: m[2], hints: [] } : { kind: 'Error', message: text.split('\n')[0], hints: [] }
+  return parseEngineError(text, {
+    editorText,
+    statementOffset: statement.editorOffset,
+    ctasLineOffset: wrapped ? 1 : 0,
+    ctasPrefixLength: wrapped ? CTAS_PREFIX.length : 0,
+  })
 }
 
 const nf = new Intl.NumberFormat('en-US')
@@ -144,7 +153,7 @@ export class QuerySession {
       outcome =
         err instanceof QueryCancelledError || err instanceof ResultDeclinedError
           ? { kind: 'cancelled', durationMs: elapsed(), statement }
-          : { kind: 'error', error: toEngineError(err, statement, request.editorText), durationMs: elapsed(), statement }
+          : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query'), durationMs: elapsed(), statement }
     }
     this.log?.(`[query] ${describeOutcome(outcome)} — ${oneLine(span.text)}`)
     return outcome
@@ -272,8 +281,8 @@ export function describeOutcome(o: RunOutcome): string {
   switch (o.kind) {
     case 'result': {
       const r = o.result
-      const rows =
-        r.truncatedTo !== null ? `Showing first ${nf.format(r.layer.rowCount)} of ${nf.format(r.totalRows)} rows` : `${nf.format(r.layer.rowCount)} rows`
+      const n = r.layer.rowCount
+      const rows = r.truncatedTo !== null ? `Showing first ${nf.format(n)} of ${nf.format(r.totalRows)} rows` : `${nf.format(n)} ${n === 1 ? 'row' : 'rows'}`
       const mapped = r.geometryColumn ? `${nf.format(r.layer.featureCount)} mapped` : 'no geometry to map'
       return `✓ ${rows} · ${mapped} · ${o.durationMs}${NBSP}ms`
     }

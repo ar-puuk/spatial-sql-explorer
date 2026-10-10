@@ -282,8 +282,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         queryError = outcome.error
         lastRunText = outcome.statement.text
         if (outcome.error.position) {
+          // Underline the whole token at the error (an identifier, a quoted
+          // name or a string), not a single character.
           const from = outcome.error.position.offset
-          queryErrorRange = { from, to: Math.min(queryText.length, from + 1) }
+          const token = /^("[^"]*"|'[^']*'|[\p{L}\p{N}_.$]+)/u.exec(queryText.slice(from))?.[0] ?? queryText.charAt(from)
+          queryErrorRange = { from, to: Math.min(queryText.length, from + Math.max(1, token.length)) }
         }
         break
       case 'cancelled':

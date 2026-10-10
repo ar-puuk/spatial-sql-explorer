@@ -19,6 +19,21 @@
   }
   idle(() => store.prewarm())
 
+  // Test-only escape hatch (spec 002 T036), enabled by ?e2e=1: runs SQL with
+  // NO statement policy, so browser tests can prove the ENGINE lockdown on its
+  // own. The lockdown (duckdbService.lockDown), not this hook, is the
+  // security boundary: everything sent here is still refused file, network,
+  // extension and settings access.
+  if (new URLSearchParams(location.search).has('e2e')) {
+    ;(window as unknown as { __spatialExplorerE2E: unknown }).__spatialExplorerE2E = {
+      runRaw: (sql: string) => {
+        const qs = store.querySession
+        if (!qs) throw new Error('No file is open.')
+        return qs.runRaw(sql)
+      },
+    }
+  }
+
   const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML']
 
   let isDragOver = $state(false)
