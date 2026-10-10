@@ -75,7 +75,7 @@ depends on these.
 **⚠️ CRITICAL**: no user-story work starts until this phase passes its
 checkpoint.
 
-- [ ] T003 [P] Write `tests/core/sql-scanner.test.ts` (Vitest), covering `splitStatements` and `statementToRun` per `contracts/statement-policy.md`:
+- [X] T003 [P] Write `tests/core/sql-scanner.test.ts` (Vitest), covering `splitStatements` and `statementToRun` per `contracts/statement-policy.md`:
   - `;` inside `'…'`, `''` escapes, `E'…'`, `$tag$…$tag$`, `"ident;"`, `-- ;` and nested `/* /* ; */ */` does not split;
   - empty and comment-only statements are treated as empty;
   - cursor at the start, middle, end and between statements;
@@ -83,7 +83,7 @@ checkpoint.
   - returned `from`/`to` offsets are correct.
 
   Must fail until T005.
-- [ ] T004 [P] Write `tests/core/sql-policy.test.ts`, with one test per row of `contracts/statement-policy.md`:
+- [X] T004 [P] Write `tests/core/sql-policy.test.ts`, with one test per row of `contracts/statement-policy.md`:
   - **Allowed**: `SELECT`; `WITH … SELECT`; FROM-first; `VALUES`; `TABLE t`; `PIVOT`; `DESCRIBE`; `SHOW`; `SUMMARIZE`; `EXPLAIN ANALYZE`; `CREATE OR REPLACE TEMP TABLE x AS …`; `CREATE TEMPORARY VIEW`; `DROP VIEW IF EXISTS x`.
   - **Refused, each asserting its exact reason text**:
     - `CREATE TABLE` without `TEMP`;
@@ -93,18 +93,19 @@ checkpoint.
     - an unknown leading keyword.
 
   Must fail until T006.
-- [ ] T005 [P] Implement `packages/core/src/sql/scanner.ts`:
+- [X] T005 [P] Implement `packages/core/src/sql/scanner.ts`:
   - A tokenizer that understands strings, quoted identifiers, dollar quotes and nested comments.
   - `splitStatements(source): StatementSpan[]` and `statementToRun(source, selection): StatementSpan | null`, exactly as specified in `contracts/statement-policy.md`.
   - Export a `tokens(text)` helper for T006.
 
   Make T003 pass.
-- [ ] T006 [P] Implement `packages/core/src/sql/policy.ts`:
+- [X] T006 [P] Implement `packages/core/src/sql/policy.ts`:
   - `classifyStatement(text, protectedNames): StatementClass` per `contracts/statement-policy.md`, failing closed and using the exact reason strings from the contract table.
   - Add `packages/core/src/sql/index.ts` exporting the scanner and policy.
   - Re-export it from `packages/core/src/index.ts`.
 
   Make T004 pass.
+  Verified: `tests/core` has 96/96 passing (scanner 10, policy 49, plus the existing 37).
 - [ ] T007 Extend the HostAdapter contract per `contracts/host-adapter-delta.md`:
   - **Core** (`packages/core/src/hostAdapter.ts`): add `OpenedFileRef.stateKey: string` and optional `log?(line: string): void`.
   - **Web** (`apps/web/src/hostAdapter.ts`): `stateKey` is `${name}|${size}|${lastModified}` of the primary file; `log` is omitted.
