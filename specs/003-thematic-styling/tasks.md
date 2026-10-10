@@ -95,14 +95,15 @@ spec 001.
   - The initial view (`openFile.ts` → `runDefault()`) gets it the same way.
   - Add an assertion to `tests/web/specs/query.spec.ts` through the `?e2e=1` hook, or to a core test with a fake result, that `world-boundaries` reports `name: VARCHAR`.
   - *Done*: Layer.columns comes from DESCRIBE (geometry columns excluded); utility results infer types from values. New query.spec test via the e2e hook (layerColumns): 5/5.
-- [ ] T007 [P] Write `tests/core/style-ramps.test.ts` covering:
+- [X] T007 [P] Write `tests/core/style-ramps.test.ts` covering:
   - every catalog entry has `id`, `name`, `kind`, a `license`, and valid hex colors;
   - `rampColors({id:'viridis',reversed:false}, n)` returns `n` distinct colors for n = 2..10, starting and ending at the anchors;
   - ColorBrewer ramps use their own n-class lists when available (e.g. `brewer-blues` with 5 classes equals ColorBrewer Blues-5);
   - `reversed` reverses the list;
   - qualitative palettes repeat in order beyond their length;
   - `rampsFor('graduated')` holds only sequential and diverging ramps, and `rampsFor('categorized')` only qualitative palettes.
-- [ ] T008 Implement `packages/core/src/style/ramps.ts` per research §6:
+  - *Done*: style-ramps.test.ts, 8 tests: catalog fields, 2..12 colors for every ramp, Blues-5 / RdBu-3 equal ColorBrewer, interpolation past 9, reverse, qualitative repeat, defaults.
+- [X] T008 Implement `packages/core/src/style/ramps.ts` per research §6:
   - `RAMPS` holds:
     - Sequential: Viridis (graduated default), Plasma, Magma, and Brewer Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu.
     - Diverging: Brewer RdBu, RdYlBu, BrBG, PiYG, Spectral.
@@ -112,6 +113,7 @@ spec 001.
   - Enter the color values by hand from the ColorBrewer and matplotlib specifications. They are data, not code.
 
   Make T007 pass.
+  - *Done*: ramps.ts (catalog + Lab interpolation) + rampData.ts. The color data was GENERATED rather than typed: ColorBrewer from QGIS 4.2.3's QgsColorBrewerPalette, and Viridis/Magma/Plasma anchors from matplotlib. Lint 0.
 - [ ] T009 [P] Write `tests/core/style-expressions.test.ts` (single symbol part), using `expression.createExpression(json, 'layers[0].paint.fill-color')` from the style-spec:
   - `paintFor(singleStyle, resolvedSingle, '#0078d4')` produces the same paint values spec 001's `MapView.svelte` builds today (fill, outline, line and circle, with the selected and hovered `case`s);
   - `visibilityFilter` returns `null` for single.

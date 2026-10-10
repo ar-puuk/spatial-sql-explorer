@@ -1,4 +1,5 @@
 export * from './model.js'
+export * from './ramps.js'
 export { styleToQml, qmlToStyle, type StyleExport } from './qml.js'
 export { styleToSld, sldToStyle } from './sld.js'
 export { styleToMapbox, mapboxToStyle } from './mapbox.js'
