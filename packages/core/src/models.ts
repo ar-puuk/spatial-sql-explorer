@@ -53,6 +53,12 @@ export interface Layer {
   extent: Bbox | null
   /** All rows of the result. `geometry` is null when the row's geometry is missing or invalid. */
   features: Feature[]
+  /**
+   * The result's attribute columns (no geometry columns) with their DuckDB
+   * types, in result order. Decides which columns each thematic renderer can
+   * use (spec 003 research §5).
+   */
+  columns: Array<{ name: string; type: string }>
   /** Whole-file totals, independent of the displayed result: what metadata displays report (FR-006). */
   source: { rows: number; features: number; invalid: number }
   /**

@@ -158,6 +158,7 @@ async function describeAndFetch(ctx: BuildContext): Promise<BuiltResult> {
       truncated: truncatedTo !== null,
       extent,
       features,
+      columns: columns.filter((c) => !isGeometryType(c.type)),
     },
     geometryColumn: primary?.name ?? null,
     otherGeometryColumns: others,

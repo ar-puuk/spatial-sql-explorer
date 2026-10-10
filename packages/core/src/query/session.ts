@@ -183,6 +183,13 @@ export class QuerySession {
       rows.push(...batch)
     })
     const features = rows.map((r, i) => ({ id: i, geometry: null, attributes: sanitizeAttributes(r) }))
+    // DESCRIBE / SHOW / SUMMARIZE / EXPLAIN return no typed schema here:
+    // infer each column's type from its first non-null value.
+    const names = Object.keys(features[0]?.attributes ?? {})
+    const columns = names.map((name) => {
+      const v = features.find((f) => f.attributes[name] !== null)?.attributes[name]
+      return { name, type: typeof v === 'number' ? 'DOUBLE' : typeof v === 'boolean' ? 'BOOLEAN' : 'VARCHAR' }
+    })
     return {
       layer: {
         geometryType: 'Point',
@@ -194,6 +201,7 @@ export class QuerySession {
         truncated: false,
         extent: null,
         features,
+        columns,
       },
       geometryColumn: null,
       otherGeometryColumns: [],

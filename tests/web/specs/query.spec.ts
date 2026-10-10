@@ -86,3 +86,20 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   await queryPanel(page).getByRole('button', { name: 'Discard' }).click()
   await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
 })
+
+// Spec 003 T006: the displayed result carries its attribute columns with
+// DuckDB types, for the initial view and for query results alike.
+test('the result reports its attribute columns and types', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const columns = () =>
+    page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { layerColumns: () => unknown } }).__spatialExplorerE2E.layerColumns())
+  const initial = (await columns()) as Array<{ name: string; type: string }>
+  expect(initial).toContainEqual({ name: 'name', type: 'VARCHAR' })
+  expect(initial.some((c) => c.type.startsWith('GEOMETRY'))).toBe(false)
+  await openQueryPanel(page)
+  await runQuery(page, 'SELECT name, length(name) AS n, geom FROM layer')
+  expect(await columns()).toEqual([
+    { name: 'name', type: 'VARCHAR' },
+    { name: 'n', type: 'BIGINT' },
+  ])
+})

@@ -77,21 +77,24 @@ spec 001.
 
 **⚠️ CRITICAL**: no user story work can begin until this phase is complete.
 
-- [ ] T004 [P] Write `tests/core/style-model.test.ts` covering:
+- [X] T004 [P] Write `tests/core/style-model.test.ts` covering:
   - a spec 001 style object without `renderer` behaves as `{ kind: 'single' }`;
   - `DEFAULT_LAYER_STYLE.renderer.kind === 'single'`;
   - validation helpers reject `classCount` outside 2..10, `cap` outside 1..12, bad hex colors and duplicate category values (`data-model.md` Validation).
-- [ ] T005 Extend `packages/core/src/style/model.ts` with:
+  - *Done*: style-model.test.ts, 5 tests: back-compat, defaults, sanitize clamps, validation incl. manual contiguity.
+- [X] T005 Extend `packages/core/src/style/model.ts` with:
   - `Renderer`, `SingleRenderer`, `CategorizedRenderer`, `GraduatedRenderer`, `RampRef`, `ClassOverride`, `CategoryClassDef`, `RangeClassDef`, `ResolvedStyle`, `ResolvedClass` and `StyleNotice`, exactly as in `data-model.md`;
   - `DEFAULT_LAYER_STYLE.renderer = { kind: 'single' }`;
   - `validateStyle()`;
   - the constants `OTHER_COLOR = '#bdbdbd'`, `NO_VALUE_COLOR = '#8c8c8c'`, `DEFAULT_CATEGORY_CAP = 12` and `DEFAULT_CLASS_COUNT = 5`.
 
   Export them from `packages/core/src/style/index.ts`. Make T004 pass. `tests/core/style.test.ts` (spec 001) stays green.
-- [ ] T006 [P] Add `columns: Array<{ name: string; type: string }>` (attribute columns only: not the primary geometry and not `__se_*`) to `Layer` in `packages/core/src/models.ts`.
+  - *Done*: renderer types plus rendererOf, sanitizeRenderer and validateStyle in model.ts. renderer is optional in the type (spec 001 literals stay valid) and always filled by sanitizeStyle and the default. Core 127/127; ui svelte-check 0.
+- [X] T006 [P] Add `columns: Array<{ name: string; type: string }>` (attribute columns only: not the primary geometry and not `__se_*`) to `Layer` in `packages/core/src/models.ts`.
   - Fill it from the existing `DESCRIBE` in `packages/core/src/query/run.ts` (`describeAndFetch`), and pass it through `layerFromResult()` in `packages/core/src/query/session.ts`.
   - The initial view (`openFile.ts` → `runDefault()`) gets it the same way.
   - Add an assertion to `tests/web/specs/query.spec.ts` through the `?e2e=1` hook, or to a core test with a fake result, that `world-boundaries` reports `name: VARCHAR`.
+  - *Done*: Layer.columns comes from DESCRIBE (geometry columns excluded); utility results infer types from values. New query.spec test via the e2e hook (layerColumns): 5/5.
 - [ ] T007 [P] Write `tests/core/style-ramps.test.ts` covering:
   - every catalog entry has `id`, `name`, `kind`, a `license`, and valid hex colors;
   - `rampColors({id:'viridis',reversed:false}, n)` returns `n` distinct colors for n = 2..10, starting and ending at the anchors;
