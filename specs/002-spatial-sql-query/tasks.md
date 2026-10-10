@@ -52,13 +52,14 @@ Workflow).
 
 **Purpose**: Dependencies and theme tokens that every story's UI needs.
 
-- [ ] T001 Add the CodeMirror 6 dependencies to `packages/ui/package.json`, pinned to the versions `npm install` resolves:
+- [X] T001 Add the CodeMirror 6 dependencies to `packages/ui/package.json`, pinned to the versions `npm install` resolves:
   - `@codemirror/view`, `@codemirror/state`, `@codemirror/commands`
   - `@codemirror/language`, `@codemirror/autocomplete`, `@codemirror/lang-sql`
   - `@lezer/highlight`
 
   Run `npm install` at the root. Confirm that `npm run build --workspace=apps/vscode-ext` still succeeds, and record the new `dist-webview/main.js` size in `specs/002-spatial-sql-query/research.md` §6 (expected: about +380 KB minified).
-- [ ] T002 [P] Add the `--se-sql-*` tokens from `contracts/ui-query-panel.md` to both theme files:
+  Done: pinned exactly; `@codemirror/lint` (needed by T034) is included. Baseline `main.js` is 1,331,711 bytes; the size with the editor imported is recorded at T021.
+- [X] T002 [P] Add the `--se-sql-*` tokens from `contracts/ui-query-panel.md` to both theme files:
   - **Tokens**: `bg`, `fg`, `selection`, `cursor`, `gutter-fg`, `gutter-bg`, `active-line`, `keyword`, `string`, `number`, `function`, `operator`, `comment`, `error`.
   - **`apps/vscode-ext/src/webview/theme.css`**: map them to `--vscode-editor-*` and `--vscode-symbolIcon-*Foreground` (research §6), with a high-contrast override for `--se-sql-active-line` (transparent) and borders.
   - **`apps/web/src/theme.css`**: map them to brand values in both the light block and the dark block. Every value must pass AA contrast on `--se-sql-bg`.

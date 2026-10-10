@@ -122,6 +122,26 @@
   --se-statusbar-fg: var(--vscode-statusBar-foreground);
   --se-statusbar-border: var(--vscode-statusBar-border, transparent);
   --se-statusbar-accent: var(--vscode-statusBar-foreground);
+
+  /* SQL editor (spec 002). VS Code doesn't expose its syntax-token colors to
+     webviews; the symbol-icon colors are the closest theme-driven set that
+     does exist (spec 002 research §6). */
+  --se-sql-bg: var(--vscode-editor-background);
+  --se-sql-fg: var(--vscode-editor-foreground);
+  --se-sql-selection: var(--vscode-editor-selectionBackground);
+  --se-sql-cursor: var(--vscode-editorCursor-foreground, var(--vscode-editor-foreground));
+  --se-sql-gutter-fg: var(--vscode-editorLineNumber-foreground);
+  --se-sql-gutter-active-fg: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editor-foreground));
+  --se-sql-gutter-bg: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  --se-sql-active-line: var(--vscode-editor-lineHighlightBackground, transparent);
+  --se-sql-keyword: var(--vscode-symbolIcon-keywordForeground, var(--vscode-editor-foreground));
+  --se-sql-string: var(--vscode-symbolIcon-stringForeground, var(--vscode-editor-foreground));
+  --se-sql-number: var(--vscode-symbolIcon-numberForeground, var(--vscode-editor-foreground));
+  --se-sql-function: var(--vscode-symbolIcon-functionForeground, var(--vscode-editor-foreground));
+  --se-sql-operator: var(--vscode-symbolIcon-operatorForeground, var(--vscode-editor-foreground));
+  --se-sql-comment: var(--vscode-descriptionForeground);
+  --se-sql-error: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+  --se-sql-font-size: var(--vscode-editor-font-size, 13px);
 }
 
 /* High contrast: every edge gets the contrast border, selections get the
@@ -138,6 +158,7 @@ body.vscode-high-contrast-light {
   --se-selected-indicator: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
   --se-shadow-card: none;
   --se-shadow-elevated: none;
+  --se-sql-active-line: transparent;
 }
 
 html,
