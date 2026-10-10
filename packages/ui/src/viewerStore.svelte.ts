@@ -81,6 +81,10 @@ export interface ViewerStore {
   /** Recent queries for the open file, newest first (FR-016; US5). */
   readonly history: QueryHistoryEntry[]
   runQuery(selection: { from: number; to: number }): Promise<void>
+  /** True when the editor holds edits that haven't run yet (Reset asks first). */
+  readonly queryEdited: boolean
+  /** FR-011: back to the view as opened: default query, rows, extent, style. */
+  resetQuery(): Promise<void>
   cancelQuery(): Promise<void>
   readonly style: LayerStyle
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
@@ -191,6 +195,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let runCount = $state(0)
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
   let lastRunText = $state<string | null>(null)
+  // The view as opened, restored by Reset (FR-011). Kept as the original
+  // object: re-running LIMIT 1000 would lose the whole-file fit and the
+  // "Showing 1,000 of N" truncation.
+  let initialLayer: Layer | null = null
   let resultGeometryColumn = $state<string | null>('geom')
   const history = $state<QueryHistoryEntry[]>([]) // filled by US5 (T045-T046)
 
@@ -314,6 +322,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       querySession = opened.session
       resetQueryState()
       const layer = opened.layer
+      initialLayer = layer
       session.layer = layer
       session.loadState = 'ready'
       applySidecar(layer.styleSidecar)
@@ -402,6 +411,20 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       queryText = text
       // An edit invalidates the error squiggle (FR-008).
       if (queryErrorRange) queryErrorRange = null
+    },
+    get queryEdited() {
+      return queryText !== DEFAULT_QUERY && queryText !== (lastRunText ?? DEFAULT_QUERY)
+    },
+    async resetQuery() {
+      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') await this.cancelQuery()
+      const original = initialLayer
+      resetQueryState()
+      if (original) {
+        session.layer = original
+        session.selectedFeatureId = null
+        applySidecar(original.styleSidecar)
+      }
+      queryStatus = 'Reset to the original view'
     },
     get queryPhase() {
       return queryPhase

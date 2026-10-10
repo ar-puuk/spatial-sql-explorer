@@ -1,7 +1,7 @@
 // T014 (spec 002, US1): run a query and see the result on the map and in the
 // table (quickstart Scenarios 1 and 6), in the production web build.
 import { test, expect } from '@playwright/test'
-import { editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, status } from './helpers'
+import { editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, setQuery, status } from './helpers'
 
 test('the default query reproduces the initial view, and a filter replaces it', async ({ page }) => {
   await openFile(page, fixture('world-boundaries.geojson'))
@@ -52,4 +52,37 @@ test('measurements use the source CRS; results are drawn from the resolved CRS (
   await expect(page.locator('.result-crs')).toContainText('EPSG:4326')
   await expect(page.locator('.result-crs')).toContainText('detected')
   await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
+})
+
+test('Reset restores the original view: query, rows, extent and style (US3, FR-011)', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'))
+  const initialScale = await page.locator('.maplibregl-ctrl-scale').textContent()
+  await openQueryPanel(page)
+
+  // Change the view: a filter and a different fill color.
+  await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
+  expect(await rowCount(page)).toBe(8)
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('dialog', { name: 'Layer style' }).locator('input[type="color"]').first().fill('#ff0000')
+  await page.getByRole('button', { name: 'Layer style' }).click()
+
+  // Unedited since the last run: Reset needs no confirmation.
+  await page.getByRole('button', { name: 'Reset to the original view' }).click()
+  await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
+  expect(await rowCount(page)).toBe(180)
+  await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
+  await expect(page.locator('.maplibregl-ctrl-scale')).toHaveText(initialScale ?? '')
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  await expect(page.getByRole('dialog', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3b82f6')
+  await page.getByRole('button', { name: 'Layer style' }).click()
+
+  // Edited text: Reset asks first, and "Keep" keeps it.
+  await setQuery(page, 'SELECT name FROM layer -- my work')
+  await page.getByRole('button', { name: 'Reset to the original view' }).click()
+  await expect(queryPanel(page).getByText('Discard your query changes?')).toBeVisible()
+  await queryPanel(page).getByRole('button', { name: 'Keep' }).click()
+  await expect(editor(page)).toHaveText('SELECT name FROM layer -- my work')
+  await page.getByRole('button', { name: 'Reset to the original view' }).click()
+  await queryPanel(page).getByRole('button', { name: 'Discard' }).click()
+  await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
 })

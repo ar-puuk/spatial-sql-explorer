@@ -329,16 +329,18 @@ and the style.
 **Independent Test**: run any query, then Reset, and compare with a fresh open
 (quickstart Scenario 3).
 
-- [ ] T038 [P] [US3] Add a Reset test to `tests/web/specs/query.spec.ts`:
+- [X] T038 [P] [US3] Add a Reset test to `tests/web/specs/query.spec.ts`:
   - run a filter, change the style fill, then click Reset;
   - assert the editor holds the default query, the grid matches the initial counts, the style is the original (default or sidecar), and the map extent matches the initial fit (compare the `data-rendered-features` count and the scale-bar text);
   - with an edited editor, Reset asks for confirmation first.
-- [ ] T039 [US3] Implement `resetQuery()` in `packages/ui/src/viewerStore.svelte.ts`:
+- [X] T039 [US3] Implement `resetQuery()` in `packages/ui/src/viewerStore.svelte.ts`:
   - restore `queryText = DEFAULT_QUERY`, run it, and restore the style from `layer.styleSidecar` or `DEFAULT_LAYER_STYLE` (reuse `applySidecar`);
   - clear `crsOverride`; refit.
   - Add the Reset button to `packages/ui/src/QueryPanel.svelte`, using the existing `Icon name="reset"`. It asks "Discard your query changes?" with a small inline confirm (not `window.confirm`, which webviews block) when `queryText` differs from the last-run text.
 
 **Checkpoint**: T038 passes in the web build. Reset works in VS Code by hand.
+
+✅ T038 passes. Reset restores the original layer **object** kept from opening, rather than re-running `LIMIT 1000`, which would lose the whole-file fit and the "Showing 1,000 of N" truncation, so the view is exactly the freshly opened one.
 
 ---
 

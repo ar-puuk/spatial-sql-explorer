@@ -24,6 +24,17 @@
   const nf = new Intl.NumberFormat('en-US')
 
   let editor = $state<SqlEditor>()
+  /** Inline confirmation (webviews block window.confirm). */
+  let confirmReset = $state(false)
+
+  function reset(): void {
+    if (store.queryEdited && !confirmReset) {
+      confirmReset = true
+      return
+    }
+    confirmReset = false
+    void store.resetQuery()
+  }
   let now = $state(performance.now())
   let timer: ReturnType<typeof setInterval> | null = null
 
@@ -98,6 +109,9 @@
     <span class="spacer"></span>
     {#if !collapsed}
       <a class="icon-link" href={DOCS_URL} target="_blank" rel="noreferrer" title="Spatial SQL function reference" aria-label="Spatial SQL function reference">?</a>
+      <button type="button" class="icon-button" onclick={reset} title="Reset to the original view" aria-label="Reset to the original view">
+        <Icon name="reset" size={14} />
+      </button>
       {#if busy}
         <button type="button" class="secondary" onclick={() => void store.cancelQuery()} title="Cancel (Esc)"><Icon name="close" size={14} />Cancel</button>
       {:else}
@@ -106,6 +120,13 @@
     {/if}
   </header>
 
+  {#if confirmReset && !collapsed}
+    <div class="confirm" role="alertdialog" aria-label="Discard your query changes?">
+      <span>Discard your query changes?</span>
+      <button type="button" class="primary" onclick={reset}>Discard</button>
+      <button type="button" class="secondary" onclick={() => (confirmReset = false)}>Keep</button>
+    </div>
+  {/if}
   <div class="body" id="query-body" hidden={collapsed}>
     <div class="editor">
       <SqlEditor
@@ -226,6 +247,43 @@
   }
   .secondary:hover {
     background: var(--se-button-secondary-hover);
+  }
+  .icon-button {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: pointer;
+  }
+  .icon-button:hover {
+    background: var(--se-control-hover);
+    color: var(--se-text-primary);
+  }
+  .confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: color-mix(in srgb, var(--se-warning) 12%, var(--se-bg-base));
+    border-bottom: 1px solid var(--se-border);
+  }
+  .confirm span {
+    flex: 1;
+  }
+  .confirm button {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--se-button-border);
+    border-radius: var(--se-radius-sm);
+    font: inherit;
+    cursor: pointer;
   }
   .icon-link {
     display: grid;
