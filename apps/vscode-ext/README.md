@@ -29,15 +29,41 @@ table, without opening a desktop GIS.
   - **Save** writes `<file>.qml` next to the data, which QGIS loads
     automatically, and it's applied when you reopen the file.
   - Export or import QGIS QML, OGC SLD, or Mapbox GL style JSON.
+- **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to
+  open the query panel, and query the file as the table `layer` with DuckDB
+  spatial SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the
+  selection. Results go to the map and the table. Autocomplete covers your
+  columns and the spatial functions, errors are underlined where they
+  happen, and recent queries are kept per file.
 - **Local-first.** Files are read by an embedded DuckDB engine inside the
   editor and are never uploaded. The network is used only for the DuckDB
   spatial extension and basemap tiles.
 
+## Query examples
+
+```sql
+-- Filter (the initial view is SELECT * FROM layer LIMIT 1000)
+SELECT * FROM layer WHERE name LIKE 'S%';
+
+-- Measure: areas in the layer's own CRS units
+SELECT name, round(ST_Area(geom)) AS area, geom FROM layer ORDER BY area DESC;
+
+-- Buffer by 100 CRS units (meters in a projected layer) and keep the result
+CREATE TEMP TABLE near AS SELECT name, ST_Buffer(geom, 100) AS geom FROM layer;
+SELECT count(*) FROM near;
+```
+
+Queries are read-only. Only `TEMP` tables and views can be created, and they
+live in that viewer only. Writes, `COPY`/export, extensions and settings are
+refused with a reason.
+
 ## Notes
 
-- Large files: up to 1,000 features are drawn at a time. The feature count
-  and the map extent always cover the whole file.
-- Output: **View → Output → Spatial Explorer** logs each open with timings.
+- Large files: the initial view shows up to 1,000 features. Raise or remove
+  the `LIMIT` in the query panel to see more. Results over 50,000 rows ask
+  first. The feature count and the map extent always cover the whole file.
+- Output: **View → Output → Spatial Explorer** logs each open and each query
+  with timings.
 - Multi-layer files open their first layer.
 
 ## Supported formats

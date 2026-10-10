@@ -427,11 +427,17 @@ history (quickstart Scenario 5).
 
   Then tick the Definition-of-done boxes.
   - *Done*: see quickstart.md Results. SC-001 is web 122 ms and VS Code 62–94 ms. SC-004 cancel is 104–120 ms. SC-003 is 7/7, after the typo'd-keyword refusal fix (`unknownKeywordReason`, policy tests +4). The DoD box for the spec 001 suites is ticked in T052.
-- [ ] T051 [P] Update the docs:
+- [X] T051 [P] Update the docs:
   - `CHANGELOG.md` ([Unreleased] → Added: SQL query, with every capability);
   - `apps/vscode-ext/README.md` (a Query section: the `layer` table, Ctrl/Cmd+Enter, examples);
   - `THIRD-PARTY-NOTICES.md` (regenerate with the CodeMirror and Lezer licenses, MIT, using the same script approach as spec 001's T047);
   - `specs/002-spatial-sql-query/research.md` (outcomes and any deviations found during implementation).
+  - *Done*:
+    - CHANGELOG has a spec 002 entry plus the performance lines.
+    - The README has a Spatial SQL feature, Query examples (all four verified in the real engine) and updated Notes.
+    - THIRD-PARTY-NOTICES: added CodeMirror/Lezer and their dependencies (`style-mod`, `w3c-keyname`, `crelt`, `@marijn/find-cluster-break`, all MIT). The stale DuckDB-Wasm header (1.33.1-dev57.0) is corrected to the pinned 1.32.0 / DuckDB 1.4.3.
+    - research.md has an Outcomes section.
+    - Fixed "(1 rows)" in the temp-table summary.
 - [ ] T052 Run the final full verification:
   - `npm run lint`, all typechecks, `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext`;
   - `npm run package --workspace=apps/vscode-ext`; install the VSIX into a clean profile and run quickstart Scenarios 1–2 by hand.

@@ -359,3 +359,33 @@ come first, with symbolIcon as the fallback. In High Contrast the selection
 background is solid white and VS Code relies on `editor.selectionForeground`,
 which a CodeMirror selection layer can't apply. The webview tones the selection
 down to 40% with `color-mix` instead.
+
+## Outcomes (T051)
+
+Every decision in §1–§10 held in the implementation. The deviations and
+additions are:
+
+- **§2 Policy.** A first word that is not a SQL statement keyword is still
+  refused, but now gets a specific message ("`SELEC` isn't a SQL statement
+  keyword. Did you mean SELECT?") instead of the generic "not supported"
+  (found while measuring SC-003). Engine statements such as SET or PRAGMA keep
+  the generic reason.
+- **§5 Objects.** DuckDB TEMP objects are per connection, so the source table
+  (`__se_source`) and the `layer` view are regular objects. Only the query
+  session's own results and the user's temp objects are TEMP. `parquet` is
+  installed before the lockdown, because autoloading is blocked afterwards.
+- **§6 Editor.** `autocompletion({ override })` replaces every completion
+  source, so lang-sql's `schemaCompletionSource` is composed back in
+  explicitly. Syntax colors use `debugTokenExpression-*` (see the T049
+  finding above).
+- **§7 Catalog.** The snapshot is cached per session and invalidated by temp
+  DDL. While a query runs, the request returns the cache instead of waiting
+  behind it.
+- **§8 Errors.** Streaming (`send`) errors arrive as JSON with an exact
+  character `position`. The parser unwraps them and prefers that position
+  over the `LINE` caret.
+- **§9 History.** Temp DDL is recorded too, with its summary
+  (`{ ok: true, rows: 0, summary }`). Writes re-read storage first, so two
+  viewers of the same file don't overwrite each other.
+- **Measured** (quickstart Results): a filtering query on ~10 MB takes
+  0.06–0.12 s, cancelling takes ~0.1 s, and the SC-003 set is 7/7.

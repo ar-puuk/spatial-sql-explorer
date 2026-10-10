@@ -148,7 +148,8 @@ export class QuerySession {
         let summary = `${policy.action === 'create' ? 'Created' : 'Dropped'} ${what}`
         if (policy.action === 'create' && policy.object === 'table') {
           const n = await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${quoteIdent(policy.name)}`, isCancelled)
-          summary += ` (${nf.format(Number(n.n))} rows)`
+          const count = Number(n.n)
+          summary += ` (${nf.format(count)} ${count === 1 ? 'row' : 'rows'})`
         }
         this.catalogCache = null // temp objects changed: completion must see them
         return { kind: 'ddl', summary, durationMs: elapsed(), statement }

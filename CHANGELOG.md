@@ -54,6 +54,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   light and dark follow the OS.
 - **Developer tooling.** `npm run screenshots` captures the real VS Code
   extension (three themes) and the web app (light and dark).
+- **Spatial SQL query (spec 002).** A query panel docked beside the
+  attribute table (Ctrl/Cmd+Shift+Q). It runs DuckDB spatial SQL against the
+  opened file, in both the extension and the web app.
+  - The file is the ready-made table `layer`, also aliased by its file name,
+    in its original CRS. The initial view is the editable query
+    `SELECT * FROM layer LIMIT 1000`: remove or raise the `LIMIT` to see more.
+  - Results with a geometry column replace the map layer and the table;
+    results without one show in the table, with the last map dimmed. The
+    result's CRS is resolved automatically and shown in a chip that can be
+    overridden.
+  - Ctrl/Cmd+Enter runs the selection or the statement under the cursor.
+  - Editor: SQL highlighting in theme colors, and autocomplete from the live
+    catalog (tables, columns with types, spatial functions with signatures
+    and descriptions, keywords, and temp tables you create).
+  - Errors name the problem, underline it in the editor, and keep the
+    previous result. A typo in the first keyword suggests the fix.
+  - Read-only by design: queries plus `CREATE TEMP TABLE/VIEW`. Writes,
+    exports, extensions and settings are refused with a reason, and the
+    engine itself is locked to the opened file (no file or network access).
+  - Cancel a running query with the Cancel button or Esc. Results over 50,000
+    rows ask first: show the first 50,000, show all, or cancel.
+  - Timing in the panel and in the "Spatial Explorer" output channel.
+  - Reset returns to the original view and style. Per-file history keeps the
+    20 most recent queries across reopening; picking one loads it without
+    running.
 
 ### Performance
 
@@ -61,5 +86,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in the background (pre-warm) and is reused between opens. Each file is
   parsed once, then its memory is released.
 
-- At most 1,000 features are drawn at a time. Feature counts and the map
-  extent always cover the whole file.
+- At most 1,000 features are drawn at a time by default. Feature counts and
+  the map extent always cover the whole file.
+- A filtering query on a ~10 MB file returns in ~0.1 s, and cancelling takes
+  ~0.1 s (spec 002 quickstart, Results).
