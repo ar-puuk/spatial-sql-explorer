@@ -14,6 +14,8 @@ import {
   type BasemapCatalogEntry,
   type BasemapChoice,
   sanitizeStyle,
+  resolveStyle,
+  type ResolvedStyle,
   sidecarStyleFileName,
   styleFileName,
   STYLE_FILE_EXTENSIONS,
@@ -96,6 +98,8 @@ export interface ViewerStore {
   resetQuery(): Promise<void>
   cancelQuery(): Promise<void>
   readonly style: LayerStyle
+  /** The style resolved against the displayed result (spec 003): what the map and legend draw. */
+  readonly resolvedStyle: ResolvedStyle
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
   readonly styleSource: string | null
   readonly styleNotice: StyleNotice | null
@@ -200,6 +204,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let pendingLargeResult = $state<{ rowCount: number } | null>(null)
   let largeResultResolve: ((choice: 'all' | 'first' | 'cancel') => void) | null = null
   let mapLayer = $state.raw<Layer | null>(null)
+  // The displayed result, unproxied: classification walks every row, which
+  // must not create a reactive signal per attribute (spec 003 T012). Kept in
+  // step with session.layer by setLayer().
+  let displayedLayer = $state.raw<Layer | null>(null)
+  function setLayer(l: Layer | null): void {
+    displayedLayer = l
+    session.layer = l
+  }
+  const resolvedStyle = $derived.by(() => resolveStyle(style, displayedLayer))
   let mapDimmed = $state(false)
   let runCount = $state(0)
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
@@ -302,7 +315,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           mapLayer = mapDimmed ? mapLayer : previous
           mapDimmed = true
         }
-        if (previous) session.layer = layerFromResult(previous, built)
+        if (previous) setLayer(layerFromResult(displayedLayer ?? previous, built))
         session.selectedFeatureId = null
         resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
         resultGeometryColumn = built.geometryColumn
@@ -363,13 +376,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void refreshCatalog()
       const layer = opened.layer
       initialLayer = layer
-      session.layer = layer
+      setLayer(layer)
       session.loadState = 'ready'
       applySidecar(layer.styleSidecar)
       // File-level metadata (FR-006): the whole file, not the displayed result.
       hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features })
     } catch (err) {
-      session.layer = null
+      setLayer(null)
       session.loadState = 'error'
       session.loadError = { message: err instanceof Error ? err.message : String(err) }
     }
@@ -463,7 +476,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const original = initialLayer
       resetQueryState()
       if (original) {
-        session.layer = original
+        setLayer(original)
         session.selectedFeatureId = null
         applySidecar(original.styleSidecar)
       }
@@ -542,6 +555,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       // A pending large-result question is answered "cancel"; otherwise the engine is interrupted.
       if (largeResultResolve) largeResultResolve('cancel')
       await querySession?.cancel()
+    },
+    get resolvedStyle() {
+      return resolvedStyle
     },
     get style() {
       return style

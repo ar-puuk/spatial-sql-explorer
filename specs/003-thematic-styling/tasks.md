@@ -114,21 +114,24 @@ spec 001.
 
   Make T007 pass.
   - *Done*: ramps.ts (catalog + Lab interpolation) + rampData.ts. The color data was GENERATED rather than typed: ColorBrewer from QGIS 4.2.3's QgsColorBrewerPalette, and Viridis/Magma/Plasma anchors from matplotlib. Lint 0.
-- [ ] T009 [P] Write `tests/core/style-expressions.test.ts` (single symbol part), using `expression.createExpression(json, 'layers[0].paint.fill-color')` from the style-spec:
+- [X] T009 [P] Write `tests/core/style-expressions.test.ts` (single symbol part), using `expression.createExpression(json, 'layers[0].paint.fill-color')` from the style-spec:
   - `paintFor(singleStyle, resolvedSingle, '#0078d4')` produces the same paint values spec 001's `MapView.svelte` builds today (fill, outline, line and circle, with the selected and hovered `case`s);
   - `visibilityFilter` returns `null` for single.
-- [ ] T010 Create `packages/core/src/style/expressions.ts` with `paintFor()` and `visibilityFilter()`:
+  - *Done*: style-expressions.test.ts (single), 4 tests: paint identical to spec 001's MapView paint; every value parses with the style-spec; no halo or filter for single; halo contrast.
+- [X] T010 Create `packages/core/src/style/expressions.ts` with `paintFor()` and `visibilityFilter()`:
   - move the paint construction out of `packages/ui/src/MapView.svelte` (the `selected` / `hovered` feature-state cases) unchanged for single;
   - add the **selection halo** for thematic renderers: a second outline ring in the contrasting color (research §6), as a no-op for single.
 
   Make T009 pass.
-- [ ] T011 Create `packages/core/src/style/resolve.ts` with `resolveStyle(style, layer)` and `eligibleColumns(columns, kind)`:
+  - *Done*: expressions.ts: paintFor and visibilityFilter. Paint moved from MapView unchanged for single; the halo applies to thematic styles only. The draft registry indirection was dropped in favor of a direct switch (Constitution X).
+- [X] T011 Create `packages/core/src/style/resolve.ts` with `resolveStyle(style, layer)` and `eligibleColumns(columns, kind)`:
   - for single: one class, caption `''`, status `ok`;
   - numeric types for graduated are `TINYINT, SMALLINT, INTEGER, BIGINT, HUGEINT, UTINYINT, USMALLINT, UINTEGER, UBIGINT, UHUGEINT, FLOAT, DOUBLE, DECIMAL(...)` (research §5);
   - categorized accepts every non-geometry type.
 
   Unit tests go in `tests/core/style-resolve.test.ts` (single and eligibility cases).
-- [ ] T012 Wire the plumbing in `packages/ui/src/viewerStore.svelte.ts`:
+  - *Done*: resolve.ts: resolveStyle (single), eligibleColumns and isNumericType; style-resolve.test.ts has 2 tests.
+- [X] T012 Wire the plumbing in `packages/ui/src/viewerStore.svelte.ts`:
   - `resolvedStyle = $derived.by(() => resolveStyle(style, session.layer))`, stored raw;
   - `setStyle(patch)` accepts `renderer` patches.
 
@@ -137,6 +140,7 @@ spec 001.
   - re-apply the selection color on theme change, as today.
 
   Run the full web suite and the VS Code suite: spec 001 and 002 behavior is unchanged.
+  - *Done*: Store: resolvedStyle derived from a raw displayedLayer kept in step via setLayer() (no per-attribute signals). MapView gets the resolved prop, core paint, and per-layer filters plus a halo layer. Web 32/32 and VS Code 37/37 unchanged.
 - [ ] T013 Add the VS Code test hooks:
   - `spatialExplorer._getStyleState`, which reports `{ renderer, column, method, classCount, status, reason, caption, classes: [{ key, label, color, visible, count }] }` from the webview, mirroring `watchQueryState` in a new `apps/vscode-ext/src/webview/styleState.svelte.ts`;
   - `spatialExplorer._setStyle(styleJson)`, which applies a full `LayerStyle` in the active viewer;

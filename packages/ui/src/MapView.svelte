@@ -11,13 +11,25 @@
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { onMount, onDestroy, untrack } from 'svelte'
-  import { BasemapHealth, loadBasemapStyle, type BasemapCatalogEntry, type BasemapStyle, type Layer, type LayerStyle } from '@spatial-explorer/core'
+  import {
+    BasemapHealth,
+    loadBasemapStyle,
+    paintFor,
+    visibilityFilter,
+    type BasemapCatalogEntry,
+    type BasemapStyle,
+    type Layer,
+    type LayerStyle,
+    type ResolvedStyle,
+  } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   interface Props {
     layer: Layer | null
     selectedFeatureId: string | number | null
     style: LayerStyle
+    /** The style resolved against the displayed result (spec 003): drives paint and filters. */
+    resolved: ResolvedStyle
     /** Bumps on host theme change; canvas colors are re-read from CSS tokens. */
     themeRevision: number
     zoomRequest: { id: string | number; seq: number } | null
@@ -38,6 +50,7 @@
     layer,
     selectedFeatureId,
     style,
+    resolved,
     themeRevision,
     zoomRequest,
     resizing,
@@ -67,49 +80,21 @@
   const POINT = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
   const INTERACTIVE_LAYERS = ['fill', 'line', 'circle']
 
-  const selected = ['boolean', ['feature-state', 'selected'], false]
-  const hovered = ['boolean', ['feature-state', 'hover'], false]
-
   /**
    * Canvas colors cannot use CSS variables (CLAUDE.md), so the selection
    * color is read from the `--se-map-selection` token at paint time and
    * re-applied whenever the host theme changes. Data colors (the layer
-   * style) are deliberately theme-independent.
+   * style) are deliberately theme-independent. Paint itself is built in core
+   * (spec 003: `paintFor`), the same for single and thematic styles.
    */
   function selectionColor(): string {
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  function paints(s: LayerStyle, sel: string): Record<string, Record<string, unknown>> {
-    const outlineWidth = Math.max(s.strokeWidth, 1) + 1.5
-    return {
-      fill: {
-        'fill-color': ['case', selected, sel, s.fillColor],
-        'fill-opacity': ['case', selected, Math.max(s.fillOpacity, 0.6), hovered, Math.min(1, s.fillOpacity + 0.15), s.fillOpacity],
-      },
-      'fill-outline': {
-        'line-color': ['case', selected, sel, s.strokeColor],
-        'line-width': ['case', selected, outlineWidth, s.strokeWidth],
-        'line-opacity': ['case', selected, 1, s.strokeOpacity],
-      },
-      line: {
-        'line-color': ['case', selected, sel, s.strokeColor],
-        'line-width': ['case', selected, outlineWidth + 1, hovered, s.strokeWidth + 1, s.strokeWidth],
-        'line-opacity': ['case', selected, 1, s.strokeOpacity],
-      },
-      circle: {
-        'circle-color': ['case', selected, sel, s.fillColor],
-        'circle-opacity': ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
-        'circle-radius': ['case', selected, s.pointRadius + 2, hovered, s.pointRadius + 1, s.pointRadius],
-        'circle-stroke-color': ['case', selected, '#ffffff', s.strokeColor],
-        'circle-stroke-width': ['case', selected, 2, s.strokeWidth],
-        'circle-stroke-opacity': ['case', selected, 1, s.strokeOpacity],
-      },
-    }
-  }
-
   const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
+    // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
+    { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'circle', type: 'circle', filter: POINT },
@@ -140,9 +125,18 @@
     ) as GeoJSON.FeatureCollection
   }
 
+  /** Each layer's geometry filter, plus the hidden-class filter (FR-009). */
+  function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
+    const hidden = visibilityFilter(style, resolved)
+    return hidden ? ['all', def.filter, hidden] : def.filter
+  }
+
   function applyPaint(): void {
     if (!map || !mapReady) return
-    const p = paints(style, selectionColor())
+    const p = paintFor(style, resolved, selectionColor())
+    for (const def of LAYER_DEFS) {
+      if (map.getLayer(def.id)) map.setFilter(def.id, layerFilter(def) as Parameters<MapLibreMap['setFilter']>[1])
+    }
     for (const [layerId, props] of Object.entries(p)) {
       if (!map.getLayer(layerId)) continue // mid basemap switch; buildStyle carries the current paints
       for (const [prop, value] of Object.entries(props)) {
@@ -188,9 +182,9 @@
       if (first && !first.attribution) first.attribution = entry.attribution
     }
     doc.sources[SOURCE_ID] = { type: 'geojson', data: currentData, promoteId: ID_PROP }
-    const p = paints(style, selectionColor())
+    const p = paintFor(style, resolved, selectionColor())
     for (const def of LAYER_DEFS) {
-      doc.layers.push({ id: def.id, type: def.type, source: SOURCE_ID, filter: def.filter, layout: def.layout ?? {}, paint: p[def.id] } as never)
+      doc.layers.push({ id: def.id, type: def.type, source: SOURCE_ID, filter: layerFilter(def), layout: def.layout ?? {}, paint: p[def.id as keyof typeof p] } as never)
     }
     return doc
   }
@@ -387,6 +381,7 @@
     void style.strokeOpacity
     void style.strokeWidth
     void style.pointRadius
+    void resolved
     void themeRevision
     applyPaint()
   })

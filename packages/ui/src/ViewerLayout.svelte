@@ -212,6 +212,7 @@
         dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}
         style={store.style}
+        resolved={store.resolvedStyle}
         themeRevision={store.themeRevision}
         zoomRequest={store.zoomRequest}
         resizing={dragging}
