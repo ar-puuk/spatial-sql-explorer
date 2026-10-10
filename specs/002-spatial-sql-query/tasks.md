@@ -438,12 +438,20 @@ history (quickstart Scenario 5).
     - THIRD-PARTY-NOTICES: added CodeMirror/Lezer and their dependencies (`style-mod`, `w3c-keyname`, `crelt`, `@marijn/find-cluster-break`, all MIT). The stale DuckDB-Wasm header (1.33.1-dev57.0) is corrected to the pinned 1.32.0 / DuckDB 1.4.3.
     - research.md has an Outcomes section.
     - Fixed "(1 rows)" in the temp-table summary.
-- [ ] T052 Run the final full verification:
+- [X] T052 Run the final full verification:
   - `npm run lint`, all typechecks, `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext`;
   - `npm run package --workspace=apps/vscode-ext`; install the VSIX into a clean profile and run quickstart Scenarios 1–2 by hand.
 
   Record the results in `tasks.md`.
 
+  - *Done (2026-10-10)*:
+    - `npm run lint`: 0 problems.
+    - Typechecks: core `tsc` 0 errors; ui / web `svelte-check` 0 errors, 0 warnings (fixed the web tsconfig's TS 6 `rootDir` warning); extension `tsc` 0 errors.
+    - `test:core`: 122/122.
+    - `test:web`: 31/31, including the serial performance project; the query filter took 190 ms.
+    - `test:vscode-ext`: 37/37.
+    - `npm run package`: `spatial-explorer-0.1.0.vsix` (13 files, 8.2 MB). It installs into a clean `--user-data-dir`/`--extensions-dir` profile, and the installed copy ships the updated notices, changelog and theme tokens.
+    - *Not done by hand*: Scenarios 1–2 were not clicked through in the installed VSIX. The same build is exercised end to end by the extension suite and by the `npm run screenshots` Electron driver (all three themes), which the maintainer should spot-check once by hand before release.
 ---
 
 ## Dependencies & Execution Order

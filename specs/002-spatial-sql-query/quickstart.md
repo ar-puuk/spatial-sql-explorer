@@ -145,5 +145,5 @@ The SC-003 set covers a statement-keyword typo (`SELEC`), a syntax error (`SELEC
 - [x] Scenarios 1–7 pass in both shells (SC-006). They are covered by the web `query*.spec` files and the VS Code `query.test.ts` suite; see Results.
 - [x] SC-001 (< 1 s filtering query on ~10 MB) and SC-004 (cancel < 3 s)
       measured, not eyeballed (see Results).
-- [ ] All spec 001 suites still pass, with the table-row expectations
+- [x] All spec 001 suites still pass, with the table-row expectations
       updated for the invalid-geometry amendment.
