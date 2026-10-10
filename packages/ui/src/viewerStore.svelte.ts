@@ -21,6 +21,10 @@ import {
   type HostAdapter,
   type LayerStyle,
   type QueryHistoryEntry,
+  addHistoryEntry,
+  historyEntryFromOutcome,
+  loadHistory,
+  recordHistory,
   type CatalogSnapshot,
   type QuerySession,
   type RunOutcome,
@@ -81,6 +85,8 @@ export interface ViewerStore {
   readonly resultGeometryColumn: string | null
   /** Recent queries for the open file, newest first (FR-016; US5). */
   readonly history: QueryHistoryEntry[]
+  /** Puts a history entry in the editor without running it (FR-016). */
+  loadFromHistory(entry: QueryHistoryEntry): void
   runQuery(selection: { from: number; to: number }): Promise<void>
   /** Live catalog for autocomplete (FR-015); refreshed after open and after temp DDL. */
   readonly catalog: CatalogSnapshot | null
@@ -211,7 +217,21 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (snapshot && qs === querySession) catalog = snapshot
   }
   let resultGeometryColumn = $state<string | null>('geom')
-  const history = $state<QueryHistoryEntry[]>([]) // filled by US5 (T045-T046)
+  let history = $state.raw<QueryHistoryEntry[]>([])
+  /** OpenedFileRef.stateKey of the open file: history is per file. */
+  let historyStateKey: string | null = null
+
+  function remember(outcome: RunOutcome): void {
+    const key = historyStateKey
+    const entry = historyEntryFromOutcome(outcome)
+    if (!key || !entry) return
+    history = addHistoryEntry(history, entry)
+    void recordHistory(hostAdapter, key, entry)
+      .then((saved) => {
+        if (key === historyStateKey) history = saved
+      })
+      .catch(() => {})
+  }
 
   function resetQueryState(): void {
     queryText = DEFAULT_QUERY
@@ -269,6 +289,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     fetchProgress = null
     runStartedAt = null
     queryStatus = describeOutcome(outcome)
+    remember(outcome)
     switch (outcome.kind) {
       case 'result': {
         const built = outcome.result
@@ -326,6 +347,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     try {
       const [ref] = await hostAdapter.openFiles()
       currentFileName = ref.displayName
+      historyStateKey = ref.stateKey
+      history = []
+      void loadHistory(hostAdapter, ref.stateKey).then((list) => {
+        if (ref.stateKey === historyStateKey) history = list
+      })
       // One file per viewer: the previous file's views, tables and session
       // go before the next file's `layer` view is created.
       await querySession?.dispose().catch(() => {})
@@ -502,6 +528,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get history() {
       return history
+    },
+    loadFromHistory(entry) {
+      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+      queryText = entry.text
+      queryError = null
+      queryErrorRange = null
+      queryPhase = 'idle'
+      queryStatus = 'Loaded from history · not run (Ctrl+Enter to run)'
     },
     runQuery,
     async cancelQuery() {

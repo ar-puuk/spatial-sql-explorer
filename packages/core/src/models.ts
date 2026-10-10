@@ -99,7 +99,8 @@ export interface QueryHistoryEntry {
   text: string
   /** ISO 8601. */
   ranAt: string
-  outcome: { ok: true; rows: number } | { ok: false; error: string }
+  /** `summary` is set for temp DDL ("Created temp table `x` (N rows)"). */
+  outcome: { ok: true; rows: number; summary?: string } | { ok: false; error: string }
 }
 
 export interface CatalogSnapshot {

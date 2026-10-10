@@ -25,6 +25,7 @@
     | 'layers'
     | 'check'
     | 'list'
+    | 'history'
 
   const PATHS: Record<IconName, string> = {
     plus: 'M8 3.5v9M3.5 8h9',
@@ -48,6 +49,7 @@
     layers: 'M8 2l6 3.25-6 3.25-6-3.25zM2 8.25l6 3.25 6-3.25M2 11.25l6 3.25 6-3.25',
     check: 'M3 8.5l3 3 7-7',
     list: 'M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5',
+    history: 'M2.75 8a5.25 5.25 0 101.6-3.8M2.5 2.25V4.5h2.25M8 5v3.25l2.25 1.5',
   }
 </script>
 

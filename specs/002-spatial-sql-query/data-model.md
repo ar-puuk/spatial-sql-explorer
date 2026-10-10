@@ -81,7 +81,7 @@ initial view from it.
 |---|---|---|
 | `text` | string | The executed statement text. |
 | `ranAt` | ISO 8601 string | |
-| `outcome` | `{ ok: true; rows: number } \| { ok: false; error: string }` | The error is the first line only. |
+| `outcome` | `{ ok: true; rows: number; summary?: string } \| { ok: false; error: string }` | The error is the first line only. Temp DDL stores its summary (rows 0). |
 
 - **Scope**: per file, keyed by `history.<OpenedFileRef.stateKey>`.
 - **Retention**: at most 20 entries, newest first. Re-running an identical

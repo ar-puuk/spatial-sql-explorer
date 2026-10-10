@@ -9,6 +9,7 @@
   import SqlEditor from './SqlEditor.svelte'
   import { functionSource, schemaFromCatalog } from './completion.js'
   import ResultCrsChip from './ResultCrsChip.svelte'
+  import QueryHistory from './QueryHistory.svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
@@ -30,6 +31,13 @@
   let editor = $state<SqlEditor>()
   /** Inline confirmation (webviews block window.confirm). */
   let confirmReset = $state(false)
+  let historyOpen = $state(false)
+  let historyButton = $state<HTMLButtonElement>()
+
+  function closeHistory(refocus = true): void {
+    historyOpen = false
+    if (refocus) historyButton?.focus()
+  }
 
   function reset(): void {
     if (store.queryEdited && !confirmReset) {
@@ -113,6 +121,20 @@
     <span class="spacer"></span>
     {#if !collapsed}
       <a class="icon-link" href={DOCS_URL} target="_blank" rel="noreferrer" title="Spatial SQL function reference" aria-label="Spatial SQL function reference">?</a>
+      <button
+        type="button"
+        class="icon-button"
+        class:pressed={historyOpen}
+        bind:this={historyButton}
+        onclick={() => (historyOpen = !historyOpen)}
+        title="Recent queries for this file"
+        aria-label="Query history"
+        aria-haspopup="listbox"
+        aria-expanded={historyOpen}
+        disabled={busy}
+      >
+        <Icon name="history" size={14} />
+      </button>
       <button type="button" class="icon-button" onclick={reset} title="Reset to the original view" aria-label="Reset to the original view">
         <Icon name="reset" size={14} />
       </button>
@@ -124,6 +146,17 @@
     {/if}
   </header>
 
+  {#if historyOpen && !collapsed}
+    <QueryHistory
+      entries={store.history}
+      onClose={() => closeHistory()}
+      onPick={(entry) => {
+        store.loadFromHistory(entry)
+        closeHistory(false)
+        editor?.focus()
+      }}
+    />
+  {/if}
   {#if confirmReset && !collapsed}
     <div class="confirm" role="alertdialog" aria-label="Discard your query changes?">
       <span>Discard your query changes?</span>
@@ -164,6 +197,7 @@
 
 <style>
   .query-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -263,6 +297,14 @@
     background: transparent;
     color: var(--se-text-secondary);
     cursor: pointer;
+  }
+  .icon-button.pressed {
+    background: var(--se-control-hover);
+    color: var(--se-text-primary);
+  }
+  .icon-button:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .icon-button:hover {
     background: var(--se-control-hover);

@@ -153,3 +153,39 @@ suite('Spec 002 US2: errors, refusals and cancel in VS Code', () => {
 })
 
 const queryStateNow = (): Thenable<QueryState> => vscode.commands.executeCommand('spatialExplorer._getQueryState')
+
+/** History loads after the file; waits until the reported length settles. */
+async function settledHistoryLength(): Promise<number> {
+  let last = -1
+  const deadline = Date.now() + 10000
+  while (Date.now() < deadline) {
+    await sleep(300)
+    const n = (await queryStateNow())?.historyLength ?? -1
+    if (n >= 0 && n === last) return n
+    last = n
+  }
+  assert.fail('history length never settled')
+}
+
+suite('Spec 002 US5: history in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  // T047 (FR-016, SC-007): history survives closing and reopening the file.
+  // globalState outlives test runs, so the queries are unique and the check
+  // is relative to what was already there.
+  test('two queries are still in the history after closing and reopening the file', async function () {
+    this.timeout(90000)
+    await openAndWait('sample.fgb')
+    const before = await settledHistoryLength()
+    const tag = Date.now()
+    assert.strictEqual((await run(`SELECT ${tag} AS a, * FROM layer LIMIT 2`))?.phase, 'succeeded')
+    assert.strictEqual((await run(`SELECT ${tag} AS b, * FROM layer LIMIT 3`))?.phase, 'succeeded')
+    assert.strictEqual((await queryStateNow())?.historyLength, Math.min(20, before + 2))
+
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await openAndWait('sample.fgb')
+    assert.strictEqual(await settledHistoryLength(), Math.min(20, before + 2))
+  })
+})

@@ -382,22 +382,23 @@ loaded into the editor without running.
 **Independent Test**: run three queries, reopen the file, and check the
 history (quickstart Scenario 5).
 
-- [ ] T043 [P] [US5] Write `tests/core/history.test.ts` (Vitest, with a fake HostAdapter `loadState`/`saveState`):
+- [X] T043 [P] [US5] Write `tests/core/history.test.ts` (Vitest, with a fake HostAdapter `loadState`/`saveState`):
   - newest first; a cap of 20; re-running identical text moves it to the top;
   - error outcomes store the first line only;
   - per-`stateKey` isolation;
   - corrupt stored data recovers as an empty history.
-- [ ] T044 [P] [US5] Write `tests/web/specs/query-history.spec.ts`:
+- [X] T044 [P] [US5] Write `tests/web/specs/query-history.spec.ts`:
   - run three queries (one failing), reload the page, and open the same file;
   - the History popover lists three entries newest first with outcomes;
   - Enter on an entry loads it into the editor, and the status line shows that nothing ran;
   - a different file shows an empty history.
-- [ ] T045 [P] [US5] Implement `packages/core/src/query/history.ts`: `loadHistory(host, stateKey)` and `recordHistory(host, stateKey, entry)`, under the key `history.<stateKey>` per `data-model.md`. Make T043 pass.
-- [ ] T046 [US5] Create `packages/ui/src/QueryHistory.svelte`, a popover anchored to a History button in `QueryPanel.svelte`:
+- [X] T045 [P] [US5] Implement `packages/core/src/query/history.ts`: `loadHistory(host, stateKey)` and `recordHistory(host, stateKey, entry)`, under the key `history.<stateKey>` per `data-model.md`. Make T043 pass.
+- [X] T046 [US5] Create `packages/ui/src/QueryHistory.svelte`, a popover anchored to a History button in `QueryPanel.svelte`:
   - a list with relative time and the outcome (✓ rows / ✗ message);
   - arrow keys, Enter to load, Esc to close (`contracts/ui-query-panel.md`).
   - The store records history after every `result`, `ddl` or `error` outcome (not refusals or cancels).
-- [ ] T047 [US5] Extend `tests/vscode-ext/src/suite/query.test.ts`: run two queries, close all editors, reopen the same file, and assert `_getQueryState().historyLength === 2` (add `historyLength` to the `queryState` report).
+- [X] T047 [US5] Extend `tests/vscode-ext/src/suite/query.test.ts`: run two queries, close all editors, reopen the same file, and assert `_getQueryState().historyLength === 2` (add `historyLength` to the `queryState` report).
+  - *Done*: core `history.test.ts` passes (7 tests; core total 119). `query-history.spec` passes (2 tests: reopen + per file). The VS Code suite passes (36, including the new US5 test). History also stores temp DDL, as `{ ok: true, rows: 0, summary }`, shown with its summary (data-model.md updated). `recordHistory` re-reads storage before writing, so two viewers of the same file don't overwrite each other. The VS Code test is relative to existing entries because globalState outlives test runs.
 
 **Checkpoint**: T043, T044 and T047 pass.
 
