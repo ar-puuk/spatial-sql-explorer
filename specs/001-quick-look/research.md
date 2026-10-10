@@ -250,6 +250,47 @@ offline/air-gapped use and requires widening webview CSP `connect-src` to an
 external host, which conflicts with the Local-First principle unless the user
 explicitly opts into CDN delivery as a fallback.
 
+### T007 resolution: real measurements, and one unresolved sub-question
+
+**Core module, measured for real** (after the `eh` bundle switch, §1):
+`dist-webview/` is **~36MB total** — `duckdb-eh.wasm` (35,913,747 bytes),
+`duckdb-browser-eh.worker.js` (773,223 bytes), and `main.js`
+(201,357 bytes, DuckDB-WASM's JS bindings + the webview entry — MapLibre is
+not yet added, that's Phase 3/T021). This is the real number to budget
+against, not an estimate, and it is DuckDB-WASM's single largest cost by far
+(MapLibre GL JS, per its published bundle size, will add a few hundred KB —
+immaterial next to 36MB).
+
+**Spatial extension size: attempted, not resolved.** Two approaches were
+tried to measure the spatial extension's actual downloaded size (it loads
+successfully over the real network during `LOAD spatial` when CSP's
+`connect-src` allows it — confirmed working, a useful result on its own):
+
+1. `SELECT * FROM duckdb_extensions() WHERE extension_name = 'spatial'`
+   — this table function exists and returns real metadata
+   (`loaded: true`, `installed: false` — confirming `INSTALL` really is a
+   no-op, as documented above — `install_mode: 'REPOSITORY'`,
+   `extension_version: '28db190'`), but **this DuckDB-WASM version's
+   `duckdb_extensions()` has no size column** to report from.
+2. The `self.fetch` interception technique that resolved T005 was extended
+   to log any URL the worker fetches, to catch the extension's own download
+   and read its `Content-Length` header. **The extension download never
+   passed through the override at all** — confirming that extension loading
+   is handled by a lower-level mechanism inside the compiled
+   Emscripten/WASM runtime itself (not a JS-level `self.fetch` call this
+   project can intercept the same way). Guessing at the CDN's URL pattern to
+   fetch it independently was deliberately not pursued (several plausible
+   URL patterns were not tried, per the project's standing rule against
+   fabricating URLs) — the honest result is that this sub-question is
+   unresolved, not "small" or "negligible" by assumption.
+
+**What this means for planning**: budget VSIX size planning around the
+~36MB core module as a firm number. Treat the spatial extension's size as
+an **unknown, not a small addition** until measured directly (e.g., via
+real browser DevTools Network tab inspection of a `LOAD spatial` call,
+which this automated test harness cannot do) — do not assume it is small
+just because it could not be measured here.
+
 
 
 ## 4. Worker bootstrapping and CSP in a VS Code webview

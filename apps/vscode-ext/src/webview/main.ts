@@ -166,6 +166,13 @@ self.fetch = async (input, init) => {
     const bytes = await __spikeWasmBytesPromise;
     return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/wasm' } });
   }
+  // Note (T007 investigation): LOAD spatial's extension download does NOT
+  // pass through this override at all (confirmed by adding and then
+  // removing logging here) — extension loading is handled by a lower-level
+  // mechanism inside the compiled Emscripten/WASM runtime itself, not a
+  // JS-level self.fetch call. So this override only ever needs to handle
+  // the core module URL above; the extension file's exact size could not be
+  // measured this way — see research.md §3.
   return __origFetch(input, init);
 };
 ${scriptText}
@@ -274,6 +281,21 @@ async function runFormatSupportSpike(
     post({ type: 'formatSummary', results })
     return
   }
+
+  // T007 (VSIX size budget): attempted to find the real size of the spatial
+  // extension binary fetched from the default CDN. duckdb_extensions() in
+  // this version has no size column, and the download doesn't pass through
+  // a JS-level fetch() we can intercept (see the self.fetch override's
+  // comment above) — so exact size remains unmeasured; this just confirms
+  // INSTALL is a no-op (installed: false) and loading over the real network
+  // succeeds when CSP allows it (research.md §3).
+  results.push(
+    await reportFormat('spatial extension LOAD details (duckdb_extensions())', async () => {
+      const res = await conn.query(`SELECT * FROM duckdb_extensions() WHERE extension_name = 'spatial'`)
+      const rows = res.toArray().map((r) => r.toJSON())
+      return JSON.stringify(rows)
+    })
+  )
 
   results.push(
     await reportFormat('ST_Drivers()', async () => {

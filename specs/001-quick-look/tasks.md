@@ -107,11 +107,22 @@ silently.
       unreliable across every format tested — irrelevant to spec 001 (read
       only) but important for spec 005 (export) later. Full results in
       `specs/001-quick-look/research.md` §1 ("T006 resolution").
-- [ ] T007 [P] Measure the actual bundle size impact of `@duckdb/duckdb-wasm`
-      (eh bundle + spatial extension) and MapLibre GL JS once added to
-      `apps/vscode-ext`; record the real `.vsix` size delta in
-      `specs/001-quick-look/research.md` §3 and set a CI size-budget check
-      (compare against `../omx-viewer`'s ~4.9MB baseline).
+- [X] T007 **[PARTIALLY RESOLVED]** [P] Measured the real `dist-webview` size
+      for the `eh` bundle: **~36MB** (`duckdb-eh.wasm` 35.9MB +
+      `duckdb-browser-eh.worker.js` 0.77MB + `main.js` 0.2MB), MapLibre not
+      yet added (Phase 3/T021 — expected a few hundred KB, immaterial next to
+      36MB). **Spatial extension size remains unmeasured**: no size column
+      in this version's `duckdb_extensions()`, and extension loading doesn't
+      pass through a JS-level `self.fetch()` call this project could
+      intercept — confirmed by extending the same technique that resolved
+      T005, which caught nothing for the extension download. Did not guess
+      at the CDN URL pattern to measure it a third way (no fabricated URLs).
+      Full details and the recommended planning stance (budget the ~36MB
+      core as firm, treat the extension size as a real unknown, not an
+      assumed-small addition) are in
+      `specs/001-quick-look/research.md` §3 ("T007 resolution"). A CI
+      size-budget check should still be set once a final VSIX is built in
+      Phase 3+ (compare against `../omx-viewer`'s ~4.9MB baseline).
 - [X] T008 Implement the `HostAdapter` interface and its supporting types
       (`OpenedFileRef`) in `packages/core/src/hostAdapter.ts`, matching
       `contracts/host-adapter.md` exactly (interface + types only — no
