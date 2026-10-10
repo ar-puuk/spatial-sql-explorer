@@ -43,7 +43,6 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="panel" role="dialog" aria-label="Basemap" tabindex="-1" onkeydown={handleKeydown}>
   <header>
     <h2>Basemap</h2>

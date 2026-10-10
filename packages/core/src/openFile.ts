@@ -380,7 +380,8 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     timings.scan = lap()
     const featureCount = Number(stats.valid_count)
     const invalidGeometryCount = Number(stats.invalid_count)
-    const extent: Bbox | null = stats.min_x === null ? null : [stats.min_x, stats.min_y!, stats.max_x!, stats.max_y!]
+    const extent: Bbox | null =
+      stats.min_x === null || stats.min_y === null || stats.max_x === null || stats.max_y === null ? null : [stats.min_x, stats.min_y, stats.max_x, stats.max_y]
     const rawTypes = (Array.isArray(stats.gtypes) ? stats.gtypes : (stats.gtypes?.toArray?.() ?? [])).map(String)
     const normalizedTypes = new Set(rawTypes.map(normalizeGeometryType).filter((t): t is Exclude<GeometryType, 'Mixed'> => t !== null))
     const geometryType: GeometryType = normalizedTypes.size > 1 ? 'Mixed' : [...normalizedTypes][0] ?? 'Point'

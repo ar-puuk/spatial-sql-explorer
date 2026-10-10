@@ -764,7 +764,54 @@ formats that T006 had passed could not actually be opened:
 
 **Dependency note.** `"@duckdb/duckdb-wasm": "latest"` currently resolves to
 `1.33.1-dev57.0`, a dev prerelease. Everything above was verified against it.
-Pin an exact version before publishing.
+Pin an exact version before publishing. *(Resolved in §10.)*
+
+## 10. Housekeeping before spec 002 (2026-10-10)
+
+**DuckDB-Wasm pinned to stable `1.32.0`.**
+- DuckDB publishes dev builds under npm's `latest` tag.
+- The spatial extension is fetched at runtime from `extensions.duckdb.org`
+  for the exact build in use. Dev-build extensions are not guaranteed to
+  stay hosted, and if they disappear every installed copy stops opening
+  files.
+- `1.32.0` (the newest stable) passes every suite unchanged: core 37, web 12,
+  VS Code 20, including the full format matrix.
+- All other `"latest"` ranges are pinned to `^<installed version>`.
+- The WASM copy scripts now resolve packages through Node's lookup paths,
+  because npm nested the new version under `packages/core/node_modules`.
+
+**ESLint runs.**
+- The root was missing ESLint and its plugins.
+- Config fixes:
+  - vendored `public/` bundles are ignored;
+  - `no-undef` is off for TypeScript and Svelte (TypeScript already checks
+    it);
+  - the rune-aware `svelte/prefer-const` replaces `prefer-const` in Svelte
+    files.
+- The host-agnostic rule now also forbids `localStorage`/`sessionStorage`
+  in `core`/`ui`. A deliberate violation confirmed that it fires.
+- `npm run lint` reports 0 problems.
+
+**Packaging.**
+- `npm run package --workspace=apps/vscode-ext` builds an 8 MB VSIX with 13
+  files: the built extension, the webview, the workers, the README, LICENSE,
+  CHANGELOG and notices.
+- Built with `vsce --no-dependencies`, since everything is bundled.
+- The publisher is still `TBD`, which is OPEN in CLAUDE.md.
+
+**Opening from the command line was a real bug, not a dev-host artifact.**
+- With the VSIX installed into a clean profile, `code <dir> <dir>/sample.fgb`
+  still opened the binary text editor.
+- Cause: VS Code resolves files passed on the command line before extension
+  contributions are registered.
+- Fix:
+  - The extension now activates `onStartupFinished`.
+  - Once, at startup, it reopens any text tabs holding the binary default
+    formats (`.gpkg`, `.fgb`, `.flatgeobuf`, `.shp`, `.geoparquet`) in
+    Spatial Explorer, in the same group. A text editor can't display those
+    files anyway.
+  - Text formats (GeoJSON, CSV) are left alone.
+- Verified against the installed VSIX.
 
 ## Summary of residual risk going into Phase 1
 

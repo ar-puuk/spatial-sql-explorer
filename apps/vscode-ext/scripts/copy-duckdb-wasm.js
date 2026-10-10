@@ -10,12 +10,22 @@
 // still requires no SharedArrayBuffer (unlike "coi"), so it remains
 // compatible with VS Code webviews per CLAUDE.md. It is also smaller
 // (~35.9MB wasm + ~0.77MB worker vs mvp's ~41.3MB + ~0.84MB).
-import { mkdirSync, copyFileSync } from 'node:fs'
+import { mkdirSync, copyFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const srcDir = join(__dirname, '..', '..', '..', 'node_modules', '@duckdb', 'duckdb-wasm', 'dist')
+// Resolve packages the way Node does, from the workspace that depends on
+// them: npm may hoist them to the root node_modules or keep them nested.
+// (Node's lookup path list rather than require.resolve: some packages' `exports` hide package.json.)
+const fromPackage = (workspace, pkg) => {
+  const req = createRequire(join(__dirname, '..', '..', '..', 'packages', workspace, 'package.json'))
+  const dir = req.resolve.paths(pkg).map((p) => join(p, pkg)).find((p) => existsSync(join(p, 'package.json')))
+  if (!dir) throw new Error(`Cannot find ${pkg} from packages/${workspace}`)
+  return join(dir, 'dist')
+}
+const srcDir = fromPackage('core', '@duckdb/duckdb-wasm')
 const destDir = join(__dirname, '..', 'dist-webview', 'duckdb')
 
 mkdirSync(destDir, { recursive: true })
@@ -32,7 +42,7 @@ for (const file of files) {
 // main.ts loads this through a same-origin blob: URL, like DuckDB's worker
 // (research.md §4: a worker constructed directly from an asWebviewUri() URL
 // is blocked in a webview).
-const maplibreSrc = join(__dirname, '..', '..', '..', 'node_modules', 'maplibre-gl', 'dist', 'maplibre-gl-worker.mjs')
+const maplibreSrc = join(fromPackage('ui', 'maplibre-gl'), 'maplibre-gl-worker.mjs')
 const maplibreDestDir = join(__dirname, '..', 'dist-webview', 'maplibre')
 mkdirSync(maplibreDestDir, { recursive: true })
 copyFileSync(maplibreSrc, join(maplibreDestDir, 'maplibre-gl-worker.mjs'))

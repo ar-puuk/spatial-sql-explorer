@@ -7,6 +7,14 @@
   "type": "module",
   "publisher": "TBD",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ar-puuk/spatial-sql-explorer"
+  },
+  "homepage": "https://github.com/ar-puuk/spatial-sql-explorer",
+  "bugs": {
+    "url": "https://github.com/ar-puuk/spatial-sql-explorer/issues"
+  },
   "categories": [
     "Visualization",
     "Data Science"
@@ -22,7 +30,9 @@
     "vscode": "^1.85.0"
   },
   "main": "./out/extension.cjs",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "customEditors": [
       {
@@ -111,8 +121,9 @@
   "scripts": {
     "build:extension": "node esbuild.js",
     "build:webview": "vite build --config vite.webview.config.ts && node scripts/copy-duckdb-wasm.js",
-    "build": "npm run build:extension && npm run build:webview",
-    "vscode:prepublish": "npm run build"
+    "build": "node scripts/copy-package-docs.js && npm run build:extension && npm run build:webview",
+    "vscode:prepublish": "npm run build",
+    "package": "npm run build && vsce package --no-dependencies"
   },
   "dependencies": {
     "@spatial-explorer/core": "*",
@@ -120,11 +131,12 @@
     "svelte": "^5.0.0"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "latest",
-    "@types/node": "latest",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.5",
     "@types/vscode": "^1.85.0",
-    "esbuild": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4"
   }
 }

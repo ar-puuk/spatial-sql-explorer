@@ -7,14 +7,14 @@
     "test": "node ./out/runTest.js"
   },
   "dependencies": {
-    "glob": "latest",
-    "mocha": "latest"
+    "glob": "^13.0.6",
+    "mocha": "^12.0.3"
   },
   "devDependencies": {
-    "@types/mocha": "latest",
-    "@types/node": "latest",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.5",
     "@types/vscode": "^1.85.0",
-    "@vscode/test-electron": "latest",
-    "typescript": "latest"
+    "@vscode/test-electron": "^3.1.0",
+    "typescript": "^7.0.2"
   }
 }

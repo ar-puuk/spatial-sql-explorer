@@ -145,7 +145,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
   } else if (msg.type === 'initFileStart' && msg.fileName) {
     ensureFileSourcePromise()
-    pendingFiles!.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
+    pendingFiles?.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
   } else if (msg.type === 'initFileChunk' && msg.fileName && msg.bytesBase64 !== undefined && msg.index !== undefined) {
     const pending = pendingFiles?.get(msg.fileName)
     if (pending) pending.chunks[msg.index] = msg.bytesBase64

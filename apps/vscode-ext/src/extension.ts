@@ -117,8 +117,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     // editor takes focus, restore them when this one comes back.
     panel.onDidChangeViewState(() => {
       if (panel.active) {
-        this.statusBarCrs.text && this.statusBarCrs.show()
-        this.statusBarFeatureCount.text && this.statusBarFeatureCount.show()
+        if (this.statusBarCrs.text) this.statusBarCrs.show()
+        if (this.statusBarFeatureCount.text) this.statusBarFeatureCount.show()
       } else if (![...this.panels].some((p) => p.active)) {
         this.statusBarCrs.hide()
         this.statusBarFeatureCount.hide()
@@ -378,10 +378,32 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 /** Formats the 'default' editor claims; the rest open via the 'option' editor. */
 const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet'])
 
+/**
+ * Files passed on the command line at launch (`code parcels.gpkg`) are
+ * opened before extension contributions are registered, so VS Code shows its
+ * "binary file" text editor even for formats this extension claims as the
+ * default editor. Confirmed with an installed VSIX (research.md §10). Once,
+ * at startup, reopen those tabs in Spatial Explorer in the same group. Only
+ * the binary default formats are touched: the text editor can't show them,
+ * whereas a GeoJSON or CSV in a text tab may be exactly what the user wanted.
+ */
+async function reopenBinaryTabsFromStartup(): Promise<void> {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (!(tab.input instanceof vscode.TabInputText)) continue
+      const uri = tab.input.uri
+      if (!DEFAULT_EDITOR_EXTENSIONS.has(path.posix.extname(uri.path).toLowerCase())) continue
+      await vscode.commands.executeCommand('vscode.openWith', uri, 'spatialExplorer.editor', { viewColumn: group.viewColumn, preserveFocus: !tab.isActive })
+      await vscode.window.tabGroups.close(tab)
+    }
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Spatial Explorer')
   context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
+  void reopenBinaryTabsFromStartup().catch((err) => log(`Could not reopen startup tabs: ${String(err)}`))
 
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider('spatialExplorer.editor', provider, {

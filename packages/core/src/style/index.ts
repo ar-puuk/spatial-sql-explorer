@@ -24,7 +24,7 @@ export function baseName(fileName: string): string {
 }
 
 export function styleFileName(dataFileName: string, format: StyleFormat): string {
-  const ext = STYLE_FORMATS.find((f) => f.format === format)!.extension
+  const ext = STYLE_FORMATS.find((f) => f.format === format)?.extension ?? '.qml'
   return baseName(dataFileName) + ext
 }
 

@@ -20,6 +20,9 @@ export default [
     rules: {
       ...tsPlugin.configs.recommended.rules,
       'no-unused-vars': 'off',
+      // TypeScript itself reports undefined names; the core rule can't see
+      // type-only globals (the GeoJSON namespace) or Svelte 5 runes.
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-non-null-assertion': 'warn',
@@ -48,6 +51,12 @@ export default [
     },
   },
 
+  // Build scripts run in Node.
+  {
+    files: ['**/scripts/**/*.{js,mjs}', '**/esbuild.js', 'scripts/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+
   {
     rules: {
       'prefer-const': 'error',
@@ -55,6 +64,16 @@ export default [
       eqeqeq: ['error', 'always'],
       'svelte/valid-compile': 'warn',
       'svelte/no-unused-svelte-ignore': 'warn',
+    },
+  },
+
+  // Svelte 5 declares props and derived values with `let` by convention
+  // (`let { x } = $props()`, `let y = $derived(...)`): use the rune-aware rule.
+  {
+    files: ['**/*.svelte', '**/*.svelte.ts'],
+    rules: {
+      'prefer-const': 'off',
+      'svelte/prefer-const': 'error',
     },
   },
 
@@ -71,6 +90,8 @@ export default [
         { name: 'acquireVsCodeApi', message: 'packages/core and packages/ui are host-agnostic (Constitution II). Use HostAdapter instead.' },
         { name: 'indexedDB', message: 'packages/core and packages/ui are host-agnostic (Constitution II); do not use IndexedDB directly. Use HostAdapter.saveFile/loadState instead.' },
         { name: 'FileReader', message: 'packages/core and packages/ui are host-agnostic (Constitution II); do not use the File API directly. Use HostAdapter.openFiles/getFileSource instead.' },
+        { name: 'localStorage', message: 'packages/core and packages/ui are host-agnostic (Constitution II); persist through HostAdapter.loadState/saveState.' },
+        { name: 'sessionStorage', message: 'packages/core and packages/ui are host-agnostic (Constitution II); persist through HostAdapter.loadState/saveState.' },
       ],
     },
   },
@@ -78,6 +99,9 @@ export default [
   {
     ignores: [
       'legacy/',
+      // Vendored worker/wasm bundles copied from node_modules at build time.
+      'apps/web/public/',
+      'screenshots/',
       '**/dist/',
       '**/dist-webview/',
       '**/out/',

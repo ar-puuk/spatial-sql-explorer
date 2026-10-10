@@ -1,0 +1,16 @@
+# Only the built extension, the built webview, and its docs ship in the VSIX.
+# Everything is bundled (esbuild for the host, Vite for the webview), so no
+# node_modules are needed: package with `vsce package --no-dependencies`.
+src/**
+scripts/**
+node_modules/**
+.vscode/**
+*.ts
+tsconfig.json
+esbuild.js
+vite.webview.config.ts
+svelte.config.js
+.gitignore
+**/*.map
+**/.DS_Store
+*.vsix
