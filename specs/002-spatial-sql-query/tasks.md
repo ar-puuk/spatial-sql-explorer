@@ -353,21 +353,22 @@ refreshed after temp DDL.
 **Independent Test**: type the start of a column and a function, and confirm
 both are suggested and completed (quickstart Scenario 4).
 
-- [ ] T040 [P] [US4] Write `tests/web/specs/query-autocomplete.spec.ts` for quickstart Scenario 4:
+- [X] T040 [P] [US4] Write `tests/web/specs/query-autocomplete.spec.ts` for quickstart Scenario 4:
   - typing `SELECT na` lists `name` with the type `VARCHAR`;
   - `ST_Ar` lists `ST_Area` first, with a signature and description in the info panel;
   - after `CREATE TEMP TABLE big AS …`, typing `FROM bi` suggests `big`;
   - `__se_*` objects are never suggested.
-- [ ] T041 [P] [US4] Implement `packages/core/src/query/catalog.ts`, giving `QuerySession.catalog()` → `CatalogSnapshot` (research §7):
+- [X] T041 [P] [US4] Implement `packages/core/src/query/catalog.ts`, giving `QuerySession.catalog()` → `CatalogSnapshot` (research §7):
   - **Tables and columns**: `duckdb_tables()`, `duckdb_views()`, `duckdb_columns()` (`NOT internal`, excluding `__se_%`, including `layer`, the alias and temp objects).
   - **Functions**: `duckdb_functions()`, grouped by name with overload signatures `name(params) → return_type` and the description's first paragraph, with `ST_*` ranked first.
   - **Keywords**: `duckdb_keywords()`.
   - Cache the snapshot and invalidate it after `tempDdl` outcomes.
-- [ ] T042 [US4] Wire completion into `packages/ui/src/SqlEditor.svelte`:
+- [X] T042 [US4] Wire completion into `packages/ui/src/SqlEditor.svelte`:
   - pass `schema` (table → columns, with types as `detail`) to `sql({ schema, defaultTable: 'layer', upperCaseKeywords: true })`;
   - add a custom `CompletionSource` for functions (label, `detail` signature, `info` description, boost for `ST_*`) and keywords;
   - style the tooltip with `--se-menu-*` tokens.
   - `QueryPanel` loads the catalog after open and after DDL.
+  - *Done*: `query-autocomplete.spec` passes (with query and query-errors, 9/9). Note: `autocompletion({ override })` replaces every source, so `schemaCompletionSource` from lang-sql is composed back in. The store loads the catalog after open and after each `ddl` outcome. `QuerySession.catalog()` returns the cache or `null` while a query runs, never queuing behind it. The test matches `big` by exact label because `BIGINT` and others also contain it. VS Code themes are reviewed via the T049 screenshots.
 
 **Checkpoint**: T040 passes. Autocomplete works in VS Code by hand, in all three themes.
 

@@ -10,7 +10,7 @@
   import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands'
   import { bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
   import { autocompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
-  import { sql, StandardSQL, type SQLNamespace } from '@codemirror/lang-sql'
+  import { sql, StandardSQL, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql'
   import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
   import { tags } from '@lezer/highlight'
 
@@ -78,8 +78,14 @@
   })
 
   const languageExtension = (s: SQLNamespace) => sql({ dialect: StandardSQL, schema: s, defaultTable: 'layer', upperCaseKeywords: true })
-  const completionExtension = (sources: CompletionSource[]) =>
-    autocompletion({ override: sources.length ? [...sources] : undefined, activateOnTyping: true, icons: false })
+  // `override` replaces every completion source, the language's own schema
+  // completion included, so it's composed back in explicitly.
+  const completionExtension = (s: SQLNamespace, sources: CompletionSource[]) =>
+    autocompletion({
+      override: [schemaCompletionSource({ schema: s, defaultTable: 'layer', dialect: StandardSQL }), ...sources],
+      activateOnTyping: true,
+      icons: false,
+    })
 
   onMount(() => {
     view = new EditorView({
@@ -95,7 +101,7 @@
           bracketMatching(),
           placeholder('SELECT * FROM layer'),
           language.of(languageExtension(schema)),
-          completion.of(completionExtension(completionSources)),
+          completion.of(completionExtension(schema, completionSources)),
           syntaxHighlighting(highlight),
           linter(null),
           lintGutter(),
@@ -163,8 +169,9 @@
   })
 
   $effect(() => {
+    const s = schema
     const sources = completionSources
-    view?.dispatch({ effects: completion.reconfigure(completionExtension(sources)) })
+    view?.dispatch({ effects: completion.reconfigure(completionExtension(s, sources)) })
   })
 
   /** Focus the editor (used by the panel's keyboard shortcut). */

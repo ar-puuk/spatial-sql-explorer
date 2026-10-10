@@ -9,6 +9,8 @@ import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
 import { buildQueryResult, CTAS_PREFIX, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { resolveResultCrs } from './resultCrs.js'
+import { loadCatalog } from './catalog.js'
+import type { CatalogSnapshot } from '../models.js'
 import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
 
 /** contracts/query-service.md */
@@ -82,6 +84,7 @@ export class QuerySession {
   private inFlight: Promise<unknown> | null = null
   private cancelRequested = false
   private disposed = false
+  private catalogCache: CatalogSnapshot | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -147,6 +150,7 @@ export class QuerySession {
           const n = await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${quoteIdent(policy.name)}`, isCancelled)
           summary += ` (${nf.format(Number(n.n))} rows)`
         }
+        this.catalogCache = null // temp objects changed: completion must see them
         return { kind: 'ddl', summary, durationMs: elapsed(), statement }
       })
     } catch (err) {
@@ -157,6 +161,18 @@ export class QuerySession {
     }
     this.log?.(`[query] ${describeOutcome(outcome)} — ${oneLine(span.text)}`)
     return outcome
+  }
+
+  /**
+   * Autocomplete data from the live catalog (FR-015), cached until temp DDL
+   * changes it. Returns the cache (or null) instead of queuing behind a
+   * running query.
+   */
+  async catalog(): Promise<CatalogSnapshot | null> {
+    if (this.catalogCache) return this.catalogCache
+    if (this.inFlight || this.disposed) return null
+    this.catalogCache = await this.exclusive((isCancelled) => loadCatalog(this.conn, isCancelled))
+    return this.catalogCache
   }
 
   /** DESCRIBE / SHOW / SUMMARIZE / EXPLAIN: small, table-only results, streamed directly. */

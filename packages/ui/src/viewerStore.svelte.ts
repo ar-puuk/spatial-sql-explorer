@@ -21,6 +21,7 @@ import {
   type HostAdapter,
   type LayerStyle,
   type QueryHistoryEntry,
+  type CatalogSnapshot,
   type QuerySession,
   type RunOutcome,
   type EngineError,
@@ -81,6 +82,8 @@ export interface ViewerStore {
   /** Recent queries for the open file, newest first (FR-016; US5). */
   readonly history: QueryHistoryEntry[]
   runQuery(selection: { from: number; to: number }): Promise<void>
+  /** Live catalog for autocomplete (FR-015); refreshed after open and after temp DDL. */
+  readonly catalog: CatalogSnapshot | null
   /** True when the editor holds edits that haven't run yet (Reset asks first). */
   readonly queryEdited: boolean
   /** FR-011: back to the view as opened: default query, rows, extent, style. */
@@ -199,6 +202,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // object: re-running LIMIT 1000 would lose the whole-file fit and the
   // "Showing 1,000 of N" truncation.
   let initialLayer: Layer | null = null
+  let catalog = $state.raw<CatalogSnapshot | null>(null)
+
+  async function refreshCatalog(): Promise<void> {
+    const qs = querySession
+    if (!qs) return
+    const snapshot = await qs.catalog().catch(() => null)
+    if (snapshot && qs === querySession) catalog = snapshot
+  }
   let resultGeometryColumn = $state<string | null>('geom')
   const history = $state<QueryHistoryEntry[]>([]) // filled by US5 (T045-T046)
 
@@ -281,6 +292,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       case 'ddl':
         queryPhase = 'succeeded'
         lastRunText = outcome.statement.text
+        void refreshCatalog()
         break
       case 'refused':
         queryPhase = 'refused'
@@ -321,6 +333,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const opened = await openFile(ref, { hostAdapter, duckdbAssets })
       querySession = opened.session
       resetQueryState()
+      catalog = null
+      void refreshCatalog()
       const layer = opened.layer
       initialLayer = layer
       session.layer = layer
@@ -411,6 +425,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       queryText = text
       // An edit invalidates the error squiggle (FR-008).
       if (queryErrorRange) queryErrorRange = null
+    },
+    get catalog() {
+      return catalog
     },
     get queryEdited() {
       return queryText !== DEFAULT_QUERY && queryText !== (lastRunText ?? DEFAULT_QUERY)
