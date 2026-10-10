@@ -12,7 +12,7 @@ rendered on a MapLibre map (fitted to extent, reprojected to EPSG:4326 for
 display) and in an attribute table, with map↔table selection sync, CRS/count/
 geometry-type/cursor-coordinate display, a theme-matched default basemap with
 an off/blank option, and click-to-inspect. Technical approach: DuckDB-WASM
-(single-threaded `mvp` bundle) with the spatial extension running inside each
+(single-threaded `eh` (exception-handling) bundle) with the spatial extension running inside each
 webview/browser tab parses the file via `ST_Read`/`read_parquet`; a
 host-agnostic `packages/core` (HostAdapter, DuckDB access, CRS handling) and
 `packages/ui` (Svelte 5 components) are shared between `apps/vscode-ext` and
@@ -28,7 +28,7 @@ item — DuckDB-WASM worker bootstrapping inside an actual VS Code webview.
 **Language/Version**: TypeScript (strict), matching `../omx-viewer`.
 
 **Primary Dependencies**: Svelte 5, Vite, esbuild (extension host bundler),
-`@duckdb/duckdb-wasm` (single-threaded `mvp` bundle + spatial extension),
+`@duckdb/duckdb-wasm` (single-threaded `eh` (exception-handling) bundle + spatial extension),
 MapLibre GL JS.
 
 **Storage**: N/A for this spec — no persistence beyond the lifetime of one

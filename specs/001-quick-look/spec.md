@@ -164,7 +164,9 @@ confirming its attributes are shown, independent of any other feature in this sp
 - What happens with a very large file? Spec 001 targets small files (~10MB, loading in
   under ~2 seconds); files substantially larger than that may load slowly or hit
   resource limits, and dedicated large-file handling (viewport bbox queries, range
-  reads) is deferred to later hardening per the project's performance rules.
+  reads) is deferred to later hardening per the project's performance rules. The
+  default 1000-feature display cap (FR-019) also bounds how much is ever rendered
+  at once regardless of file size, independent of the byte-size target.
 - What happens if the file changes on disk while it is open in the viewer? The viewer
   does not need to live-reload in this spec; the user can be told the file changed
   on next relevant interaction, but stale data must not be silently presented as current
@@ -219,14 +221,17 @@ confirming its attributes are shown, independent of any other feature in this sp
   layer or table.
 - **FR-017**: The system MUST update chrome and basemap to match a host theme change
   that occurs while the viewer is already open.
-- **FR-018**: The system MUST support opening any vector file format that DuckDB's
-  spatial extension can read natively (via `ST_Read` or `read_parquet`) in the actual
-  WASM runtime used by this product — including at minimum GeoJSON, GeoParquet,
-  FlatGeobuf, GeoPackage, Shapefile, GML, and MapInfo TAB — with each format's actual
-  support confirmed by the Phase 0 spike before being documented as working, per the
-  project's verified-claims rule. GeoPackage in particular MUST NOT be assumed to work
-  via DuckDB-WASM without spike confirmation; a non-DuckDB fallback reader is the
-  contingency if the spike finds it unsupported or unreliable.
+- **FR-018**: The system MUST support opening the following vector file formats,
+  each confirmed readable (via `ST_Read` or `read_parquet`) against the actual WASM
+  runtime this product ships (Phase 0 spike, `research.md` §1 "T006 resolution"):
+  GeoJSON, CSV (with coordinate columns), GeoParquet, FlatGeobuf, GeoPackage,
+  Shapefile, and GML. MapInfo TAB is explicitly excluded from this spec's supported
+  list pending resolution of an unverified companion-file read issue — it MUST NOT be
+  listed as supported in user-facing copy until a passing spike confirms it.
+- **FR-019**: When an opened layer has more features than a default display cap, the
+  system MUST render only the first 1000 features (or all features, if the layer has
+  1000 or fewer) by default, and MUST visibly indicate to the user that the view is
+  showing a truncated subset rather than the complete dataset.
 
 ### Key Entities
 

@@ -18,10 +18,11 @@ layer only, per the clarified multi-layer decision — FR-018, Edge Cases).
 | `geometryType` | `'Point' \| 'LineString' \| 'Polygon' \| 'Mixed'` | `'Mixed'` when more than one base geometry type is present (FR-013). |
 | `sourceCrs` | `CrsInfo` | The CRS as read from the file; see below. Reprojection to EPSG:4326 happens only for rendering (FR-007) — this field always reflects the *original* source CRS. |
 | `crsAssumed` | boolean | `true` when the file had no CRS information and WGS84 was assumed (FR-015); drives the disclosure UI. |
-| `featureCount` | number | Count of features successfully parsed, excluding skipped invalid geometries. |
+| `featureCount` | number | Total count of valid features in the source, excluding skipped invalid geometries — this is the number shown in metadata/status displays (FR-006), independent of how many are actually rendered. |
 | `invalidGeometryCount` | number | Count of geometries skipped during rendering (FR-014); `0` when none were skipped. |
-| `extent` | `BBox` (`[minX, minY, maxX, maxY]`, EPSG:4326) | Used to fit the map view on open (FR-003). `null` for a zero-feature layer (Edge Cases). |
-| `features` | `Feature[]` | Ordered collection; order defines the table's row order and is stable for the session. |
+| `truncated` | boolean | `true` when `featureCount > 1000` and only the first 1000 were loaded into `features` (FR-019). |
+| `extent` | `BBox` (`[minX, minY, maxX, maxY]`, EPSG:4326) | Used to fit the map view on open (FR-003). Computed from the *full* source extent (query-level, e.g. `ST_Extent`), not just the loaded/rendered subset, so the fit is correct even when `truncated` is `true`. `null` for a zero-feature layer (Edge Cases). |
+| `features` | `Feature[]` | The loaded/rendered subset actually held in memory — at most 1000 entries (FR-019; `features.length <= 1000`, and `features.length === featureCount` only when `!truncated`). Ordered collection; order defines the table's row order and is stable for the session. |
 
 ### CrsInfo
 
@@ -86,3 +87,6 @@ idle → loading → ready
   metadata (FR-014); it never blocks reaching `ready`.
 - `crsAssumed === true` must be disclosed in the same UI surface as
   `sourceCrs.label` (FR-015) — never shown as if it were read from the file.
+- `truncated === true` must be disclosed visibly alongside `featureCount`
+  (FR-019) — e.g. "Showing 1,000 of 4,213 features" — never silently; a user
+  must never mistake a truncated view for the complete dataset.

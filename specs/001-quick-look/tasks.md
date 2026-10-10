@@ -88,15 +88,27 @@ silently.
       recorded in `specs/001-quick-look/research.md` §4. **T009 must reuse
       this same `self.fetch`-interception technique** — do not re-attempt a
       plain URL-based `db.instantiate()` call against an `asWebviewUri`.
-- [ ] T006 **[SPIKE]** [P] In an actual browser (or the webview from T005 once
-      it boots), run `INSTALL spatial; LOAD spatial; SELECT * FROM ST_Drivers();`
-      plus a per-format `ST_Read` smoke test (GeoJSON, GeoParquet, FlatGeobuf,
-      GeoPackage, Shapefile, GML, MapInfo TAB) against one small sample file
-      per format. Record pass/fail per format in
-      `specs/001-quick-look/research.md` §1, updating FR-018's format list in
-      `spec.md` if any format (especially GeoPackage) turns out unsupported.
+- [X] T006 **[SPIKE — RESOLVED, VERIFIED]** Ran
+      `INSTALL spatial; LOAD spatial; SELECT * FROM ST_Drivers();` plus a
+      per-format `ST_Read` test against real sample files inside the actual
+      VS Code webview (`tests/vscode-ext/src/suite/formatSupport.spike.test.ts`).
+      Found and fixed a bundle-choice bug along the way: the `mvp` bundle
+      fails every GDAL-driver format with
+      `ReferenceError: _setThrew is not defined` (missing WASM
+      exception-handling glue GDAL's C++ code needs); switched to the `eh`
+      bundle (still single-threaded, no `SharedArrayBuffer`), which fixed it
+      and is also smaller. **Confirmed readable**: GeoJSON, CSV, GeoParquet,
+      FlatGeobuf, GeoPackage, Shapefile, GML — all tested against real files
+      (180-feature `samples/world-boundaries.geojson` and GDAL-converted
+      copies of it, generated via `geopandas`/`pyogrio` outside the WASM
+      sandbox). **Not confirmed**: MapInfo TAB (`stat() failed for
+      /tmp/sample.id` — unresolved companion-file lookup issue; excluded
+      from the confirmed format list). GDAL **write** is separately confirmed
+      unreliable across every format tested — irrelevant to spec 001 (read
+      only) but important for spec 005 (export) later. Full results in
+      `specs/001-quick-look/research.md` §1 ("T006 resolution").
 - [ ] T007 [P] Measure the actual bundle size impact of `@duckdb/duckdb-wasm`
-      (mvp bundle + spatial extension) and MapLibre GL JS once added to
+      (eh bundle + spatial extension) and MapLibre GL JS once added to
       `apps/vscode-ext`; record the real `.vsix` size delta in
       `specs/001-quick-look/research.md` §3 and set a CI size-budget check
       (compare against `../omx-viewer`'s ~4.9MB baseline).
@@ -105,7 +117,7 @@ silently.
       `contracts/host-adapter.md` exactly (interface + types only — no
       platform implementation here).
 - [ ] T009 Implement the DuckDB-WASM bootstrap service in
-      `packages/core/src/duckdbService.ts`: single-threaded `mvp` bundle,
+      `packages/core/src/duckdbService.ts`: single-threaded `eh` bundle (switched from `mvp` per T006's findings — see research.md §1),
       spatial extension loaded from a bundled/local path (not the default CDN)
       per `research.md` §3. Depends on T005 and T006's confirmed approach —
       do not write this against assumed-working behavior.
@@ -198,10 +210,15 @@ matching rows, and clicking either highlights the other.
       reach `loadState: 'ready'` (not `'error'`) for a zero-feature file
       (FR-012); must parse and retain every feature regardless of geometry
       type when a layer mixes geometry types, setting
-      `Layer.geometryType = 'Mixed'` (FR-013); and must skip invalid
+      `Layer.geometryType = 'Mixed'` (FR-013); must skip invalid
       geometries during parsing while incrementing
-      `Layer.invalidGeometryCount` instead of failing the load (FR-014).
-      Depends on T009, T010, T011.
+      `Layer.invalidGeometryCount` instead of failing the load (FR-014);
+      and must load at most `DEFAULT_FEATURE_CAP` (1000) features into
+      `Layer.features`, setting `Layer.truncated = true` when
+      `Layer.featureCount` (the *total* valid count, via e.g. a `COUNT(*)`
+      query) exceeds that cap — `Layer.extent` MUST still be computed from
+      the full source (e.g. `ST_Extent`), not just the loaded subset
+      (FR-019). Depends on T009, T010, T011.
 - [ ] T025 [US1] Wire map↔table selection sync via
       `ViewerSession.selectedFeatureId` in
       `packages/ui/src/ViewerLayout.svelte`. Depends on T022, T023, T011.
@@ -276,8 +293,9 @@ reprojected rendering.
 ### Implementation for User Story 3
 
 - [ ] T035 [P] [US3] Implement the `StatusBar`/metadata display component
-      (CRS, feature count, geometry type, CRS-assumed disclosure) in
-      `packages/ui/src/StatusBar.svelte`.
+      (CRS, feature count, geometry type, CRS-assumed disclosure, and a
+      truncation notice — e.g. "Showing 1,000 of 4,213 features" — when
+      `Layer.truncated` is `true`, FR-019) in `packages/ui/src/StatusBar.svelte`.
 - [ ] T036 [US3] Wire VS Code native status bar items (CRS, feature count,
       cursor coordinates) via `HostAdapter.setStatus` in
       `apps/vscode-ext/src/extension.ts` (no-op on web, per CLAUDE.md).

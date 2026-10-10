@@ -9,6 +9,8 @@ class SpatialExplorerDocument implements vscode.CustomDocument {
   dispose(): void {}
 }
 
+type FormatResult = { label: string; ok: boolean; detail: string }
+
 type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
@@ -18,6 +20,8 @@ type WebviewToHostMessage =
       stage: string
       detail?: string
     }
+  | { type: 'formatResult'; label: string; ok: boolean; detail: string }
+  | { type: 'formatSummary'; results: FormatResult[] }
 
 /**
  * Latest T005 worker-bootstrap spike result, if any webview has reported
@@ -28,6 +32,9 @@ type WebviewToHostMessage =
  * running in the extension host).
  */
 let lastSpikeResult: { ok: boolean; stage: string; detail?: string } | null = null
+
+/** Latest T006 format-support spike summary, same rationale as above. */
+let lastFormatSummary: FormatResult[] | null = null
 
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
@@ -46,10 +53,18 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     panel.onDidDispose(() => this.panels.delete(panel))
 
     const webviewRoot = vscode.Uri.file(path.join(this.context.extensionPath, 'dist-webview'))
+    // T006 spike only: real sample files for formats this WASM build's own
+    // GDAL writer can't reliably produce (see research.md §1), generated via
+    // geopandas/GDAL outside the sandbox. Not part of the real open-file
+    // pipeline (that's T019/T024 — the opened document's own URI, not a
+    // fixed fixtures path).
+    const fixturesRoot = vscode.Uri.file(
+      path.join(this.context.extensionPath, '..', '..', 'tests', 'vscode-ext', 'fixtures')
+    )
 
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [webviewRoot],
+      localResourceRoots: [webviewRoot, fixturesRoot],
     }
 
     // Register the message listener BEFORE setting .html — if the webview
@@ -59,9 +74,13 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     // see contracts/host-webview-protocol.md).
     panel.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
       if (msg.type === 'ready') {
-        void this.sendAssetUris(panel, webviewRoot)
+        void this.sendAssetUris(panel, webviewRoot, fixturesRoot)
       } else if (msg.type === 'spikeResult') {
         lastSpikeResult = { ok: msg.ok, stage: msg.stage, detail: msg.detail }
+      } else if (msg.type === 'formatResult') {
+        console.log('[spatial-explorer webview] format:', msg.label, msg.ok, msg.detail)
+      } else if (msg.type === 'formatSummary') {
+        lastFormatSummary = msg.results
       } else if (msg.type === 'log') {
         console.log('[spatial-explorer webview]', msg.detail)
       }
@@ -77,17 +96,43 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
    * is the one ../omx-viewer's own shipped extension found throws
    * synchronously in a webview (origin mismatch). See research.md §4.
    */
-  private async sendAssetUris(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri): Promise<void> {
+  private async sendAssetUris(
+    panel: vscode.WebviewPanel,
+    webviewRoot: vscode.Uri,
+    fixturesRoot: vscode.Uri
+  ): Promise<void> {
     const workerUri = panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-mvp.worker.js')
+      vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js')
     )
     const wasmUri = panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-mvp.wasm')
+      vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm')
     )
+    // T006 spike only — see the fixturesRoot comment above.
+    const fixtureFiles = [
+      'world-boundaries.geojson',
+      'sample.fgb',
+      'sample.gpkg',
+      'sample.shp',
+      'sample.shx',
+      'sample.dbf',
+      'sample.prj',
+      'sample.cpg',
+      'sample.gml',
+      'sample.xsd',
+      'sample.tab',
+      'sample.dat',
+      'sample.id',
+      'sample.map',
+    ]
+    const fixtureUris: Record<string, string> = {}
+    for (const name of fixtureFiles) {
+      fixtureUris[name] = panel.webview.asWebviewUri(vscode.Uri.joinPath(fixturesRoot, name)).toString()
+    }
     await panel.webview.postMessage({
       type: 'assets',
       duckdbWorkerUrl: workerUri.toString(),
       duckdbWasmUrl: wasmUri.toString(),
+      fixtureUris,
     })
   }
 
@@ -99,7 +144,15 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp}; img-src ${csp} data:; font-src ${csp};">
+<!-- connect-src widened to https: for the T006 format-support spike only,
+     to test whether a worker's fetch of a REAL internet host (the DuckDB
+     extension CDN) hits the same "worker fetch never completes" limitation
+     found for VS Code's own vscode-resource.vscode-cdn.net virtual host
+     (research.md §4), or whether that limitation is specific to VS Code's
+     custom protocol interception. Narrow this back down once T006 is
+     resolved and the extension delivery decision (research.md §3: bundle,
+     don't rely on CDN) is implemented for real. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https:; img-src ${csp} data:; font-src ${csp};">
 <title>Spatial Explorer</title>
 </head>
 <body>
@@ -123,7 +176,8 @@ export function activate(context: vscode.ExtensionContext): void {
       supportsMultipleEditorsPerDocument: false,
     }),
     // Test-only introspection command (T005 spike) — not user-facing.
-    vscode.commands.registerCommand('spatialExplorer._getSpikeResult', () => lastSpikeResult)
+    vscode.commands.registerCommand('spatialExplorer._getSpikeResult', () => lastSpikeResult),
+    vscode.commands.registerCommand('spatialExplorer._getFormatSummary', () => lastFormatSummary)
   )
 }
 

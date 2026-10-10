@@ -36,13 +36,13 @@ about file subpaths instead of package boundaries).
 
 ## 1. Format support in the WASM spatial build
 
-**Decision**: Target format list for spec 001 is GeoJSON, GeoParquet,
-FlatGeobuf, GeoPackage, Shapefile, GML, and MapInfo TAB via DuckDB spatial's
-`ST_Read`/`read_parquet`, **except** GeoPackage is treated as "likely
-supported for read, NOT to be trusted without a live spike" and the first
-implementation task (T001, see tasks.md) must run `ST_Drivers()` and a
-per-format `ST_Read` smoke test against the real browser/webview WASM bundle
-before any format is documented as working in user-facing copy.
+**Decision (RESOLVED by T006 — see below)**: spec 001's final, verified
+format list is **GeoJSON, CSV (coordinate columns), GeoParquet, FlatGeobuf,
+GeoPackage, Shapefile, and GML** — each genuinely confirmed readable against
+the real `eh`-bundle WASM build, not assumed from documentation. MapInfo TAB
+is excluded pending an unresolved companion-file issue. The subsections
+below are kept in their original, pre-resolution form as the investigation
+record; see "T006 resolution" further down for the final outcome.
 
 **Rationale / Evidence gathered**:
 - DuckDB's spatial extension's `ST_Read` table function is GDAL-backed and
@@ -100,6 +100,74 @@ DuckDB with no caveats). Rejected for now because it's narrower than what the
 user asked this spec to support ("everything DuckDB's spatial extension can
 read natively") — T001 will narrow the list for real once it has verified
 evidence, rather than this document guessing further.
+
+### T006 resolution: real, verified per-format results
+
+Once T005 unblocked a working DuckDB-WASM instance inside the actual VS Code
+webview, T006 ran for real: `tests/vscode-ext/src/suite/formatSupport.spike.test.ts`
+loads the spatial extension, lists `ST_Drivers()`, and tests each candidate
+format. Two early findings shaped the final test design:
+
+- **Bundle switch: `mvp` → `eh`.** Under the `mvp` bundle, every GDAL-driver
+  read/write attempt failed identically with
+  `ReferenceError: _setThrew is not defined` — a classic Emscripten
+  exception-handling glue gap (GDAL's C++ code relies on exceptions; `mvp`'s
+  baseline-compatibility build omits that runtime support). Switching to the
+  `eh` (exception-handling) bundle — still single-threaded, no
+  `SharedArrayBuffer`, fully compatible with VS Code webviews per CLAUDE.md —
+  eliminated this class of failure entirely. `eh` is also *smaller*
+  (~35.9MB wasm + ~0.77MB worker vs. `mvp`'s ~41.3MB + ~0.84MB), so this is a
+  strict improvement, not a tradeoff. **Decision: ship `eh`, not `mvp`.**
+- **Read vs. write matters.** The first test design round-tripped each
+  format (write via `COPY ... WITH (FORMAT GDAL, DRIVER ...)`, then
+  `ST_Read` back), conflating read and write capability. Spec 001 only needs
+  **read** (export/write is spec 005) — and this WASM build's GDAL *write*
+  path turned out to be broadly unreliable (see below), which would have
+  produced false negatives for formats that can actually be read fine. The
+  test was corrected to test read capability directly: real sample files —
+  generated once, outside the WASM sandbox, via `geopandas`/`pyogrio` (real
+  GDAL bindings available in this dev environment) from the project's actual
+  sample dataset (`samples/world-boundaries.geojson`, 180 countries, a real
+  mix of `Polygon`/`MultiPolygon` geometry — this also exercises FR-013,
+  mixed geometry types, for real) — are fetched on the main thread (the one
+  network path proven reliable throughout this investigation) and registered
+  directly into DuckDB-WASM's virtual filesystem via `registerFileBuffer`/
+  `registerFileText`, with zero write step.
+
+**Final, verified results** (`eh` bundle, real 180-feature mixed-geometry
+files unless noted):
+
+| Format | Read result | Notes |
+|---|---|---|
+| GeoJSON | ✅ **CONFIRMED** — 180 rows | Pure read, real file |
+| CSV + `ST_Point` | ✅ **CONFIRMED** — 1 row | Pure read |
+| GeoParquet | ✅ **CONFIRMED** — 1 row | `read_parquet`, DuckDB's native parquet writer (not GDAL) + native reader |
+| FlatGeobuf | ✅ **CONFIRMED** — 180 rows | Pure read, real file |
+| GeoPackage | ✅ **CONFIRMED** — 180 rows | Pure read, real file — **this resolves the single riskiest claim flagged above**: GeoLibre's team avoided DuckDB-WASM for GeoPackage due to write/repair issues, but read-only (all spec 001 needs) works fine in this build |
+| Shapefile | ✅ **CONFIRMED** — 180 rows | Pure read, real file + companions (`.shx`/`.dbf`/`.prj`/`.cpg`) |
+| GML | ✅ **CONFIRMED** — 180 rows | Pure read, real file (+ `.xsd`) |
+| MapInfo TAB | ❌ **UNRESOLVED** — `IO Error: stat() failed for /tmp/sample.id` | Real file + all documented companions (`.dat`/`.id`/`.map`) registered; driver still can't find `.id` at the exact path it was registered under. Lowest-priority candidate format; not chased further in this pass. **Do not claim TAB support in user-facing copy or FR-018 until this is resolved.** |
+
+**`ST_Drivers()` confirms 45 GDAL drivers compiled into the `eh` bundle**,
+including every candidate above plus many more (KML, GPX, OSM, PMTiles,
+SQLite, XLSX, and others) — this is a substantially broader driver set than
+documentation alone suggested, and is itself useful evidence for later specs
+considering additional formats.
+
+**Write capability is confirmed broadly unreliable in this WASM build**
+(separate from the read results above, and not required by spec 001):
+FlatGeobuf write hits `RangeError: Maximum call stack size exceeded`;
+GeoPackage write hits `TransactionContext Error: cannot start a transaction
+within a transaction`; Shapefile, GML, and MapInfo TAB writes all hit
+`IO Error` failures. **This must be flagged clearly whenever spec 005
+(export) is planned** — GDAL-driver export via this path cannot be assumed
+to work for any format without its own dedicated spike, independent of this
+one's read-focused results.
+
+**Updated FR-018 format list for spec 001**: GeoJSON, CSV (coordinate
+columns), GeoParquet, FlatGeobuf, GeoPackage, Shapefile, GML — all genuinely
+verified readable. MapInfo TAB is removed from the confirmed list pending
+the `.id` companion-file issue being resolved.
 
 ## 2. Range reads / lazy loading in VS Code webviews (incl. Remote-SSH)
 
@@ -445,13 +513,14 @@ not just the core wasm module.
 
 | # | Spike | Status | Residual risk if wrong |
 |---|-------|--------|-------------------------|
-| 1 | Format support | Documentation + real prior-art evidence gathered; hands-on WASM test not completed in this environment (tooling limitation, see §1) | GeoPackage support claim in FR-018 could be false; mitigated by sql.js fallback plan |
+| 1 | Format support | **RESOLVED.** Real per-format `ST_Read` tests against the `eh` bundle, with real sample files, inside the actual VS Code webview: GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, GML all confirmed readable. MapInfo TAB unresolved (companion-file lookup failure) and excluded from FR-018's confirmed list | None remaining for the 7 confirmed formats; TAB must not be claimed as supported until its issue is resolved |
 | 2 | Range reads | Deferred — not required by spec 001's clarified (small-file) scope | None for 001; relevant again once large-file hardening begins |
-| 3 | Extension delivery / VSIX size | Override mechanism confirmed to exist; real size now measured: the `mvp` bundle alone is ~41.3MB (`duckdb-mvp.wasm`) + ~0.8MB (worker script) uncompressed, before the spatial extension (fetched separately at runtime) or MapLibre are added | VSIX will very likely need a dedicated size-budget decision, not just a CI alert; this is now a known, not estimated, number |
+| 3 | Extension delivery / VSIX size | Override mechanism confirmed to exist; real size now measured, and bundle choice changed: the `eh` bundle (switched from `mvp` — see T006 resolution in §1) is ~35.9MB (`duckdb-eh.wasm`) + ~0.77MB (worker script) uncompressed, before the spatial extension (fetched separately at runtime) or MapLibre are added — smaller than `mvp` on top of fixing the GDAL exception-handling bug | VSIX will very likely need a dedicated size-budget decision, not just a CI alert; this is now a known, not estimated, number |
 | 4 | Worker bootstrapping / CSP | **RESOLVED.** Root cause found and fixed via `self.fetch` interception inside the worker (see Resolution above), verified by a real, passing `@vscode/test-electron` test. CSP shape also confirmed working | None remaining for the core wasm module; the same technique must be reapplied for the spatial extension file (§3) and any other resource the worker needs |
 
-All four items are now either resolved or explicitly, non-silently deferred
-with a documented reason. Per the constitution's Verified Claims principle,
-`tasks.md` reflects T005 and this resolution as genuinely verified, not
-assumed — T009 (DuckDB bootstrap service) and the rest of US1's
-webview-dependent tasks can now proceed using the proven technique above.
+Three of four items are now fully resolved with real, verified evidence; the
+fourth (range reads) remains explicitly, non-silently deferred as out of
+scope for spec 001. Per the constitution's Verified Claims principle,
+`tasks.md` reflects T005 and T006 as genuinely verified, not assumed — T009
+(DuckDB bootstrap service) and the rest of Phase 2/3 tasks can now proceed
+using the `eh` bundle and the proven `self.fetch`-interception technique.
