@@ -93,9 +93,15 @@ describe('refused, with the contract reason', () => {
     it(sql, () => expect(reason(sql)).toBe("Extensions and other databases can't be used here."))
   }
 
-  for (const sql of ['SET threads = 2', 'RESET threads', "PRAGMA database_list", 'CALL pragma_version()', 'CHECKPOINT', 'VACUUM', "IMPORT DATABASE 'd'", 'BEGIN', 'COMMIT', 'ROLLBACK', 'FROBNICATE now']) {
+  for (const sql of ['SET threads = 2', 'RESET threads', "PRAGMA database_list", 'CALL pragma_version()', 'CHECKPOINT', 'VACUUM', "IMPORT DATABASE 'd'", 'BEGIN', 'COMMIT', 'ROLLBACK']) {
     it(sql, () => expect(reason(sql)).toBe("This statement isn't supported in Spatial Explorer."))
   }
+
+  // SC-003: a typo in the first word names it (and is still refused).
+  it('SELEC * FROM layer', () => expect(reason('SELEC * FROM layer')).toBe('"SELEC" isn\'t a SQL statement keyword. Did you mean SELECT?'))
+  it('selct name from layer', () => expect(reason('selct name from layer')).toBe('"selct" isn\'t a SQL statement keyword. Did you mean SELECT?'))
+  it('FORM layer', () => expect(reason('FORM layer')).toBe('"FORM" isn\'t a SQL statement keyword. Did you mean FROM?'))
+  it('FROBNICATE now', () => expect(reason('FROBNICATE now')).toBe('"FROBNICATE" isn\'t a SQL statement keyword. Queries start with SELECT, FROM or WITH.'))
 
   it('an empty statement is refused rather than allowed', () => {
     expect(classify('   -- nothing ').allowed).toBe(false)

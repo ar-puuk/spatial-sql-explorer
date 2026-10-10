@@ -5,6 +5,7 @@
 // extension loading, configuration locked; research §2), so a gap here still
 // can't reach the file system, the network or the settings.
 import { tokenize, type Token } from './scanner.js'
+import { levenshtein } from './distance.js'
 
 export type StatementClass =
   | { allowed: true; kind: 'query' }
@@ -21,11 +22,27 @@ export const REFUSAL = {
   unsupported: "This statement isn't supported in Spatial Explorer.",
 } as const
 
+/** A first word that isn't SQL at all: most often a typo, so say which word and suggest one. */
+export function unknownKeywordReason(word: string): string {
+  const w = word.toUpperCase()
+  const near = SUGGESTIONS.find((k) => levenshtein(w, k) <= (k.length >= 4 ? 2 : 1))
+  return near
+    ? `"${word}" isn't a SQL statement keyword. Did you mean ${near}?`
+    : `"${word}" isn't a SQL statement keyword. Queries start with SELECT, FROM or WITH.`
+}
+
 const QUERY_STARTS = new Set(['SELECT', 'FROM', 'VALUES', 'TABLE', 'PIVOT', 'UNPIVOT'])
 const UTILITY_STARTS = new Set(['DESCRIBE', 'SHOW', 'SUMMARIZE', 'EXPLAIN'])
 const MODIFY = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'ALTER', 'TRUNCATE'])
 const EXPORT = new Set(['COPY', 'EXPORT'])
 const EXTENSIONS = new Set(['INSTALL', 'LOAD', 'ATTACH', 'DETACH', 'USE', 'FORCE'])
+/** Statements the engine knows but Spatial Explorer doesn't run. */
+const KNOWN_UNSUPPORTED = new Set([
+  'SET', 'RESET', 'PRAGMA', 'CALL', 'CHECKPOINT', 'VACUUM', 'ANALYZE', 'IMPORT', 'BEGIN', 'START', 'TRANSACTION',
+  'COMMIT', 'END', 'ROLLBACK', 'ABORT', 'PREPARE', 'EXECUTE', 'DEALLOCATE', 'COMMENT', 'UPDATE', 'GRANT', 'REVOKE',
+])
+/** What a typo'd first word is compared against, most common first. */
+const SUGGESTIONS = ['SELECT', 'FROM', 'WITH', 'CREATE', 'DROP', 'DESCRIBE', 'SUMMARIZE', 'EXPLAIN', 'SHOW', 'VALUES', 'TABLE', 'PIVOT', 'UNPIVOT']
 /** Top-level words that turn a WITH … into something other than a query. */
 const WITH_WRITES = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'COPY', 'CREATE', 'DROP', 'ALTER'])
 
@@ -107,5 +124,7 @@ export function classifyStatement(text: string, protectedNames: string[]): State
   if (MODIFY.has(head)) return refuse(REFUSAL.modify)
   if (EXPORT.has(head)) return refuse(REFUSAL.export)
   if (EXTENSIONS.has(head)) return refuse(REFUSAL.extensions)
-  return refuse(REFUSAL.unsupported)
+  if (KNOWN_UNSUPPORTED.has(head)) return refuse(REFUSAL.unsupported)
+  // Still refused (fail closed), but naming the word helps more than "not supported".
+  return refuse(unknownKeywordReason(tokens[first].text))
 }

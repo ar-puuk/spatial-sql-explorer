@@ -21,7 +21,9 @@ for (const how of ['button', 'Escape'] as const) {
     if (how === 'button') await page.getByRole('button', { name: 'Cancel' }).click()
     else await editor(page).press('Escape')
     await expect(status(page)).toContainText('Cancelled after', { timeout: 3000 })
-    expect(Date.now() - t0).toBeLessThan(3000)
+    const cancelMs = Date.now() - t0
+    console.log(`TIMING SC-004 cancel (web, ${how}): ${cancelMs} ms`)
+    expect(cancelMs).toBeLessThan(3000)
     expect(await rowCount(page)).toBe(8)
 
     // Responsive, and the engine is usable again.

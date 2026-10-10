@@ -69,3 +69,28 @@ test('the engine lockdown blocks file and network access on its own (defense in 
   // And normal reads still work through the same hook.
   expect(await raw('SELECT count(*) FROM layer')).toBe('ok')
 })
+
+// SC-003: every class in the test set (syntax, unknown column, unknown table,
+// unknown function, type error) names the specific problem, in the real
+// engine, and none of them blanks or breaks the viewer.
+test('every error class in the SC-003 set names the specific problem', async ({ page }) => {
+  test.setTimeout(120000)
+  await openFile(page, fixture('world-boundaries.geojson'))
+  await openQueryPanel(page)
+  await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
+  const cases: Array<{ sql: string; kind: string; names: RegExp }> = [
+    { sql: 'SELEC * FROM layer', kind: 'Did you mean SELECT', names: /"SELEC"/ },
+    { sql: 'SELECT * FORM layer', kind: 'Parser Error', names: /"layer"/ },
+    { sql: 'SELECT nope FROM layer', kind: 'Binder Error', names: /"nope"/ },
+    { sql: 'SELECT * FROM parcels', kind: 'Catalog Error', names: /parcels/ },
+    { sql: 'SELECT ST_Areaa(geom) FROM layer', kind: 'Catalog Error', names: /ST_Areaa/i },
+    { sql: "SELECT name + 1 FROM layer", kind: 'Error', names: /\+|VARCHAR|Could not convert/ },
+    { sql: "SELECT ST_Area('not a geometry') FROM layer", kind: 'Error', names: /geometry|GEOMETRY|WKT/i },
+  ]
+  for (const c of cases) {
+    await runQuery(page, c.sql)
+    await expect(status(page), c.sql).toContainText(c.kind)
+    await expect(status(page), c.sql).toContainText(c.names)
+    expect(await rowCount(page), c.sql).toBe(8)
+  }
+})

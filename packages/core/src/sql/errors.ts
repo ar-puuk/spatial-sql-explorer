@@ -9,6 +9,7 @@
 // a leading "...". LINE numbers count from the start of the SQL actually
 // sent, which for queries is "CREATE … AS\n" + the statement (one line
 // before it).
+import { levenshtein } from './distance.js'
 
 export interface EngineErrorInfo {
   kind: string
@@ -50,20 +51,6 @@ function unwrapJson(raw: string): { text: string; position: number | null } {
 
 /** "Did you mean" suggestions pointing at engine internals are noise, not help. */
 const INTERNAL = /^(pg_|duckdb_|sqlite_|information_schema|__se_)/i
-
-function levenshtein(a: string, b: string): number {
-  const dp = Array.from({ length: b.length + 1 }, (_, i) => i)
-  for (let i = 1; i <= a.length; i++) {
-    let prev = dp[0]
-    dp[0] = i
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = dp[j]
-      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1))
-      prev = tmp
-    }
-  }
-  return dp[b.length]
-}
 
 /** Keeps a "Did you mean" only when it's plausibly what the user meant. */
 function usefulSuggestion(hint: string, message: string): boolean {

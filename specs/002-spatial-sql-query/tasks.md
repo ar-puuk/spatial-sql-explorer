@@ -420,12 +420,13 @@ history (quickstart Scenario 5).
     - The Modern themes painted keywords, strings and numbers plain `#CCCCCC` (the symbolIcon colors). They now use `--vscode-debugTokenExpression-*` first (research §6 updated).
     - VS Code's `<code>` styling hid the selected history entry's text.
     - The script waits after Ctrl+A, because VS Code applies webview select-all asynchronously.
-- [ ] T050 Measure and record, in `specs/002-spatial-sql-query/quickstart.md`, a new "Results" section:
+- [X] T050 Measure and record, in `specs/002-spatial-sql-query/quickstart.md`, a new "Results" section:
   - SC-001 (filtering query on the ~10 MB parcels file, both shells);
   - SC-004 (cancel latency);
   - SC-003 (the error test set from T029/T030: 100% specific messages).
 
   Then tick the Definition-of-done boxes.
+  - *Done*: see quickstart.md Results. SC-001 is web 122 ms and VS Code 62–94 ms. SC-004 cancel is 104–120 ms. SC-003 is 7/7, after the typo'd-keyword refusal fix (`unknownKeywordReason`, policy tests +4). The DoD box for the spec 001 suites is ticked in T052.
 - [ ] T051 [P] Update the docs:
   - `CHANGELOG.md` ([Unreleased] → Added: SQL query, with every capability);
   - `apps/vscode-ext/README.md` (a Query section: the `layer` table, Ctrl/Cmd+Enter, examples);

@@ -55,7 +55,8 @@ export function classifyStatement(text: string, protectedNames: string[]): State
 | `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `ALTER`, `TRUNCATE` | "Spatial Explorer doesn't modify data. Create a temp table from a query instead." |
 | `COPY`, `EXPORT` | "Exporting results isn't available yet." |
 | `INSTALL`, `LOAD`, `ATTACH`, `DETACH`, `USE` | "Extensions and other databases can't be used here." |
-| `SET`, `RESET`, `PRAGMA`, `CALL`, `CHECKPOINT`, `VACUUM`, `IMPORT`, `BEGIN`/`COMMIT`/`ROLLBACK`, anything else | "This statement isn't supported in Spatial Explorer." |
+| `SET`, `RESET`, `PRAGMA`, `CALL`, `CHECKPOINT`, `VACUUM`, `IMPORT`, `BEGIN`/`COMMIT`/`ROLLBACK` and other engine statements | "This statement isn't supported in Spatial Explorer." |
+| A first word that isn't SQL at all (usually a typo, SC-003) | `"SELEC" isn't a SQL statement keyword. Did you mean SELECT?` (the suggestion appears when the word is within 1–2 edits of an allowed start); otherwise `… Queries start with SELECT, FROM or WITH.` |
 
 ## Defense in depth
 

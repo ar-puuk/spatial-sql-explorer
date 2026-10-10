@@ -126,10 +126,24 @@ Manual runs:
 | Browser | `tests/web/specs/query*.spec.ts`, plus accessibility additions | Scenarios 1–7 in the real web build; the engine lockdown called directly; axe with the panel open, the dialog open and an error shown |
 | Extension | `tests/vscode-ext/src/suite/query.test.ts` | Run, error, refuse and cancel through the test hooks; output-channel lines; history across reopen; default-query parity with spec 001 for every format in the 001 format matrix (SC-002) |
 
+## Results (T050, measured 2026-10-10)
+
+Windows 11, production builds. The web numbers come from headless Chromium, which uses SwiftShader software WebGL, so map-side timings are pessimistic. The VS Code numbers come from the `@vscode/test-electron` suite.
+
+| Criterion | Target | Web | VS Code | How |
+|---|---|---|---|---|
+| SC-001: filtering query on the ~10 MB file (22,000 parcels, 10.41 MB), ≤ 1,000 rows | < 1 s | **122 ms** (Run → result status and map redrawn) | **62–94 ms** (3 runs; Run → result reported, polled every 25 ms) | `performance.spec` "SC-001 (spec 002)"; `query.test.ts` "Spec 002 timings" |
+| SC-004: cancel a running query | < 3 s | **120 ms** (button), **104 ms** (Esc) | **112 ms** | `query-cancel.spec`; `query.test.ts` cancel test (`TIMING` log lines) |
+| SC-003: invalid-query test set names the specific problem | 100% | **7 / 7** | Parser and refusal paths covered | `query-errors.spec` "every error class in the SC-003 set" |
+| SC-002: default-query parity with spec 001 | identical | n/a | **10 / 10 formats** | `query.test.ts` parity tests |
+| SC-007: history across reopen, per file | 100% | pass | pass | `query-history.spec`, `query.test.ts` US5 |
+
+The SC-003 set covers a statement-keyword typo (`SELEC`), a syntax error (`SELECT * FORM layer`), an unknown column, an unknown table, an unknown function, a VARCHAR + INTEGER type error and an invalid geometry literal. Every case keeps the previous result (8 rows). Measuring it found one gap, now fixed: a typo in the first word used to get the generic "This statement isn't supported". It now gets `"SELEC" isn't a SQL statement keyword. Did you mean SELECT?` (statement-policy.md). It is still refused before reaching the engine.
+
 ## Definition of done
 
-- [ ] Scenarios 1–7 pass in both shells (SC-006).
-- [ ] SC-001 (< 1 s filtering query on ~10 MB) and SC-004 (cancel < 3 s)
-      measured, not eyeballed.
+- [x] Scenarios 1–7 pass in both shells (SC-006). They are covered by the web `query*.spec` files and the VS Code `query.test.ts` suite; see Results.
+- [x] SC-001 (< 1 s filtering query on ~10 MB) and SC-004 (cancel < 3 s)
+      measured, not eyeballed (see Results).
 - [ ] All spec 001 suites still pass, with the table-row expectations
       updated for the invalid-geometry amendment.

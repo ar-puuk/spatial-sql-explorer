@@ -3,6 +3,8 @@
 // (contracts/host-webview-protocol-delta.md). @vscode/test-electron can't
 // type into the webview, so the hooks call the same store action as Run.
 import * as assert from 'assert'
+import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 
@@ -145,7 +147,9 @@ suite('Spec 002 US2: errors, refusals and cancel in VS Code', () => {
       s = await queryStateNow()
     }
     assert.strictEqual(s?.phase, 'cancelled')
-    assert.ok(Date.now() - t0 < 3000, `cancel took ${Date.now() - t0} ms`)
+    const cancelMs = Date.now() - t0
+    console.log(`TIMING SC-004 cancel (VS Code): ${cancelMs} ms`)
+    assert.ok(cancelMs < 3000, `cancel took ${cancelMs} ms`)
     const lines = (await vscode.commands.executeCommand('spatialExplorer._getLogLines')) as string[]
     const queryLines = lines.slice(before).filter((l) => l.startsWith('[query]'))
     assert.ok(queryLines.some((l) => /cancelled after/i.test(l)), queryLines.join('\n'))
@@ -187,5 +191,69 @@ suite('Spec 002 US5: history in VS Code', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
     await openAndWait('sample.fgb')
     assert.strictEqual(await settledHistoryLength(), Math.min(20, before + 2))
+  })
+})
+
+/** spec 001's ~10 MB performance fixture: 22,000 parcel-like polygons, 6 attributes. */
+function writeTenMegabyteGeoJson(): string {
+  const features: string[] = []
+  let seed = 42
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647
+  for (let i = 0; i < 22000; i++) {
+    const cx = -112.2 + rand() * 0.8
+    const cy = 40.4 + rand() * 0.8
+    const r = 0.0004 + rand() * 0.0008
+    const ring: string[] = []
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2
+      ring.push(`[${(cx + Math.cos(a) * r * (0.8 + rand() * 0.4)).toFixed(6)},${(cy + Math.sin(a) * r * (0.8 + rand() * 0.4)).toFixed(6)}]`)
+    }
+    ring.push(ring[0])
+    features.push(
+      `{"type":"Feature","properties":{"parcel_id":"P-${100000 + i}","zone":"${['R1', 'R2', 'C', 'I', 'AG'][i % 5]}","acres":${(rand() * 5).toFixed(3)},"value":${Math.round(rand() * 900000)},"year_built":${1900 + (i % 124)},"owner":"Owner ${i % 997}"},"geometry":{"type":"Polygon","coordinates":[[${ring.join(',')}]]}}`
+    )
+  }
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-perf-')), 'parcels-10mb.geojson')
+  fs.writeFileSync(file, `{"type":"FeatureCollection","features":[\n${features.join(',\n')}\n]}`)
+  return file
+}
+
+suite('Spec 002 timings in VS Code (T050)', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  // SC-001: run -> result reported by the webview (after the table and map
+  // layer are updated). Polled every 25 ms through the test hook, so it is an
+  // upper bound that includes the extension-host round trips.
+  test('SC-001: a filtering query on the ~10 MB file finishes in under 1 s', async function () {
+    this.timeout(120000)
+    const file = writeTenMegabyteGeoJson()
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+    const deadline = Date.now() + 60000
+    for (;;) {
+      const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+      if (s && s.loadState === 'ready') break
+      assert.ok(Date.now() < deadline, 'the 10 MB file did not load')
+      await sleep(200)
+    }
+    const timings: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const before = (await queryStateNow())?.runCount ?? 0
+      const t0 = Date.now()
+      await vscode.commands.executeCommand('spatialExplorer._runQuery', `SELECT * FROM layer WHERE zone = 'R1' AND acres > ${2.5 + i / 10} LIMIT 1000`)
+      let s = await queryStateNow()
+      while (!(s && s.runCount > before && s.phase === 'succeeded')) {
+        assert.ok(Date.now() - t0 < 30000, 'query did not finish')
+        await sleep(25)
+        s = await queryStateNow()
+      }
+      timings.push(Date.now() - t0)
+      assert.ok((s.rowCount ?? 0) > 0 && (s.rowCount ?? 0) <= 1000)
+    }
+    console.log(`TIMING SC-001 filter query (VS Code): ${timings.join(', ')} ms`)
+    assert.ok(Math.min(...timings) < 1000, `filter query took ${timings.join(', ')} ms`)
+    fs.rmSync(path.dirname(file), { recursive: true, force: true })
   })
 })
