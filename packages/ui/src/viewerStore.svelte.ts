@@ -192,7 +192,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
   let lastRunText = $state<string | null>(null)
   let resultGeometryColumn = $state<string | null>('geom')
-  let history = $state<QueryHistoryEntry[]>([])
+  const history = $state<QueryHistoryEntry[]>([]) // filled by US5 (T045-T046)
 
   function resetQueryState(): void {
     queryText = DEFAULT_QUERY
