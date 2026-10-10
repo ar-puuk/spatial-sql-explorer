@@ -1,9 +1,14 @@
-// Webview entry point. For the T005 worker-bootstrap spike, this file's
-// only job (so far) is to receive the DuckDB-WASM worker/wasm asset URLs
-// from the extension host and prove whether `new Worker(assetUrl)` can
-// actually instantiate DuckDB-WASM inside this webview — see
-// specs/001-quick-look/research.md §4 for why this is the highest-risk,
-// highest-priority open question in the whole plan.
+// Webview entry point. This is the T005 worker-bootstrap spike
+// (specs/001-quick-look/tasks.md): it receives the DuckDB-WASM worker/wasm
+// asset URLs from the extension host and proves that DuckDB-WASM can be
+// instantiated and queried inside this webview. See
+// specs/001-quick-look/research.md §4 for the full investigation — the
+// short version: a Worker in a VS Code webview cannot complete ANY network
+// request (fetch or XHR) for VS Code's virtual resource host at all, so the
+// worker's own `self.fetch` is patched to resolve the one URL DuckDB-WASM
+// asks for directly from bytes delivered via `postMessage`, rather than
+// ever letting the worker fetch anything itself. packages/core's real
+// duckdbService.ts (T009) must reuse this same technique.
 
 import * as duckdb from '@duckdb/duckdb-wasm'
 
@@ -112,28 +117,54 @@ async function runWorkerBootstrapSpike(duckdbWorkerUrl: string, duckdbWasmUrl: s
   // our CSP's connect-src includes ${csp}, the webview's own resource
   // origin) and construct the Worker from a blob: URL instead, which browsers
   // always treat as same-origin-safe. See research.md §4.
+  const SPIKE_WASM_URL = 'https://spike-wasm.invalid/duckdb-mvp.wasm'
   let worker: Worker
   try {
     post({ type: 'log', detail: 'fetching worker script…' })
     const scriptText = await (await fetch(duckdbWorkerUrl)).text()
     post({ type: 'log', detail: `fetched worker script (${scriptText.length} bytes), constructing blob Worker…` })
-    // Diag C proved: a worker's fetch() of a blob: URL created by a DIFFERENT
-    // realm (the main thread) fails immediately ("Failed to fetch"), and
-    // duckdb-browser-mvp.worker.js's internal
-    // WebAssembly.instantiateStreaming(fetch(url)) swallows that rejection
-    // instead of surfacing it, which is why db.instantiate() hangs instead of
-    // erroring. Fix attempt: patch extra listener code onto the worker's own
-    // script (before blobbing it) so the WORKER creates its OWN blob URL from
-    // wasm bytes we hand it via postMessage (same-realm blob, should be
-    // fetchable by that worker's own fetch()), and reports that blob URL
-    // string back to us to pass into db.instantiate() instead.
-    const patchedScript = `${scriptText}
-self.addEventListener('message', (e) => {
-  if (e && e.data && e.data.__spikeWasmBytes) {
-    const blobUrl = URL.createObjectURL(new Blob([e.data.__spikeWasmBytes], { type: 'application/wasm' }));
-    self.postMessage({ __spikeWasmBlobUrl: blobUrl });
-  }
+    // Root cause (see research.md §4, traced through DuckDB-WASM's own
+    // source maps + confirmed by diagnostics): ANY network request a Worker
+    // in this webview makes for a `vscode-resource.vscode-cdn.net` /
+    // asWebviewUri URL simply never completes (no error, no response —
+    // VS Code's resource virtualization appears wired up only for the main
+    // frame, not dedicated Workers), and separately, a Worker's `fetch()` of
+    // a *different-realm* `blob:` URL fails immediately, while a *same-realm*
+    // blob fetched via XHR fails with a generic, unhelpful ProgressEvent
+    // error. None of the three "let the worker fetch something itself"
+    // strategies work. The robust fix: never let the worker do its own
+    // network fetch at all. The MAIN thread fetch of the asWebviewUri already
+    // works perfectly (proven: 41MB in well under a second) — so intercept
+    // `self.fetch` *inside* the worker (patched onto its script before
+    // blobbing it) to resolve the one URL DuckDB-WASM asks for directly from
+    // bytes delivered via `postMessage`, with a clean, correctly-content-typed
+    // Response object. This also sidesteps the two real DuckDB-WASM bugs
+    // found during this investigation: `instantiateStreaming`'s progress-path
+    // reconstructs the fetch Response via `new Response(body, response)`
+    // (not a valid ResponseInit shape — can silently drop the
+    // `Content-Type: application/wasm` header instantiateStreaming requires)
+    // and its whole `.then(success)` chain has no `.catch()` at all, so any
+    // rejection is swallowed — our Response always succeeds and is clean, so
+    // neither bug is ever triggered.
+    const patchedScript = `self.TransformStream = undefined;
+const __spikeWasmBytesPromise = new Promise((resolve) => {
+  self.addEventListener('message', function handler(e) {
+    if (e && e.data && e.data.__spikeWasmBytes) {
+      self.removeEventListener('message', handler);
+      resolve(e.data.__spikeWasmBytes);
+    }
+  });
 });
+const __origFetch = self.fetch.bind(self);
+self.fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input.url;
+  if (url && url.indexOf('${SPIKE_WASM_URL}') !== -1) {
+    const bytes = await __spikeWasmBytesPromise;
+    return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/wasm' } });
+  }
+  return __origFetch(input, init);
+};
+${scriptText}
 `
     const blobUrl = URL.createObjectURL(new Blob([patchedScript], { type: 'application/javascript' }))
     worker = new Worker(blobUrl)
@@ -151,42 +182,26 @@ self.addEventListener('message', (e) => {
   })
 
   try {
-    // Same cross-origin problem as the worker script itself: a worker's own
-    // fetch() of the vscode-resource.vscode-cdn.net-served .wasm file hangs
-    // (VS Code's virtual resource interception appears to be scoped to the
-    // webview's main thread, not worker threads). Fix: fetch the wasm bytes
-    // on the main thread (demonstrably works — see the worker-script fetch
-    // above) and hand the WORKER a blob: URL instead, which is resolvable
-    // from any execution context sharing this webview's origin.
+    // Fetch the wasm bytes on the main thread — this demonstrably works
+    // (41MB, well under a second via asWebviewUri). The worker NEVER fetches
+    // anything itself; it receives these bytes via postMessage and its
+    // patched self.fetch override (see above) resolves DuckDB-WASM's own
+    // internal fetch(SPIKE_WASM_URL) call from them directly.
     post({ type: 'log', detail: 'fetching wasm module…' })
     const wasmBytes = await (await fetch(duckdbWasmUrl)).arrayBuffer()
     post({ type: 'log', detail: `fetched wasm module (${wasmBytes.byteLength} bytes), running diagnostics…` })
     const wasmBlobUrl = URL.createObjectURL(new Blob([wasmBytes], { type: 'application/wasm' }))
     await runWasmDiagnostics(wasmBytes, wasmBlobUrl)
 
-    // Ask the (patched) worker to create its OWN same-realm blob URL for the
-    // wasm bytes, instead of handing it our main-thread-created one.
-    post({ type: 'log', detail: 'asking worker to self-create a wasm blob URL…' })
-    const selfCreatedBlobUrl = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('worker did not report a self-created blob URL within 10000ms')), 10000)
-      const handler = (e: MessageEvent) => {
-        if (e.data && e.data.__spikeWasmBlobUrl) {
-          clearTimeout(timer)
-          worker.removeEventListener('message', handler)
-          resolve(e.data.__spikeWasmBlobUrl as string)
-        }
-      }
-      worker.addEventListener('message', handler)
-      worker.postMessage({ __spikeWasmBytes: wasmBytes.slice(0) })
-    })
-    post({ type: 'log', detail: `worker self-created blob URL OK: ${selfCreatedBlobUrl.slice(0, 60)}…` })
+    post({ type: 'log', detail: 'delivering wasm bytes to the worker via postMessage…' })
+    worker.postMessage({ __spikeWasmBytes: wasmBytes.slice(0) })
 
     const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
     const db = new duckdb.AsyncDuckDB(logger, worker)
-    post({ type: 'log', detail: `instantiating DuckDB-WASM with the worker's own self-created blob URL…` })
+    post({ type: 'log', detail: `instantiating DuckDB-WASM (worker's fetch() is patched to resolve locally)…` })
     const timeoutMs = 15000
     await Promise.race([
-      db.instantiate(selfCreatedBlobUrl),
+      db.instantiate(SPIKE_WASM_URL),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`db.instantiate() did not resolve within ${timeoutMs}ms`)), timeoutMs)
       ),

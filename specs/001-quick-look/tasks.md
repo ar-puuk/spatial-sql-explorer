@@ -66,25 +66,28 @@ finds the assumed approach broken, STOP and update `research.md` + this file's
 remaining tasks before continuing — do not route around a failed spike
 silently.
 
-- [X] T005 **[SPIKE, highest priority — ATTEMPTED, BLOCKED, NOT RESOLVED]**
-      Built a real `@vscode/test-electron` integration test
+- [X] T005 **[SPIKE, highest priority — RESOLVED, VERIFIED]** Built a real
+      `@vscode/test-electron` integration test
       (`tests/vscode-ext/src/suite/workerBootstrap.spike.test.ts`) that opens
       a sample file in the actual `spatialExplorer.editor` custom editor and
-      tries to instantiate real DuckDB-WASM inside the real webview. Three
-      genuine attempts were run: (1) `new Worker(webview.asWebviewUri(...))`
-      — fails immediately with a browser `SecurityError` (cross-origin); (2)
-      fetch the worker script + construct via `blob:` URL — Worker
-      construction succeeds, but `db.instantiate()` never resolves; (3) also
-      proxy the 41MB wasm module through a main-thread-fetched `blob:` URL —
-      still hangs, with zero worker messages or errors observed even under an
-      explicit 15s timeout. **This is a confirmed, reproduced blocker, not a
-      documentation gap.** Full details, exact errors, and candidate next
-      steps (interactive DevTools diagnosis; alternate bundles; alternate
-      resource-serving approach; main-thread-only fallback) are recorded in
-      `specs/001-quick-look/research.md` §4. **T009 and the rest of US1's
-      webview-dependent tasks below are held pending this being resolved or
-      the architecture being revisited — do not mark them complete against
-      this unresolved assumption.**
+      instantiates real DuckDB-WASM inside the real webview. Root cause of
+      the initial hang (traced through DuckDB-WASM's own source maps): a
+      Worker in a VS Code webview cannot complete any network request (fetch
+      or XHR) for VS Code's virtual resource host at all, and separately,
+      DuckDB-WASM's `instantiateWasm()` has an uncaught rejection in its
+      `instantiateStreaming` chain, so a failed fetch there hangs forever
+      instead of erroring. **Fix**: never let the worker fetch anything
+      itself — patch `self.fetch` inside the worker (before blobbing its
+      script) to resolve DuckDB-WASM's one wasm-module request directly from
+      bytes delivered via `postMessage`, and force
+      `self.TransformStream = undefined` to avoid a second, unrelated bug in
+      DuckDB-WASM's progress-tracking Response reconstruction. **Verified
+      working for real**: `npm run test --workspace=tests/vscode-ext` passes
+      — `1 passing (1s)` — with `SELECT 1 AS one` returning `{"one":1}`
+      inside the actual webview. Full investigation, root cause, and fix are
+      recorded in `specs/001-quick-look/research.md` §4. **T009 must reuse
+      this same `self.fetch`-interception technique** — do not re-attempt a
+      plain URL-based `db.instantiate()` call against an `asWebviewUri`.
 - [ ] T006 **[SPIKE]** [P] In an actual browser (or the webview from T005 once
       it boots), run `INSTALL spatial; LOAD spatial; SELECT * FROM ST_Drivers();`
       plus a per-format `ST_Read` smoke test (GeoJSON, GeoParquet, FlatGeobuf,

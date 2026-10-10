@@ -364,6 +364,83 @@ webview alone can resolve efficiently. This research pass stops here and
 hands off to a source-level/issue-tracker investigation (a second pass, see
 commit history around this point) rather than continuing to guess blindly.
 
+### Resolution: `self.fetch` interception inside the worker
+
+A second investigation pass (a fresh fork, specifically directed to read
+DuckDB-WASM's actual source via its own source maps rather than keep
+guessing from the webview side) traced `instantiateWasm()` in
+`bindings_browser_base.ts` (shared byte-for-byte by the `mvp` and `eh`
+bundles — switching bundles would not have helped) and found two real,
+independent bugs:
+
+1. Its progress-tracking path reconstructs the fetch `Response` via
+   `new Response(body, response)` — not a valid `ResponseInit` shape per
+   spec — which can silently drop the `Content-Type: application/wasm`
+   header `instantiateStreaming` requires.
+2. The entire `instantiateStreaming(...).then(success)` chain has **no
+   `.catch()` anywhere**. Any rejection is simply swallowed — `success()` is
+   never called, but neither is any failure ever reported back through the
+   worker's message protocol. This is exactly why `db.instantiate()` hangs
+   forever instead of erroring, and it's corroborated by an open upstream
+   issue describing the identical "hangs with no error" signature for a
+   different DuckDB-WASM resource-loading path
+   ([duckdb/duckdb-wasm#2252](https://github.com/duckdb/duckdb-wasm/issues/2252)).
+
+Three further diagnostics in the webview itself (disabling `TransformStream`
+to force the simpler `instantiateStreaming(fetch(...))` branch; disabling
+`instantiateStreaming` entirely to force the XHR fallback; trying XHR against
+the raw `asWebviewUri` instead of a blob) each produced a *different* failure
+mode but never success, converging on the real underlying fact: **a Worker
+in this webview cannot complete ANY network request — fetch or XHR — for
+VS Code's virtual resource host (`vscode-resource.vscode-cdn.net`) at all;
+such requests simply never resolve, succeed, or fail.** VS Code's resource
+virtualization appears wired up only for the main frame, not for dedicated
+Workers. A worker's `fetch()` of a `blob:` URL from a *different* realm (the
+main thread) fails fast and cleanly instead of hanging, and a same-realm
+blob fetched via XHR produces a real but unhelpfully generic
+`ProgressEvent` error — none of the three "let the worker fetch it itself"
+strategies work, regardless of URL type.
+
+**The actual fix**: never let the worker perform its own network fetch at
+all. The main thread's fetch of the real `asWebviewUri` already works
+perfectly (41MB in well under a second, proven repeatedly throughout this
+investigation). So:
+
+1. Fetch the wasm bytes on the main thread (already done, unchanged).
+2. Patch the DuckDB worker's own script text (before constructing the
+   `Worker` from a `blob:` URL — a technique already established earlier in
+   this investigation) to override `self.fetch`: for one specific
+   placeholder URL, resolve immediately from bytes delivered via
+   `postMessage`, returning a clean, correctly-`Content-Type`'d `Response`
+   object built fresh (not reconstructed from another `Response`) — for
+   every other URL, delegate to the original `fetch`.
+3. Also force `self.TransformStream = undefined` so DuckDB-WASM's
+   progress-tracking branch (the one with the `Response`-reconstruction bug)
+   is never taken; the plain `instantiateStreaming(fetch(...))` branch is
+   used instead, and since our patched `fetch` resolves cleanly, neither of
+   the two underlying bugs is ever triggered.
+4. Post the wasm bytes to the worker via `postMessage`, then call
+   `db.instantiate(thatPlaceholderUrl)`.
+
+**Verified working, for real**: `npm run test --workspace=tests/vscode-ext`
+now passes — `1 passing (1s)` — with the full real pipeline: a genuine VS
+Code Extension Development Host, the real `spatialExplorer.editor` custom
+editor, the real `@duckdb/duckdb-wasm` package, actually instantiating and
+running `SELECT 1 AS one`, returning `{"one":1}`, entirely inside the
+webview. Total time dropped from "hangs until a 15s timeout, every time" to
+1 second. The working implementation is committed at
+`apps/vscode-ext/src/webview/main.ts` and
+`tests/vscode-ext/src/suite/workerBootstrap.spike.test.ts`.
+
+**What this means going forward**: the real `packages/core/src/duckdbService.ts`
+(T009) must use this same `self.fetch`-interception technique — fetch
+bytes on the main thread (or in `packages/core`'s HostAdapter-facing code)
+and hand them to the DuckDB worker via `postMessage` plus a patched
+`self.fetch`, rather than ever asking the worker to fetch an `asWebviewUri`
+or any kind of URL directly. This applies to the spatial extension file too
+(research.md §3) once that's wired in — it will need the same treatment,
+not just the core wasm module.
+
 ## Summary of residual risk going into Phase 1
 
 | # | Spike | Status | Residual risk if wrong |
@@ -371,11 +448,10 @@ commit history around this point) rather than continuing to guess blindly.
 | 1 | Format support | Documentation + real prior-art evidence gathered; hands-on WASM test not completed in this environment (tooling limitation, see §1) | GeoPackage support claim in FR-018 could be false; mitigated by sql.js fallback plan |
 | 2 | Range reads | Deferred — not required by spec 001's clarified (small-file) scope | None for 001; relevant again once large-file hardening begins |
 | 3 | Extension delivery / VSIX size | Override mechanism confirmed to exist; real size now measured: the `mvp` bundle alone is ~41.3MB (`duckdb-mvp.wasm`) + ~0.8MB (worker script) uncompressed, before the spatial extension (fetched separately at runtime) or MapLibre are added | VSIX will very likely need a dedicated size-budget decision, not just a CI alert; this is now a known, not estimated, number |
-| 4 | Worker bootstrapping / CSP | **BLOCKED.** CSP shape confirmed working; three real, hands-on instantiation attempts in an actual VS Code webview all failed, the last one with no error signal at all. This is the single highest-risk open item in the entire plan | Blocks the "DuckDB-WASM per webview" architecture as currently designed. Implementation should not proceed past this point on the current architecture until resolved — either via interactive DevTools diagnosis or an architecture change (see candidate next steps above) |
+| 4 | Worker bootstrapping / CSP | **RESOLVED.** Root cause found and fixed via `self.fetch` interception inside the worker (see Resolution above), verified by a real, passing `@vscode/test-electron` test. CSP shape also confirmed working | None remaining for the core wasm module; the same technique must be reapplied for the spatial extension file (§3) and any other resource the worker needs |
 
-Item 4 is not resolved. Per the constitution's Verified Claims principle and
-the project's working rule to spike before building on a risky assumption,
-`tasks.md` reflects T005 as attempted and blocked, not complete, and T009
-(DuckDB bootstrap service) and the rest of US1's webview-dependent tasks are
-held pending this finding being resolved or the architecture being
-revisited.
+All four items are now either resolved or explicitly, non-silently deferred
+with a documented reason. Per the constitution's Verified Claims principle,
+`tasks.md` reflects T005 and this resolution as genuinely verified, not
+assumed — T009 (DuckDB bootstrap service) and the rest of US1's
+webview-dependent tasks can now proceed using the proven technique above.
