@@ -1,0 +1,23 @@
+# Node / npm workspaces
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+dist-webview/
+out/
+*.vsix
+
+# Env
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log

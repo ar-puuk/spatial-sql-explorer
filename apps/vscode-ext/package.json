@@ -1,0 +1,63 @@
+{
+  "name": "spatial-explorer",
+  "displayName": "Spatial Explorer: Spatial SQL & Map Viewer",
+  "description": "Open a geospatial file and see it on a map and in a table, without opening a desktop GIS.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "publisher": "TBD",
+  "license": "MIT",
+  "categories": ["Visualization", "Data Science"],
+  "keywords": ["gis", "geospatial", "geojson", "geoparquet", "spatial sql"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./out/extension.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "spatialExplorer.editor",
+        "displayName": "Spatial Explorer",
+        "selector": [
+          { "filenamePattern": "*.gpkg" },
+          { "filenamePattern": "*.fgb" },
+          { "filenamePattern": "*.shp" },
+          { "filenamePattern": "*.pmtiles" },
+          { "filenamePattern": "*.geoparquet" }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "spatialExplorer.editorOption",
+        "displayName": "Spatial Explorer",
+        "selector": [
+          { "filenamePattern": "*.geojson" },
+          { "filenamePattern": "*.csv" },
+          { "filenamePattern": "*.parquet" },
+          { "filenamePattern": "*.json" }
+        ],
+        "priority": "option"
+      }
+    ]
+  },
+  "scripts": {
+    "build:extension": "node esbuild.js",
+    "build:webview": "vite build --config vite.webview.config.ts",
+    "build": "npm run build:extension && npm run build:webview",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "@spatial-explorer/core": "*",
+    "@spatial-explorer/ui": "*",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "latest",
+    "@types/node": "latest",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "spatial-explorer",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web",
+    "preview": "npm run preview --workspace=apps/web",
+    "typecheck:core": "npm run typecheck --workspace=packages/core",
+    "typecheck:ui": "npm run typecheck --workspace=packages/ui",
+    "test:core": "npm run test --workspace=tests/core",
+    "test:web": "npm run test --workspace=tests/web",
+    "test:vscode-ext": "npm run test --workspace=tests/vscode-ext"
+  }
+}

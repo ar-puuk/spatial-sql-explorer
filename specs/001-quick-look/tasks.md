@@ -30,7 +30,7 @@ so each can be implemented and tested independently once Phase 2 is done.
 **Purpose**: Monorepo scaffolding, matching `../omx-viewer`'s tooling
 conventions (plan.md "Structure Decision").
 
-- [ ] T001 Move the current legacy single-page app (`index.html`, `js/`,
+- [X] T001 Move the current legacy single-page app (`index.html`, `js/`,
       `css/`, `coi-serviceworker.min.js`, `data/`, `webapp-theme.md`) into
       `legacy/` (already preserved at the `legacy-v1` git tag; kept in-tree
       under `legacy/` for reference during the rebuild, not deleted yet), then
@@ -38,13 +38,13 @@ conventions (plan.md "Structure Decision").
       `packages/core`, `packages/ui`, `tests/core`, `tests/web`,
       `tests/vscode-ext`) with npm workspaces at the repo root, per
       `plan.md`'s Project Structure.
-- [ ] T002 [P] Configure strict TypeScript (`tsconfig.json` per package),
+- [X] T002 [P] Configure strict TypeScript (`tsconfig.json` per package),
       matching `../omx-viewer`'s strictness settings.
-- [ ] T003 [P] Configure Vite for `apps/web` and `apps/vscode-ext`'s webview
+- [X] T003 [P] Configure Vite for `apps/web` and `apps/vscode-ext`'s webview
       bundle (`vite.webview.config.ts`, fixed non-hashed output filenames,
       `worker: { format: 'es' }`), and esbuild for the extension host, mirroring
       `../omx-viewer/apps/vscode-ext/vite.webview.config.ts` and `esbuild.js`.
-- [ ] T004 [P] Configure ESLint/Prettier (or the repo's existing formatter) for
+- [X] T004 [P] Configure ESLint/Prettier (or the repo's existing formatter) for
       the new workspaces.
 
 **Checkpoint**: Monorepo builds (empty packages) before any spike or feature
@@ -109,10 +109,12 @@ silently.
       `blank` entry (id/name/type/url template/attribution/requiresKey/region
       shape per CLAUDE.md) — enough rows for US4's default+off behavior; the
       full picker UI is spec 004.
-- [ ] T013 Add a lint rule (ESLint custom rule, or a CI grep-based check if
+- [X] T013 Add a lint rule (ESLint custom rule, or a CI grep-based check if
       faster to ship) enforcing that `packages/core` and `packages/ui` never
       import `vscode`, call `acquireVsCodeApi`, or import the File API /
-      IndexedDB directly (Constitution Principle II).
+      IndexedDB directly (Constitution Principle II). _(Done as part of T004 —
+      see the scoped `no-restricted-imports`/`no-restricted-globals` block in
+      `eslint.config.js`.)_
 
 **Checkpoint**: `packages/core` builds, the worker-bootstrap and format-support
 spikes have recorded real outcomes, and no user story task below depends on an
