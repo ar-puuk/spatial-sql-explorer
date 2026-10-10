@@ -184,17 +184,17 @@ matching rows, and clicking either highlights the other.
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] `@vscode/test-electron` integration test: opening a
+- [X] T014 [P] [US1] `@vscode/test-electron` integration test: opening a
       sample file via the registered custom editor renders a map and a table
       with matching feature counts, in
       `tests/vscode-ext/open-file.test.ts`.
-- [ ] T015 [P] [US1] `@vscode/test-electron` integration test: selecting a
+- [X] T015 [P] [US1] `@vscode/test-electron` integration test: selecting a
       table row highlights the corresponding map feature and vice versa, in
       `tests/vscode-ext/selection-sync.test.ts`.
-- [ ] T016 [P] [US1] `@vscode/test-electron` integration test: opening an
+- [X] T016 [P] [US1] `@vscode/test-electron` integration test: opening an
       unsupported/corrupt file shows a specific error message with no broken
       viewer state (FR-011), in `tests/vscode-ext/open-file-error.test.ts`.
-- [ ] T017 [P] [US1] `@vscode/test-electron` integration test covering two
+- [X] T017 [P] [US1] `@vscode/test-electron` integration test covering two
       edge cases: (a) a zero-feature file reaches `loadState: 'ready'` and
       renders an empty map + empty table with a visible "no features"
       indicator, not an error (FR-012); (b) a file with mixed geometry types
@@ -204,33 +204,33 @@ matching rows, and clicking either highlights the other.
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Register the `customEditors` provider in
+- [X] T018 [US1] Register the `customEditors` provider in
       `apps/vscode-ext/src/extension.ts`: priority `"default"` for
       `.gpkg .fgb .shp .pmtiles .geoparquet`, `"option"` for
       `.geojson .csv .parquet .json`, `retainContextWhenHidden: true`, per
       CLAUDE.md. Depends on T005's confirmed worker approach.
-- [ ] T019 [US1] Implement the host↔webview message protocol
+- [X] T019 [US1] Implement the host↔webview message protocol
       (`initStart`/`initChunk`/`ready`/`triggerError`, base64-chunked,
       32MB-raw-byte chunks, listener-registered-before-`panel.webview.html`)
       in `apps/vscode-ext/src/extension.ts`, exactly per
       `contracts/host-webview-protocol.md`.
-- [ ] T020 [US1] Implement the CSP HTML shell (`default-src 'none'`,
+- [X] T020 [US1] Implement the CSP HTML shell (`default-src 'none'`,
       `script-src 'wasm-unsafe-eval' ${csp}`, `worker-src ${csp} blob: data:`,
       etc., matching `../omx-viewer`'s shipped policy) in
       `apps/vscode-ext/src/extension.ts`'s webview HTML builder.
-- [ ] T021 [US1] Implement the VS Code-side `HostAdapter` (webview context) in
+- [X] T021 [US1] Implement the VS Code-side `HostAdapter` (webview context) in
       `apps/vscode-ext/src/webview/hostAdapter.ts`, implementing
       `contracts/host-adapter.md` over the T019 message protocol.
-- [ ] T022 [P] [US1] Implement `MapView` (MapLibre init, fit-to-extent,
+- [X] T022 [P] [US1] Implement `MapView` (MapLibre init, fit-to-extent,
       feature highlight on selection) in `packages/ui/src/MapView.svelte`.
       Must render all geometry types present in a layer, including
       mixed-geometry layers (FR-013), and must render a correct, empty map
       (no error, no crash) when `Layer.featureCount === 0` (FR-012).
-- [ ] T023 [P] [US1] Implement `AttributeTable` (row list, row selection) in
+- [X] T023 [P] [US1] Implement `AttributeTable` (row list, row selection) in
       `packages/ui/src/AttributeTable.svelte`. Must render an empty table
       with a visible "no features" indicator when `Layer.featureCount === 0`
       (FR-012), as a distinct, non-error empty state.
-- [ ] T024 [US1] Implement the open-file → parse pipeline
+- [X] T024 [US1] Implement the open-file → parse pipeline
       (`HostAdapter.getFileSource` → DuckDB `ST_Read`/`read_parquet` →
       populate `Layer`/`Feature`) in `packages/core/src/openFile.ts`. Must
       reach `loadState: 'ready'` (not `'error'`) for a zero-feature file
@@ -245,24 +245,43 @@ matching rows, and clicking either highlights the other.
       query) exceeds that cap — `Layer.extent` MUST still be computed from
       the full source (e.g. `ST_Extent`), not just the loaded subset
       (FR-019). Depends on T009, T010, T011.
-- [ ] T025 [US1] Wire map↔table selection sync via
+- [X] T025 [US1] Wire map↔table selection sync via
       `ViewerSession.selectedFeatureId` in
       `packages/ui/src/ViewerLayout.svelte`. Depends on T022, T023, T011.
-- [ ] T026 [US1] Implement the error-state UI (FR-011) in
+- [X] T026 [US1] Implement the error-state UI (FR-011) in
       `packages/ui/src/ErrorBanner.svelte`, wired to `ViewerSession.loadState`.
-- [ ] T027 [US1] Implement a non-error warning banner in
+- [X] T027 [US1] Implement a non-error warning banner in
       `packages/ui/src/LayerWarningBanner.svelte` that displays
       `Layer.invalidGeometryCount` when it is greater than 0 (FR-014) —
       visually distinct from T026's `ErrorBanner`, since a skipped-geometry
       count is a successful load with a caveat, not a failure. Depends on
       T024.
-- [ ] T028 [US1] Wire the VS Code webview entry point
+- [X] T028 [US1] Wire the VS Code webview entry point
       (`apps/vscode-ext/src/webview/main.ts`) connecting T021's HostAdapter to
       `ViewerLayout` (including `ErrorBanner` and `LayerWarningBanner`),
       completing the end-to-end VS Code path.
 
 **Checkpoint**: User Story 1 is fully functional and independently testable —
 this is the MVP.
+
+**Verified for real**: all 6 tests across T014/T015/T016/T017 pass against
+the actual VS Code extension (`npm run test --workspace=tests/vscode-ext`,
+6 passing). This exercises the complete real pipeline — `customEditors` →
+host↔webview message protocol with sidecar discovery → VS Code `HostAdapter`
+→ `openFile()` → the real, T005/T006/T009-proven `duckdbService.ts` →
+Svelte `ViewerLayout`/`MapView`/`AttributeTable` — not a spike. T005's and
+T006's original spike test files were retired (superseded, not just left
+alongside) once these real tests proved the same mechanisms through actual
+product code. One real finding along the way: `samples/world-boundaries.geojson`
+contains exactly 1 topologically invalid geometry (`ST_IsValid` correctly
+flags it), confirmed consistently across both its GeoJSON and FlatGeobuf
+forms — genuine validation of FR-014's invalid-geometry handling, not a bug
+in the pipeline (179 valid + 1 invalid = 180 total, every time).
+`ViewerLayout`/`MapView`/`AttributeTable`'s actual on-screen rendering and
+real mouse-click interaction (as opposed to the data-flow layer T015 tests
+via a test-only hook) were not visually verified in this environment —
+recommended as a manual smoke-test item before this spec is considered
+fully done (`quickstart.md`).
 
 ---
 

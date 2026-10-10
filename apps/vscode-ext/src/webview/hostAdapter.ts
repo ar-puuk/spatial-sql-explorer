@@ -1,0 +1,174 @@
+// VS Code implementation of HostAdapter (T021), for the webview context.
+// Implements contracts/host-adapter.md over the message protocol in
+// contracts/host-webview-protocol.md. packages/core and packages/ui never
+// see any of this — they only see the HostAdapter interface.
+import type { FileSource, HostAdapter, OpenedFileRef, StatusFields, ThemeKind } from '@spatial-explorer/core'
+
+declare function acquireVsCodeApi(): {
+  postMessage(msg: unknown): void
+}
+
+const vscode = acquireVsCodeApi()
+
+function post(msg: unknown): void {
+  vscode.postMessage(msg)
+}
+
+export interface DuckDbAssets {
+  workerUrl: string
+  wasmUrl: string
+}
+
+interface PendingFile {
+  name: string
+  isPrimary: boolean
+  chunks: string[]
+}
+
+let assetsResolve: ((assets: DuckDbAssets) => void) | null = null
+const assetsPromise = new Promise<DuckDbAssets>((resolve) => {
+  assetsResolve = resolve
+})
+
+let primaryFileNameFromAssets: string | null = null
+let primaryFileNameResolve: ((name: string) => void) | null = null
+const primaryFileNamePromise = new Promise<string>((resolve) => {
+  primaryFileNameResolve = resolve
+})
+
+let pendingFiles: Map<string, PendingFile> | null = null
+let fileSourceResolve: ((source: FileSource) => void) | null = null
+let fileSourceReject: ((err: Error) => void) | null = null
+let fileSourcePromise: Promise<FileSource> | null = null
+
+function ensureFileSourcePromise(): Promise<FileSource> {
+  if (!fileSourcePromise) {
+    pendingFiles = new Map()
+    fileSourcePromise = new Promise((resolve, reject) => {
+      fileSourceResolve = resolve
+      fileSourceReject = reject
+    })
+  }
+  return fileSourcePromise
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes.buffer
+}
+
+const themeListeners = new Set<(theme: ThemeKind) => void>()
+
+function detectTheme(): ThemeKind {
+  const classes = document.body.classList
+  if (classes.contains('vscode-high-contrast')) return 'high-contrast'
+  if (classes.contains('vscode-dark')) return 'dark'
+  return 'light'
+}
+
+// VS Code updates theme-related CSS variables via a style attribute on
+// <html> and toggles theme-kind classes on <body> — observe both per
+// CLAUDE.md's theming rules.
+const notifyThemeChange = (): void => {
+  const theme = detectTheme()
+  themeListeners.forEach((cb) => cb(theme))
+}
+new MutationObserver(notifyThemeChange).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+new MutationObserver(notifyThemeChange).observe(document.body, { attributes: true, attributeFilter: ['class'] })
+
+window.addEventListener('message', (event: MessageEvent) => {
+  const msg = event.data as {
+    type: string
+    duckdbWorkerUrl?: string
+    duckdbWasmUrl?: string
+    primaryFileName?: string
+    fileName?: string
+    totalBytes?: number
+    chunkCount?: number
+    isPrimary?: boolean
+    index?: number
+    bytesBase64?: string
+    message?: string
+  }
+
+  if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
+    assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl })
+    if (msg.primaryFileName && !primaryFileNameFromAssets) {
+      primaryFileNameFromAssets = msg.primaryFileName
+      primaryFileNameResolve?.(msg.primaryFileName)
+    }
+  } else if (msg.type === 'initFileStart' && msg.fileName) {
+    ensureFileSourcePromise()
+    pendingFiles!.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
+  } else if (msg.type === 'initFileChunk' && msg.fileName && msg.bytesBase64 !== undefined && msg.index !== undefined) {
+    const pending = pendingFiles?.get(msg.fileName)
+    if (pending) pending.chunks[msg.index] = msg.bytesBase64
+  } else if (msg.type === 'initFilesDone') {
+    if (pendingFiles && fileSourceResolve) {
+      const files: Record<string, ArrayBuffer> = {}
+      let primaryFileName = ''
+      let totalBytes = 0
+      for (const pending of pendingFiles.values()) {
+        const buf = base64ToArrayBuffer(pending.chunks.join(''))
+        files[pending.name] = buf
+        totalBytes += buf.byteLength
+        if (pending.isPrimary) primaryFileName = pending.name
+      }
+      fileSourceResolve({ files, primaryFileName, totalBytes })
+    }
+  } else if (msg.type === 'triggerError' && msg.message) {
+    fileSourceReject?.(new Error(msg.message))
+  }
+})
+
+/** Posts 'ready' once, at module load — the host is listening before `.html` is set (contracts/host-webview-protocol.md). */
+export function signalReady(): void {
+  post({ type: 'ready' })
+}
+
+export function createVsCodeHostAdapter(): HostAdapter {
+  return {
+    getTheme(): ThemeKind {
+      return detectTheme()
+    },
+    onThemeChange(cb: (theme: ThemeKind) => void): () => void {
+      themeListeners.add(cb)
+      return () => themeListeners.delete(cb)
+    },
+    async openFiles(): Promise<OpenedFileRef[]> {
+      await assetsPromise
+      const displayName = await primaryFileNamePromise
+      return [{ id: 'document', displayName }]
+    },
+    async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
+      return ensureFileSourcePromise()
+    },
+    async saveFile(): Promise<void> {
+      // No-op for spec 001 — persistence lands in later specs.
+    },
+    setStatus(fields: StatusFields): void {
+      post({ type: 'statusUpdate', ...fields })
+    },
+  }
+}
+
+export function getDuckDbAssets(): Promise<DuckDbAssets> {
+  return assetsPromise
+}
+
+/**
+ * Reports the final load outcome to the extension host. Used by
+ * @vscode/test-electron integration tests (which cannot otherwise observe
+ * this webview's rendered DOM) via `spatialExplorer._getLoadState`, and
+ * doubles as the hook a future host-side loading/error indicator would use.
+ */
+export function reportLoadState(loadState: string, details: { featureCount?: number; invalidGeometryCount?: number; errorMessage?: string }): void {
+  post({ type: 'loadStateChanged', loadState, ...details })
+}
+
+/** Test-only hook (T015) — see main.ts's `testSelectFeature` listener. */
+export function reportSelectionChanged(id: string | number | null): void {
+  post({ type: 'selectionChanged', id })
+}

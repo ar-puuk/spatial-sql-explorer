@@ -32,12 +32,19 @@ below — only the `bytesBase64` field's encoding would change.
 
 ## Message shapes
 
+Extended beyond the original single-file design to support sidecar-based
+formats (Shapefile needs `.shp`+`.shx`+`.dbf`+`.prj` — see
+`host-adapter.md`'s `FileSource.files`): one `initFileStart`/`initFileChunk`
+sequence per file, keyed by `fileName`, followed by one `initFilesDone` once
+every file has been fully sent.
+
 Extension host → webview:
 
 ```ts
 type HostToWebviewMessage =
-  | { type: 'initStart'; name: string; totalBytes: number; chunkCount: number }
-  | { type: 'initChunk'; index: number; bytesBase64: string }
+  | { type: 'initFileStart'; fileName: string; totalBytes: number; chunkCount: number; isPrimary: boolean }
+  | { type: 'initFileChunk'; fileName: string; index: number; bytesBase64: string }
+  | { type: 'initFilesDone' }
   | { type: 'themeChange'; theme: 'light' | 'dark' | 'high-contrast' }
   | { type: 'triggerError'; message: string };
 ```
@@ -57,12 +64,19 @@ type WebviewToHostMessage =
 1. Webview boots, registers its message listener, then posts `{ type: 'ready' }`.
 2. Extension host — **must already have its listener registered before
    `panel.webview.html` is set**, or a `ready` sent before the listener
-   exists is silently lost (documented omx-viewer gotcha) — reads the file via
-   `vscode.workspace.fs.readFile`, then sends `initStart` followed by
-   `initChunk` messages (chunk size: 32MB of raw bytes per chunk, matching
-   omx-viewer's proven constant, pre-base64-inflation).
-3. Webview reassembles chunks, decodes base64, parses the file, and populates
-   `ViewerSession`/`Layer` per `data-model.md`.
+   exists is silently lost (documented omx-viewer gotcha) — reads the
+   opened document's URI via `vscode.workspace.fs.readFile`, then discovers
+   same-basename sibling files next to it (for sidecar formats) via
+   `vscode.workspace.fs.readDirectory`. For each file (primary first, then
+   siblings), sends one `initFileStart` followed by `initFileChunk` messages
+   (chunk size: 32MB of raw bytes per chunk, matching omx-viewer's proven
+   constant, pre-base64-inflation — in practice a single chunk for spec
+   001's ~10MB target). Sends `initFilesDone` once every file is sent.
+3. Webview reassembles each file's chunks into an `ArrayBuffer`, decodes
+   base64, and once `initFilesDone` arrives, resolves the pending
+   `HostAdapter.getFileSource()` call with `{ files, primaryFileName,
+   totalBytes }` — `packages/core`'s open-file pipeline then parses it and
+   populates `ViewerSession`/`Layer` per `data-model.md`.
 4. On error at any point, the host sends `triggerError` (or the webview sets
    its own `ViewerSession.loadState = 'error'` for parse-time failures) — see
    FR-011.

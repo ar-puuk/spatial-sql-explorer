@@ -23,12 +23,19 @@ export interface HostAdapter {
   openFiles(): Promise<OpenedFileRef[]>;
 
   /**
-   * Returns the file's bytes for parsing. Spec 001 targets small files (~10MB,
-   * per the clarified size target) loaded whole; the return shape leaves room
+   * Returns the bytes needed to parse the file, keyed by basename. More than
+   * one entry when the format needs sidecar files (e.g. Shapefile: `.shp` +
+   * `.shx` + `.dbf` + `.prj`) — the VS Code implementation discovers
+   * same-basename siblings next to the opened file automatically; the web
+   * implementation returns only what the picker/drop event provided (a bare
+   * `.shp` dropped alone will surface as a clear ST_Read error per FR-011,
+   * not a silent misread — multi-select/sidecar handling in the web picker
+   * is not required by this spec). Spec 001 targets small files (~10MB, per
+   * the clarified size target) loaded whole; the return shape leaves room
    * for a future range-capable source (research.md §2) without a breaking
-   * change — callers in this spec always consume the whole `ArrayBuffer`.
+   * change — callers in this spec always consume the whole `ArrayBuffer`s.
    */
-  getFileSource(ref: OpenedFileRef): Promise<{ bytes: ArrayBuffer; totalBytes: number }>;
+  getFileSource(ref: OpenedFileRef): Promise<FileSource>;
 
   /** No-op on the web shell for spec 001 (styling/export persistence lands in specs 003/005). */
   saveFile(name: string, content: Uint8Array | string): Promise<void>;
@@ -42,6 +49,14 @@ export interface OpenedFileRef {
   id: string;
   /** Display name only (e.g. for error messages); not a path to read from directly. */
   displayName: string;
+}
+
+export interface FileSource {
+  /** All bytes needed to read this layer, keyed by basename (e.g. "sample.shp", "sample.shx"). */
+  files: Record<string, ArrayBuffer>;
+  /** Which key in `files` is the primary file to hand to ST_Read/read_parquet. */
+  primaryFileName: string;
+  totalBytes: number;
 }
 ```
 

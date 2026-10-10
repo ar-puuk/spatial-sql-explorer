@@ -12,7 +12,10 @@ export interface OpenedFileRef {
 }
 
 export interface FileSource {
-  bytes: ArrayBuffer
+  /** All bytes needed to read this layer, keyed by basename (e.g. "sample.shp", "sample.shx") — more than one entry for sidecar-based formats. */
+  files: Record<string, ArrayBuffer>
+  /** Which key in `files` is the primary file to hand to ST_Read/read_parquet. */
+  primaryFileName: string
   totalBytes: number
 }
 
