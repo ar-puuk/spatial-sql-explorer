@@ -250,8 +250,10 @@ for the notice and the fallback.
 - **FR-004**: Graduated MUST split a chosen numeric column into 2–10 classes
   by Equal interval, Quantile, or Natural breaks (Jenks), or use Manual
   breaks (FR-009). Nulls and non-finite values get a "No value" class.
-  Each class is defined by its lower bound and drawn as one flat color, so
-  the map and the legend always agree on which class a value falls in.
+  A class covers values above its lower bound up to and including its
+  upper bound, and the first class also includes its lower bound. This is
+  the convention QGIS uses. Each class is drawn as one flat color, so the
+  map, the legend and QGIS agree on which class every value falls in.
   Duplicate breaks collapse into one class, never an empty one.
 - **FR-005**: Class computation (distinct values, counts, minimum, maximum,
   and breaks) MUST cover every row of the displayed result and nothing
@@ -344,10 +346,10 @@ for the notice and the fallback.
 - **SC-001**: On a ~10 MB file (about 22,000 features), applying or changing
   a categorized or graduated style updates the map and the legend within 1
   second.
-- **SC-002**: For a reference data set, the computed breaks match published
-  reference values for all three methods in 100% of cases (equal interval
-  and quantile exactly; natural breaks matching a reference Jenks
-  implementation).
+- **SC-002**: For a reference data set, the computed breaks are correct in
+  100% of cases. Equal interval and quantile breaks match QGIS's exactly.
+  Natural breaks are the provable optimum: no other grouping of the values
+  into the same number of classes has a smaller within-class spread.
 - **SC-003**: A saved categorized or graduated style reopens with identical
   classes and colors in both shells and in QGIS, in 100% of the test styles.
 - **SC-004**: Exporting to each of the three formats and importing back
