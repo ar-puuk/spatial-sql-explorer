@@ -491,6 +491,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') await this.cancelQuery()
       const original = initialLayer
       resetQueryState()
+      querySession?.showDefaultView()
       if (original) {
         setLayer(original)
         session.selectedFeatureId = null

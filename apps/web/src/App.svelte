@@ -31,6 +31,8 @@
         if (!qs) throw new Error('No file is open.')
         return qs.runRaw(sql)
       },
+      /** Spec 005 T003: what an export knows about the displayed result. */
+      resultFacts: () => JSON.parse(JSON.stringify(store.querySession?.lastResult ?? null)),
       /** Spec 003 T006: the displayed result's attribute columns and types. */
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }

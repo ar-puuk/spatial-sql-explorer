@@ -68,10 +68,11 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
 
 **⚠️ CRITICAL**: no user story work can begin until this phase is complete.
 
-- [ ] T003 Expose the facts the plan needs as a `lastResult` getter on `QuerySession` (`packages/core/src/query/session.ts`), returning `{ geometryColumn, otherGeometryColumns, resultCrs: { label, srid, assumed }, totalRows, truncatedTo, defaultView }`.
+- [X] T003 Expose the facts the plan needs as a `lastResult` getter on `QuerySession` (`packages/core/src/query/session.ts`), returning `{ geometryColumn, otherGeometryColumns, resultCrs: { label, srid, assumed }, totalRows, truncatedTo, defaultView }`.
   - Set it from `run()` (the BuiltResult) and from `runDefault()`, with `defaultView: true` and `totalRows` = the file's row count.
   - A unit-testable `describeResult()` helper may live in `query/run.ts`.
   - Add assertions to `tests/vscode-ext/src/suite/query.test.ts` or a web check that the initial view reports `defaultView: true` and a query reports `false`.
+  - *Done*: QuerySession.lastResult (ResultFacts: exportable, geometry columns, resultCrs label/srid/assumed, totalRows, truncatedTo, defaultView) is set by run(), runDefault() and utility results (exportable: false). Found a trap: Reset shows the initial view without re-running, while __se_result still holds the last query. showDefaultView() restores the default facts, and the default view always exports from layer. A new query.spec test via the e2e resultFacts hook covers default, query, DESCRIBE and Reset: 6/6.
 - [ ] T004 [P] Write `tests/core/export-formats.test.ts`:
   - `EXPORT_FORMATS` lists exactly geojson, geoparquet, csv and parquet (FR-004, research §2);
   - each entry has a label, an extension, a geometry requirement and a crs rule;

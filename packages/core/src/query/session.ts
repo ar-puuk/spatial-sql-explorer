@@ -76,6 +76,40 @@ export function layerFromResult(base: Layer, built: BuiltResult): Layer {
   return { ...base, ...built.layer, loadTimings: undefined }
 }
 
+/**
+ * What an export needs to know about the displayed result (spec 005 T003).
+ * The complete result of the last query lives in `__se_result`; the
+ * displayed rows may be fewer (the default view's LIMIT, "first 50,000").
+ */
+export interface ResultFacts {
+  /** False for DESCRIBE / SHOW / SUMMARIZE / EXPLAIN results, which aren't materialized. */
+  exportable: boolean
+  geometryColumn: string | null
+  otherGeometryColumns: string[]
+  /** CRS of the stored geometry. `assumed`: the file had none (WGS84 assumed). */
+  resultCrs: { label: string; srid: number | null; assumed: boolean } | null
+  /** Rows of the complete result: the whole file for the default view. */
+  totalRows: number
+  /** Rows actually shown when "Show first 50,000" truncated the result. */
+  truncatedTo: number | null
+  /** The untouched initial view (the default query, spec 002). */
+  defaultView: boolean
+}
+
+export function resultFacts(built: BuiltResult, table: QueryableTable, defaultView: boolean): ResultFacts {
+  return {
+    exportable: true,
+    geometryColumn: built.geometryColumn,
+    otherGeometryColumns: built.otherGeometryColumns,
+    resultCrs: built.resultCrs
+      ? { label: built.resultCrs.crs.label, srid: built.resultCrs.srid, assumed: built.resultCrs.source === 'layer' && table.crsAssumed }
+      : null,
+    totalRows: defaultView ? table.totals.rows : built.totalRows,
+    truncatedTo: built.truncatedTo,
+    defaultView,
+  }
+}
+
 /** Internal objects every viewer creates: hidden from users and protected from DDL. */
 export const SOURCE_TABLE = '__se_source'
 
@@ -85,6 +119,8 @@ export class QuerySession {
   private cancelRequested = false
   private disposed = false
   private catalogCache: CatalogSnapshot | null = null
+  private facts: ResultFacts | null = null
+  private defaultFacts: ResultFacts | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -137,10 +173,13 @@ export class QuerySession {
             }),
             span.text
           )
+          this.facts = resultFacts(result, this.table, false)
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         if (policy.kind === 'utility') {
-          return { kind: 'result', result: await this.utilityResult(span.text, isCancelled), durationMs: elapsed(), statement }
+          const result = await this.utilityResult(span.text, isCancelled)
+          this.facts = { ...resultFacts(result, this.table, false), exportable: false }
+          return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         // Temp DDL: execute, then summarize.
         await streamRows(this.conn, span.text, isCancelled)
@@ -249,7 +288,24 @@ export class QuerySession {
 
   /** The initial view: DEFAULT_QUERY, with no size prompt (it is capped at 1,000 rows). */
   async runDefault(): Promise<BuiltResult> {
-    return this.exclusive((isCancelled) => buildQueryResult(this.buildContext(isCancelled), this.defaultQuery))
+    const built = await this.exclusive((isCancelled) => buildQueryResult(this.buildContext(isCancelled), this.defaultQuery))
+    this.facts = resultFacts(built, this.table, true)
+    this.defaultFacts = this.facts
+    return built
+  }
+
+  /**
+   * Reset (spec 002 FR-011) shows the original view again without
+   * re-running it; exports must follow (spec 005). The default view exports
+   * from `layer`, never from `__se_result`, which still holds the last query.
+   */
+  showDefaultView(): void {
+    this.facts = this.defaultFacts
+  }
+
+  /** Facts about the displayed result, for export (spec 005); null before the first result. */
+  get lastResult(): ResultFacts | null {
+    return this.facts
   }
 
   /**
