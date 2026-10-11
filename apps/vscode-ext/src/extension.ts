@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import * as sourceServer from './sourceServer'
 import * as path from 'path'
 
 // SpatialExplorerDocument — minimal CustomDocument wrapper. No in-memory
@@ -502,7 +503,12 @@ async function reopenBinaryTabsFromStartup(): Promise<void> {
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+/** What `activate` exposes; tests reach the loopback server through it (source-server.test.ts). */
+export interface ExtensionApi {
+  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening'>
+}
+
+export function activate(context: vscode.ExtensionContext): ExtensionApi {
   output = vscode.window.createOutputChannel('Spatial Explorer')
   context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
@@ -539,6 +545,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Spec 005 test hooks: run an export, read its state.
     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
     vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),
+
     // Spec 005 test hook: write the next data export to this path (no dialog).
     vscode.commands.registerCommand('spatialExplorer._saveNextExportTo', (fsPath: string) => {
       nextExportPath = fsPath
@@ -552,6 +559,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('spatialExplorer._getSelection', () => lastSelection)
   )
+  return { sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening } }
 }
 
 export function deactivate(): void {}

@@ -139,7 +139,7 @@ they skip with a message, never pass silently.
   - Primary and sidecars go under `/se-source/<name>`.
   - It returns `{ primaryPath, paths, reRegister() }`. `reRegister` drops, then registers again, as needed by out-of-memory recovery (research §1).
   - *Done*: source/register.ts: handle/url/bytes + sidecars; reRegister (bytes re-fetched, no second copy); drop. openFile bridged onto it; small whole-read files (<= 64 MB) fetched as bytes (10 MB GeoJSON warm 2,106 -> 1,616 ms)
-- [ ] T010 [P] Write `tests/vscode-ext/src/suite/source-server.test.ts`, against `sourceServer` directly in the extension host (exported for tests through `spatialExplorer._sourceServerForTests`). Cover:
+- [X] T010 [P] Write `tests/vscode-ext/src/suite/source-server.test.ts`, against `sourceServer` directly in the extension host (exported for tests through `spatialExplorer._sourceServerForTests`). Cover:
   - `HEAD` with `Range: bytes=0-` → 206, `Content-Length` = size, `Content-Range`;
   - `HEAD` without `Range` → 200;
   - `GET bytes=a-b` → 206, the exact bytes (compare SHA-256 with a disk slice);
@@ -150,7 +150,8 @@ they skip with a message, never pass silently.
   - CORS, Private-Network and Expose headers present;
   - sidecars served by name (`.dbf`, `.shx`, `.prj`);
   - the server closes when the last document is released.
-- [ ] T011 Implement `apps/vscode-ext/src/sourceServer.ts` per contracts/host-and-shells.md:
+  - *Done*: source-server.test.ts: 11 tests (HEAD 206/200, exact ranges incl. open-ended and suffix, full stream, 416 cases, 404 token/name/traversal, Origin 403 + CORS/PNA headers, preflight, sidecars, stop on last release). Server reached via activate() exports (command results are serialized)
+- [X] T011 Implement `apps/vscode-ext/src/sourceServer.ts` per contracts/host-and-shells.md:
   - a lazy start on `127.0.0.1` and `::1`;
   - `register(document, primaryPath, sidecarPaths)` → `{ token, urlFor(name) }`;
   - `release(token)`;
@@ -159,6 +160,7 @@ they skip with a message, never pass silently.
   - URLs built as `http://localhost.:<port>/<token>/<name>`, through `vscode.env.asExternalUri` with the host rewritten to `localhost.`.
 
   T010 passes.
+  - *Done*: apps/vscode-ext/src/sourceServer.ts: lazy listen on 127.0.0.1 and ::1 (same port), 128-bit tokens, exact-name lookup, RFC 7233 single range, HEAD 206, Origin check, per-token stats, asExternalUri with host rewritten to localhost.; 11/11 pass
 - [ ] T012 Change `apps/vscode-ext/src/extension.ts`:
   - **Open**: register the document with `sourceServer` and post `{ type: 'fileSource', url, size, resourceUri: asWebviewUri(file), sidecars: [{ name, url }] }` instead of the `initFileStart` / `initFileChunk` stream.
   - **Fallback**: keep the chunked transfer behind a `{ type: 'requestBytes', reason }` message, and log the reason to the output channel.
