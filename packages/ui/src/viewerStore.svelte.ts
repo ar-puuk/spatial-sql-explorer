@@ -36,6 +36,7 @@ import {
   type QuerySession,
   type RunOutcome,
   planExport,
+  loadCrsCatalog,
   isTemporalType,
   activeExtrusion,
   extrusionColumn,
@@ -602,6 +603,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // --- Spec 005: export ------------------------------------------------------
   const EXPORT_PREFS_KEY = 'export.prefs'
   let exportOpen = $state(false)
+  let savedExportPrefs = ''
   let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
     .loadState<Partial<ExportRequest>>(EXPORT_PREFS_KEY)
@@ -627,25 +629,44 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const selected = isEmptySelection(selection) ? null : selectionSize(selection, filterCounts?.matching ?? facts.totalRows)
     return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts, scopes: { filtered: narrowedRows, selected } })
   })
-  // Spec 008 (user request): a typed EPSG code is checked against the engine's PROJ database.
+  // Spec 008 (user request): the output EPSG code, checked before export.
+  // Codes in the CRS list were all tested against the engine when the list
+  // was built, so they need no engine work; any other code is checked once
+  // (PROJ), and every result is remembered. Only while the dialog is open,
+  // and only when the code changes (not on every other export setting).
   let exportCrsCheck = $state.raw<ExportCrsCheck | null>(null)
+  const crsChecked = new Map<number, ExportCrsCheck>()
+  const crsToCheck = $derived(exportOpen && exportRequest.crs === 'custom' && exportRequest.crsCode !== undefined ? exportRequest.crsCode : null)
   // A root: the VS Code webview creates the store outside any component.
   $effect.root(() => {
     $effect(() => {
+      const code = crsToCheck
       const qs = querySession
-      const { crs, crsCode } = exportRequest
-      if (crs !== 'custom' || crsCode === undefined || !qs) {
+      if (code === null || !qs) {
         exportCrsCheck = null
         return
       }
-      exportCrsCheck = { code: crsCode, state: 'checking' }
+      const known = crsChecked.get(code)
+      if (known) {
+        exportCrsCheck = known
+        return
+      }
       let current = true
-      void retryWhenBusy(qs, () => qs.describeCrs(crsCode))
-        .then((r) => {
-          if (current) exportCrsCheck = r.ok ? { code: crsCode, state: 'ok', name: r.name } : { code: crsCode, state: 'invalid', reason: r.reason }
+      const settle = (r: ExportCrsCheck) => {
+        if (r.state !== 'checking') crsChecked.set(code, r)
+        if (current) exportCrsCheck = r
+      }
+      void loadCrsCatalog()
+        .then((catalog) => catalog.entries.find((e) => e.code === code) ?? null)
+        .catch(() => null)
+        .then(async (listed) => {
+          if (listed) return settle({ code, state: 'ok', name: listed.name })
+          if (current) exportCrsCheck = { code, state: 'checking' }
+          const r = await retryWhenBusy(qs, () => qs.describeCrs(code))
+          settle(r.ok ? { code, state: 'ok', name: r.name } : { code, state: 'invalid', reason: r.reason })
         })
         .catch(() => {
-          if (current) exportCrsCheck = { code: crsCode, state: 'invalid', reason: `EPSG:${crsCode} could not be checked.` }
+          if (current) exportCrsCheck = { code, state: 'invalid', reason: `EPSG:${code} could not be checked.` }
         })
       return () => {
         current = false
@@ -1365,8 +1386,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setExportRequest(patch) {
       exportRequest = { ...exportRequest, ...patch }
+      // Saved only when a remembered setting changes (not on every keystroke in the file name).
       const { format, crs, csvGeometry, crsCode } = exportRequest
-      void hostAdapter.saveState(EXPORT_PREFS_KEY, { format, crs, csvGeometry, crsCode }).catch(() => {})
+      const prefs = JSON.stringify({ format, crs, csvGeometry, crsCode })
+      if (prefs !== savedExportPrefs) {
+        savedExportPrefs = prefs
+        void hostAdapter.saveState(EXPORT_PREFS_KEY, { format, crs, csvGeometry, crsCode }).catch(() => {})
+      }
     },
     get exportPlan() {
       return exportPlan

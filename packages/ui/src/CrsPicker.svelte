@@ -45,6 +45,14 @@
   const treeId = $derived(`${id}-tree`)
 
   const byCode = $derived(new Map(catalog?.entries.map((e) => [e.code, e]) ?? []))
+  // A chosen code shows its name without opening the list.
+  $effect(() => {
+    if (typeof value === 'number' && !catalog && !loadError) {
+      void loadCrsCatalog()
+        .then((c) => (catalog = c))
+        .catch(() => {})
+    }
+  })
   const nameOf = (code: number): string | null => byCode.get(code)?.name ?? null
 
   const triggerText = $derived.by(() => {
