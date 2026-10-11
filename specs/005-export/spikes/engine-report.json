@@ -1,0 +1,303 @@
+{
+ "version": {
+  "ok": true,
+  "rows": [
+   {
+    "v": "v1.4.3"
+   }
+  ]
+ },
+ "drivers": {
+  "ok": true,
+  "rows": [
+   {
+    "short_name": "CSV",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "DGN",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "DXF",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "ESRI Shapefile",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "FlatGeobuf",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GML",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GPKG",
+    "can_create": true,
+    "can_copy": true
+   },
+   {
+    "short_name": "GPSBabel",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GPX",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GeoJSON",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GeoJSONSeq",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "GeoRSS",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "Geoconcept",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "JML",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "JSONFG",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "KML",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "MVT",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "MapInfo File",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "MapML",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "Memory",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "ODS",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "OGR_GMT",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "PGDUMP",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "PMTiles",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "S57",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "SQLite",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "Selafin",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "VDV",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "WAsP",
+    "can_create": true,
+    "can_copy": false
+   },
+   {
+    "short_name": "XLSX",
+    "can_create": true,
+    "can_copy": false
+   }
+  ]
+ },
+ "layerCols": {
+  "ok": true,
+  "rows": [
+   {
+    "column_name": "name",
+    "column_type": "VARCHAR",
+    "null": "YES",
+    "key": null,
+    "default": null,
+    "extra": null
+   },
+   {
+    "column_name": "geom",
+    "column_type": "GEOMETRY",
+    "null": "YES",
+    "key": null,
+    "default": null,
+    "extra": null
+   }
+  ]
+ },
+ "crsStruct": {
+  "ok": true,
+  "rows": []
+ },
+ "probe-26912": {
+  "ok": true,
+  "rows": [
+   {
+    "code": "26912",
+    "projjson_head": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"ProjectedCRS\",\n  \"name\": \"NAD83 / UTM zone 12N\",\n  \"base_crs\": {\n    \"name\": \"NA",
+    "len": 2809
+   }
+  ]
+ },
+ "probe-4326": {
+  "ok": true,
+  "rows": [
+   {
+    "code": "4326",
+    "projjson_head": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"GeographicCRS\",\n  \"name\": \"WGS 84\",\n  \"datum\": {\n    \"type\": \"GeodeticReferenceF",
+    "len": 755
+   }
+  ]
+ },
+ "probe-3857": {
+  "ok": true,
+  "rows": [
+   {
+    "code": "3857",
+    "projjson_head": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"ProjectedCRS\",\n  \"name\": \"WGS 84 / Pseudo-Mercator\",\n  \"base_crs\": {\n    \"name\":",
+    "len": 3724
+   }
+  ]
+ },
+ "probe-2056": {
+  "ok": true,
+  "rows": [
+   {
+    "code": "2056",
+    "projjson_head": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"ProjectedCRS\",\n  \"name\": \"CH1903+ / LV95\",\n  \"base_crs\": {\n    \"name\": \"CH1903+\"",
+    "len": 3124
+   }
+  ]
+ },
+ "ours-full": {
+  "ok": true,
+  "rows": [
+   {
+    "Count": 1
+   }
+  ]
+ },
+ "ours-blob": {
+  "ok": true,
+  "rows": [
+   {
+    "Count": 1
+   }
+  ]
+ },
+ "ours-blob:meta": {
+  "ok": true,
+  "rows": [
+   {
+    "k": "geo",
+    "len": 1937
+   }
+  ]
+ },
+ "ours-blob:schema": {
+  "ok": true,
+  "rows": [
+   {
+    "name": "duckdb_schema",
+    "type": null,
+    "logical_type": null
+   },
+   {
+    "name": "name",
+    "type": "BYTE_ARRAY",
+    "logical_type": null
+   },
+   {
+    "name": "geom",
+    "type": "BYTE_ARRAY",
+    "logical_type": null
+   }
+  ]
+ },
+ "ours-full:schema": {
+  "ok": true,
+  "rows": [
+   {
+    "name": "duckdb_schema",
+    "type": null,
+    "logical_type": null
+   },
+   {
+    "name": "name",
+    "type": "BYTE_ARRAY",
+    "logical_type": null
+   },
+   {
+    "name": "geom",
+    "type": "BYTE_ARRAY",
+    "logical_type": "GeometryType(crs=<null>)"
+   }
+  ]
+ },
+ "csv-wkt": {
+  "ok": true,
+  "rows": [
+   {
+    "Count": 1
+   }
+  ]
+ }
+}

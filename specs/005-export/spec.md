@@ -116,7 +116,8 @@ match.
 1. **Given** a format was verified (FR-004), **When** the user exports to
    it, **Then** the file opens in QGIS with the same rows, attributes,
    geometry and CRS.
-2. **Given** Shapefile is offered, **When** a column name is longer than the
+2. *(Deferred with the format: the engine can't write Shapefile yet,
+   research §2.)* **Given** Shapefile is offered, **When** a column name is longer than the
    format allows, or the result mixes geometry types, **Then** the export
    still succeeds with predictable names or split output, and the notice
    lists exactly what changed (FR-009). Shapefile is written as its
@@ -241,7 +242,9 @@ export using only the keyboard.
   Shapefile, KML) MUST be offered only after it has been verified to write
   correctly in both shells. Verified means it reads back in QGIS with the
   same rows, attributes, geometry and CRS. Unverified formats MUST NOT
-  appear.
+  appear. *Planning outcome*: none of the candidates can be written by the
+  current engine build (research §2), so none is offered. A table result can
+  also be saved as Parquet.
 - **FR-005**: Users MUST be able to choose the file name and location.
   VS Code: a save dialog, defaulting next to the source file with a name
   derived from it (e.g. `parcels-export.geojson`). Web: a download with that
@@ -326,9 +329,9 @@ export using only the keyboard.
 - **CSV defaults**: UTF-8, comma separator, header row, geometry as WKT in a
   column named after the geometry column. X/Y is offered only for point
   geometry.
-- **Coordinate precision**: GeoJSON is written with enough decimal places
-  for about centimetre precision in WGS84. The other formats keep full
-  precision.
+- **Coordinate precision**: every format keeps full precision. *Amended
+  during planning*: rounding GeoJSON would change values the user didn't ask
+  to change, and the size cost is acceptable (research §4).
 - **GeoParquet** follows the current GeoParquet specification, so that
   GDAL/QGIS, DuckDB and GeoPandas read the geometry and CRS.
 - **Shapefile**, if verified, is delivered as one `.zip` holding its
