@@ -148,7 +148,7 @@ suite('Spec 005 US5: Export Data… command', () => {
         await sleep(100)
       }
       const s = await exportState()
-      assert.deepStrictEqual(s?.plan?.formats, ['geoparquet', 'geojson', 'csv'])
+      assert.deepStrictEqual(s?.plan?.formats, ['geoparquet', 'geopackage', 'geojson', 'flatgeobuf', 'shapefile', 'kml', 'geojsonseq', 'csv'])
 
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       const none = await vscode.commands.executeCommand('spatialExplorer.exportData')
@@ -225,6 +225,50 @@ suite('Spec 005: large exports and the source guard in VS Code', () => {
       assert.strictEqual(s.outcome?.kind, 'failed', JSON.stringify(s.outcome))
       assert.match(s.outcome?.message ?? '', /Choose a different file: this is the opened source\./)
       assert.strictEqual(sha(file), before)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// T050 (spec 008 US4): the new formats are written through the host's save
+// (in the webview, sql.js's wasm from the extension) and land on disk.
+suite('Spec 008 US4: new export formats in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('GeoPackage, FlatGeobuf, Shapefile, KML, GeoJSONSeq, Excel and JSON are saved', async function () {
+    this.timeout(180000)
+    const { dir } = await openCopy('world-boundaries.geojson')
+    const magic: Record<string, (b: Buffer) => boolean> = {
+      gpkg: (b) => b.subarray(0, 15).toString('latin1') === 'SQLite format 3',
+      fgb: (b) => b[0] === 0x66 && b[1] === 0x67 && b[2] === 0x62,
+      'shp.zip': (b) => b.subarray(0, 2).toString('latin1') === 'PK',
+      kml: (b) => b.toString('utf8', 0, 200).includes('<kml'),
+      geojsonl: (b) => JSON.parse(b.toString('utf8').split('\n')[0]).type === 'Feature',
+      xlsx: (b) => b.subarray(0, 2).toString('latin1') === 'PK',
+      json: (b) => (JSON.parse(b.toString('utf8')) as unknown[]).length === 180,
+    }
+    const cases: Array<[string, string, object]> = [
+      ['geopackage', 'gpkg', {}],
+      ['flatgeobuf', 'fgb', {}],
+      ['shapefile', 'shp.zip', {}],
+      ['kml', 'kml', {}],
+      ['geojsonseq', 'geojsonl', {}],
+      ['xlsx', 'xlsx', { includeGeometry: false }],
+      ['json', 'json', { includeGeometry: false }],
+    ]
+    try {
+      for (const [format, ext, extra] of cases) {
+        const target = path.join(dir, `out.${ext}`)
+        const s = await runExport({ format, crs: 'result', includeGeometry: true, ...extra }, target)
+        assert.strictEqual(s.outcome?.kind, 'saved', `${format}: ${JSON.stringify(s.outcome)}`)
+        assert.strictEqual(s.outcome?.rows, 180, format)
+        const bytes = fs.readFileSync(target)
+        assert.ok(bytes.length > 0 && magic[ext](bytes), `${format} content`)
+      }
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       fs.rmSync(dir, { recursive: true, force: true })

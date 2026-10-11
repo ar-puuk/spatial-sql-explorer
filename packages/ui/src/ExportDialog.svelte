@@ -22,6 +22,8 @@
   const outcome = $derived(store.exportOutcome)
   const available = $derived(EXPORT_FORMATS.filter((f) => plan?.formats.find((x) => x.id === f.id)?.available))
   const hasGeometry = $derived(plan?.geometryColumn !== null && plan?.geometryColumn !== undefined)
+  /** Spec 008 FR-019: the chosen format doesn't fit the geometry choice: the plan took another one. */
+  const replaced = $derived(plan && request.format !== plan.format ? EXPORT_FORMATS.find((f) => f.id === request.format)?.label : null)
 
   let dialog = $state<HTMLDivElement>()
   let now = $state(performance.now())
@@ -140,6 +142,23 @@
             </div>
           </div>
         {/if}
+        <!-- Spec 008 FR-019: with geometry, the spatial formats; without, the attribute formats. -->
+        <div class="field">
+          <span class="label" id="export-geometry-switch">Geometry</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            aria-label="Include geometry"
+            aria-checked={plan.includeGeometry}
+            disabled={running || !hasGeometry}
+            title={hasGeometry ? undefined : 'This result has no geometry column.'}
+            onclick={() => store.setExportRequest({ includeGeometry: !plan.includeGeometry })}
+          >
+            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+            <span>Include geometry</span>
+          </button>
+        </div>
         <div class="field">
           <span class="label" id="export-format">Format</span>
           <div class="options" role="radiogroup" aria-labelledby="export-format">
@@ -163,6 +182,9 @@
             {/each}
           </div>
         </div>
+        {#if replaced}
+          <p class="hint" role="status">{replaced} isn't available {plan.includeGeometry ? 'with' : 'without'} geometry: using {EXPORT_FORMATS.find((f) => f.id === plan.format)?.label}.</p>
+        {/if}
 
         {#if hasGeometry && plan.format !== 'parquet'}
           <div class="field">
@@ -175,7 +197,7 @@
               onchange={(e) => store.setExportRequest({ crs: e.currentTarget.value as 'result' | 'wgs84' })}
             >
               {#if plan.crs.forced}
-                <option value="wgs84">EPSG:4326 (WGS84), required by GeoJSON</option>
+                <option value="wgs84">EPSG:4326 (WGS84), required by {EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? 'this format'}</option>
               {:else}
                 <option value="result">{plan.crs.output === 'result' ? plan.crs.label : 'Result CRS'} (result)</option>
                 <option value="wgs84">EPSG:4326 (WGS84)</option>
@@ -353,6 +375,51 @@
     background: var(--se-input-bg);
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
+  }
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .switch:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .switch .track {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--se-input-bg);
+    border: 1px solid var(--se-input-border);
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-secondary);
+    transition: left 0.12s;
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    left: 14px;
+    background: var(--se-button-fg);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
   }
   .hint {
     margin: -4px 0 0 80px;

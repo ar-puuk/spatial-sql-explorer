@@ -66,6 +66,35 @@
       selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
       /** Spec 008 T025: the map's current bounds (zoom to selection). */
       mapBounds: () => store.lastViewBbox,
+      /**
+       * Spec 008 T049: reads exported files back in the real engine with GDAL
+       * (ST_Read): row count, geometry types, CRS code. `files` are the
+       * format's files (a Shapefile's parts unzipped by the test); the first
+       * is the one read. Dropped afterwards.
+       */
+      inspectExport: async (files: Array<{ name: string; base64: string }>) => {
+        const { getDuckDb } = await import('@spatial-explorer/core')
+        const db = await getDuckDb(duckdbAssets)
+        const dir = `/se-source/__se_check-${Date.now()}-${Math.random().toString(36).slice(2)}/`
+        for (const f of files) await db.registerFileBuffer(dir + f.name, Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0)))
+        const conn = await db.connect()
+        const path = dir + files[0].name
+        try {
+          const n = await conn.query(`SELECT count(*)::INTEGER AS n, list(DISTINCT ST_GeometryType(geom)::VARCHAR) AS types FROM ST_Read('${path}')`)
+          const meta = await conn.query(`SELECT layers[1].geometry_fields[1].crs.auth_code AS code FROM ST_Read_Meta('${path}')`)
+          const cols = await conn.query(`SELECT column_name FROM (DESCRIBE SELECT * FROM ST_Read('${path}'))`)
+          const row = n.toArray()[0].toJSON() as { n: number; types: { toArray(): unknown[] } | null }
+          return {
+            rows: Number(row.n),
+            types: (row.types?.toArray() ?? []).map(String).sort(),
+            crs: (meta.toArray()[0]?.toJSON() as { code: string | null } | undefined)?.code ?? null,
+            columns: cols.toArray().map((r) => String(r.toJSON().column_name)),
+          }
+        } finally {
+          await conn.close()
+          for (const f of files) await db.dropFile(dir + f.name).catch(() => {})
+        }
+      },
       /** Spec 005 T023: export files still in the engine's memory (should be none). */
       exportFiles: () => {
         const qs = store.querySession

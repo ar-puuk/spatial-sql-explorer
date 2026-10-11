@@ -3,7 +3,7 @@
 // file, so a cancel can never touch file loading. Temp tables are
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
-import { exportErrorMessage, runExport, type ExportHooks, type ExportResult } from '../export/run.js'
+import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import type { ExportPlan } from '../export/plan.js'
 import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest, type ViewFeatures, type ViewRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
@@ -240,6 +240,11 @@ export class QuerySession {
   private filterWhere: string | null = null
   /** Rows matching the filters, once counted (null: not counted, or no filters). */
   private matchingRows: number | null = null
+  /** Spec 008: assets JS export writers need (sql.js's wasm). */
+  private exportAssets: ExportAssets = {}
+  setExportAssets(assets: ExportAssets): void {
+    this.exportAssets = assets
+  }
   /** Spec 008 FR-013 "Show selected only": the selection's predicate, or null. */
   private selectedOnlyWhere: string | null = null
 
@@ -957,7 +962,7 @@ export class QuerySession {
       const fill = plan.scope === 'selected' && selection ? selectionTableSql(selection) : null
       const result = await this.exclusive(async (isCancelled) => {
         if (fill) for (const sql of fill) await this.conn.query(sql)
-        return runExport(this.db, this.conn, this.scopedExport(plan, selection), isCancelled, hooks)
+        return runExport(this.db, this.conn, this.scopedExport(plan, selection), isCancelled, hooks, this.exportAssets)
       })
       this.log?.(`[export] ${plan.format}: ${nf.format(result.rows)} rows, ${nf.format(result.bytes.length)} bytes · ${Math.round(performance.now() - started)} ms`)
       return result

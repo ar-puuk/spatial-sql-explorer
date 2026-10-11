@@ -278,50 +278,50 @@ verified writers (FR-019–FR-021).
 
 ### Tests for US4
 
-- [ ] T047 [P] [US4] Core test `tests/core/export-formats.test.ts`:
+- [X] T047 [P] [US4] Core test `tests/core/export-formats.test.ts`:
   - the `group` filter;
   - `planExport` with `includeGeometry` off keeps attribute formats only;
   - forced changes: Shapefile renames (10 characters, unique), mixed-type split, DBF coercions, KML reprojection, xlsx row limit, GeoPackage size cap.
-- [ ] T048 [P] [US4] Core writer tests `tests/core/writers.test.ts`. For each writer, write the `world-boundaries` sample and the `buildings-10k` fixture, then read the output back in a real engine (DuckDB-WASM in Node, as `tests/core` does):
+- [X] T048 [P] [US4] Core writer tests `tests/core/writers.test.ts`. For each writer, write the `world-boundaries` sample and the `buildings-10k` fixture, then read the output back in a real engine (DuckDB-WASM in Node, as `tests/core` does):
   - FlatGeobuf and GeoPackage: `ST_Read`, same count, geometry equality via `ST_Equals` on a sample;
   - Shapefile zip: unzip with `fflate`, then `ST_Read` the `.shp` with its sidecars;
   - KML and GeoJSONSeq: `ST_Read`;
   - xlsx: unzip and parse `sheet1.xml` (row count, header).
-- [ ] T049 [P] [US4] Web test `tests/web/specs/export-formats.spec.ts`:
+- [X] T049 [P] [US4] Web test `tests/web/specs/export-formats.spec.ts`:
   - the `Include geometry` switch changes the format radiogroup;
   - a format invalid after the switch is replaced, with a notice;
   - "What changes" lists the Shapefile renames for `wide-50.parquet`;
   - every format downloads a file with a non-zero size and the expected magic bytes or extension.
-- [ ] T050 [P] [US4] VS Code test in `tests/vscode-ext/src/suite/export.test.ts` (extend): each new format saves through the host and the file exists with a non-zero size.
-- [ ] T051 [P] [US4] Extend `tests/qgis/read_back.py` to the new formats (gpkg, fgb, shp zip via `/vsizip/`, kml, geojsonl), comparing count and CRS. Document it in `tests/qgis/README.md`.
+- [X] T050 [P] [US4] VS Code test in `tests/vscode-ext/src/suite/export.test.ts` (extend): each new format saves through the host and the file exists with a non-zero size.
+- [X] T051 [P] [US4] Extend `tests/qgis/read_back.py` to the new formats (gpkg, fgb, shp zip via `/vsizip/`, kml, geojsonl), comparing count and CRS. Document it in `tests/qgis/README.md`.
 
 ### Implementation for US4
 
-- [ ] T052 [US4] Change `packages/core/src/export/formats.ts` to the format table in data-model.md (`group`, `writer`, `limits`), and `plan.ts` to `includeGeometry`, per-format `forcedChanges` and limits.
-- [ ] T053 [US4] Create `packages/core/src/export/rows.ts`, `exportRows(session, plan, { geometry, pageSize })`: paged reads from the (scoped) result, with geometry as `ST_AsWKB` or `ST_AsGeoJSON` reprojected per the plan; progress in rows; cancel between pages. Change `export/run.ts` to dispatch to `engine` (unchanged COPY, plus `FORMAT json`) or `js` writers that stream chunks to the sink.
-- [ ] T054 [P] [US4] Create `packages/core/src/export/writers/geojsonseq.ts`, one feature per line.
-- [ ] T055 [P] [US4] Create `packages/core/src/export/writers/kml.ts`: WGS84 only, `ExtendedData` for attributes, XML escaping, MultiGeometry for multi types.
-- [ ] T056 [P] [US4] Create `packages/core/src/export/writers/flatgeobuf.ts` with `flatgeobuf`'s feature serialization: a header with columns, CRS (EPSG code when known) and feature count; no spatial index.
-- [ ] T057 [P] [US4] Create `packages/core/src/export/writers/shapefile.ts`:
+- [X] T052 [US4] Change `packages/core/src/export/formats.ts` to the format table in data-model.md (`group`, `writer`, `limits`), and `plan.ts` to `includeGeometry`, per-format `forcedChanges` and limits.
+- [X] T053 [US4] Create `packages/core/src/export/rows.ts`, `exportRows(session, plan, { geometry, pageSize })`: paged reads from the (scoped) result, with geometry as `ST_AsWKB` or `ST_AsGeoJSON` reprojected per the plan; progress in rows; cancel between pages. Change `export/run.ts` to dispatch to `engine` (unchanged COPY, plus `FORMAT json`) or `js` writers that stream chunks to the sink.
+- [X] T054 [P] [US4] Create `packages/core/src/export/writers/geojsonseq.ts`, one feature per line.
+- [X] T055 [P] [US4] Create `packages/core/src/export/writers/kml.ts`: WGS84 only, `ExtendedData` for attributes, XML escaping, MultiGeometry for multi types.
+- [X] T056 [P] [US4] Create `packages/core/src/export/writers/flatgeobuf.ts` with `flatgeobuf`'s feature serialization: a header with columns, CRS (EPSG code when known) and feature count; no spatial index.
+- [X] T057 [P] [US4] Create `packages/core/src/export/writers/shapefile.ts`:
   - `.shp`, `.shx`, `.dbf` (types C, N, F, L, D, field names ≤10 characters), `.prj` (WKT from the CRS), `.cpg` (UTF-8);
   - one set per geometry type for mixed results;
   - zipped with `fflate` `Zip` streaming;
   - a 2 GB per-part guard.
-- [ ] T058 [P] [US4] Create `packages/core/src/export/writers/xlsx.ts`: a minimal OOXML (workbook, one sheet, inline strings, numbers and booleans, ISO dates as text), zipped with `fflate`, with the 1,048,576-row limit.
-- [ ] T059 [P] [US4] Create `packages/core/src/export/writers/geopackage.ts`:
+- [X] T058 [P] [US4] Create `packages/core/src/export/writers/xlsx.ts`: a minimal OOXML (workbook, one sheet, inline strings, numbers and booleans, ISO dates as text), zipped with `fflate`, with the 1,048,576-row limit.
+- [X] T059 [P] [US4] Create `packages/core/src/export/writers/geopackage.ts`:
   - dynamic-import `sql.js` with the shell-provided `assets.sqlWasmUrl`;
   - the three required tables, the SRS row from the CRS, and the feature table;
   - GPKG blobs (header plus envelope plus WKB) per research §3;
   - `gpkg_contents` extent;
   - `db.export()` streamed to the sink;
   - abort past 1.5 GB with the plan's message.
-- [ ] T060 [US4] Pass `sqlWasmUrl` through the assets in `apps/web/src/App.svelte` and `apps/vscode-ext/src/webview/main.ts`. Add the extension CSP entries for it (`apps/vscode-ext/src/extension.ts`).
-- [ ] T061 [US4] Change `packages/ui/src/ExportDialog.svelte`:
+- [X] T060 [US4] Pass `sqlWasmUrl` through the assets in `apps/web/src/App.svelte` and `apps/vscode-ext/src/webview/main.ts`. Add the extension CSP entries for it (`apps/vscode-ext/src/extension.ts`).
+- [X] T061 [US4] Change `packages/ui/src/ExportDialog.svelte`:
   - an `Include geometry` switch (disabled with the reason when there is no geometry);
   - the format radiogroup filtered by group;
   - auto-replacing an invalid format, with a notice;
   - the "What changes" list showing all `forcedChanges`.
-- [ ] T062 [US4] Gate each format: a format is listed in `EXPORT_FORMATS` only after T048–T051 pass for it. Record the results (counts, QGIS read-back) in `specs/008-ux-parity/research.md` under "Implementation outcomes (US4)".
+- [X] T062 [US4] Gate each format: a format is listed in `EXPORT_FORMATS` only after T048–T051 pass for it. Record the results (counts, QGIS read-back) in `specs/008-ux-parity/research.md` under "Implementation outcomes (US4)".
 
 **Checkpoint**: US4 tests green; spec 005 export tests still green.
 

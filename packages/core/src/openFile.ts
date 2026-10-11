@@ -411,6 +411,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
+    session.setExportAssets({ sqlWasmUrl: duckdbAssets.sqlWasmUrl })
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
     if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null)
     const initial = await session.runDefault()

@@ -6,7 +6,8 @@ import { reprojectToWgs84Sql } from '../crs.js'
 import type { GeometryType, Layer } from '../models.js'
 import type { ResultFacts } from '../query/session.js'
 import { quoteIdent } from '../query/util.js'
-import { EXPORT_FORMATS, exportFormat, type ExportFormatId } from './formats.js'
+import { EXPORT_FORMATS, exportFormat, XLSX_MAX_ROWS, type ExportFormatId } from './formats.js'
+import { dbfRenames } from './dbfNames.js'
 
 /** The table holding the complete result of the last query (spec 002). */
 const RESULT_TABLE = '__se_result'
@@ -25,6 +26,11 @@ export interface ExportRequest {
    * falls back to 'all'.
    */
   scope?: ExportScope
+  /**
+   * Spec 008 FR-019: write the geometry (on by default when the result has
+   * one). Off lists the attribute formats (CSV, Parquet, Excel, JSON).
+   */
+  includeGeometry?: boolean
 }
 
 export type ExportScope = 'all' | 'filtered' | 'selected'
@@ -58,6 +64,12 @@ export interface ExportPlan {
   select: string
   /** Spec 008 FR-014: the rows written (QuerySession narrows the source to it). */
   scope: ExportScope
+  /** Spec 008 FR-019: whether the geometry is written (false when the result has none). */
+  includeGeometry: boolean
+  /** Spec 008: the columns JS writers receive, with their source types (geometry excluded). */
+  writerColumns: Array<{ name: string; type: string }>
+  /** Spec 008: the geometry types written (Shapefile splits a mixed result into one part per type). */
+  geometryType: GeometryType | null
   /** Scopes offered, with their row counts (only those that apply). */
   scopes: Array<{ id: ExportScope; rows: number }>
   fileName: string
@@ -101,10 +113,13 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const hasGeometry = facts.geometryColumn !== null
   const blocked = facts.exportable ? null : 'Run a query (not DESCRIBE, SHOW, SUMMARIZE or EXPLAIN) to export its result.'
 
+  // Spec 008 FR-019: "Include geometry" picks the list: spatial formats, or attribute formats.
+  const includeGeometry = hasGeometry && request.includeGeometry !== false
   const formats = EXPORT_FORMATS.map((f) => {
     if (blocked) return { id: f.id, available: false, reason: blocked }
-    if (f.geometry === 'required' && !hasGeometry) return { id: f.id, available: false, reason: `${f.label} needs a geometry column; this result has none.` }
-    if (f.geometry === 'none' && hasGeometry) return { id: f.id, available: false, reason: 'For results without geometry; use GeoParquet for this one.' }
+    if (f.group === 'spatial' && !hasGeometry) return { id: f.id, available: false, reason: `${f.label} needs a geometry column; this result has none.` }
+    if (f.group === 'spatial' && !includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds geometry: turn on "Include geometry".` }
+    if (f.group === 'attributes' && includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds attributes only: turn off "Include geometry".` }
     return { id: f.id, available: true }
   })
   const format = formats.find((f) => f.id === request.format && f.available)?.id ?? formats.find((f) => f.available)?.id ?? request.format
@@ -129,7 +144,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     label: output === 'wgs84' ? 'EPSG:4326 (WGS84)' : (resultCrs?.label ?? 'EPSG:4326 (WGS84)'),
     srid: output === 'wgs84' ? 4326 : (resultCrs?.srid ?? null),
     forced,
-    reason: forced ? 'GeoJSON is always WGS84 (longitude, latitude), as RFC 7946 requires.' : undefined,
+    reason: forced ? (format === 'kml' ? 'KML is always WGS84 (longitude, latitude).' : `${fmt.label} is always WGS84 (longitude, latitude), as RFC 7946 requires.`) : undefined,
   }
 
   // Columns and geometry.
@@ -139,9 +154,10 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   // GeoJSON values must survive the trip through JS, which loses column types:
   // convert in SQL (research §4). Nested values come back as JSON text,
   // marked so the writer embeds them as JSON values.
+  const jsWriter = fmt.writer === 'js'
   const column = (c: { name: string; type: string }): string => {
     const id = quoteIdent(c.name)
-    if (format !== 'geojson') return id
+    if (!jsWriter) return id
     const type = c.type.trim()
     if (NESTED.test(type)) return `to_json(${id}) AS ${quoteIdent(GEOJSON_JSON_PREFIX + c.name)}`
     if (DATE_TIME.test(type)) return `CAST(${id} AS VARCHAR) AS ${id}`
@@ -153,23 +169,33 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   // Hidden engine columns (__se_rowid, bbox) are never exported (spec 007).
   const columns = visibleColumns(layer.columns)
   const select: string[] = columns.map(column)
-  for (const other of facts.otherGeometryColumns) select.push(`ST_AsText(${quoteIdent(other)}) AS ${quoteIdent(other)}`)
-  if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
+  const writerColumns = columns.map((c) => ({ name: c.name, type: c.type }))
+  if (includeGeometry) {
+    for (const other of facts.otherGeometryColumns) {
+      select.push(`ST_AsText(${quoteIdent(other)}) AS ${quoteIdent(other)}`)
+      writerColumns.push({ name: other, type: 'VARCHAR' })
+    }
+    if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
+  } else if (hasGeometry) notices.push('The geometry is left out ("Include geometry" is off).')
 
   const g = facts.geometryColumn
-  if (g && fmt.geometry !== 'none') {
+  if (g && includeGeometry) {
     const col = quoteIdent(g)
     const projected = output === 'wgs84' && !resultIsWgs84 ? reprojectToWgs84Sql(col, resultCrs?.srid ?? null) : col
     const valid = (expr: string) => `CASE WHEN ${col} IS NOT NULL AND ST_IsValid(${col}) THEN ${expr} END`
     if (format === 'geoparquet') select.push(`${valid(`ST_AsWKB(${projected})::BLOB`)} AS ${col}`)
-    else if (format === 'geojson') select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
+    else if (format === 'geojson' || jsWriter) select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
     else if (format === 'csv' && csvGeometry === 'xy') {
       const taken = new Set(columns.map((c) => c.name.toLowerCase()))
       const [x, y] = taken.has('x') || taken.has('y') ? [`${g}_x`, `${g}_y`] : ['x', 'y']
       select.push(`${valid(`ST_X(${projected})`)} AS ${quoteIdent(x)}, ${valid(`ST_Y(${projected})`)} AS ${quoteIdent(y)}`)
     } else select.push(`${valid(`ST_AsText(${projected})`)} AS ${col}`)
 
-    if (format === 'geojson' && !resultIsWgs84) notices.push(`GeoJSON is always WGS84 (longitude, latitude): coordinates are reprojected from ${resultCrs?.label}.`)
+    if (fmt.crs === 'wgs84-only' && !resultIsWgs84) notices.push(`${fmt.label} is always WGS84 (longitude, latitude): coordinates are reprojected from ${resultCrs?.label}.`)
+    if (format === 'shapefile') {
+      if (layer.geometryType === 'Mixed') notices.push('A Shapefile holds one geometry type: points, lines and polygons are written as separate Shapefiles in the zip.')
+      notices.push('Shapefile text values longer than 254 characters are cut.')
+    }
     if (resultCrs?.assumed) notices.push('The CRS is assumed to be WGS84: the file has none.')
     const invalidShown = layer.invalidGeometryCount
     if (invalidShown > 0) {
@@ -177,6 +203,13 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     }
   }
   notices.push(...typeNotices(format, columns))
+  // Spec 008 FR-021: what each new format forces, before anything is written.
+  if (format === 'shapefile') {
+    const renames = dbfRenames(writerColumns.map((c) => c.name))
+    if (renames.length) notices.push(`Shapefile field names are 10 characters at most: ${renames.map((r) => `${r.from} → ${r.to}`).join(', ')}.`)
+  }
+  if (format === 'xlsx' && rowCount > XLSX_MAX_ROWS - 1) notices.push(`Excel holds ${(XLSX_MAX_ROWS - 1).toLocaleString('en-US')} rows: the first ${(XLSX_MAX_ROWS - 1).toLocaleString('en-US')} are written.`)
+  if (format === 'geopackage') notices.push('A GeoPackage is built in memory: very large results (over 1.5 GB) stop with a message; use GeoParquet for those.')
 
   const from = source === 'layer' ? quoteIdent('layer') : RESULT_TABLE
   const selectList = select.join(', ') || '*'
@@ -197,6 +230,9 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     select: selectList,
     scope,
     scopes,
+    includeGeometry,
+    writerColumns,
+    geometryType: includeGeometry ? layer.geometryType : null,
     fileName: `${baseName(ctx.sourceName)}-export${fmt.extension}`,
   }
 }

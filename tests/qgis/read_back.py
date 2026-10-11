@@ -8,7 +8,8 @@ import json, sys
 from qgis.core import QgsApplication, QgsVectorLayer
 app = QgsApplication([], False); app.initQgis()
 for path in sys.argv[1:]:
-    layer = QgsVectorLayer(path, 'x', 'ogr')
+    source = f'/vsizip/{path}' if path.lower().endswith('.zip') else path
+    layer = QgsVectorLayer(source, 'x', 'ogr')
     info = {'file': path.split('\\')[-1], 'valid': layer.isValid()}
     if layer.isValid():
         info['crs'] = layer.crs().authid() or layer.crs().description()

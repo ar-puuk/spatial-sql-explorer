@@ -130,19 +130,18 @@ test.describe('export keeps the CRS honestly (US2)', () => {
 
 // T021: US3, only verified formats (quickstart Scenario 4).
 test.describe('formats offered (US3)', () => {
-  test('geometry results: GeoParquet, GeoJSON, CSV; table results: CSV and Parquet; never GDAL-only formats', async ({ page }) => {
+  test('geometry results: the spatial formats (spec 008); table results: the attribute formats', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, writeParcels(500), '?e2e=1')
     await page.getByRole('button', { name: 'Export data…' }).click()
     const formats = dialog(page).getByRole('radiogroup', { name: 'Format' }).getByRole('radio')
-    await expect(formats).toHaveText(['GeoParquet', 'GeoJSON', 'CSV'])
-    for (const gdal of ['FlatGeobuf', 'GeoPackage', 'Shapefile', 'KML']) await expect(dialog(page)).not.toContainText(gdal)
+    await expect(formats).toHaveText(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV'])
     await dialog(page).getByRole('button', { name: 'Cancel' }).click()
 
     await openQueryPanel(page)
     await runQuery(page, 'SELECT zone, count(*)::INTEGER AS n FROM layer GROUP BY zone ORDER BY zone')
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await expect(formats).toHaveText(['CSV', 'Parquet'])
+    await expect(formats).toHaveText(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
     await expect(dialog(page).getByLabel('CRS')).toHaveCount(0)
     const out = await exportVia(page, { format: 'Parquet' })
     const p = await inspectParquet(page, out.bytes)

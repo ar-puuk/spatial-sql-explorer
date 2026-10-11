@@ -42,17 +42,32 @@ describe('which rows (FR-002; spec 007 FR-009: nothing is display-limited)', () 
 })
 
 describe('formats offered (FR-004, FR-008)', () => {
-  it('a geometry result offers GeoParquet, GeoJSON and CSV, not Parquet', () => {
+  it('a geometry result offers the spatial formats (spec 008), not the attribute ones', () => {
     const f = planExport(request(), ctx()).formats
-    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'geojson', 'geoparquet'])
-    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/without geometry/)
+    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geojsonseq', 'geopackage', 'geoparquet', 'kml', 'shapefile'])
+    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/turn off "Include geometry"/)
   })
 
-  it('a table result offers CSV and Parquet only, with a reason for the others', () => {
+  it('"Include geometry" off offers the attribute formats, and the SQL has no geometry (spec 008 FR-019)', () => {
+    const p = planExport(request({ format: 'xlsx', includeGeometry: false }), ctx())
+    expect(p.includeGeometry).toBe(false)
+    expect(p.formats.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'json', 'parquet', 'xlsx'])
+    expect(p.format).toBe('xlsx')
+    expect(p.sql).not.toMatch(/geom/)
+    expect(p.notices.join()).toMatch(/geometry is left out/)
+  })
+
+  it('a format that does not fit the geometry choice is replaced by the first that does', () => {
+    expect(planExport(request({ format: 'shapefile', includeGeometry: false }), ctx()).format).toBe('csv')
+    expect(planExport(request({ format: 'xlsx' }), ctx()).format).toBe('geoparquet')
+  })
+
+  it('a table result offers the attribute formats only, with a reason for the others', () => {
     const c = ctx({ facts: { ...ctx().facts, geometryColumn: null, resultCrs: null, defaultView: false, totalRows: 5 }, layer: { ...ctx().layer, rowCount: 5 } })
-    const f = planExport(request({ format: 'csv' }), c).formats
-    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'parquet'])
-    expect(f.find((x) => x.id === 'geojson')?.reason).toMatch(/geometry/)
+    const p = planExport(request({ format: 'csv' }), c)
+    expect(p.includeGeometry).toBe(false)
+    expect(p.formats.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'json', 'parquet', 'xlsx'])
+    expect(p.formats.find((x) => x.id === 'geojson')?.reason).toMatch(/geometry/)
   })
 
   it('a DESCRIBE / SHOW result can not be exported, with the reason', () => {

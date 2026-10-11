@@ -371,3 +371,73 @@ saved.
   place search service".
 - **File Geodatabase** remains unsupported. Re-check `ST_Drivers()` on each
   DuckDB-WASM upgrade.
+
+---
+
+## Implementation outcomes (US4, 2026-10-11)
+
+### COPY TO GDAL, re-tested at the user's request
+
+The user prefers the engine's `COPY … (FORMAT GDAL)` over custom writers, so it
+was spiked again before keeping the JS writers. Evidence:
+`spikes/gdal-writers-1.32.json`, `spikes/gdal-writers-1.33.json`,
+`spikes/gdal-writers.spec.ts.txt`, `spikes/gdal-opfs.spec.ts.txt`.
+
+| Target | GPKG | FlatGeobuf | Shapefile | KML | GeoJSONSeq |
+|---|---|---|---|---|---|
+| engine path (1.32.0, DuckDB 1.4.3) | "file is not a database" | stack overflow | "Failed to write .shp header" | axis order (fixed with `SRS 'OGC:CRS84'`) | "Cannot write feature" |
+| pre-registered buffer, layer options | same | same / "I/O failure" | same | same | same |
+| `opfs://` (registered) | SQLite error | stack overflow | 0 bytes | 0 bytes | "Cannot write feature" |
+| 1.33.1-dev57 (DuckDB 1.5.4) | same as 1.32 | same | same | same | same |
+| `/vsimem/` (GDAL's memory) | ✓ reads back 20/20 | ✓ | ✓ | ✓ | ✓ |
+
+Writes succeed only into GDAL's own `/vsimem/`, and nothing reaches those
+bytes from outside: `read_blob`, `read_text` and `glob` on `/vsimem/` return
+nothing. The DuckDB-WASM file layer can't take GDAL's random-access writes.
+**Decision (user, 2026-10-11): ship the JS writers now; re-run the GDAL spike
+on every DuckDB-WASM upgrade and move each format to the engine as soon as it
+writes.**
+
+### Verified formats (SC-010)
+
+Every format offered was written by the real web build, then read back:
+
+- in the browser engine (GDAL, `inspectExport` hook, `export-formats.spec.ts`):
+  - GeoPackage, FlatGeobuf, KML, GeoJSONSeq: 500 of 500 rows, POLYGON;
+  - Shapefile: the UTM test file, EPSG:26912 kept;
+  - GeoPackage and FlatGeobuf exports reopen in the app;
+- in QGIS 4.2.3 (`tests/qgis/read_back.py`):
+
+| File | CRS | Count |
+|---|---|---|
+| UTM test file → GPKG, FGB, SHP zip | EPSG:26912 | 1 |
+| UTM test file → KML, GeoJSONSeq | EPSG:4326 | 1 |
+| world (180 countries) → GPKG, FGB, SHP zip, KML, GeoJSONSeq | EPSG:4326 | 180 |
+
+- Excel: openpyxl reads the header and 180 rows. QGIS's XLSX driver takes an
+  all-text header row as data, as it does for any all-text sheet.
+- JSON: 180 objects (`JSON.parse`). It isn't a GDAL vector format (no
+  geometry), as intended.
+- VS Code: all seven formats save through the host
+  (`export.test.ts`, "Spec 008 US4").
+
+### Found while verifying
+
+- **GeoPackage needs `gpkg_ogr_contents`.** Without GDAL's feature-count
+  table, the WASM build's GDAL counts features on a worker thread and fails
+  ("thread constructor failed: Resource temporarily unavailable"). Our first
+  exports didn't reopen in the app. The writer adds the table.
+  - The same applies to **reading** GeoPackages from tools that don't write
+    it (e.g. ArcGIS): they fail to open in this runtime. This is a
+    pre-existing reading gap, listed under residual risks.
+- **JSON** moved from the engine (`COPY … FORMAT JSON`) to a JS writer: the
+  engine lockdown refuses to autoload the `json` extension, and loading it at
+  every start isn't worth it for one export format.
+- **KML** puts the first text column in `<name>`; QGIS shows the attribute
+  as `name2` next to KML's own `Name`. That's standard KML behavior, left as is.
+
+### Residual risks (US4)
+
+- GeoPackages without `gpkg_ogr_contents` don't open (above). Possible fix
+  to spike: a GDAL open option, or adding the table to a copy before opening.
+- GeoPackage output is built in memory (capped at 1.5 GB with a message).

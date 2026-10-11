@@ -1,0 +1,30 @@
+// SPIKE (spec 008): GDAL COPY to OPFS. Temporary.
+import { test, type Page } from '@playwright/test'
+type Hook = { spike(f: unknown[], s: string[], empty?: string[]): Promise<unknown[]>; spikeFile(p: string): Promise<string> }
+const run = (page: Page, sqls: string[], reg: string[]) => page.evaluate(([s, r]) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spike([], s, r), [sqls, reg] as const)
+
+test('opfs', async ({ page }) => {
+  test.setTimeout(300000)
+  page.on('console', (m) => m.type() === 'error' && console.log('console:', m.text().slice(0, 200)))
+  await page.goto('/?e2e=1')
+  const sqls = [`CREATE OR REPLACE TABLE t AS SELECT i AS id, 'name ' || i AS name, (i * 1.5)::DOUBLE AS v, ST_Buffer(ST_Point(-111.9 + i * 0.01, 40.7), 0.004) AS geom FROM range(20) r(i)`]
+  for (const [d, e, srs] of [['GPKG', 'gpkg', 'EPSG:4326'], ['FlatGeobuf', 'fgb', 'EPSG:4326'], ['ESRI Shapefile', 'shp', 'EPSG:4326'], ['KML', 'kml', 'OGC:CRS84'], ['GeoJSONSeq', 'geojsonl', 'EPSG:4326']]) {
+    sqls.push(`COPY t TO 'opfs://a.${e}' (FORMAT GDAL, DRIVER '${d}', SRS '${srs}')`)
+    sqls.push(`SELECT count(*) AS n FROM ST_Read('opfs://a.${e}')`)
+  }
+  const reg = ['gpkg', 'fgb', 'shp', 'shx', 'dbf', 'prj', 'cpg', 'kml', 'geojsonl'].map((e) => `opfs://a.${e}`)
+  for (const x of await run(page, sqls, reg)) console.log(JSON.stringify(x).slice(0, 300))
+  for (const e of ['gpkg', 'fgb', 'shp', 'kml', 'geojsonl']) {
+    const size = await page.evaluate(async (ext) => {
+      try {
+        const root = await navigator.storage.getDirectory()
+        const dir = root
+        const f = await (await dir.getFileHandle(`a.${ext}`)).getFile()
+        return f.size
+      } catch (err) {
+        return String(err)
+      }
+    }, e)
+    console.log('opfs file', e, size)
+  }
+})
