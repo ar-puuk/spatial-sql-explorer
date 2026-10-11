@@ -23,6 +23,8 @@
 
   /* Text */
   --se-text-primary: var(--vscode-foreground);
+  /* Data swatches (legend, class list): a neutral edge that reads on any data color. */
+  --se-swatch-border: var(--vscode-contrastBorder, color-mix(in srgb, var(--vscode-foreground) 45%, transparent));
   --se-text-secondary: var(--vscode-descriptionForeground);
   --se-text-muted: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
   --se-accent: var(--vscode-button-background);

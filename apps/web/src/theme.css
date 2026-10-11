@@ -21,6 +21,8 @@
   --se-border: #e8dfc8;
 
   --se-text-primary: #1c1208;
+  /* Data swatches (legend, class list): a neutral edge that reads on any data color. */
+  --se-swatch-border: color-mix(in srgb, var(--se-text-primary) 45%, transparent);
   --se-text-secondary: #6b5e4a;
   /* Muted text darkened from the brand's #a8977a to meet WCAG AA (4.5:1) on
      white and cream (T045 axe audit). */

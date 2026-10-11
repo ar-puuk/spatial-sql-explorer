@@ -34,6 +34,7 @@ type WebviewToHostMessage =
   | { type: 'viewState'; basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean }
   | { type: 'reloadSource' }
   | { type: 'queryState'; state: unknown }
+  | { type: 'styleState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
@@ -68,6 +69,7 @@ let lastSelection: string | number | null = null
 
 /** Latest query state, same rationale (spec 002 test hooks). */
 let lastQueryState: unknown = null
+let lastStyleState: unknown = null
 /** Last logged lines (spec 002 T037: tests assert what reached the output channel). */
 const recentLogLines: string[] = []
 
@@ -183,6 +185,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           .then(() => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: {} }))
       } else if (msg.type === 'queryState') {
         lastQueryState = msg.state
+      } else if (msg.type === 'styleState') {
+        lastStyleState = msg.state
       } else if (msg.type === 'reloadSource') {
         log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
         lastLoadState = null
@@ -451,6 +455,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
+    // Spec 003 test hooks: read the resolved style, apply a style, save it.
+    vscode.commands.registerCommand('spatialExplorer._getStyleState', () => lastStyleState),
+    vscode.commands.registerCommand('spatialExplorer._setStyle', (style: unknown) => provider.postToActive({ type: 'testSetStyle', style })),
+    vscode.commands.registerCommand('spatialExplorer._saveStyle', () => provider.postToActive({ type: 'testSaveStyle' })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null

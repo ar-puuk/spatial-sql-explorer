@@ -49,7 +49,7 @@ header and footer stay visible.
 ## Legend (NEW: `MapLegend.svelte`)
 
 ```
-┌ ▾ value · Quantile, 5 classes ┐   top-left of the map
+┌ ▾ value · Quantile, 5 classes ┐   bottom-left of the map, above the scale bar
 │ ■ 1,730 – 10,497        312   │   swatch is a toggle button: hides/shows the class
 │ ■ 10,497 – 16,286       310   │
 │ ▫ 16,286 – 25,115       311   │   hidden: hollow swatch, dimmed row

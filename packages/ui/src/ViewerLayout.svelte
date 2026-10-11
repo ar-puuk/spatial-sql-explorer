@@ -5,12 +5,13 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { sidecarStyleFileName } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, rendererOf, sidecarStyleFileName } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
   import LayerWarningBanner from './LayerWarningBanner.svelte'
   import LayerStylePanel from './LayerStylePanel.svelte'
+  import MapLegend from './MapLegend.svelte'
   import BasemapPicker from './BasemapPicker.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import ProgressBar from './ProgressBar.svelte'
@@ -31,6 +32,14 @@
 
   const session = $derived(store.session)
   const layer = $derived(session.layer)
+  // Legend (spec 003 FR-010): for thematic styles, and for a customized
+  // single symbol (one row); not for the untouched default.
+  const legendRenderer = $derived(rendererOf(store.style))
+  const showLegend = $derived(
+    legendRenderer.kind !== 'single' ||
+      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
+  )
+  const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
   const loading = $derived(session.loadState === 'loading')
 
   const MIN_FRACTION = 0.15
@@ -255,10 +264,22 @@
           <button type="button" aria-label="Dismiss" onclick={() => store.dismissBasemapNotice()}><Icon name="close" size={14} /></button>
         </div>
       {/if}
+      {#if layer && showLegend}
+        <MapLegend
+          resolved={store.resolvedStyle}
+          title={legendTitle}
+          geometryType={layer.geometryType}
+          collapsed={store.legendCollapsed}
+          onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
+          onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
+        />
+      {/if}
       {#if openPanel === 'style' && layer}
         <div class="style-popover">
           <LayerStylePanel
             style={store.style}
+            resolved={store.resolvedStyle}
+            layer={store.displayedLayer}
             geometryType={layer.geometryType}
             sidecarName={sidecarStyleFileName(fileName ?? 'layer')}
             styleSource={store.styleSource}
@@ -378,6 +399,8 @@
     top: 10px;
     right: 48px;
     z-index: 6;
+    display: flex;
+    max-height: calc(100% - 20px - var(--se-map-bottom-inset, 0px));
   }
   .inspector-slot {
     position: absolute;

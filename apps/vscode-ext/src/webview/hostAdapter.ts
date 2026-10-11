@@ -285,6 +285,11 @@ export function reportQueryState(state: unknown): void {
   post({ type: 'queryState', state })
 }
 
+/** Resolved style for the extension's test hook (spec 003). */
+export function reportStyleState(state: unknown): void {
+  post({ type: 'styleState', state })
+}
+
 /** One line in the "Spatial Explorer" output channel. */
 export function logToHost(detail: string): void {
   post({ type: 'log', detail })

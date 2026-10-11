@@ -62,7 +62,7 @@ export function writeParcels(count: number, name = `parcels-${count}.geojson`): 
     }
     ring.push(ring[0])
     features.push(
-      `{"type":"Feature","properties":{"parcel_id":"P-${100000 + i}","zone":"${['R1', 'R2', 'C', 'I', 'AG'][i % 5]}","acres":${(rand() * 5).toFixed(3)},"value":${Math.round(rand() * 900000)}},"geometry":{"type":"Polygon","coordinates":[[${ring.join(',')}]]}}`
+      `{"type":"Feature","properties":{"parcel_id":"P-${100000 + i}","zone":"${['R1', 'R2', 'C', 'I', 'AG'][i % 5]}","acres":${(rand() * 5).toFixed(3)},"value":${Math.round(rand() * 900000)},"owner":"Owner ${i % 997}"},"geometry":{"type":"Polygon","coordinates":[[${ring.join(',')}]]}}`
     )
   }
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-q-')), name)

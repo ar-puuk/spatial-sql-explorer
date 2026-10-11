@@ -275,8 +275,11 @@ hidden class will be left out").
 ## 8. Legend placement and behavior (FR-010)
 
 **Decision**:
-- An on-map card in the **top-left** corner. Zoom and style controls are
-  top-right, the scale bar bottom-left and the attribution bottom-right.
+- An on-map card in the **bottom-left** corner, above the scale bar.
+  *Amended in implementation (T020/T021)*: the top-left belongs to the
+  feature inspector, and a bottom-right legend was covered by the style
+  panel, which opens on the right. The inspector is transient and may
+  cover the legend while it is open.
 - It is collapsible to its header, and the collapsed state is remembered
   through `HostAdapter.saveState('legend.collapsed')`.
 - **Contents**: column and caption (e.g. `value · Quantile, 5 classes`),

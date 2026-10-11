@@ -6,7 +6,7 @@
 // the class color AND the hidden-class filter both read. The map and the
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
-import { parseColor, rendererOf, type LayerStyle, type ResolvedStyle } from './model.js'
+import { parseColor, rendererOf, type CategorizedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
 
 export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
@@ -33,9 +33,31 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
   switch (r.kind) {
     case 'single':
       return null
+    case 'categorized':
+      return categorizedIndex(r, resolved)
     default:
-      return null // categorized (US1) and graduated (US2) branches
+      return null // graduated (US2)
   }
+}
+
+/** Position of the class with this key, or -1 (drawn in the fallback color). */
+const indexOf = (resolved: ResolvedStyle, key: string): number => resolved.classes.findIndex((c) => c.key === key)
+
+/**
+ * Mirrors resolve.ts's categorized branch with `toCategory()`'s rules:
+ * null / "" -> "No value"; listed values -> their class; anything else ->
+ * "Other". `to-string` equals JS `String()` (research §4).
+ */
+function categorizedIndex(r: CategorizedRenderer, resolved: ResolvedStyle): unknown {
+  const noValue = indexOf(resolved, '__null')
+  const other = indexOf(resolved, '__other')
+  const arms: unknown[] = []
+  resolved.classes.forEach((c, i) => {
+    if (c.kind === 'value' && c.value !== undefined) arms.push(c.value, i)
+  })
+  const v = ['var', 'v']
+  const byValue = arms.length ? ['match', ['to-string', v], ...arms, other] : other
+  return ['let', 'v', ['get', r.column], ['case', ['==', v, null], noValue, ['==', ['to-string', v], ''], noValue, byValue]]
 }
 
 /** The class color per feature: `match` on the class index. */

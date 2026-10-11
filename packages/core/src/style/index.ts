@@ -1,5 +1,7 @@
 export * from './model.js'
 export * from './ramps.js'
+export * from './classify.js'
+export * from './edit.js'
 export * from './resolve.js'
 export * from './expressions.js'
 export { styleToQml, qmlToStyle, type StyleExport } from './qml.js'

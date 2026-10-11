@@ -14,6 +14,7 @@ import {
   type BasemapCatalogEntry,
   type BasemapChoice,
   sanitizeStyle,
+  setClassVisible,
   resolveStyle,
   type ResolvedStyle,
   sidecarStyleFileName,
@@ -100,6 +101,13 @@ export interface ViewerStore {
   readonly style: LayerStyle
   /** The style resolved against the displayed result (spec 003): what the map and legend draw. */
   readonly resolvedStyle: ResolvedStyle
+  /** The displayed result without reactive proxies, for classification and pickers. */
+  readonly displayedLayer: Layer | null
+  /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
+  readonly legendCollapsed: boolean
+  setLegendCollapsed(collapsed: boolean): void
+  /** FR-009: hide or show one class on the map. */
+  setClassVisible(key: string, visible: boolean): void
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
   readonly styleSource: string | null
   readonly styleNotice: StyleNotice | null
@@ -152,6 +160,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let sourceChanged = $state(false)
   let blankColor = $state<string | null>(null)
   const BLANK_COLOR_KEY = 'basemap.blankColor'
+  const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
+  let legendCollapsed = $state(false)
+  void hostAdapter
+    .loadState<boolean>(LEGEND_COLLAPSED_KEY)
+    .then((saved) => {
+      if (typeof saved === 'boolean') legendCollapsed = saved
+    })
+    .catch(() => {})
   void hostAdapter
     .loadState<string | null>(BLANK_COLOR_KEY)
     .then((saved) => {
@@ -558,6 +574,20 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get resolvedStyle() {
       return resolvedStyle
+    },
+    get displayedLayer() {
+      return displayedLayer
+    },
+    get legendCollapsed() {
+      return legendCollapsed
+    },
+    setLegendCollapsed(collapsed) {
+      legendCollapsed = collapsed
+      void hostAdapter.saveState(LEGEND_COLLAPSED_KEY, collapsed).catch(() => {})
+    },
+    setClassVisible(key, visible) {
+      style = setClassVisible(style, key, visible)
+      styleDirty = true
     },
     get style() {
       return style

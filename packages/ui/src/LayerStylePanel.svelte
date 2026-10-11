@@ -1,14 +1,30 @@
 <script lang="ts">
-  // Single-symbol layer style popover (design-plan.md §8.1/§8.5). Edits apply
+  // Layer style popover (design-plan.md §8.1/§8.5; spec 003
+  // contracts/ui-style-panel.md). Renderer (Single / Categorized /
+  // Graduated), column, classes, and the shared symbol settings. Edits apply
   // live. "Save" writes the QGIS-convention `<file>.qml` sidecar (VS Code) or
   // downloads it (web); "Export" writes QML, SLD or Mapbox GL style JSON;
   // "Import" reads any of the three.
-  import { STYLE_FORMATS, type GeometryType, type LayerStyle, type StyleFormat } from '@spatial-explorer/core'
+  import {
+    STYLE_FORMATS,
+    eligibleColumns,
+    rendererOf,
+    startStyle,
+    type GeometryType,
+    type LayerStyle,
+    type Renderer,
+    type ResolveInput,
+    type ResolvedStyle,
+    type StyleFormat,
+  } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
     style: LayerStyle
+    resolved: ResolvedStyle
+    /** The displayed result (unproxied): columns for the pickers, rows for defaults. */
+    layer: ResolveInput | null
     geometryType: GeometryType
     sidecarName: string
     styleSource: string | null
@@ -25,6 +41,8 @@
   }
   let {
     style,
+    resolved,
+    layer,
     geometryType,
     sidecarName,
     styleSource,
@@ -39,6 +57,46 @@
     onDismissNotice,
     onClose,
   }: Props = $props()
+
+  const RENDERERS: Array<{ kind: Renderer['kind']; label: string }> = [
+    { kind: 'single', label: 'Single' },
+    { kind: 'categorized', label: 'Categorized' },
+    { kind: 'graduated', label: 'Graduated' },
+  ]
+  const renderer = $derived(rendererOf(style))
+  const thematic = $derived(renderer.kind !== 'single')
+  const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
+  /** Why a renderer can't be chosen, or null. */
+  function unavailable(kind: Renderer['kind']): string | null {
+    if (kind === 'single') return null
+    if (kind === 'graduated') return 'Coming in this build.' // enabled by US2
+    return columnsFor(kind).length ? null : 'This result has no attribute columns.'
+  }
+  let symbolOpen = $state(false)
+  const nf = new Intl.NumberFormat('en-US')
+
+  function chooseRenderer(kind: Renderer['kind']): void {
+    if (kind === renderer.kind || unavailable(kind)) return
+    onChange(startStyle(style, kind, layer))
+  }
+
+  /** Radio group keys: arrows move and apply, skipping unavailable entries (WAI-ARIA radio group). */
+  function radioKeydown(e: KeyboardEvent): void {
+    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!dir) return
+    e.preventDefault()
+    const enabled = RENDERERS.filter((r) => !unavailable(r.kind))
+    const i = enabled.findIndex((r) => r.kind === renderer.kind)
+    const next = enabled[(i + dir + enabled.length) % enabled.length]
+    chooseRenderer(next.kind)
+    const group = (e.currentTarget as HTMLElement).closest('[role="radiogroup"]')
+    queueMicrotask(() => group?.querySelector<HTMLElement>(`[data-kind="${next.kind}"]`)?.focus())
+  }
+
+  function chooseColumn(column: string): void {
+    if (renderer.kind === 'single') return
+    onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
+  }
 
   let exportOpen = $state(false)
   let hasFill = $derived(geometryType !== 'LineString')
@@ -66,10 +124,70 @@
   </header>
 
   <div class="body">
+    <div class="renderers" role="radiogroup" aria-label="Renderer">
+      {#each RENDERERS as r (r.kind)}
+        {@const why = unavailable(r.kind)}
+        <button
+          type="button"
+          role="radio"
+          data-kind={r.kind}
+          aria-checked={renderer.kind === r.kind}
+          tabindex={renderer.kind === r.kind ? 0 : -1}
+          aria-disabled={why !== null}
+          title={why ?? undefined}
+          onclick={() => chooseRenderer(r.kind)}
+          onkeydown={radioKeydown}>{r.label}</button
+        >
+      {/each}
+    </div>
+
+    {#if renderer.kind !== 'single'}
+      <div class="row field">
+        <label class="label" for="style-column">Column</label>
+        <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
+          {#if !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
+            <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
+          {/if}
+          {#each columnsFor(renderer.kind) as c (c.name)}
+            <option value={c.name}>{c.name} · {c.type}</option>
+          {/each}
+        </select>
+      </div>
+
+      {#if resolved.status === 'fallback'}
+        <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
+      {:else}
+        <div class="classes-head">
+          <span>{resolved.caption}</span>
+        </div>
+        <ul class="classes" aria-label="Classes">
+          {#each resolved.classes as c (c.key)}
+            <li class:hidden={!c.visible}>
+              <span class="swatch" style:background={c.color} aria-hidden="true"></span>
+              <span class="class-label" title={c.label}>{c.label}</span>
+              <span class="count">{nf.format(c.count)}</span>
+            </li>
+          {/each}
+        </ul>
+        {#each resolved.notes as note (note)}
+          <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+        {/each}
+      {/if}
+
+      <button type="button" class="disclosure" aria-expanded={symbolOpen} onclick={() => (symbolOpen = !symbolOpen)}>
+        <Icon name={symbolOpen ? 'chevron-down' : 'chevron-up'} size={12} />Symbol
+      </button>
+    {/if}
+
+    {#if !thematic || symbolOpen}
     {#if hasFill}
       <div class="row">
         <span class="label" id="fill-label">Fill</span>
-        <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+        {#if thematic}
+          <span class="by-class" title="Class colors come from the classes above">·</span>
+        {:else}
+          <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+        {/if}
         <input
           type="range"
           aria-label="Fill opacity"
@@ -129,6 +247,7 @@
         <span class="value">{style.pointRadius} px</span>
       </div>
     {/if}
+    {/if}
   </div>
 
   {#if notice}
@@ -177,7 +296,10 @@
 
 <style>
   .panel {
-    width: 288px;
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    width: 320px;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -213,8 +335,129 @@
   }
   .body {
     display: grid;
+    align-content: start;
     gap: 8px;
+    min-height: 0;
+    overflow-y: auto;
     padding: 12px;
+  }
+  .renderers {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    overflow: hidden;
+  }
+  .renderers button {
+    height: 24px;
+    padding: 0 6px;
+    border: 0;
+    border-left: 1px solid var(--se-input-border);
+    background: var(--se-input-bg);
+    color: var(--se-text-secondary);
+    font: inherit;
+    cursor: pointer;
+  }
+  .renderers button:first-child {
+    border-left: 0;
+  }
+  .renderers button[aria-checked='true'] {
+    background: var(--se-button-bg);
+    color: var(--se-button-fg);
+  }
+  .renderers button[aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .renderers button:focus-visible,
+  .disclosure:focus-visible,
+  select:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .row.field {
+    grid-template-columns: 72px 1fr;
+  }
+  select {
+    min-width: 0;
+    height: 24px;
+    padding: 0 4px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-input-fg, var(--se-text-primary));
+    font: inherit;
+  }
+  .classes-head {
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
+  .classes {
+    display: grid;
+    gap: 1px;
+    max-height: 220px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+  .classes li {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+    padding: 0 4px;
+  }
+  .classes li.hidden {
+    opacity: 0.45;
+  }
+  .swatch {
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--se-swatch-border);
+    border-radius: 2px;
+  }
+  .class-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .count {
+    font-family: var(--se-font-mono);
+    font-size: 0.9em;
+    font-variant-numeric: tabular-nums;
+    color: var(--se-text-secondary);
+  }
+  .inline-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+    line-height: 1.4;
+  }
+  .inline-note.warning :global(.icon) {
+    color: var(--se-warning);
+  }
+  .disclosure {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    justify-self: start;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--se-section-title-fg);
+    font: var(--se-section-title-font);
+    text-transform: var(--se-section-title-transform);
+    letter-spacing: var(--se-section-title-tracking);
+    cursor: pointer;
+  }
+  .by-class {
+    text-align: center;
+    color: var(--se-text-muted);
   }
   .row {
     display: grid;

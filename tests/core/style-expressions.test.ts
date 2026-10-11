@@ -53,3 +53,47 @@ describe('single symbol (spec 001 behavior, unchanged)', () => {
     expect(haloColor('#0b3d91')).toBe('#ffffff')
   })
 })
+
+describe('categorized: the map picks the class the legend counted (SC-006)', () => {
+  const values: unknown[] = []
+  for (let i = 0; i < 200; i++) {
+    const pick = i % 9
+    values.push(pick === 0 ? null : pick === 1 ? '' : pick === 2 ? true : pick === 3 ? i % 4 : pick === 4 ? 1.5 : pick === 5 ? 0.1 + 0.2 : `zone ${i % 15}`)
+  }
+  const features = values.map((v, id) => ({ id, geometry: null, attributes: { zone: v as never } }))
+  const layer = { features, columns: [{ name: 'zone', type: 'VARCHAR' }] }
+
+  for (const cap of [12, 4]) {
+    it(`every feature's color is its class color (cap ${cap})`, () => {
+      const style: LayerStyle = {
+        ...DEFAULT_LAYER_STYLE,
+        renderer: { kind: 'categorized', column: 'zone', ramp: { id: 'brewer-paired', reversed: false }, cap, manual: false, classes: [], other: {}, noValue: {} },
+      }
+      const resolved = resolveStyle(style, layer)
+      const fill = paintFor(style, resolved, '#0078d4').fill['fill-color'] as unknown[]
+      const classExpr = fill[3] // ['case', selected, sel, <class color>]
+      const counts = new Map<string, number>()
+      for (const f of features) {
+        // Without a property spec the evaluator returns the match output as-is: the hex string.
+        const hex = evaluate(classExpr, f.attributes) as string
+        counts.set(hex, (counts.get(hex) ?? 0) + 1)
+      }
+      const expected = new Map<string, number>()
+      for (const c of resolved.classes) expected.set(c.color, (expected.get(c.color) ?? 0) + c.count)
+      expect(counts).toEqual(expected)
+    })
+  }
+
+  it('hidden classes are filtered out on the map', () => {
+    const style: LayerStyle = {
+      ...DEFAULT_LAYER_STYLE,
+      renderer: { kind: 'categorized', column: 'zone', ramp: { id: 'brewer-paired', reversed: false }, cap: 12, manual: false, classes: [{ value: 'true', visible: false }], other: {}, noValue: { visible: false } },
+    }
+    const resolved = resolveStyle(style, layer)
+    const filter = visibilityFilter(style, resolved)
+    const shown = features.filter((f) => evaluate(filter, f.attributes, 'layers[0].filter') === true).length
+    const hiddenCount = resolved.classes.filter((c) => !c.visible).reduce((n, c) => n + c.count, 0)
+    expect(hiddenCount).toBeGreaterThan(0)
+    expect(shown).toBe(features.length - hiddenCount)
+  })
+})

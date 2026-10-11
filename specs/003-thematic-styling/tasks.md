@@ -141,12 +141,13 @@ spec 001.
 
   Run the full web suite and the VS Code suite: spec 001 and 002 behavior is unchanged.
   - *Done*: Store: resolvedStyle derived from a raw displayedLayer kept in step via setLayer() (no per-attribute signals). MapView gets the resolved prop, core paint, and per-layer filters plus a halo layer. Web 32/32 and VS Code 37/37 unchanged.
-- [ ] T013 Add the VS Code test hooks:
+- [X] T013 Add the VS Code test hooks:
   - `spatialExplorer._getStyleState`, which reports `{ renderer, column, method, classCount, status, reason, caption, classes: [{ key, label, color, visible, count }] }` from the webview, mirroring `watchQueryState` in a new `apps/vscode-ext/src/webview/styleState.svelte.ts`;
   - `spatialExplorer._setStyle(styleJson)`, which applies a full `LayerStyle` in the active viewer;
   - `spatialExplorer._saveStyle`, which triggers Save.
 
   Register them in `apps/vscode-ext/src/extension.ts`, next to `_getQueryState`. Handle the messages in `apps/vscode-ext/src/webview/main.ts`.
+  - *Done*: styleState.svelte.ts, reportStyleState, and the testSetStyle/testSaveStyle handlers; _getStyleState, _setStyle and _saveStyle are registered. Verified by style.test.ts in the VS Code suite (39/39).
 
 **Checkpoint**: everything from specs 001 and 002 is green. The single
 symbol now flows through `resolveStyle → paintFor`.
@@ -162,46 +163,54 @@ cap, "No value" for nulls, and a legend with counts.
 text column, and see per-value colors and a matching legend (quickstart
 Scenario 1).
 
-- [ ] T014 [P] [US1] Write `tests/core/style-classify.test.ts` (categorized part):
+- [X] T014 [P] [US1] Write `tests/core/style-classify.test.ts` (categorized part):
   - `toCategory` maps `null` and `''` to null, numbers via `String()`, and `true` to `'true'`;
   - categories are ordered most frequent first, ties alphabetical;
   - with the cap, the top N get classes and the rest go to "Other", with `groups` equal to the number of distinct values grouped;
   - nulls go to "No value";
   - counts add up to `features.length`.
-- [ ] T015 [P] [US1] Extend `tests/core/style-expressions.test.ts` (categorized):
+  - *Done*: style-classify.test.ts, categorized part (9 tests): frequency order, numeric-aware ties, cap and Other with groups, No value, counts add up, overrides, repeats note, missing-column fallback.
+- [X] T015 [P] [US1] Extend `tests/core/style-expressions.test.ts` (categorized):
   - for a fixture of 200 features with string, number, boolean, null and `''` values, evaluate `paintFor`'s fill-color expression per feature with the style-spec;
   - assert that it equals the color of the class `resolveStyle` assigned (SC-006, "map = legend").
-- [ ] T016 [P] [US1] Write `tests/web/specs/style-thematic.spec.ts` (categorized part):
+  - *Done*: Expression parity: per-feature evaluation of the class color with MapLibre's style-spec on 200 mixed-type features (null, '', booleans, 0.1+0.2, ints, text) equals the legend counts for cap 12 and 4. Hidden classes are filtered exactly.
+- [X] T016 [P] [US1] Write `tests/web/specs/style-thematic.spec.ts` (categorized part):
   - open the 22,000-parcel file (reuse `writeParcels` from `helpers.ts`, adding the `owner` column if missing);
   - Layer style → Categorized → `zone`;
   - the legend region "Legend" lists 5 rows whose counts add up to 1,000;
   - run `SELECT * FROM layer` (Show all), categorize by `owner`: 12 rows plus `Other (985 values)`, with counts adding up to 22,000;
   - switch to Single: the legend shows one row, or is hidden for the default style.
-- [ ] T017 [P] [US1] Write `tests/vscode-ext/src/suite/style.test.ts` (categorized part):
+  - *Done*: style-thematic.spec.ts (3): zone auto-picked, 5 classes summing to 1,000; owner on 22,000 rows gives 12 + Other (985 values); Single hides the legend; world-boundaries parity list; a legend swatch hides its class (rendered count drops).
+- [X] T017 [P] [US1] Write `tests/vscode-ext/src/suite/style.test.ts` (categorized part):
   - open `world-boundaries.geojson`;
   - `_setStyle` with categorized on a text column;
   - `_getStyleState` reports the same classes and counts that the web spec computes for the same file and column (FR-020). Hard-code the expected list derived from the fixture.
-- [ ] T018 [US1] Implement categorization:
+  - *Done*: style.test.ts (2): the default reports one class of 180; categorized on name gives the same 12 + Other (168) and counts as the web build, with first color #a6cee3. VS Code 39/39.
+- [X] T018 [US1] Implement categorization:
   - in `packages/core/src/style/classify.ts`: `toNumber` and `toCategory` (research §4 rules);
   - in `resolve.ts`, the categorized branch: count values, order them, apply the cap, the "Other" and "No value" classes, overrides by value (color, label, visible), default labels, and a caption like `zone · 5 categories`;
   - in `expressions.ts`: a `match` on `['to-string', ['get', col]]`, guarded by a null / `''` `case`, with the "Other" fallback, plus a `visibilityFilter` for hidden classes.
 
   Make T014 and T015 pass.
-- [ ] T019 [US1] Update `packages/ui/src/LayerStylePanel.svelte`:
+  - *Done*: classify.ts (toCategory, toNumber, compareCategories), the categorized branch of resolve.ts, and categorizedIndex in expressions.ts (a let/case/match mirroring toCategory). Core 157/157.
+- [X] T019 [US1] Update `packages/ui/src/LayerStylePanel.svelte`:
   - a renderer radio group (Single / Categorized / Graduated; Graduated is disabled until US2, with the tooltip "Coming in this build" removed in US2);
   - a Column select with the eligible columns as `name · TYPE`;
   - the existing symbol controls move into a collapsible "Symbol" section;
   - a read-only class list (swatch, label, count) for now; editing comes in US3.
 
   Layout and keyboard follow `contracts/ui-style-panel.md`.
-- [ ] T020 [US1] Create `packages/ui/src/MapLegend.svelte` per `contracts/ui-style-panel.md`:
+  - *Done*: LayerStylePanel: renderer radio group (arrow keys; Graduated disabled until US2), Column select (name · TYPE), read-only classes, notes, fallback line, collapsible Symbol. 320 px, height-capped and scrolling. Visual check: spec 001's blue outline washed out class colors, so startStyle() now switches untouched symbol defaults to a thin neutral outline with 75% fill, as QGIS does, and back again for Single (style-edit.test.ts).
+- [X] T020 [US1] Create `packages/ui/src/MapLegend.svelte` per `contracts/ui-style-panel.md`:
   - a `region` named "Legend", top-left, with a collapsible header (`aria-expanded`);
   - swatches drawn per geometry (square, line or circle) with a 1 px contrast border;
   - tabular counts and the "Other (N values)" text;
   - the swatch is a toggle button for visibility (it calls `setStyle` through a new `setClassVisible` stub that edits overrides; the full edit logic comes in US3).
 
   Mount it in `packages/ui/src/ViewerLayout.svelte`. Persist the collapsed state via `hostAdapter.saveState('legend.collapsed')`. Add any new overlay tokens to both theme files.
-- [ ] T021 [US1] Make T016 and T017 pass. Fix the selection halo if a categorized palette color hides the selection (FR-019). Run lint, the core, web and VS Code suites, then commit.
+  - *Done*: MapLegend.svelte: region 'Legend', collapsible (remembered as legend.collapsed), geometry-shaped swatch toggles (aria-pressed), and a hollow swatch when hidden. setClassVisible lives in core edit.ts. Placed bottom-left above the scale bar: bottom-right was covered by the style panel (found by T016), and top-left belongs to the inspector. research §8 and the contract are amended. --se-swatch-border is defined in both themes.
+- [X] T021 [US1] Make T016 and T017 pass. Fix the selection halo if a categorized palette color hides the selection (FR-019). Run lint, the core, web and VS Code suites, then commit.
+  - *Done*: Web style 3/3, VS Code 39/39, core 157/157, lint 0. Selection over class colors: amber fill plus black halo, confirmed in a screenshot.
 
 **Checkpoint**: US1 works in both shells. This is the MVP: a thematic map by
 category, with a legend.
