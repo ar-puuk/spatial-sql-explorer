@@ -67,6 +67,14 @@
       },
       /** Spec 005 T003: what an export knows about the displayed result. */
       resultFacts: () => JSON.parse(JSON.stringify(store.querySession?.lastResult ?? null)),
+      /** Spec 007 T018: the open's phase and whole-file facts. */
+      openState: () =>
+        JSON.parse(
+          JSON.stringify({
+            phase: store.session.loadState === 'ready' ? 'ready' : (store.openPhase ?? store.session.loadState),
+            facts: store.session.layer?.facts ?? store.openFacts,
+          })
+        ),
       /** Spec 003 T006: the displayed result's attribute columns and types. */
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }
@@ -153,7 +161,7 @@
     {:else}
       <ViewerLayout {store} {fileName}>
         {#snippet mapOverlay()}
-          <StatusBar session={store.session} />
+          <StatusBar session={store.session} facts={store.openFacts} />
         {/snippet}
       </ViewerLayout>
     {/if}

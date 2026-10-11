@@ -14,7 +14,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -130,6 +130,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   async resolveCustomEditor(document: SpatialExplorerDocument, panel: vscode.WebviewPanel): Promise<void> {
     lastLoadState = null
+    lastOpenState = null
     this.panels.add(panel)
     // Spec edge case: a file changed on disk must not be silently presented
     // as current. The webview shows a "changed on disk, Reload" banner.
@@ -347,7 +348,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; cursor?: { lon: number; lat: number } | null }
+    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null }
   ): void {
     if (!panel.active) return
     if (msg.crs) {
@@ -355,7 +356,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarCrs.show()
     }
     if (msg.featureCount !== undefined) {
-      this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} ${msg.featureCount === 1 ? 'feature' : 'features'}`
+      const unit = msg.countLabel === 'rows' ? (msg.featureCount === 1 ? 'row' : 'rows') : msg.featureCount === 1 ? 'feature' : 'features'
+      this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} ${unit}`
       this.statusBarFeatureCount.show()
     }
     if (msg.cursor) {

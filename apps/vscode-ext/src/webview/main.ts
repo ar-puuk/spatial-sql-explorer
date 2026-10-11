@@ -17,6 +17,7 @@ import {
   reportQueryState,
   reportStyleState,
   reportExportState,
+  reportOpenState,
   reportSelectionChanged,
   reportViewState,
   signalReady,
@@ -25,6 +26,7 @@ import { watchViewState } from './viewState.svelte.js'
 import { watchQueryState } from './queryState.svelte.js'
 import { watchStyleState } from './styleState.svelte.js'
 import { watchExportState } from './exportState.svelte.js'
+import { watchOpenState } from './openState.svelte.js'
 // The VS Code token file: maps the shared --se-* tokens onto VS Code theme
 // variables. Vite bundles it into main.css, which getHtml() links.
 import './theme.css'
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
   watchQueryState(store, reportQueryState)
   watchStyleState(store, reportStyleState)
   watchExportState(store, reportExportState)
+  watchOpenState(store, reportOpenState)
 
   const started = performance.now()
   await store.load()

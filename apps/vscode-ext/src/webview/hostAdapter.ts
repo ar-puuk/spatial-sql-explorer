@@ -405,6 +405,11 @@ export function reportQueryState(state: unknown): void {
 }
 
 /** Export state for the extension's test hook (spec 005). */
+/** Spec 007 T019: the open's phase and whole-file facts, for spatialExplorer._getOpenState. */
+export function reportOpenState(state: unknown): void {
+  post({ type: 'openState', state })
+}
+
 export function reportExportState(state: unknown): void {
   post({ type: 'exportState', state })
 }

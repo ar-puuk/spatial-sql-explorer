@@ -43,6 +43,8 @@ import {
   layerFromResult,
   type StyleFormat,
   type ViewerSession,
+  type DatasetFacts,
+  type OpenPhase,
 } from '@spatial-explorer/core'
 
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
@@ -162,6 +164,11 @@ export interface ViewerStore {
   dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
+  /** Spec 007: the open in progress (null when none), its whole-file facts as soon as known, and Cancel (FR-001, FR-002). */
+  readonly openPhase: OpenPhase | null
+  readonly openStartedAt: number | null
+  readonly openFacts: DatasetFacts | null
+  cancelOpen(): Promise<void>
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
   setCursor(coords: { lon: number; lat: number } | null): void
@@ -423,10 +430,21 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
+  // Spec 007: the open in progress.
+  let openPhase = $state<OpenPhase | null>(null)
+  let openStartedAt = $state<number | null>(null)
+  let openFacts = $state<DatasetFacts | null>(null)
+  let openCancelled = false
+  let openInterrupt: (() => Promise<void>) | null = null
+
   async function load(): Promise<void> {
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
+    openCancelled = false
+    openFacts = null
+    openPhase = null
+    openStartedAt = null
     try {
       const [ref] = await hostAdapter.openFiles()
       currentFileName = ref.displayName
@@ -439,7 +457,29 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       // go before the next file's `layer` view is created.
       await querySession?.dispose().catch(() => {})
       querySession = null
-      const opened = await openFile(ref, { hostAdapter, duckdbAssets })
+      openStartedAt = performance.now()
+      openPhase = 'registering'
+      const opened = await openFile(
+        ref,
+        { hostAdapter, duckdbAssets },
+        {
+          onPhase: (phase) => {
+            if (!openCancelled) openPhase = phase
+          },
+          onFacts: (facts) => {
+            openFacts = facts
+            // File-level metadata (FR-006) before the first view (FR-001).
+            hostAdapter.setStatus({ crs: facts.crs.label, featureCount: facts.rows - (facts.invalid ?? 0), countLabel: facts.invalid === null ? 'rows' : 'features' })
+          },
+          onCancelHandle: (interrupt) => {
+            openInterrupt = interrupt
+          },
+          isCancelled: () => openCancelled,
+        }
+      )
+      openInterrupt = null
+      openPhase = null
+      openStartedAt = null
       querySession = opened.session
       resetQueryState()
       catalog = null
@@ -450,12 +490,30 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       session.loadState = 'ready'
       applySidecar(layer.styleSidecar)
       // File-level metadata (FR-006): the whole file, not the displayed result.
-      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features })
+      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: layer.facts?.invalid === null ? 'rows' : 'features' })
     } catch (err) {
+      openInterrupt = null
+      openStartedAt = null
       setLayer(null)
+      if (err instanceof QueryCancelledError || openCancelled) {
+        // FR-002: back to the empty state, no error (the previous file was
+        // already closed: one `layer` per engine).
+        openPhase = 'cancelled'
+        openFacts = null
+        session.loadState = 'idle'
+        hostAdapter.setStatus({})
+        return
+      }
+      openPhase = 'failed'
       session.loadState = 'error'
       session.loadError = { message: err instanceof Error ? err.message : String(err) }
     }
+  }
+
+  async function cancelOpen(): Promise<void> {
+    if (session.loadState !== 'loading') return
+    openCancelled = true
+    await openInterrupt?.().catch(() => {})
   }
 
   function applySidecar(sidecar: { fileName: string; text: string } | null): void {
@@ -521,6 +579,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   }
 
   return {
+    get openPhase() {
+      return openPhase
+    },
+    get openStartedAt() {
+      return openStartedAt
+    },
+    get openFacts() {
+      return openFacts
+    },
+    cancelOpen,
     get session() {
       return session
     },

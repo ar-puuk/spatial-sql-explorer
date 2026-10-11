@@ -14,7 +14,7 @@
   import MapLegend from './MapLegend.svelte'
   import BasemapPicker from './BasemapPicker.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
-  import ProgressBar from './ProgressBar.svelte'
+  import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import LargeResultDialog from './LargeResultDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
@@ -220,7 +220,7 @@
 
 <div class="viewer-layout" class:dragging>
   {#if loading}
-    <ProgressBar label="Loading file" />
+    <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} onCancel={() => void store.cancelOpen()} />
   {/if}
   <ErrorBanner message={session.loadState === 'error' ? (session.loadError?.message ?? 'Unknown error') : null} />
   {#if store.sourceChanged}

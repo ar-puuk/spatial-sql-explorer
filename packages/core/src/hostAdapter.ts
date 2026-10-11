@@ -54,6 +54,8 @@ export type FileSource =
 export interface StatusFields {
   crs?: string
   featureCount?: number
+  /** Spec 007: `rows` when invalid geometry isn't known yet (large files read in parts), so the count never over-claims. */
+  countLabel?: 'features' | 'rows'
   cursor?: { lon: number; lat: number } | null
 }
 
