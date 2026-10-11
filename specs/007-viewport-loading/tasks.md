@@ -161,7 +161,7 @@ they skip with a message, never pass silently.
 
   T010 passes.
   - *Done*: apps/vscode-ext/src/sourceServer.ts: lazy listen on 127.0.0.1 and ::1 (same port), 128-bit tokens, exact-name lookup, RFC 7233 single range, HEAD 206, Origin check, per-token stats, asExternalUri with host rewritten to localhost.; 11/11 pass
-- [ ] T012 Change `apps/vscode-ext/src/extension.ts`:
+- [X] T012 Change `apps/vscode-ext/src/extension.ts`:
   - **Open**: register the document with `sourceServer` and post `{ type: 'fileSource', url, size, resourceUri: asWebviewUri(file), sidecars: [{ name, url }] }` instead of the `initFileStart` / `initFileChunk` stream.
   - **Fallback**: keep the chunked transfer behind a `{ type: 'requestBytes', reason }` message, and log the reason to the output channel.
   - **CSP**: add `http://localhost.:*` to `connect-src`.
@@ -172,7 +172,8 @@ they skip with a message, never pass silently.
     - `_forceBytesFallback(on)` (the next probe is told to fail);
     - `_getOpenState` (the phase, facts and read mode, reported by the webview);
     - `_sourceServerForTests`.
-- [ ] T013 Change `apps/vscode-ext/src/webview/hostAdapter.ts`:
+  - *Done*: extension.ts: per-panel loopback registration (released on resend/dispose with a 'read X MB of Y MB' log), fileSource message (url, sidecars, styleSidecar text, resourceUri, forceFallback, serverError), requestBytes -> whole transfer, CSP http://localhost.:*, hooks _getSourceStats/_forceBytesFallback/_getOpenState
+- [X] T013 Change `apps/vscode-ext/src/webview/hostAdapter.ts`:
   - **`getFileSource`**:
     1. Wait for `fileSource`.
     2. Probe with a main-thread `fetch(url, { method: 'HEAD', headers: { Range: 'bytes=0-' } })`, expecting 206 within 3 s, unless forced to fail.
@@ -180,6 +181,7 @@ they skip with a message, never pass silently.
     4. Otherwise post `requestBytes` and assemble the chunks as today into `{ kind: 'bytes' }`, with the platform set to `partialReads: false` and the reason.
     5. `{ whole: true }` always uses the chunked transfer.
   - **`readRange`**: `fetch(resourceUri, { headers: { Range: 'bytes=a-b' } })` on the main thread, returning the bytes.
+  - *Done*: webview hostAdapter: HEAD Range probe (206 in 3 s, cached), url kind on success, whole transfer + fallbackReason otherwise; whole:true via one main-thread fetch of the loopback URL (no base64); readRange via resourceUri Range. Webview TS now typechecked (tsconfig.webview.json, npm run typecheck in apps/vscode-ext: 0 errors). test:vscode-ext 57 passing
 - [X] T014 [P] Change `apps/web/src/hostAdapter.ts`:
   - `getFileSource` returns `{ kind: 'handle', handle: file, size, sidecars }`, with the sidecars from the same pick or drop as today;
   - `{ whole: true }` returns `{ kind: 'bytes' }` via `file.arrayBuffer()`;

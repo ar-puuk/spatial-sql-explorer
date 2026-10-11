@@ -133,7 +133,8 @@
     "build:webview": "vite build --config vite.webview.config.ts && node scripts/copy-duckdb-wasm.js",
     "build": "node scripts/copy-package-docs.js && npm run build:extension && npm run build:webview",
     "vscode:prepublish": "npm run build",
-    "package": "npm run build && vsce package --no-dependencies"
+    "package": "npm run build && vsce package --no-dependencies",
+    "typecheck": "tsc --noEmit -p tsconfig.json && svelte-check --tsconfig ./tsconfig.webview.json"
   },
   "dependencies": {
     "@spatial-explorer/core": "*",

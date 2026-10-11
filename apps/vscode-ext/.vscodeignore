@@ -6,7 +6,7 @@ scripts/**
 node_modules/**
 .vscode/**
 *.ts
-tsconfig.json
+tsconfig*.json
 esbuild.js
 vite.webview.config.ts
 svelte.config.js

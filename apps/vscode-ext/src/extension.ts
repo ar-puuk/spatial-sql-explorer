@@ -34,6 +34,8 @@ type WebviewToHostMessage =
   | { type: 'selectionChanged'; id: string | number | null }
   | { type: 'viewState'; basemapId: string; appearance: string; basemapNotice: string | null; sourceChanged: boolean }
   | { type: 'reloadSource' }
+  | { type: 'requestBytes'; reason: string }
+  | { type: 'openState'; state: unknown }
   | { type: 'queryState'; state: unknown }
   | { type: 'styleState'; state: unknown }
   | { type: 'exportState'; state: unknown }
@@ -86,6 +88,9 @@ let lastSelection: string | number | null = null
 /** Latest query state, same rationale (spec 002 test hooks). */
 let lastQueryState: unknown = null
 let lastStyleState: unknown = null
+let lastOpenState: unknown = null
+/** Spec 007 test hook: the next viewers are told partial reads failed. */
+let forceBytesFallback = false
 let lastExportState: unknown = null
 /** Last logged lines (spec 002 T037: tests assert what reached the output channel). */
 const recentLogLines: string[] = []
@@ -107,6 +112,8 @@ function log(line: string): void {
 
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
+  /** Spec 007: each viewer's loopback-server registration, and the files a whole-transfer fallback would send. */
+  private sources = new Map<vscode.WebviewPanel, { token: string | null; documentUri: vscode.Uri; files: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }>; chunksSent: boolean }>()
   private statusBarCrs: vscode.StatusBarItem
   private statusBarFeatureCount: vscode.StatusBarItem
   private statusBarCursor: vscode.StatusBarItem
@@ -137,6 +144,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
     panel.onDidDispose(() => {
       watcher.dispose()
+      this.releaseSource(panel)
       this.panels.delete(panel)
       this.statusBarCrs.hide()
       this.statusBarFeatureCount.hide()
@@ -206,6 +214,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         lastStyleState = msg.state
       } else if (msg.type === 'exportState') {
         lastExportState = msg.state
+      } else if (msg.type === 'requestBytes') {
+        // Spec 007 FR-015: partial reads failed in this window; send the whole file.
+        log(`${path.posix.basename(document.uri.path)}: reading the whole file (${msg.reason}).`)
+        void this.sendWholeFile(panel)
+      } else if (msg.type === 'openState') {
+        lastOpenState = msg.state
       } else if (msg.type === 'reloadSource') {
         log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
         lastLoadState = null
@@ -380,35 +394,103 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       const basename = primaryName.slice(0, primaryName.length - path.extname(primaryName).length)
       const dirUri = vscode.Uri.file(path.dirname(documentUri.fsPath))
 
-      const filesToSend: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }> = [
-        { name: primaryName, uri: documentUri, isPrimary: true },
-      ]
-
+      const files: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }> = [{ name: primaryName, uri: documentUri, isPrimary: true }]
       try {
         const entries = await vscode.workspace.fs.readDirectory(dirUri)
         for (const [entryName] of entries) {
           if (entryName === primaryName) continue
           const entryBase = entryName.slice(0, entryName.length - path.extname(entryName).length)
-          if (entryBase === basename) {
-            filesToSend.push({ name: entryName, uri: vscode.Uri.joinPath(dirUri, entryName), isPrimary: false })
-          }
+          if (entryBase === basename) files.push({ name: entryName, uri: vscode.Uri.joinPath(dirUri, entryName), isPrimary: false })
         }
       } catch {
         // Folder-based or otherwise unlistable source — proceed with the primary file only.
       }
 
-      for (const file of filesToSend) {
-        const bytes = await vscode.workspace.fs.readFile(file.uri)
-        await this.sendFile(panel, file.name, bytes, file.isPrimary)
-      }
+      // The QGIS style sidecar travels as text; other style files are never data.
+      const isStyle = (name: string): boolean => /\.(qml|sld)$/i.test(name)
+      const style = files.find((f) => !f.isPrimary && f.name.toLowerCase() === `${basename}.qml`.toLowerCase())
+      const styleSidecar = style ? { fileName: style.name, text: new TextDecoder().decode(await vscode.workspace.fs.readFile(style.uri)) } : null
+      const dataSidecars = files.filter((f) => !f.isPrimary && !isStyle(f.name))
 
-      await panel.webview.postMessage({ type: 'initFilesDone' })
+      // Spec 007 (research §3): serve the file from the loopback range server;
+      // the engine reads it in parts. The webview probes the URL and asks for
+      // the whole file (requestBytes) only if that fails.
+      this.releaseSource(panel)
+      const size = (await vscode.workspace.fs.stat(documentUri)).size
+      let token: string | null = null
+      let url: string | null = null
+      let sidecars: Array<{ name: string; url: string }> = []
+      let serverError: string | null = null
+      if (documentUri.scheme === 'file') {
+        try {
+          const reg = await sourceServer.register(documentUri.fsPath, dataSidecars.map((f) => f.uri.fsPath))
+          token = reg.token
+          url = reg.urlFor(primaryName)
+          sidecars = dataSidecars.map((f) => ({ name: f.name, url: reg.urlFor(f.name) }))
+        } catch (err) {
+          serverError = err instanceof Error ? err.message : String(err)
+        }
+      } else {
+        serverError = `files from ${documentUri.scheme}: can't be served locally`
+      }
+      this.sources.set(panel, { token, documentUri, files, chunksSent: false })
+      await panel.webview.postMessage({
+        type: 'fileSource',
+        name: primaryName,
+        size,
+        url,
+        sidecars,
+        styleSidecar,
+        resourceUri: panel.webview.asWebviewUri(documentUri).toString(),
+        forceFallback: forceBytesFallback,
+        serverError,
+      })
     } catch (err) {
       await panel.webview.postMessage({
         type: 'triggerError',
         message: `Could not read "${path.basename(documentUri.fsPath)}": ${err instanceof Error ? err.message : String(err)}`,
       })
     }
+  }
+
+  /** The whole-file transfer (spec 001's protocol): the fallback when partial reads fail, and FlatGeobuf "load for queries". */
+  private async sendWholeFile(panel: vscode.WebviewPanel): Promise<void> {
+    const source = this.sources.get(panel)
+    if (!source) return
+    try {
+      for (const file of source.files) {
+        const bytes = await vscode.workspace.fs.readFile(file.uri)
+        await this.sendFile(panel, file.name, bytes, file.isPrimary)
+      }
+      source.chunksSent = true
+      await panel.webview.postMessage({ type: 'initFilesDone' })
+    } catch (err) {
+      await panel.webview.postMessage({
+        type: 'triggerError',
+        message: `Could not read "${path.basename(source.documentUri.fsPath)}": ${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
+
+  /** Stops serving a viewer's file, logging how much of it was read (spec 007). */
+  private releaseSource(panel: vscode.WebviewPanel): void {
+    const source = this.sources.get(panel)
+    if (!source?.token) return
+    const stats = sourceServer.release(source.token)
+    source.token = null
+    if (stats) {
+      const mb = (n: number): string => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)
+      log(`${path.posix.basename(source.documentUri.path)}: read ${mb(stats.bytes)} MB of ${mb(stats.size)} MB in ${stats.requests} requests.`)
+    }
+  }
+
+  /** Test hook (spec 007): the active viewer's bytes served, and whether a whole transfer was sent. */
+  sourceStats(): { bytes: number; requests: number; size: number; chunksSent: boolean } | null {
+    const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
+    const source = panel ? this.sources.get(panel) : undefined
+    if (!source) return null
+    const stats = source.token ? sourceServer.statsFor(source.token) : undefined
+    return { bytes: stats?.bytes ?? 0, requests: stats?.requests ?? 0, size: stats?.size ?? 0, chunksSent: source.chunksSent }
   }
 
   private async sendFile(panel: vscode.WebviewPanel, fileName: string, bytes: Uint8Array, isPrimary: boolean): Promise<void> {
@@ -441,7 +523,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>
@@ -545,6 +627,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // Spec 005 test hooks: run an export, read its state.
     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
     vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),
+    // Spec 007 test hooks: bytes served per viewer, a forced whole-transfer fallback, the open state.
+    vscode.commands.registerCommand('spatialExplorer._getSourceStats', () => provider.sourceStats()),
+    vscode.commands.registerCommand('spatialExplorer._forceBytesFallback', (on: boolean) => {
+      forceBytesFallback = on
+    }),
+    vscode.commands.registerCommand('spatialExplorer._getOpenState', () => lastOpenState),
 
     // Spec 005 test hook: write the next data export to this path (no dialog).
     vscode.commands.registerCommand('spatialExplorer._saveNextExportTo', (fsPath: string) => {
