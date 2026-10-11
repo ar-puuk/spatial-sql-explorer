@@ -2,7 +2,7 @@
 // owns a dedicated query connection, separate from the one that opened the
 // file, so a cancel can never touch file loading. Temp tables are
 // per-connection in DuckDB, so user temp objects and __se_result live here.
-import { flatCountSql, type Extrusion } from '../style/extrusion.js'
+import { extrusionHighSql, flatCountSql, type Extrusion } from '../style/extrusion.js'
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
@@ -649,6 +649,20 @@ export class QuerySession {
     const sql = flatCountSql(this.statsRelation(), e)
     if (!sql) return null
     return this.exclusive(async (isCancelled) => Number((await singleRow<{ n: bigint | number }>(this.conn, sql, isCancelled)).n), 'background')
+  }
+
+  /** Spec 008 US6: the height column's typical high value (95th percentile of positives), for the auto scale. */
+  async extrusionHigh(column: string): Promise<number | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) {
+      const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => v > 0).sort((a, b) => a - b)
+      return values.length ? values[Math.min(values.length - 1, Math.floor(values.length * 0.95))] : null
+    }
+    return this.exclusive(async (isCancelled) => {
+      const v = (await singleRow<{ v: number | null }>(this.conn, extrusionHighSql(this.statsRelation(), column), isCancelled)).v
+      return v === null ? null : Number(v)
+    }, 'background')
   }
 
   async valueHistogram(column: string): Promise<ValueHistogram | null> {

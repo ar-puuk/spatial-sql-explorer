@@ -39,6 +39,7 @@ import {
   loadCrsCatalog,
   isTemporalType,
   activeExtrusion,
+  autoExtrusionScale,
   extrusionColumn,
   exportErrorMessage,
   QueryCancelledError,
@@ -240,6 +241,8 @@ export interface ViewerStore {
   readonly extruded: boolean
   /** Spec 008 US6: polygons drawn flat by the extrusion, or null (unknown, or a constant height). */
   readonly extrusionFlat: number | null
+  /** Spec 008 US6: a height scale that makes `column` visible at the layer's extent (1 when unknown). */
+  suggestExtrusionScale(column: string): Promise<number>
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
@@ -1539,6 +1542,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get extrusionFlat() {
       return extrusionFlat
+    },
+    async suggestExtrusionScale(column) {
+      const qs = querySession
+      const layer = displayedLayer
+      if (!qs || !layer) return autoExtrusionScale(null, null)
+      try {
+        return autoExtrusionScale(await retryWhenBusy(qs, () => qs.extrusionHigh(column)), layer.extent)
+      } catch (err) {
+        if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: height scale failed', err)
+        return autoExtrusionScale(null, null)
+      }
     },
     get styleInput() {
       const l = displayedLayer

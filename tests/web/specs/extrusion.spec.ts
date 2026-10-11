@@ -100,3 +100,24 @@ test('extrusion is kept in the saved QML and Mapbox GL style, and loads back', a
   await expect(panel(page).getByLabel('Height scale')).toHaveValue('1.5')
   await expect.poll(async () => (await mapState(page)).extrusion).toBe(true)
 })
+
+test('a column that is not a height gets a scale that shows it; Auto picks it again (user report)', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/?e2e=1')
+  await page.getByRole('button', { name: /Try sample data/ }).click()
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  await panel(page).getByRole('switch', { name: 'Extrude polygons' }).click()
+  await panel(page).getByLabel('Height from').selectOption('density')
+  // A density of ~40 per km² is 40 m raw: flat at a country's zoom. The 95th
+  // percentile rises to ~6% of the extent instead, as a 1/2/5 step.
+  const scale = panel(page).getByLabel('Height scale')
+  await expect.poll(async () => Number(await scale.inputValue())).toBeGreaterThan(50)
+  const auto = Number(await scale.inputValue())
+  expect([1, 2, 5]).toContain(Number((auto / 10 ** Math.floor(Math.log10(auto))).toFixed(6)))
+  await scale.fill('1')
+  await scale.press('Enter')
+  await panel(page).getByRole('button', { name: 'Auto' }).click()
+  await expect(scale).toHaveValue(String(auto))
+  await page.screenshot({ path: test.info().outputPath('density-extruded.png') })
+})

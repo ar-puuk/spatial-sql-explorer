@@ -8,10 +8,12 @@ import { describe, expect, it } from 'vitest'
 import { expression as mlExpression } from '@maplibre/maplibre-gl-style-spec'
 import {
   activeExtrusion,
+  autoExtrusionScale,
   DEFAULT_LAYER_STYLE,
   exportStyle,
   extrusionColumn,
   extrusionFromQgis,
+  extrusionHighSql,
   extrusionHeightExpression,
   extrusionUnavailableReason,
   flatCountSql,
@@ -113,5 +115,27 @@ describe('extrusion in style files', () => {
     const out = exportStyle(s, 'sld', 'Polygon', 'b.parquet')
     expect(out.notes).toContain('SLD has no 3D: the extrusion is left out.')
     expect(previewExportNotice(s, 'qml', undefined).items.join(' ')).not.toMatch(/3D/)
+  })
+})
+
+describe('auto height scale (spec 008 US6: raw values are rarely meters)', () => {
+  const usExtent: [number, number, number, number] = [-125, 24, -66, 50]
+  it('raises a density column to a visible share of a continent, as a 1/2/5 step', () => {
+    const s = autoExtrusionScale(500, usExtent)
+    expect([1, 2, 5].some((m) => Number((s / 10 ** Math.floor(Math.log10(s))).toFixed(6)) === m)).toBe(true)
+    // ~6% of ~5,300 km: a few hundred km at the 95th percentile.
+    expect(500 * s).toBeGreaterThan(100_000)
+    expect(500 * s).toBeLessThanOrEqual(300_000)
+  })
+  it('keeps building heights near meters at a city extent', () => {
+    expect(autoExtrusionScale(30, [-0.13, 51.5, -0.11, 51.51])).toBeLessThanOrEqual(5)
+  })
+  it('falls back to 1 without numbers or an extent', () => {
+    expect(autoExtrusionScale(null, usExtent)).toBe(1)
+    expect(autoExtrusionScale(0, usExtent)).toBe(1)
+    expect(autoExtrusionScale(500, null)).toBe(1)
+  })
+  it('reads the 95th percentile of positive values', () => {
+    expect(extrusionHighSql('t', 'DENSITY')).toBe('SELECT quantile_cont(TRY_CAST("DENSITY" AS DOUBLE), 0.95) AS v FROM t WHERE TRY_CAST("DENSITY" AS DOUBLE) > 0')
   })
 })

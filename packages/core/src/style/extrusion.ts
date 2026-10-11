@@ -4,7 +4,7 @@
 // (MapLibre `fill-extrusion`), QGIS QML (`<renderer-3d>`, research §5) and
 // Mapbox GL style JSON. SLD has no 3D: it is left out with a notice.
 import { quoteIdent } from '../query/util.js'
-import type { GeometryType } from '../models.js'
+import type { Bbox, GeometryType } from '../models.js'
 import type { LayerStyle } from './model.js'
 
 export interface Extrusion {
@@ -57,6 +57,35 @@ export function extrusionHeightExpression(e: Extrusion): unknown {
 export function extrusionColumn(style: Pick<LayerStyle, 'extrusion'>): string | null {
   const e = style.extrusion
   return e?.enabled && e.source.kind === 'column' && e.source.column ? e.source.column : null
+}
+
+/** SQL for the column's typical high value (95th percentile of its positive values), as `v`. */
+export function extrusionHighSql(relation: string, column: string): string {
+  const c = `TRY_CAST(${quoteIdent(column)} AS DOUBLE)`
+  return `SELECT quantile_cont(${c}, 0.95) AS v FROM ${relation} WHERE ${c} > 0`
+}
+
+/** The share of the layer's extent the typical high value rises to. */
+const AUTO_HEIGHT_SHARE = 0.06
+
+/**
+ * A scale that makes `high` (the column's typical high value) rise to a
+ * visible share of the layer's extent, rounded to 1, 2 or 5 × 10^k: raw
+ * values are rarely meters (a density of 40 is 40 m, flat at a country's
+ * zoom). 1 without numbers or an extent.
+ */
+export function autoExtrusionScale(high: number | null, extent: Bbox | null): number {
+  if (!finite(high) || high <= 0 || !extent) return DEFAULT_EXTRUSION_SCALE
+  const [x0, y0, x1, y1] = extent
+  const midLat = ((y0 + y1) / 2) * (Math.PI / 180)
+  const span = Math.max(Math.abs(x1 - x0) * 111_320 * Math.cos(midLat), Math.abs(y1 - y0) * 110_540)
+  if (!(span > 0)) return DEFAULT_EXTRUSION_SCALE
+  // A small extent (a city block) still gets a few meters; a continent no more than 300 km.
+  const target = Math.min(300_000, Math.max(20, span * AUTO_HEIGHT_SHARE))
+  const raw = target / high
+  const p = 10 ** Math.floor(Math.log10(raw))
+  const m = raw / p
+  return Number(((m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p).toPrecision(6))
 }
 
 /** SQL counting the rows drawn flat (missing, zero or negative height) in `relation`. */

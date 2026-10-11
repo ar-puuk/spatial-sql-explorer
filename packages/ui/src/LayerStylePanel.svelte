@@ -75,6 +75,8 @@
     classifyingRows?: number | null
     /** Spec 008 US6: polygons drawn flat by the extrusion (missing, zero or negative height), or null. */
     extrusionFlat?: number | null
+    /** Spec 008 US6: a height scale that makes a column visible at the layer's extent. */
+    onSuggestScale?: (column: string) => Promise<number>
   }
   let {
     style,
@@ -99,6 +101,7 @@
     onLoad = () => {},
     classifyingRows = null,
     extrusionFlat = null,
+    onSuggestScale,
   }: Props = $props()
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
@@ -106,10 +109,12 @@
   const extrusionReason = $derived(extrusionUnavailableReason(geometryType))
   const ext = $derived(style.extrusion)
   const heightColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
+  /** A column whose name says height: its values are taken as meters (no automatic scale). */
+  const HEIGHT_NAME = /height|elev|floor|storey|stories|levels|hgt/i
   /** A first guess at the height column: a name that says height, else the first numeric column. */
   function defaultHeightSource(): Extrusion['source'] {
     const cols = heightColumns
-    const named = cols.find((c) => /height|elev|floor|storey|stories|levels|hgt/i.test(c.name))
+    const named = cols.find((c) => HEIGHT_NAME.test(c.name))
     const col = named ?? cols[0]
     return col ? { kind: 'column', column: col.name } : { kind: 'constant', meters: 10 }
   }
@@ -119,6 +124,27 @@
   }
   function chooseHeight(value: string): void {
     setExtrusion({ source: value === CONSTANT ? { kind: 'constant', meters: ext?.source.kind === 'constant' ? ext.source.meters : 10 } : { kind: 'column', column: value } })
+    if (value !== CONSTANT && !HEIGHT_NAME.test(value)) void autoScale(value)
+  }
+  function toggleExtrusion(): void {
+    const first = !ext
+    setExtrusion({ enabled: !ext?.enabled })
+    // Raw values are rarely meters: the first time, pick a scale that shows them.
+    const src = style.extrusion?.source
+    if (first && src?.kind === 'column' && !HEIGHT_NAME.test(src.column)) void autoScale(src.column)
+  }
+  let scaling = $state(false)
+  /** Sets the scale suggested for `column`, unless the height column changed meanwhile. */
+  async function autoScale(column: string): Promise<void> {
+    if (!onSuggestScale) return
+    scaling = true
+    try {
+      const scale = await onSuggestScale(column)
+      const now = style.extrusion
+      if (now?.source.kind === 'column' && now.source.column === column) setExtrusion({ scale })
+    } finally {
+      scaling = false
+    }
   }
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
@@ -439,7 +465,7 @@
             class="switch"
             aria-label="Extrude polygons"
             aria-checked={ext?.enabled === true}
-            onclick={() => setExtrusion({ enabled: !ext?.enabled })}
+            onclick={toggleExtrusion}
           >
             <span class="track" aria-hidden="true"><span class="thumb"></span></span>
             <span class="state">{ext?.enabled ? 'On' : 'Off'}</span>
@@ -476,7 +502,7 @@
               />
             </div>
           {/if}
-          <div class="row field">
+          <div class="row field with-action">
             <label class="label" for="extrude-scale">Scale</label>
             <input
               id="extrude-scale"
@@ -492,6 +518,10 @@
                 if (Number.isFinite(v) && v > 0) setExtrusion({ scale: v })
               }}
             />
+            {#if ext.source.kind === 'column' && onSuggestScale}
+              {@const column = ext.source.column}
+              <button type="button" class="auto-scale" disabled={scaling} title="Pick a scale that shows the heights at this layer's extent" onclick={() => void autoScale(column)}>Auto</button>
+            {/if}
           </div>
           <p class="hint" id="extrude-scale-hint">Height in meters = {ext.source.kind === 'column' ? `${ext.source.column} × ${ext.scale}` : `${ext.source.meters} × ${ext.scale}`}. Right-drag or Shift+arrows to tilt and rotate.</p>
           {#if extrusionFlat}
@@ -639,6 +669,29 @@
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
   }
+  .row.field.with-action {
+    grid-template-columns: 72px auto 1fr;
+  }
+  .auto-scale {
+    justify-self: start;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .auto-scale:hover:not(:disabled) {
+    background: var(--se-button-secondary-hover);
+    color: var(--se-text-primary);
+  }
+  .auto-scale:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .auto-scale:focus-visible,
   input.number:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;

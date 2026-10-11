@@ -386,6 +386,7 @@
             needsLoad={store.needsLoad}
             classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
             extrusionFlat={store.extrusionFlat}
+            onSuggestScale={(column) => store.suggestExtrusionScale(column)}
             onLoad={() => {
               closePanel()
               void store.loadWhole()
