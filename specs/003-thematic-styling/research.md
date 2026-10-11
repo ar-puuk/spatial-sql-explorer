@@ -349,3 +349,35 @@ Findings on the way:
 - Mapbox: the existing `spatial-explorer:layer-style` metadata key (spec 001)
   already embeds the whole `LayerStyle`, renderer included, so it is used
   instead of the separate key §7 proposed.
+
+## Outcomes (T047)
+
+Every decision in §1–§9 held. The deviations, all recorded where they
+happened:
+
+- **§8 Legend placement**: bottom-left above the scale bar, not top-left. The
+  feature inspector owns the top-left, and a bottom-right legend was covered
+  by the style panel.
+- **Thematic symbol defaults (T019)**: switching to a thematic renderer while
+  the symbol is untouched uses a thin neutral outline and 75% fill. Spec
+  001's blue outline washed class colors out. Switching back restores spec
+  001's defaults.
+- **No recompute progress bar (T028)**: classification is synchronous, about
+  50 ms at 50,000 values, so a bar could never paint. SC-007 measures the
+  absence of long tasks instead.
+- **Edit API (T031)**: the edits that fix classes (Manual) take the current
+  `ResolvedStyle`, because fixing classes needs them as resolved.
+- **Ramps (T003/T008)**: Plasma replaces Cividis (CC0 provenance). The color
+  data was generated from QGIS's bundled ColorBrewer tables and matplotlib,
+  not typed by hand.
+- **Interchange (T037/T038)**: Mapbox reuses spec 001's
+  `spatial-explorer:layer-style` metadata, which carries the whole style. QML
+  keeps the ramp, cap, mode and graduated "No value" in custom properties.
+  The importer escapes CDATA (QGIS writes it; happy-dom can't parse it).
+- **Test infrastructure (T044)**: the heavier style specs made the parallel
+  web suite flaky at about 10 software-WebGL workers. `workers: 6` and a 10 s
+  assertion timeout made it stable, and faster overall.
+- **Focus (T043/T045)**: closing a map popover returns focus to its button,
+  but only if focus was inside it. Esc while typing in the SQL editor keeps
+  the caret.
+

@@ -411,17 +411,19 @@ missing, recover automatically, and Reset restores the sidecar style.
 
   Review every default ramp on the Positron and Dark basemaps in all three VS Code themes and web light and dark, including selection visibility on Blues (FR-019).
   - *Done*: styleScenes() in scripts/screenshots.mjs: categorized with legend, graduated natural breaks on an area column computed in SQL, ramp picker, hidden class, fallback. Captured for the three VS Code themes plus web light and dark, and reviewed. Found and fixed a bug: T043's focus-return also fired when Esc was pressed in the SQL editor (it closed the popover and stole the caret). closePanel() now refocuses only if focus was in the popover, with a regression test in accessibility.spec. The script now waits for its own query's status, not the previous run's ✓.
-- [ ] T046 Record the results in `specs/003-thematic-styling/quickstart.md`, in a new "Results" section:
+- [X] T046 Record the results in `specs/003-thematic-styling/quickstart.md`, in a new "Results" section:
   - SC-001 and SC-007 timings;
   - SC-002 (classification tests);
   - SC-003 (the PyQGIS output);
   - SC-004 (the interchange test count).
 
   Then tick the Definition-of-done boxes.
-- [ ] T047 [P] Update the docs:
+  - *Done*: quickstart.md Results: SC-001 123/102 ms, SC-002 QGIS-identical plus optimal, SC-003 three shells/QGIS, SC-004 18 tests with zero silent losses, SC-006 per-feature parity, SC-007 191 ms with no long tasks, FR-020 parity. All Definition-of-done boxes ticked.
+- [X] T047 [P] Update the docs:
   - `CHANGELOG.md` ([Unreleased] → Added: thematic styling, with every capability);
   - `apps/vscode-ext/README.md` (the style feature bullet: categorized, graduated, legend, QGIS-compatible);
   - `specs/003-thematic-styling/research.md` (outcomes and deviations).
+  - *Done*: CHANGELOG (thematic styling plus the focus fix, and performance lines), extension README (thematic maps bullet), research.md Outcomes (8 deviations, each with its reason).
 - [ ] T048 Run the final full verification:
   - `npm run lint` and all typechecks;
   - `npm run test:core`, `npm run test:web` and `npm run test:vscode-ext`;

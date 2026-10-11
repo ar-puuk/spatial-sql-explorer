@@ -80,6 +80,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     20 most recent queries across reopening; picking one loads it without
     running.
 
+- **Thematic styling (spec 003).** Style the displayed layer by its data.
+  - **Categorized**: a color per value, most frequent first, up to 12 classes
+    plus "Other"; nulls get a "No value" class.
+  - **Graduated**: a numeric column in 2–10 classes by equal interval,
+    quantile or natural breaks (Jenks, the exact optimum). Breaks match
+    QGIS's; values on a break fall in the class below, as in QGIS.
+  - **Color ramps** with previews (Viridis, Magma, Plasma and ColorBrewer
+    sequential, diverging and qualitative), reversible.
+  - **Per-class editing**: color, label, visibility (hides features on the
+    map), values or bounds, add and delete. Editing values or bounds fixes
+    the classes (Manual).
+  - **Legend** on the map with counts. It is collapsible, and a swatch hides
+    or shows its class.
+  - **Follows queries**: classes are recomputed for each result. If the
+    styled column disappears, the single symbol is shown with the reason, and
+    the style comes back with the column.
+  - **QGIS-compatible**: the `.qml` sidecar now holds categorized and
+    graduated styles, verified in QGIS 4.2.3. QML and Mapbox GL round-trip
+    losslessly. SLD loses the method and hidden classes, and the Export menu
+    says so before writing.
+- **Accessibility**: closing a map popover with Esc returns focus to its
+  button (unless you were typing elsewhere).
+
 ### Performance
 
 - About 10 MB opens in ~1.2 s with the engine already started. DuckDB starts
@@ -90,3 +113,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the map extent always cover the whole file.
 - A filtering query on a ~10 MB file returns in ~0.1 s, and cancelling takes
   ~0.1 s (spec 002 quickstart, Results).
+- Restyling 22,000 features takes ~0.1 s, and natural breaks on 50,000 values
+  take ~0.2 s with no long tasks (spec 003 quickstart, Results).

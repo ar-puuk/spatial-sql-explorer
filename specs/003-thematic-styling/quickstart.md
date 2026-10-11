@@ -89,12 +89,29 @@
 | Extension | `tests/vscode-ext/src/suite/style.test.ts` | Save to the sidecar, reopen, auto-apply; parity of classes with the web build (FR-020) |
 | QGIS (optional, local) | `tests/qgis/check_sidecar.py` | The exported QML loads in QGIS with identical classes (SC-003) |
 
+## Results (T046, measured 2026-10-10)
+
+Windows 11, production builds. The web numbers come from headless Chromium
+using SwiftShader software WebGL, so map timings are pessimistic.
+
+| Criterion | Target | Measured | How |
+|---|---|---|---|
+| SC-001: style change on the ~10 MB file (22,000 features, all shown) | < 1 s | Categorize **123 ms**; natural breaks with 10 classes **102 ms** (change → legend updated → 2 frames) | `performance.spec` "SC-001 (spec 003)" |
+| SC-002: breaks correct | 100% | Equal interval and quantile **identical to QGIS 4.2.3**; natural breaks **optimal** (30 brute-force trials; lower SSQ than QGIS on its one differing break) | `style-classify.test.ts` |
+| SC-003: saved style reopens identically, in both shells and in QGIS | 100% | VS Code save → reopen identical (classes, colors, labels, hidden); web download → reopen with sidecar identical; QGIS 4.2.3 reads the app's categorized, Jenks and manual QML with identical classes, colors, labels and render flags | `style.test.ts` US4, `style-thematic.spec` US5, `tests/qgis/check_sidecar.py` (research.md) |
+| SC-004: export → import keeps classes, values/breaks, colors | 100%, zero silent losses | **18 interchange tests**: lossless through QML and Mapbox; SLD losses (method, hidden classes) always announced before writing and on import | `style-interchange.test.ts` |
+| SC-006: legend = map | every change | Per-feature MapLibre evaluation equals legend counts for categorized (cap 12/4), equal, quantile, jenks and manual, including nulls, '', numeric strings, booleans and values on breaks | `style-expressions.test.ts` |
+| SC-007: 50,000 rows, no freeze | no task ≥ 1 s | Jenks end to end **191 ms**; the long-task observer recorded **no** task ≥ 50 ms | `performance.spec` "SC-007 (spec 003)" |
+| FR-020: same classes in both shells | identical | world-boundaries categorized and squares quantile give identical labels, counts and colors in VS Code and web | `style.test.ts`, `style-thematic.spec` |
+
 ## Definition of done
 
-- [ ] Scenarios 1–5 pass in both shells.
-- [ ] SC-001 (< 1 s on ~10 MB) and SC-007 (50,000 rows, no freeze) are
-      measured.
-- [ ] The QML exported by the app is verified by the PyQGIS check.
-- [ ] Every new ramp is reviewed in screenshots on the Positron and Dark
-      basemaps, in all three VS Code themes.
+- [x] Scenarios 1–5 pass in both shells (web `style-thematic.spec`, VS Code
+      `style.test.ts`).
+- [x] SC-001 (< 1 s on ~10 MB) and SC-007 (50,000 rows, no freeze) are
+      measured (see Results).
+- [x] The QML exported by the app is verified by the PyQGIS check.
+- [x] The default ramps (Viridis, Set 2 / Paired) and the ramp list are
+      reviewed in screenshots on the Positron and Dark basemaps, in all three
+      VS Code themes and web light/dark (T045).
 - [ ] All spec 001 and 002 suites still pass.

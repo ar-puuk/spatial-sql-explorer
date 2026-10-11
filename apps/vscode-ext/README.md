@@ -24,11 +24,16 @@ table, without opening a desktop GIS.
 - **Basemaps.** OpenFreeMap vector basemaps (Positron, Liberty, Bright,
   Dark, Fiord) or a blank background in a color you choose. If the network
   is unavailable, the map falls back to blank and your data still shows.
-- **Layer styles that QGIS understands.**
-  - Set fill, outline, width and point size.
+- **Thematic maps that QGIS understands.**
+  - Color features by category, or by numeric classes (equal interval,
+    quantile, natural breaks), with ramp previews and a legend with counts.
+  - Edit any class's color, label or bounds, or hide it from the map with
+    its legend swatch.
   - **Save** writes `<file>.qml` next to the data, which QGIS loads
-    automatically, and it's applied when you reopen the file.
+    automatically, and it's applied when you reopen the file. Categorized and
+    graduated styles open in QGIS with the same classes.
   - Export or import QGIS QML, OGC SLD, or Mapbox GL style JSON.
+  - Styles follow your queries: classes are recomputed for each result.
 - **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to
   open the query panel, and query the file as the table `layer` with DuckDB
   spatial SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the
