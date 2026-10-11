@@ -24,7 +24,7 @@ covers GeoParquet, GeoJSON and CSV; spec 008 adds GeoPackage, FlatGeobuf,
 KML, GeoJSONSeq, Excel, JSON and zipped Shapefiles (read through `/vsizip/`).
 
 ```
-C:\OSGeo4Win\python-qgis.bat tests\qgisead_back.py out.gpkg out.fgb out.shp.zip out.kml
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\read_back.py out.gpkg out.fgb out.shp.zip out.kml
 ```
 
 Last run: see `specs/008-ux-parity/research.md`, "Implementation outcomes (US4)".
