@@ -325,6 +325,7 @@
           collapsed={store.legendCollapsed}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
+          fillOpacity={store.style.fillOpacity}
         />
       {/if}
       {#if openPanel === 'style' && layer}
@@ -340,8 +341,10 @@
             canSaveSidecar={store.canSaveSidecar}
             notice={store.styleNotice}
             onChange={(patch) => store.setStyle(patch)}
+            onPreview={(next) => store.previewStyle(next)}
+            histogram={store.styleHistogram}
             onSave={() => void store.saveStyle()}
-            onExport={(format) => void store.exportStyle(format)}
+            onExport={(format) => void store.saveStyleAs(format)}
             onImport={() => void store.importStyle()}
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}

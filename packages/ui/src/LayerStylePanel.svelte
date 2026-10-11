@@ -1,12 +1,12 @@
 <script lang="ts">
   // Layer style popover (design-plan.md §8.1/§8.5; spec 003
-  // contracts/ui-style-panel.md). Renderer (Single / Categorized /
-  // Graduated), column, classes, and the shared symbol settings. Edits apply
-  // live. "Save" writes the QGIS-convention `<file>.qml` sidecar (VS Code) or
-  // downloads it (web); "Export" writes QML, SLD or Mapbox GL style JSON;
-  // "Import" reads any of the three.
+  // contracts/ui-style-panel.md; spec 008 US1, contracts/ui.md "Style panel").
+  // One flow, top to bottom: style type, then the column to color by, then
+  // classes (with the value distribution), colors, and appearance. Edits
+  // apply live, with no Apply step. Save is one split button: QML (the
+  // QGIS-convention sidecar, saved next to the data or downloaded), or any
+  // format from its menu. Import reads any of the three formats.
   import {
-    STYLE_FORMATS,
     eligibleColumns,
     METHOD_NAMES,
     MIN_CLASS_COUNT,
@@ -33,11 +33,14 @@
     type ResolveInput,
     type ResolvedStyle,
     type StyleFormat,
+    type ValueHistogram as Histogram,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
+  import ValueHistogram from './style/ValueHistogram.svelte'
+  import SaveStyleButton from './style/SaveStyleButton.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -52,6 +55,10 @@
     canSaveSidecar: boolean
     notice: StyleNotice | null
     onChange: (patch: Partial<LayerStyle>) => void
+    /** FR-004: a style shown while browsing ramps, or null to restore the committed one. */
+    onPreview?: (next: LayerStyle | null) => void
+    /** FR-003: the graduated column's value distribution (null while loading). */
+    histogram?: Histogram | null
     onSave: () => void
     onExport: (format: StyleFormat) => void
     onImport: () => void
@@ -75,6 +82,8 @@
     canSaveSidecar,
     notice,
     onChange,
+    onPreview = () => {},
+    histogram = null,
     onSave,
     onExport,
     onImport,
@@ -86,10 +95,10 @@
     classifyingRows = null,
   }: Props = $props()
 
-  const RENDERERS: Array<{ kind: Renderer['kind']; label: string }> = [
-    { kind: 'single', label: 'Single' },
-    { kind: 'categorized', label: 'Categorized' },
-    { kind: 'graduated', label: 'Graduated' },
+  const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
+    { kind: 'single', label: 'Single', hint: 'One color for every feature' },
+    { kind: 'categorized', label: 'Categorized', hint: 'A color per value of a column' },
+    { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a numeric column' },
   ]
   const renderer = $derived(rendererOf(style))
   const thematic = $derived(renderer.kind !== 'single')
@@ -101,7 +110,6 @@
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
-  let symbolOpen = $state(false)
 
   function chooseRenderer(kind: Renderer['kind']): void {
     if (kind === renderer.kind || unavailable(kind)) return
@@ -152,17 +160,24 @@
     onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
   }
 
-  let exportOpen = $state(false)
   let hasFill = $derived(geometryType !== 'LineString')
   let hasPoints = $derived(geometryType === 'Point' || geometryType === 'Mixed')
   let strokeLabel = $derived(geometryType === 'LineString' ? 'Line' : 'Outline')
 
   const pct = (n: number): string => `${Math.round(n * 100)}%`
+  const numberFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 })
+  const fmt = (v: number): string => numberFormat.format(v)
+  /** The class breaks (each range's upper bound but the last), with its class color. */
+  const histogramBreaks = $derived(
+    resolved.classes
+      .filter((c) => c.kind === 'range')
+      .slice(0, -1)
+      .map((c) => ({ value: c.upper ?? 0, color: c.color }))
+  )
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
-      if (exportOpen) exportOpen = false
-      else onClose()
+      onClose()
       e.stopPropagation()
     }
   }
@@ -178,177 +193,194 @@
   </header>
 
   <div class="body">
-    <div class="renderers" role="radiogroup" aria-label="Renderer">
-      {#each RENDERERS as r (r.kind)}
-        {@const why = unavailable(r.kind)}
-        <button
-          type="button"
-          role="radio"
-          data-kind={r.kind}
-          aria-checked={renderer.kind === r.kind}
-          tabindex={renderer.kind === r.kind ? 0 : -1}
-          aria-disabled={why !== null}
-          title={why ?? undefined}
-          onclick={() => chooseRenderer(r.kind)}
-          onkeydown={radioKeydown}>{r.label}</button
-        >
-      {/each}
-    </div>
-    {#if classifyingRows !== null}
-      <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
-    {/if}
-    {#if needsLoad}
-      <LoadWholeNotice sizeLabel={needsLoad.sizeLabel} purpose="style by its values" {onLoad} />
-    {/if}
+    <!-- Spec 008 FR-001: one flow, top to bottom; only the sections that apply to the chosen type. -->
+    <section aria-labelledby="style-sec-type">
+      <h3 id="style-sec-type">Style</h3>
+      <div class="renderers" role="radiogroup" aria-label="Style type">
+        {#each RENDERERS as r (r.kind)}
+          {@const why = unavailable(r.kind)}
+          <button
+            type="button"
+            role="radio"
+            data-kind={r.kind}
+            aria-checked={renderer.kind === r.kind}
+            tabindex={renderer.kind === r.kind ? 0 : -1}
+            aria-disabled={why !== null}
+            title={why ?? r.hint}
+            onclick={() => chooseRenderer(r.kind)}
+            onkeydown={radioKeydown}>{r.label}</button
+          >
+        {/each}
+      </div>
+      {#if classifyingRows !== null}
+        <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
+      {/if}
+      {#if needsLoad}
+        <LoadWholeNotice sizeLabel={needsLoad.sizeLabel} purpose="style by its values" {onLoad} />
+      {/if}
+    </section>
 
     {#if renderer.kind !== 'single'}
-      <div class="row field">
-        <label class="label" for="style-column">Column</label>
-        <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
-          {#if !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
-            <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
-          {/if}
-          {#each columnsFor(renderer.kind) as c (c.name)}
-            <option value={c.name}>{c.name} · {c.type}</option>
-          {/each}
-        </select>
-      </div>
+      <section aria-labelledby="style-sec-by">
+        <h3 id="style-sec-by">Color by</h3>
+        <div class="row field">
+          <label class="label" for="style-column">Column</label>
+          <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
+            {#if !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
+              <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
+            {/if}
+            {#each columnsFor(renderer.kind) as c (c.name)}
+              <option value={c.name}>{c.name} · {c.type}</option>
+            {/each}
+          </select>
+        </div>
+      </section>
 
       {#if renderer.kind === 'graduated'}
-        <div class="row field">
-          <label class="label" for="style-method">Method</label>
-          <select id="style-method" value={renderer.method} onchange={(e) => chooseMethod(e.currentTarget.value as GraduatedMethod)}>
-            {#each METHODS as m (m)}
-              <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
-            {/each}
-            {#if renderer.method === 'manual'}
-              <option value="manual">Manual</option>
-            {/if}
-          </select>
-        </div>
-        <div class="row field">
-          <label class="label" for="style-classes">Classes</label>
-          <select id="style-classes" class="narrow" value={renderer.classCount} onchange={(e) => chooseClassCount(Number(e.currentTarget.value))}>
-            {#each CLASS_COUNTS as n (n)}
-              <option value={n}>{n}</option>
-            {/each}
-          </select>
-        </div>
+        <section aria-labelledby="style-sec-classes">
+          <h3 id="style-sec-classes">Classification</h3>
+          <div class="pair">
+            <div class="row field">
+              <label class="label" for="style-method">Method</label>
+              <select id="style-method" value={renderer.method} onchange={(e) => chooseMethod(e.currentTarget.value as GraduatedMethod)}>
+                {#each METHODS as m (m)}
+                  <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
+                {/each}
+                {#if renderer.method === 'manual'}
+                  <option value="manual">Manual</option>
+                {/if}
+              </select>
+            </div>
+            <div class="row field">
+              <label class="label" for="style-classes">Classes</label>
+              <select id="style-classes" class="narrow" value={renderer.classCount} onchange={(e) => chooseClassCount(Number(e.currentTarget.value))}>
+                {#each CLASS_COUNTS as n (n)}
+                  <option value={n}>{n}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          {#if resolved.status !== 'fallback'}
+            <ValueHistogram {histogram} breaks={histogramBreaks} format={fmt} />
+          {/if}
+        </section>
       {/if}
 
-      {#if resolved.status === 'fallback'}
-        <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
-      {:else}
-        <div class="row field">
-          <span class="label" id="ramp-label">Colors</span>
+      <section aria-labelledby="style-sec-colors">
+        <h3 id="style-sec-colors">Colors</h3>
+        {#if resolved.status === 'fallback'}
+          <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
+        {:else}
           <RampPicker
             value={renderer.ramp}
             renderer={renderer.kind}
             classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
             onChange={(ramp) => apply(setRamp(style, ramp))}
+            onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
           />
-        </div>
-        <ClassList
-          {resolved}
-          kind={renderer.kind}
-          manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
-          onColor={(key, color) => apply(setClassColor(style, key, color))}
-          onLabel={(key, label) => apply(setClassLabel(style, key, label))}
-          onVisible={(key, visible) => apply(setClassVisible(style, key, visible))}
-          onValue={(key, value) => apply(setCategoryValue(style, resolved, key, value))}
-          onBound={(index, side, value) => apply(setClassBound(style, resolved, index, side, value))}
-          onAdd={() => apply(addClass(style, resolved))}
-          onDelete={(key) => apply(deleteClass(style, resolved, key))}
-        />
-        {#if editError}
-          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+          <ClassList
+            {resolved}
+            kind={renderer.kind}
+            manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
+            onColor={(key, color) => apply(setClassColor(style, key, color))}
+            onLabel={(key, label) => apply(setClassLabel(style, key, label))}
+            onVisible={(key, visible) => apply(setClassVisible(style, key, visible))}
+            onValue={(key, value) => apply(setCategoryValue(style, resolved, key, value))}
+            onBound={(index, side, value) => apply(setClassBound(style, resolved, index, side, value))}
+            onAdd={() => apply(addClass(style, resolved))}
+            onDelete={(key) => apply(deleteClass(style, resolved, key))}
+          />
+          {#if editError}
+            <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+          {/if}
+          {#if renderer.kind === 'categorized' && renderer.manual}
+            <p class="inline-note">
+              <Icon name="info" size={14} /><span>Fixed classes (Manual). <button type="button" class="link" onclick={() => apply(setCategorizedAuto(style))}>Back to automatic</button></span>
+            </p>
+          {:else if renderer.kind === 'graduated' && renderer.method === 'manual'}
+            <p class="inline-note"><Icon name="info" size={14} />Fixed classes (Manual): choose a method to recompute them.</p>
+          {/if}
+          {#each resolved.notes as note (note)}
+            <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+          {/each}
         {/if}
-        {#if renderer.kind === 'categorized' && renderer.manual}
-          <p class="inline-note">
-            <Icon name="info" size={14} /><span>Fixed classes (Manual). <button type="button" class="link" onclick={() => apply(setCategorizedAuto(style))}>Back to automatic</button></span>
-          </p>
-        {:else if renderer.kind === 'graduated' && renderer.method === 'manual'}
-          <p class="inline-note"><Icon name="info" size={14} />Fixed classes (Manual): choose a method to recompute them.</p>
-        {/if}
-        {#each resolved.notes as note (note)}
-          <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
-        {/each}
-      {/if}
-
-      <button type="button" class="disclosure" aria-expanded={symbolOpen} onclick={() => (symbolOpen = !symbolOpen)}>
-        <Icon name={symbolOpen ? 'chevron-down' : 'chevron-up'} size={12} />Symbol
-      </button>
+      </section>
     {/if}
 
-    {#if !thematic || symbolOpen}
-    {#if hasFill}
+    <section aria-labelledby="style-sec-look">
+      <h3 id="style-sec-look">Appearance</h3>
+      {#if hasFill}
+        <div class="row">
+          <span class="label" id="fill-label">Fill</span>
+          {#if thematic}
+            <span class="by-class" title="Class colors come from the classes above">·</span>
+          {:else}
+            <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+          {/if}
+          <input
+            type="range"
+            aria-label="Fill opacity"
+            aria-valuetext={pct(style.fillOpacity)}
+            min="0"
+            max="1"
+            step="0.05"
+            value={style.fillOpacity}
+            oninput={(e) => onChange({ fillOpacity: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{pct(style.fillOpacity)}</span>
+        </div>
+      {/if}
+
       <div class="row">
-        <span class="label" id="fill-label">Fill</span>
-        {#if thematic}
-          <span class="by-class" title="Class colors come from the classes above">·</span>
-        {:else}
-          <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
-        {/if}
+        <span class="label" id="stroke-label">{strokeLabel}</span>
+        <input type="color" aria-labelledby="stroke-label" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
         <input
           type="range"
-          aria-label="Fill opacity"
+          aria-label="{strokeLabel} opacity"
+          aria-valuetext={pct(style.strokeOpacity)}
           min="0"
           max="1"
           step="0.05"
-          value={style.fillOpacity}
-          oninput={(e) => onChange({ fillOpacity: Number(e.currentTarget.value) })}
+          value={style.strokeOpacity}
+          oninput={(e) => onChange({ strokeOpacity: Number(e.currentTarget.value) })}
         />
-        <span class="value">{pct(style.fillOpacity)}</span>
+        <span class="value">{pct(style.strokeOpacity)}</span>
       </div>
-    {/if}
 
-    <div class="row">
-      <span class="label" id="stroke-label">{strokeLabel}</span>
-      <input type="color" aria-labelledby="stroke-label" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
-      <input
-        type="range"
-        aria-label="{strokeLabel} opacity"
-        min="0"
-        max="1"
-        step="0.05"
-        value={style.strokeOpacity}
-        oninput={(e) => onChange({ strokeOpacity: Number(e.currentTarget.value) })}
-      />
-      <span class="value">{pct(style.strokeOpacity)}</span>
-    </div>
-
-    <div class="row">
-      <span class="label" id="width-label">Width</span>
-      <input
-        type="range"
-        class="wide"
-        aria-labelledby="width-label"
-        min="0"
-        max="10"
-        step="0.5"
-        value={style.strokeWidth}
-        oninput={(e) => onChange({ strokeWidth: Number(e.currentTarget.value) })}
-      />
-      <span class="value">{style.strokeWidth} px</span>
-    </div>
-
-    {#if hasPoints}
       <div class="row">
-        <span class="label" id="radius-label">Point size</span>
+        <span class="label" id="width-label">Width</span>
         <input
           type="range"
           class="wide"
-          aria-labelledby="radius-label"
-          min="1"
-          max="20"
+          aria-labelledby="width-label"
+          aria-valuetext="{style.strokeWidth} pixels"
+          min="0"
+          max="10"
           step="0.5"
-          value={style.pointRadius}
-          oninput={(e) => onChange({ pointRadius: Number(e.currentTarget.value) })}
+          value={style.strokeWidth}
+          oninput={(e) => onChange({ strokeWidth: Number(e.currentTarget.value) })}
         />
-        <span class="value">{style.pointRadius} px</span>
+        <span class="value">{style.strokeWidth} px</span>
       </div>
-    {/if}
-    {/if}
+
+      {#if hasPoints}
+        <div class="row">
+          <span class="label" id="radius-label">Point size</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="radius-label"
+            aria-valuetext="{style.pointRadius} pixels"
+            min="1"
+            max="20"
+            step="0.5"
+            value={style.pointRadius}
+            oninput={(e) => onChange({ pointRadius: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{style.pointRadius} px</span>
+        </div>
+      {/if}
+    </section>
   </div>
 
   {#if notice}
@@ -360,48 +392,33 @@
   {/if}
 
   <footer>
-    <button
-      type="button"
-      class="primary"
-      onclick={onSave}
-      title={canSaveSidecar ? `Save ${sidecarName} next to the data. QGIS loads it automatically.` : `Download ${sidecarName}. Keep it next to the data so QGIS loads it automatically.`}
-    >
-      <Icon name="save" size={14} />{canSaveSidecar ? 'Save' : 'Download'}
-    </button>
-    <div class="menu-anchor">
-      <button type="button" class="secondary" aria-haspopup="menu" aria-expanded={exportOpen} onclick={() => (exportOpen = !exportOpen)}>
-        <Icon name="export" size={14} />Export<Icon name="chevron-down" size={12} />
-      </button>
-      {#if exportOpen}
-        <div class="menu" role="menu">
-          {#each STYLE_FORMATS as f (f.format)}
-            {@const losses = previewExportNotice(style, f.format, resolved).items}
-            <button
-              type="button"
-              role="menuitem"
-              aria-describedby={losses.length ? `export-loss-${f.format}` : undefined}
-              onclick={() => {
-                exportOpen = false
-                onExport(f.format)
-              }}
-              >{f.label}
-              {#if losses.length}
-                <span class="loss" id={`export-loss-${f.format}`}>{losses.join(' ')}</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-    <button type="button" class="secondary" onclick={onImport} title="Import a QGIS .qml, OGC .sld or Mapbox GL style .json">
-      <Icon name="import" size={14} />Import
-    </button>
+    <SaveStyleButton {canSaveSidecar} {sidecarName} losses={(f) => previewExportNotice(style, f, resolved).items} {onSave} onSaveAs={onExport} />
+    <button type="button" class="icon-button" aria-label="Import style…" title="Import a QGIS .qml, OGC .sld or Mapbox GL style .json" onclick={onImport}><Icon name="import" /></button>
     <span class="spacer"></span>
-    <button type="button" class="icon-button" aria-label="Reset to default style" title="Reset to default style" onclick={onReset}><Icon name="reset" /></button>
+    <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset" /></button>
   </footer>
 </div>
 
 <style>
+  section {
+    display: grid;
+    gap: 6px;
+  }
+  section + section {
+    padding-top: 10px;
+    border-top: 1px solid var(--se-border);
+  }
+  h3 {
+    margin: 0;
+    font: var(--se-section-title-font);
+    text-transform: var(--se-section-title-transform);
+    letter-spacing: var(--se-section-title-tracking);
+    color: var(--se-section-title-fg);
+  }
+  .pair {
+    display: grid;
+    gap: 6px;
+  }
   .classifying {
     margin: 0;
     color: var(--se-text-secondary);
@@ -483,7 +500,6 @@
     cursor: default;
   }
   .renderers button:focus-visible,
-  .disclosure:focus-visible,
   select:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
@@ -524,20 +540,6 @@
   }
   .inline-note.warning :global(.icon) {
     color: var(--se-warning);
-  }
-  .disclosure {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    justify-self: start;
-    padding: 2px 0;
-    border: 0;
-    background: transparent;
-    color: var(--se-section-title-fg);
-    font: var(--se-section-title-font);
-    text-transform: var(--se-section-title-transform);
-    letter-spacing: var(--se-section-title-tracking);
-    cursor: pointer;
   }
   .by-class {
     text-align: center;
@@ -626,35 +628,7 @@
   .spacer {
     flex: 1;
   }
-  footer button.primary,
-  footer button.secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 8px;
-    border: 1px solid var(--se-button-border);
-    border-radius: var(--se-radius-sm);
-    font: inherit;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .primary {
-    background: var(--se-button-bg);
-    color: var(--se-button-fg);
-  }
-  .primary:hover {
-    background: var(--se-button-hover);
-  }
-  .secondary {
-    background: var(--se-button-secondary-bg);
-    color: var(--se-button-secondary-fg);
-  }
-  .secondary:hover {
-    background: var(--se-button-secondary-hover);
-  }
-  footer button:focus-visible,
-  .menu button:focus-visible {
+  footer :global(button:focus-visible) {
     outline: 1px solid var(--se-focus);
     outline-offset: 1px;
   }
@@ -673,48 +647,5 @@
   .icon-button:hover {
     background: var(--se-control-hover);
     color: var(--se-text-primary);
-  }
-  .menu-anchor {
-    position: relative;
-  }
-  .menu {
-    position: absolute;
-    bottom: calc(100% + 4px);
-    left: 0;
-    z-index: 10;
-    min-width: 200px;
-    max-width: 280px;
-    padding: 4px;
-    background: var(--se-menu-bg);
-    border: 1px solid var(--se-menu-border);
-    border-radius: var(--se-radius);
-    box-shadow: var(--se-shadow-elevated);
-  }
-  .menu button {
-    display: block;
-    width: 100%;
-    padding: 4px 8px;
-    border: 0;
-    border-radius: var(--se-radius-sm);
-    background: transparent;
-    color: var(--se-menu-fg);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-  .menu .loss {
-    display: block;
-    margin-top: 2px;
-    color: var(--se-text-secondary);
-    font-size: 0.85em;
-    line-height: 1.35;
-    white-space: normal;
-  }
-  .menu button:hover .loss {
-    color: inherit;
-  }
-  .menu button:hover {
-    background: var(--se-menu-hover-bg);
-    color: var(--se-menu-hover-fg);
   }
 </style>

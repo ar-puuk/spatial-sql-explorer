@@ -21,6 +21,10 @@ import {
   columnValuesSql,
   evenPositions,
   numberTotalsSql,
+  HISTOGRAM_BINS,
+  histogramSql,
+  histogramFrom,
+  type ValueHistogram,
   orderStatisticsSql,
   quantilePositions,
   STYLE_VALUES_CAP,
@@ -32,6 +36,7 @@ import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
 import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
+import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import {
@@ -229,6 +234,11 @@ export class QuerySession {
   private catalogCache: CatalogSnapshot | null = null
   private facts: ResultFacts | null = null
   private defaultFacts: ResultFacts | null = null
+  /** Spec 008 FR-010/FR-011: the table filters over the displayed result, and their WHERE body. */
+  private filters: ColumnFilter[] = []
+  private filterWhere: string | null = null
+  /** Rows matching the filters, once counted (null: not counted, or no filters). */
+  private matchingRows: number | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -417,6 +427,76 @@ export class QuerySession {
     }
   }
 
+  // --- Spec 008: table filters (FR-010/FR-011, research §9) ------------------
+
+  /**
+   * Narrows the displayed result to rows matching `filters` (AND). Pages,
+   * map views, style statistics, counts and export all read the narrowed
+   * rows. Returns each filter as parsed (invalid ones aren't applied).
+   * Filters clear with a new result. Not for files read in parts
+   * (`needsLoad`), whose table is unavailable until loaded.
+   */
+  setFilters(filters: readonly ColumnFilter[]): ColumnFilter[] {
+    const columns = this.facts?.columns ?? []
+    const types = new Map(columns.map((c) => [c.name, c.type]))
+    const parsed = filters.map((f) => parseFilter(f, types.get(f.column) ?? ''))
+    const where = this.needsLoad || this.utilityRows ? null : filtersToSql(parsed, columns)
+    this.filters = parsed
+    if (where !== this.filterWhere) {
+      this.filterWhere = where
+      this.matchingRows = null
+      this.pages.clear()
+    }
+    return parsed
+  }
+
+  get activeFilters(): readonly ColumnFilter[] {
+    return this.filters
+  }
+
+  /** The WHERE body narrowing the displayed result, or null. */
+  private restriction(): string | null {
+    return this.filterWhere
+  }
+
+  /** `rel` narrowed by the active filters (rel must carry the columns the filters use). */
+  private narrowed(rel: string): string {
+    const where = this.restriction()
+    return where ? `(SELECT * FROM ${rel} WHERE ${where})` : rel
+  }
+
+  /** The relation style statistics read: the result itself, or its narrowed rows. */
+  private statsRelation(): string {
+    const facts = this.facts
+    const plain = facts?.defaultView ? 'layer' : RESULT_TABLE
+    if (!this.restriction()) return plain
+    const target = this.pageTarget()
+    return target ? this.narrowed(target.relation) : plain
+  }
+
+  /** Rows of the displayed result, narrowed by the filters when known. */
+  private displayedRows(): number {
+    return this.restriction() ? (this.matchingRows ?? Number.POSITIVE_INFINITY) : (this.facts?.totalRows ?? 0)
+  }
+
+  /**
+   * Counts the rows matching the filters (FR-011 "N of M"), as background
+   * work. `matching` equals `total` when no filter applies.
+   */
+  async filterCounts(): Promise<{ total: number; matching: number }> {
+    const total = this.facts?.totalRows ?? 0
+    const where = this.restriction()
+    if (!where) return { total, matching: total }
+    if (this.matchingRows !== null) return { total, matching: this.matchingRows }
+    return this.exclusive(async (isCancelled) => {
+      const target = this.pageTarget()
+      if (!target) return { total, matching: 0 }
+      const row = await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${this.narrowed(target.relation)}`, isCancelled)
+      if (this.restriction() === where) this.matchingRows = Number(row.n)
+      return { total, matching: Number(row.n) }
+    }, 'background')
+  }
+
   /**
    * A style resolved against the whole displayed result (spec 007 FR-012):
    * small results classify their fetched values exactly as spec 003 did; big
@@ -430,10 +510,10 @@ export class QuerySession {
     if (!facts || r.kind === 'single' || !r.column || !base.columns.some((c) => c.name === r.column) || this.utilityRows || this.needsLoad) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
-    const relation = facts.defaultView ? 'layer' : RESULT_TABLE
+    const relation = this.statsRelation()
     const column = r.column
     return this.exclusive(async (isCancelled) => {
-      const n = facts.totalRows
+      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
       const cap = jenksSample()
       if (n <= cap) {
         const values: Array<Feature['attributes'][string]> = []
@@ -486,6 +566,38 @@ export class QuerySession {
   }
 
   /**
+   * The value distribution of a numeric column of the displayed result
+   * (spec 008 FR-003): exact, in two aggregation passes over the whole
+   * result, as background work. Null when the column has no numbers, or the
+   * result can't be read in full yet (spec 007 needsLoad).
+   */
+  async valueHistogram(column: string): Promise<ValueHistogram | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) {
+      const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => Number.isFinite(v))
+      if (!values.length) return null
+      const min = Math.min(...values)
+      const max = Math.max(...values)
+      const n = max > min ? HISTOGRAM_BINS : 1
+      const rows = values.map((v) => ({ b: Math.min(n - 1, Math.floor(((v - min) / (max - min || 1)) * n)), n: 1 }))
+      return histogramFrom(min, max, rows)
+    }
+    const relation = this.statsRelation()
+    return this.exclusive(async (isCancelled) => {
+      const totals = await singleRow<{ n: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, column), isCancelled)
+      if (!Number(totals.n) || totals.min === null || totals.max === null) return null
+      const min = Number(totals.min)
+      const max = Number(totals.max)
+      const rows: Array<{ b: number; n: number }> = []
+      await streamRows(this.conn, histogramSql(relation, column, min, max), isCancelled, (batch) => {
+        for (const row of batch) rows.push({ b: Number(row.b), n: Number(row.n) })
+      })
+      return histogramFrom(min, max, rows)
+    }, 'background')
+  }
+
+  /**
    * Distinct non-empty values per text column of the displayed result, for
    * the categorized renderer's column suggestion (spec 003). Exact up to
    * STYLE_VALUES_CAP rows; above, counted on the first that many.
@@ -494,7 +606,7 @@ export class QuerySession {
     const facts = this.facts
     const textual = (facts?.columns ?? []).filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i.test(c.type))
     if (!facts || !textual.length || this.utilityRows || this.needsLoad) return {}
-    const relation = facts.defaultView ? 'layer' : RESULT_TABLE
+    const relation = this.statsRelation()
     const select = textual.map((c, i) => `count(DISTINCT nullif(CAST(${quoteIdent(c.name)} AS VARCHAR), '')) AS d${i}`).join(', ')
     return this.exclusive(async (isCancelled) => {
       const row = await singleRow<Record<string, bigint | number>>(this.conn, `SELECT ${select} FROM (SELECT * FROM ${relation} LIMIT ${STYLE_VALUES_CAP})`, isCancelled)
@@ -555,14 +667,17 @@ export class QuerySession {
     const facts = this.facts
     if (!facts || facts.defaultView) {
       const lv = this.layerView
-      return lv ? { relation: INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid } : null
+      if (!lv) return null
+      const narrow = lv.index !== 'fgb' && !!this.restriction()
+      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
     }
     const g = facts.geometryColumn
     if (!g || !facts.exportable) return null
     const q = quoteIdent(g)
     return {
       // `rowid` (the temp table's pseudo-column) is free; a big result is a view, which has none.
-      relation: `(SELECT *, ${facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'} AS __se_rowid, ST_XMin(${q}) AS __se_xmin, ST_YMin(${q}) AS __se_ymin, ST_XMax(${q}) AS __se_xmax, ST_YMax(${q}) AS __se_ymax FROM ${RESULT_TABLE})`,
+      relation: this.narrowed(`(SELECT *, ${facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'} AS __se_rowid, ST_XMin(${q}) AS __se_xmin, ST_YMin(${q}) AS __se_ymin, ST_XMax(${q}) AS __se_xmax, ST_YMax(${q}) AS __se_ymax FROM ${RESULT_TABLE})`),
+      narrowed: !!this.restriction(),
       index: 'columns',
       geom: q,
       srid: facts.resultCrs?.srid ?? null,
@@ -637,7 +752,7 @@ export class QuerySession {
         inView = rows.length
       } else {
         // A result that fits under the cap needs no count: everything in view is fetched, so it IS the count.
-        const resultRows = this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
+        const resultRows = this.restriction() ? this.displayedRows() : this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
         if (resultRows <= req.cap) {
           await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
           inView = rows.length
@@ -725,6 +840,9 @@ export class QuerySession {
   /** A new result: cached pages belong to the old one. */
   private resultChanged(): void {
     this.pages.clear()
+    this.filters = []
+    this.filterWhere = null
+    this.matchingRows = null
     if (this.facts?.exportable !== false) this.utilityRows = null
   }
 
@@ -755,8 +873,9 @@ export class QuerySession {
       return { offset: req.offset, rows }
     }
     const result = await this.exclusive(async (isCancelled) => {
-      const target = this.pageTarget()
-      if (!target) return { offset: req.offset, rows: [] }
+      const plain = this.pageTarget()
+      if (!plain) return { offset: req.offset, rows: [] }
+      const target = { ...plain, relation: this.narrowed(plain.relation) }
       const rows: TablePage['rows'] = []
       await streamRows(this.conn, pageSql(target, req), isCancelled, (batch) => {
         for (const r of batch) {

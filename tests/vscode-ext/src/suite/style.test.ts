@@ -192,3 +192,54 @@ suite('Spec 003 US4: save, reopen and auto-apply in VS Code', () => {
     }
   })
 })
+
+// T012 (spec 008 FR-006): the Save button's menu. The QML item writes the
+// sidecar next to the data, like the main action; SLD and Mapbox GL go
+// through the save dialog (answered by the test hook here).
+suite('Spec 008 US1: save style as each format', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('QML from the menu is the sidecar; SLD and Mapbox GL are saved where chosen', async function () {
+    this.timeout(90000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-style-as-'))
+    const file = path.join(dir, 'world.geojson')
+    fs.copyFileSync(path.resolve(__dirname, '../../fixtures/world-boundaries.geojson'), file)
+    const waitFor = async (p: string) => {
+      const deadline = Date.now() + 10000
+      while (!fs.existsSync(p)) {
+        assert.ok(Date.now() < deadline, `${path.basename(p)} was not written`)
+        await sleep(100)
+      }
+      return fs.readFileSync(p, 'utf8')
+    }
+    try {
+      await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+      const deadline = Date.now() + 45000
+      for (;;) {
+        const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+        if (s?.loadState === 'ready') break
+        assert.ok(Date.now() < deadline, 'world.geojson did not load')
+        await sleep(200)
+      }
+      await applyStyle({ ...BASE_SYMBOL, fillColor: '#ff8800' }, (x) => x.renderer === 'single' && x.dirty && x.classes[0]?.color === '#ff8800')
+
+      await vscode.commands.executeCommand('spatialExplorer._saveStyleAs', 'qml')
+      assert.match(await waitFor(path.join(dir, 'world.qml')), /<qgis/)
+
+      const sld = path.join(dir, 'out.sld')
+      await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', sld)
+      await vscode.commands.executeCommand('spatialExplorer._saveStyleAs', 'sld')
+      assert.match(await waitFor(sld), /StyledLayerDescriptor/)
+
+      const mapbox = path.join(dir, 'out.json')
+      await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', mapbox)
+      await vscode.commands.executeCommand('spatialExplorer._saveStyleAs', 'mapbox')
+      assert.strictEqual(JSON.parse(await waitFor(mapbox)).version, 8)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

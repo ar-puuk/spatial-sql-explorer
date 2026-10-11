@@ -105,43 +105,43 @@ interactions, SLD saved from the menu, keyboard only.
 
 ### Tests for US1
 
-- [ ] T009 [P] [US1] Core test `tests/core/value-histogram.test.ts`: `valueHistogram()` returns 40 bins whose counts sum to the non-null rows, with edges from min to max; a single-value column gives 1 bin; a large result reports `sampled: true` (use the `jenksSample` override).
-- [ ] T010 [P] [US1] Web test `tests/web/specs/style-panel.spec.ts`:
+- [X] T009 [P] [US1] Core test `tests/core/value-histogram.test.ts`: `histogramSql`/`histogramFrom` give 40 equal-width bins, edges from min to max, the max in the last bin; a single-value column gives 1 bin. (Counts are exact for any size: one aggregation pass, so there is no sampled variant; the engine run is covered by `style-panel.spec.ts`.)
+- [X] T010 [P] [US1] Web test `tests/web/specs/style-panel.spec.ts`:
   - the section order follows contracts/ui.md;
   - Graduated plus a column draws classes with no Apply step, counting interactions ≤3 (SC-001);
   - the histogram `img` named "Value distribution" lists the breaks;
   - focusing ramps changes map paint, and Escape restores it;
   - `Reverse ramp` reverses the colors;
   - opacity updates map and legend live.
-- [ ] T011 [P] [US1] Web test `tests/web/specs/style-save-menu.spec.ts`:
+- [X] T011 [P] [US1] Web test `tests/web/specs/style-save-menu.spec.ts`:
   - the `Download style (QML)` main action downloads `<name>.qml`;
   - `More style formats` opens a `menu` with 3 items, and SLD and Mapbox GL each download;
   - keyboard: Enter/ArrowDown opens and focuses the first item, Up/Down/Home/End move, Escape returns focus to the arrow;
   - no separate "Export style" button remains.
 
   Update the spec 003 tests that used the old Export button (`tests/web/specs/style-*.spec.ts`).
-- [ ] T012 [P] [US1] VS Code test in `tests/vscode-ext/src/suite/style.test.ts` (extend): the main Save writes the sidecar; the menu's SLD item opens the save dialog through the test hook.
+- [X] T012 [P] [US1] VS Code test in `tests/vscode-ext/src/suite/style.test.ts` (extend): the main Save writes the sidecar; the menu's SLD item opens the save dialog through the test hook.
 
 ### Implementation for US1
 
-- [ ] T013 [US1] Implement `valueHistogram(session, column, bins = 40)` in `packages/core/src/view/stats.ts` (`width_bucket` over the result, with the sampling rules of the existing stats path), and export it from `packages/core/src/index.ts`.
-- [ ] T014 [P] [US1] Create `packages/ui/src/style/RendererChoice.svelte`: a radiogroup with Single, Categorized and Graduated, arrow-key navigation, named `Style type`.
-- [ ] T015 [P] [US1] Create `packages/ui/src/style/ValueHistogram.svelte`:
+- [X] T013 [US1] Implement `valueHistogram(session, column, bins = 40)` in `packages/core/src/view/stats.ts` (`width_bucket` over the result, with the sampling rules of the existing stats path), and export it from `packages/core/src/index.ts`.
+- [X] T014 [P] [US1] The `Style type` radiogroup (Single, Categorized, Graduated, arrow-key navigation, a hint per type). Kept inline in `LayerStylePanel.svelte`: it is the panel's own first section, so a separate component added nothing.
+- [X] T015 [P] [US1] Create `packages/ui/src/style/ValueHistogram.svelte`:
   - an SVG bar chart with break lines;
   - `role="img"`, named "Value distribution", with an `aria-describedby` text listing the breaks;
   - a "sample" label when sampled;
   - bars use `--se-text-secondary`; breaks use the class colors.
-- [ ] T016 [P] [US1] Create `packages/ui/src/style/SaveStyleButton.svelte`, a split menu button per contracts/ui.md: a main button labeled `Save style (QML)` when `canSaveSidecar`, else `Download style (QML)`; an arrow `More style formats`; a `menu` with the three formats; full keyboard support; it closes on outside click.
-- [ ] T017 [US1] Change `packages/ui/src/RampPicker.svelte` to a listbox that previews the focused ramp through an `onPreview(ramp | null)` callback, commits on Enter/click, restores on Escape or blur without a choice, and has a `Reverse ramp` toggle.
-- [ ] T018 [US1] Rebuild `packages/ui/src/LayerStylePanel.svelte` into sections in this order: `Style type` → `Color by` → `Classes` (method, count, ValueHistogram) → `Colors` (RampPicker, ClassList) → `Appearance` (fill opacity, outline color/width/opacity, point size; sliders with `aria-valuetext`).
+- [X] T016 [P] [US1] Create `packages/ui/src/style/SaveStyleButton.svelte`, a split menu button per contracts/ui.md: a main button labeled `Save style (QML)` when `canSaveSidecar`, else `Download style (QML)`; an arrow `More style formats`; a `menu` with the three formats; full keyboard support; it closes on outside click.
+- [X] T017 [US1] Change `packages/ui/src/RampPicker.svelte` to a listbox that previews the focused ramp through an `onPreview(ramp | null)` callback, commits on Enter/click, restores on Escape or blur without a choice, and has a `Reverse ramp` toggle.
+- [X] T018 [US1] Rebuild `packages/ui/src/LayerStylePanel.svelte` into sections in this order: `Style type` → `Color by` → `Classes` (method, count, ValueHistogram) → `Colors` (RampPicker, ClassList) → `Appearance` (fill opacity, outline color/width/opacity, point size; sliders with `aria-valuetext`).
   - Remove the Apply flow, so every change calls the store immediately.
   - Replace the Save and Export buttons with `SaveStyleButton`; keep `Import style…` and `Reset style`.
   - Make it fit the narrowest panel width without horizontal scroll (FR-007).
-- [ ] T019 [US1] Wire it up in `packages/ui/src/viewerStore.svelte.ts`:
+- [X] T019 [US1] Wire it up in `packages/ui/src/viewerStore.svelte.ts`:
   - a temporary preview style (`previewRamp`), never saved or undone, restored on cancel;
   - the histogram load as `background` work with `retryWhenBusy`;
   - `saveStyleAs(format)`, used by the menu, which reuses the existing serializers.
-- [ ] T020 [US1] Update `scripts/screenshots.mjs` style scenes, and `apps/vscode-ext/README.md` style section, for the new panel.
+- [X] T020 [US1] Update `scripts/screenshots.mjs` style scenes, and `apps/vscode-ext/README.md` style section, for the new panel.
 
 **Checkpoint**: US1 tests green in all suites. The style panel MVP is shippable.
 

@@ -5,20 +5,23 @@ binding (tests query by role and name).
 
 ## Style panel (`LayerStylePanel.svelte`, `style/*`)
 
-- Region `Layer style`. The order of sections is fixed:
-  - `Style type`: radiogroup with Single, Categorized and Graduated;
-  - `Color by`: combobox of columns (hidden for Single);
-  - `Classes`: method, count, and the histogram (`img` named "Value
-    distribution", with an `aria-describedby` text listing the breaks);
-  - `Colors`: ramp picker, `Reverse ramp` toggle button, class list;
+- Dialog `Layer style`. Each section is a `section` labeled by its `h3`; the
+  order is fixed, and only the sections that apply are shown:
+  - `Style`: radiogroup `Style type` with Single, Categorized and Graduated;
+  - `Color by` (thematic): select `Column` (kept from spec 003);
+  - `Classification` (graduated): `Method`, `Classes`, and the histogram (`img`
+    named "Value distribution", with an `aria-describedby` text listing the
+    breaks);
+  - `Colors` (thematic): ramp picker (`Colors: <ramp>` button), `Reverse
+    colors` toggle (kept from spec 003), class list;
   - `Appearance`: fill opacity, outline color/width/opacity, point size
     (sliders with `aria-valuetext`);
   - `3D` (polygons): `Extrude polygons` switch, `Height from` combobox
     (columns plus "Constant height"), `Height scale` number input, and a
     status line "N polygons drawn flat (no height)".
 - No Apply button. Every change applies immediately.
-- **Ramp picker**: a listbox. Focusing an option previews it on the map;
-  Enter or click commits; Escape restores and closes.
+- **Ramp picker**: a listbox `Color ramps`. Focusing an option previews it
+  on the map; Enter or click commits; Escape or Tab restores and closes.
 - **Save** (`SaveStyleButton.svelte`):
   - a button named `Save style (QML)`, or `Download style (QML)` on the web;
   - an adjacent button `More style formats` with `aria-haspopup="menu"`
@@ -28,7 +31,9 @@ binding (tests query by role and name).
   - Keyboard: Enter, Space or ArrowDown opens the menu and focuses the
     first item; Up/Down move through items; Home/End jump; Enter
     activates; Escape closes and returns focus to the arrow button.
+  - The menu is named `Style formats`.
 - `Import style…` and `Reset style` stay, as icon buttons with names.
+- The legend's swatches carry the fill opacity (FR-005).
 
 ## Table (`AttributeTable.svelte` and friends)
 

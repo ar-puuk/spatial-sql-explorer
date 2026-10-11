@@ -326,7 +326,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         : lower.endsWith('.sld')
           ? { 'OGC SLD': ['sld'] }
           : { 'Mapbox GL style': ['json'] }
-      const uri = await vscode.window.showSaveDialog({ title: 'Export layer style', defaultUri: vscode.Uri.joinPath(dir, msg.name), filters })
+      let uri: vscode.Uri | undefined
+      if (nextExportPath) {
+        // Test hook (spec 008 T012): no dialog.
+        uri = vscode.Uri.file(nextExportPath)
+        nextExportPath = null
+      } else uri = await vscode.window.showSaveDialog({ title: 'Save layer style', defaultUri: vscode.Uri.joinPath(dir, msg.name), filters })
       if (!uri) return void reply({ saved: false })
       await vscode.workspace.fs.writeFile(uri, content)
       return void reply({ saved: true, location: path.posix.basename(uri.path) })
@@ -692,6 +697,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('spatialExplorer._setStyle', (style: unknown) => provider.postToActive({ type: 'testSetStyle', style })),
     vscode.commands.registerCommand('spatialExplorer._saveStyle', () => provider.postToActive({ type: 'testSaveStyle' })),
+    // Spec 008 T012: the Save button's menu (pair with _saveNextExportTo for formats other than the sidecar).
+    vscode.commands.registerCommand('spatialExplorer._saveStyleAs', (format: string) => provider.postToActive({ type: 'testSaveStyleAs', format })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null

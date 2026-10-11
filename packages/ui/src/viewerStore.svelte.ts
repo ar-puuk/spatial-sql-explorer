@@ -25,6 +25,8 @@ import {
   type DuckDbAssetUrls,
   type HostAdapter,
   type LayerStyle,
+  type ValueHistogram,
+  rendererOf,
   type QueryHistoryEntry,
   addHistoryEntry,
   historyEntryFromOutcome,
@@ -161,6 +163,8 @@ export interface ViewerStore {
   readonly displayedLayer: Layer | null
   /** Spec 007: a style is being classified over a big result (shown after 300 ms). */
   readonly classifying: boolean
+  /** Spec 008 FR-003: the graduated column's value distribution, or null (not graduated, or loading). */
+  readonly styleHistogram: ValueHistogram | null
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
@@ -237,8 +241,16 @@ export interface ViewerStore {
   zoomToFeature(id: string | number): void
   setCursor(coords: { lon: number; lat: number } | null): void
   setStyle(patch: Partial<LayerStyle>): void
+  /**
+   * Spec 008 FR-004: shows `next` on the map and legend without committing it
+   * (not marked modified, not saved). `null` restores the committed style. The
+   * next `setStyle` commits on top of the committed style, not the preview.
+   */
+  previewStyle(next: LayerStyle | null): void
   resetStyle(): void
   saveStyle(): Promise<void>
+  /** Spec 008 FR-006: the Save menu. `qml` is the sidecar (same as `saveStyle`); others are saved or downloaded. */
+  saveStyleAs(format: StyleFormat): Promise<void>
   exportStyle(format: StyleFormat): Promise<void>
   importStyle(): Promise<void>
   dismissStyleNotice(): void
@@ -337,6 +349,30 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let classifying = $state(false)
   let styleGeneration = 0
   let distinctFor: Layer | null = null
+  // Spec 008 FR-003: the graduated column's distribution, loaded once per result and column.
+  let styleHistogram = $state.raw<ValueHistogram | null>(null)
+  let histogramKey: { layer: Layer; column: string } | null = null
+  /** The committed style while a preview is shown (FR-004), else null. */
+  let previewBase: LayerStyle | null = null
+
+  async function refreshHistogram(s: LayerStyle, layer: Layer | null, qs: QuerySession | null): Promise<void> {
+    const r = rendererOf(s)
+    if (r.kind !== 'graduated' || !r.column || !layer || !qs) {
+      histogramKey = null
+      styleHistogram = null
+      return
+    }
+    if (histogramKey && histogramKey.layer === layer && histogramKey.column === r.column) return
+    const key = { layer, column: r.column }
+    histogramKey = key
+    styleHistogram = null
+    try {
+      const h = await retryWhenBusy(qs, () => qs.valueHistogram(key.column))
+      if (histogramKey === key) styleHistogram = h
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: value distribution failed', err)
+    }
+  }
 
   async function refreshStyle(): Promise<void> {
     const generation = ++styleGeneration
@@ -344,6 +380,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const layer = displayedLayer
     const qs = querySession
     if (!qs || !layer) {
+      void refreshHistogram(s, layer, qs)
       resolvedStyle = resolveStyle(s, layer ? { columns: layer.columns, rowCount: layer.totalRows } : null)
       return
     }
@@ -356,7 +393,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         styleDistinct = await retryWhenBusy(qs, () => qs.distinctCounts()).catch(() => ({}))
       }
       const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
-      if (generation === styleGeneration) resolvedStyle = r
+      if (generation === styleGeneration) {
+        resolvedStyle = r
+        // After the style: the chart is secondary, and must not compete with it for the engine.
+        void refreshHistogram(s, layer, qs)
+      }
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: style failed', err)
     } finally {
@@ -374,7 +415,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         // Interrupted by user work: always ask again. Blocked by it: a few times.
         const preempted = err instanceof WorkPreemptedError
         const busy = err instanceof Error && /already running/.test(err.message)
-        if (!preempted && (attempt >= 5 || !busy)) throw err
+        if (!preempted && (attempt >= 20 || !busy)) throw err
         await qs.whenIdle()
       }
     }
@@ -621,15 +662,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     try {
       // A view never blocks user work (a query, export, autocomplete): it is
       // skipped or interrupted, then asked again once the engine is free,
-      // unless a newer view came meanwhile.
-      for (let attempt = 0; attempt < 5 && current(); attempt++) {
+      // unless a newer view came meanwhile. No attempt limit: each retry
+      // waits for the engine to go idle, and background work (styles, the
+      // value distribution, table pages) can take the engine first several
+      // times in a row (spec 008: a view gave up after 5 and the map stayed empty).
+      while (current()) {
         try {
           const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx, attrs })
           if (!current()) return
           if (preview) {
             viewFeatures = { ...v, thinned: false, preview: true }
             preview = false
-            attempt = -1
             // Paint the preview before loading the full view; otherwise a
             // quick full view replaces it unseen (at most 1 s).
             await waitForPaint(1000)
@@ -1061,6 +1104,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get classifying() {
       return classifying
     },
+    get styleHistogram() {
+      return styleHistogram
+    },
     get styleInput() {
       const l = displayedLayer
       return l ? { columns: l.columns, rowCount: l.totalRows, distinct: styleDistinct } : null
@@ -1226,18 +1272,33 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       hostAdapter.setStatus({ cursor: coords })
     },
     setStyle(patch) {
+      if (previewBase) {
+        style = previewBase
+        previewBase = null
+      }
       style = sanitizeStyle({ ...style, ...patch })
       styleDirty = true
       // A thematic column the drawn view doesn't carry yet: load the view again with it.
       if (lastViewArgs && styleColumns(style).some((c) => !viewAttrs.includes(c))) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
     },
+    previewStyle(next) {
+      if (next === null) {
+        if (previewBase) style = previewBase
+        previewBase = null
+        return
+      }
+      previewBase ??= style
+      style = sanitizeStyle(next)
+    },
     resetStyle() {
+      previewBase = null
       style = { ...DEFAULT_LAYER_STYLE }
       styleSource = null
       styleNotice = null
       styleDirty = true
     },
     saveStyle,
+    saveStyleAs: (format) => (format === 'qml' ? saveStyle() : exportStyleAs(format)),
     exportStyle: exportStyleAs,
     importStyle: importStyleFromFile,
     dismissStyleNotice() {

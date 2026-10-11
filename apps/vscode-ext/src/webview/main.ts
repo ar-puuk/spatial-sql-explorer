@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown> }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
       // with the whole text selected. (Spec 007 removed the large-result prompt.)
@@ -98,6 +98,8 @@ async function main(): Promise<void> {
       void store.runExport()
     } else if (msg.type === 'testSaveStyle') {
       void store.saveStyle()
+    } else if (msg.type === 'testSaveStyleAs' && (msg.format === 'qml' || msg.format === 'sld' || msg.format === 'mapbox')) {
+      void store.saveStyleAs(msg.format)
     } else if (msg.type === 'testCancelOpen') {
       void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {

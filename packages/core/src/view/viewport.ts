@@ -33,6 +33,11 @@ export interface ViewTarget {
   extent?: Bbox | null
   /** Every non-null geometry is known valid (the open counted none invalid): skip ST_IsValid per feature. */
   allValid?: boolean
+  /**
+   * Spec 008: the relation is narrowed (table filters, "show selected only").
+   * `bbox-table` candidates then keep only rows the relation still has.
+   */
+  narrowed?: boolean
 }
 
 const num = (n: number): string => (Number.isFinite(n) ? String(n) : '0')
@@ -65,7 +70,7 @@ const tableOverlap = (box: Bbox): string => overlaps(box, 'xmin', 'ymin', 'xmax'
 
 /** Rows of the relation whose bbox meets the view, as `(rn, xmin, ymin, xmax, ymax)` (not for `fgb`). */
 function candidates(t: ViewTarget, box: Bbox): string {
-  if (t.index === 'bbox-table') return `SELECT rn, xmin, ymin, xmax, ymax FROM __se_bbox WHERE ${tableOverlap(box)}`
+  if (t.index === 'bbox-table') return `SELECT rn, xmin, ymin, xmax, ymax FROM __se_bbox WHERE ${tableOverlap(box)}${t.narrowed ? ` AND rn IN (SELECT __se_rowid FROM ${t.relation})` : ''}`
   return `SELECT __se_rowid AS rn, __se_xmin AS xmin, __se_ymin AS ymin, __se_xmax AS xmax, __se_ymax AS ymax FROM ${t.relation} WHERE ${hiddenOverlap(box)}`
 }
 

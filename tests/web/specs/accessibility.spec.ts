@@ -41,7 +41,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: 'Layer style' }).click()
     await audit(page, 'style panel')
-    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    await page.getByRole('button', { name: 'More style formats' }).click()
     await audit(page, 'export menu')
     await page.keyboard.press('Escape')
 

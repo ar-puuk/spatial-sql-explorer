@@ -114,7 +114,7 @@ test.describe('graduated (US2)', () => {
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Graduated' }).click()
     await expect(page.getByLabel('Column')).toHaveValue('value')
-    expect(await legendRows(page).locator('.label').allTextContents()).toEqual(SQUARES_QUANTILE_LABELS)
+    await expect.poll(() => legendRows(page).locator('.label').allTextContents()).toEqual(SQUARES_QUANTILE_LABELS)
     expect(await legendCounts(page)).toEqual([20, 20, 20, 20, 20])
   })
 
@@ -198,7 +198,7 @@ test.describe('styles follow query results (US5)', () => {
     await page.getByRole('radio', { name: 'Graduated' }).click()
     await page.getByLabel('Column').selectOption('value')
     // Web Save is a download: keep it next to the data, as a QGIS sidecar.
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
     const sidecar = path.join(path.dirname(data), 'parcels-2000.qml')
     await download.saveAs(sidecar)
     expect(fs.readFileSync(sidecar, 'utf8')).toContain('type="graduatedSymbol"')
