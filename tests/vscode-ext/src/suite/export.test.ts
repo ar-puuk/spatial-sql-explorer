@@ -81,3 +81,46 @@ suite('Spec 005 US1: export in VS Code', () => {
     }
   })
 })
+
+/** The JSON object starting at `start`, by matching braces outside strings (PROJJSON nests deeply). */
+function balancedJson(text: string, start: number): string {
+  let depth = 0
+  let inString = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (ch === '\\') i++
+      else if (ch === '"') inString = false
+    } else if (ch === '"') inString = true
+    else if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  throw new Error('unterminated JSON in the Parquet footer')
+}
+
+// T018: US2. The GeoParquet footer carries our `geo` metadata with the
+// layer's own CRS (read from the file's tail, where Parquet keeps it).
+suite('Spec 005 US2: export keeps the CRS in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('a UTM layer exported as GeoParquet records EPSG:26912', async function () {
+    this.timeout(120000)
+    const { dir } = await openCopy('usa-utm12n.gpkg', 'spatialExplorer.editor')
+    try {
+      const out = path.join(dir, 'utm-export.parquet')
+      const s = await runExport({ format: 'geoparquet', rows: 'all', crs: 'result' }, out)
+      assert.strictEqual(s.outcome?.kind, 'saved', JSON.stringify(s.outcome))
+      const tail = fs.readFileSync(out).subarray(-8192).toString('latin1')
+      const start = tail.indexOf('{"version":"1.1.0"')
+      assert.ok(start >= 0, 'no geo metadata in the footer')
+      const geo = JSON.parse(balancedJson(tail, start)) as { columns: { geom: { crs: { id: { code: number } } } } }
+      assert.strictEqual(geo.columns.geom.crs.id.code, 26912)
+      assert.strictEqual((tail.match(/"primary_column"/g) ?? []).length, 1, 'exactly one geo key')
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

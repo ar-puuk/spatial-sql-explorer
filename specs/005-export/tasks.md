@@ -189,19 +189,23 @@ it, or in WGS84 on request (FR-006).
 
 **Independent Test**: quickstart Scenario 3.
 
-- [ ] T017 [P] [US2] Extend `tests/web/specs/export.spec.ts` (US2), using `usa-utm12n.gpkg`:
+- [X] T017 [P] [US2] Extend `tests/web/specs/export.spec.ts` (US2), using `usa-utm12n.gpkg`:
   - GeoParquet in the result CRS: the `geo.columns.geom.crs` PROJJSON has `id` EPSG 26912 and type ProjectedCRS, the bbox is in metres (|x| > 1,000), and the row count is 1;
   - GeoParquet in WGS84: no `crs`, and the bbox is lon/lat;
   - GeoJSON: the CRS control is disabled with "WGS84 (required by GeoJSON)", and the coordinates are lon/lat;
   - a query whose result CRS was overridden (spec 002 chip, e.g. EPSG:3857) exports with that CRS's PROJJSON.
-- [ ] T018 [P] [US2] Extend `tests/vscode-ext/src/suite/export.test.ts`: `usa-utm12n.gpkg` GeoParquet in the result CRS → the `geo` metadata `crs.id.code` is 26912, read by parsing the Parquet footer in Node. A minimal footer reader in the test is acceptable: find `"geo"` JSON in the last KB.
-- [ ] T019 [US2] Wire `projjsonFor` into the GeoParquet path in `export/run.ts` / `geojson.ts` / `session.ts`:
+  - *Done*: export.spec US2 (2): usa-utm12n GeoParquet in the result CRS gives one geo key, crs ProjectedCRS id EPSG 26912, bbox in metres; WGS84 has no crs and a lon/lat bbox; GeoJSON's CRS select is disabled 'required by GeoJSON' and coordinates are lon/lat; an overridden result CRS (chip, 3857) writes PROJJSON id 3857. The test hook was fixed to use a unique path per inspection (re-registering one path kept the first transferred buffer). 5/5.
+- [X] T018 [P] [US2] Extend `tests/vscode-ext/src/suite/export.test.ts`: `usa-utm12n.gpkg` GeoParquet in the result CRS → the `geo` metadata `crs.id.code` is 26912, read by parsing the Parquet footer in Node. A minimal footer reader in the test is acceptable: find `"geo"` JSON in the last KB.
+  - *Done*: export.test.ts US2: UTM GeoParquet saved in VS Code; the footer's geo JSON (brace-matched; PROJJSON nests '}}}') has crs.id.code 26912 and exactly one primary_column. VS Code 43/43.
+- [X] T019 [US2] Wire `projjsonFor` into the GeoParquet path in `export/run.ts` / `geojson.ts` / `session.ts`:
   - the result CRS → PROJJSON (cached);
   - WGS84 → reproject with `reprojectToWgs84Sql` and omit `crs`;
   - an assumed CRS → omit `crs`, with the notice.
 
   Make T017 and T018 pass.
-- [ ] T020 [US2] SC-002 in QGIS: run `tests/qgis/read_back.py` on the UTM and WGS84 GeoParquet, the GeoJSON and the CSV downloaded by T017/T012 (saved under `screenshots/export-check/`). Record the output in `specs/005-export/research.md`, "SC-002 read-back". Expected: EPSG:26912 and EPSG:4326 respectively, with the right counts and fields. Commit.
+  - *Done*: No new wiring needed: run.ts geoMetadata already calls projjsonFor for non-WGS84 output and omits crs for WGS84; the plan reprojects via reprojectToWgs84Sql and announces an assumed CRS. Verified by T017/T018/T020.
+- [X] T020 [US2] SC-002 in QGIS: run `tests/qgis/read_back.py` on the UTM and WGS84 GeoParquet, the GeoJSON and the CSV downloaded by T017/T012 (saved under `screenshots/export-check/`). Record the output in `specs/005-export/research.md`, "SC-002 read-back". Expected: EPSG:26912 and EPSG:4326 respectively, with the right counts and fields. Commit.
+  - *Done*: QGIS 4.2.3 read-back (research.md 'SC-002 read-back'): UTM own CRS gives EPSG:26912 with metre bbox; WGS84 and GeoJSON give EPSG:4326 lon/lat; parcels GeoParquet and GeoJSON give 2,000 features with typed fields; CSV gives 2,000 rows.
 
 **Checkpoint**: exports keep the CRS honestly, as QGIS confirms.
 

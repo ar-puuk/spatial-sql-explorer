@@ -108,3 +108,50 @@ test.describe('export: GeoJSON, GeoParquet and CSV (US1)', () => {
     expect(doc.features.filter((f: { geometry: unknown }) => f.geometry === null)).toHaveLength(1)
   })
 })
+
+// T017: US2, the CRS (quickstart Scenario 3).
+test.describe('export keeps the CRS honestly (US2)', () => {
+  test('a projected layer exports in its own CRS (full PROJJSON) or in WGS84; GeoJSON is WGS84 only', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('usa-utm12n.gpkg'), '?e2e=1')
+    const own = await exportVia(page, { format: 'GeoParquet', crs: 'result' })
+    const p = await inspectParquet(page, own.bytes)
+    expect(p.rows).toBe(1)
+    expect(p.geoKeys).toBe(1)
+    const col = p.geo.columns.geom
+    expect(col.crs.type).toBe('ProjectedCRS')
+    expect(col.crs.id).toEqual({ authority: 'EPSG', code: 26912 })
+    expect(Math.abs(col.bbox[0])).toBeGreaterThan(1000) // metres, not degrees
+
+    const wgs = await exportVia(page, { format: 'GeoParquet', crs: 'wgs84' })
+    const w = (await inspectParquet(page, wgs.bytes)).geo.columns.geom
+    expect(w.crs).toBeUndefined()
+    expect(w.bbox[0]).toBeGreaterThan(-180)
+    expect(w.bbox[2]).toBeLessThan(180)
+
+    await dialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    const crs = dialog(page).getByLabel('CRS')
+    await expect(crs).toBeDisabled()
+    await expect(crs).toContainText('required by GeoJSON')
+    const gj = await exportVia(page, { format: 'GeoJSON' })
+    const [lon, lat] = JSON.parse(gj.bytes.toString('utf8')).features[0].geometry.coordinates[0][0][0]
+    expect(lon).toBeGreaterThan(-180)
+    expect(lon).toBeLessThan(-60)
+    expect(lat).toBeGreaterThan(10)
+    expect(lat).toBeLessThan(80)
+  })
+
+  test('an overridden result CRS is the one written', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('usa-utm12n.gpkg'), '?e2e=1')
+    await openQueryPanel(page)
+    await runQuery(page, "SELECT name, ST_Transform(geom, 'EPSG:26912', 'EPSG:3857', always_xy := true) AS geom FROM layer")
+    await page.locator('.result-crs .chip').click()
+    await page.getByRole('dialog', { name: 'Result CRS' }).getByLabel('EPSG code').fill('3857')
+    await page.getByRole('dialog', { name: 'Result CRS' }).getByRole('button', { name: 'Apply' }).click()
+    await expect(page.locator('.result-crs')).toContainText('3857')
+    const out = await exportVia(page, { format: 'GeoParquet', crs: 'result' })
+    const geo = (await inspectParquet(page, out.bytes)).geo
+    expect(geo.columns.geom.crs.id).toEqual({ authority: 'EPSG', code: 3857 })
+  })
+})

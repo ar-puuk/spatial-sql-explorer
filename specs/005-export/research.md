@@ -234,3 +234,21 @@ and QGIS reads the result as EPSG:4326 with the right extent.
   supported (VS Code serializes `ArrayBuffer`s). The 32 MB chunks mirror the
   proven host→webview direction, and the VS Code suite exports a file larger
   than one chunk to prove it.
+
+## SC-002 read-back (T020, 2026-10-10)
+
+Files downloaded from the production web build (`export.spec.ts` flows),
+read by `tests/qgis/read_back.py` (QGIS 4.2.3, GDAL 3.13.3):
+
+| File | QGIS reads |
+|---|---|
+| `usa-utm12n` GeoParquet, result CRS | valid · **EPSG:26912** · 1 feature · `name` · bbox in metres (-5,001,565 … 8,610,969) · MultiPolygon |
+| `usa-utm12n` GeoParquet, WGS84 | valid · **EPSG:4326** · bbox -172, 19, -67, 71 |
+| `usa-utm12n` GeoJSON | valid · EPSG:4326 · same lon/lat bbox |
+| 2,000 parcels GeoParquet | valid · EPSG:4326 · **2,000** features · `parcel_id:String, zone:String, acres:Real, value:Integer, owner:String` · Polygon |
+| 2,000 parcels GeoJSON | valid · EPSG:4326 · 2,000 · the same fields and types |
+| 2,000 parcels CSV (WKT) | valid · 2,000 rows · the WKT column `geom` read as text (QGIS reads CSV columns as text unless told otherwise, as for any CSV) |
+
+The projected GeoParquet case, the one DuckDB's default output got wrong
+(§3), now reads as EPSG:26912. The override case (EPSG:3857) is asserted on
+the PROJJSON `id` in `export.spec.ts`.

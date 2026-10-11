@@ -39,7 +39,8 @@
         const { getDuckDb } = await import('@spatial-explorer/core')
         const db = await getDuckDb(duckdbAssets)
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-        const path = '/se-source/__se_check.parquet'
+        // A new name per call: re-registering one path keeps the first (transferred) buffer.
+        const path = `/se-source/__se_check-${Date.now()}-${Math.random().toString(36).slice(2)}.parquet`
         await db.registerFileBuffer(path, bytes)
         const conn = await db.connect()
         try {
