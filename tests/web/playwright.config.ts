@@ -14,6 +14,14 @@ const chromium = {
 export default defineConfig({
   testDir: './specs',
   timeout: 60000,
+  // Up to ~10 parallel software-WebGL browsers: a table or legend update can
+  // take longer than Playwright's 5 s assertion default while heavy files
+  // render next to it (seen with the spec 003 22,000-feature style tests).
+  expect: { timeout: 10000 },
+  // Each worker is a software-WebGL Chromium plus a DuckDB-WASM engine;
+  // more than ~6 at once starves the heavy specs (60k-row and 22k-feature
+  // files) into timeouts that measure the machine, not the app.
+  workers: 6,
   webServer: {
     command: 'npm run build --workspace=apps/web && npm run preview --workspace=apps/web -- --port 4173',
     url: 'http://localhost:4173',

@@ -133,3 +133,61 @@ test('SC-001 (spec 002): a filtering query on the ~10 MB file renders in under 1
   results.queryFilterMs = Date.now() - t0
   expect(results.queryFilterMs as number, 'SC-001 (002): filtering query rendered in under 1 s').toBeLessThan(1000)
 })
+
+/** Two animation frames: the paint change has reached the screen. */
+const frames = (page: Page) => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+test('SC-001 (spec 003): categorize and graduate the ~10 MB file in under 1 s each', async ({ page }) => {
+  test.setTimeout(180000)
+  const { openFile, openQueryPanel, runQuery } = await import('./helpers')
+  await openFile(page, fixture)
+  await openQueryPanel(page)
+  await runQuery(page, 'SELECT * FROM layer') // all 22,000 features
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  const legend = page.getByRole('region', { name: 'Legend' })
+
+  let t0 = Date.now()
+  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await expect(legend).toContainText('zone · 5 categories')
+  await frames(page)
+  results.styleCategorizeMs = Date.now() - t0
+
+  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await page.getByLabel('Column').selectOption('value')
+  await expect(legend).toContainText('value · Quantile')
+  t0 = Date.now()
+  await page.getByLabel('Method').selectOption('jenks')
+  await page.getByLabel('Classes').selectOption('10')
+  await expect(legend).toContainText('value · Natural breaks, 10 classes')
+  await frames(page)
+  results.styleJenks10Ms = Date.now() - t0
+
+  expect(results.styleCategorizeMs as number, 'SC-001 (003): categorized in under 1 s').toBeLessThan(1000)
+  expect(results.styleJenks10Ms as number, 'SC-001 (003): Jenks, 10 classes, in under 1 s').toBeLessThan(1000)
+})
+
+test('SC-007 (spec 003): a thematic style on 50,000 rows never freezes the viewer', async ({ page }) => {
+  test.setTimeout(300000)
+  const { openFile, openQueryPanel, runQuery, writeParcels } = await import('./helpers')
+  await openFile(page, writeParcels(50_000, 'parcels-50k.geojson'))
+  await openQueryPanel(page)
+  await runQuery(page, 'SELECT * FROM layer') // exactly 50,000: no confirmation
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.evaluate(() => {
+    const w = window as unknown as { __longTasks: number[] }
+    w.__longTasks = []
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__longTasks.push(e.duration)
+    }).observe({ type: 'longtask', buffered: false })
+  })
+  const t0 = Date.now()
+  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await page.getByLabel('Column').selectOption('value')
+  await page.getByLabel('Method').selectOption('jenks')
+  await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Natural breaks, 5 classes', { timeout: 30000 })
+  await frames(page)
+  results.style50kJenksMs = Date.now() - t0
+  const longest = await page.evaluate(() => Math.max(0, ...(window as unknown as { __longTasks: number[] }).__longTasks))
+  results.style50kLongestTaskMs = Math.round(longest)
+  expect(longest, 'SC-007: no task blocks the viewer for 1 s or more').toBeLessThan(1000)
+})

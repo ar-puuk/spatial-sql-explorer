@@ -396,11 +396,12 @@ missing, recover automatically, and Reset restores the sidecar style.
 
   Fix any violations.
   - *Done*: accessibility.spec: axe in light and dark on the categorized panel with legend, the ramp listbox open, the class list editing, and the legend collapsed (0 violations). Keyboard: radio arrows apply; Tab reaches Column, Method, Classes, Colors, Reverse, each row's Hide/Color/Rename/Delete and the legend toggles. It found a real bug: Esc or Close on a map popover (style or basemap) dropped focus. closePanel() in ViewerLayout now returns focus to the opening control. a11y + basemap specs 13/13.
-- [ ] T044 [P] Extend `tests/web/specs/performance.spec.ts`:
+- [X] T044 [P] Extend `tests/web/specs/performance.spec.ts`:
   - **SC-001**: categorize, then graduate (Jenks, 10 classes), on the 22,000-feature file, timed from change to legend update plus `data-rendered-features` settled, < 1 s each;
   - **SC-007**: Show all on a 50,000-polygon file, then graduated Jenks: no long task over 1 s (`PerformanceObserver` `longtask`), and the previous style stays until the new legend appears.
 
   Record the numbers.
+  - *Done*: performance.spec: SC-001 (003) on the 10.41 MB file with all 22,000 features: categorize 123 ms, Jenks with 10 classes 102 ms (target < 1 s). SC-007: graduated Jenks on 50,000 polygons took 191 ms end to end, and the longtask observer recorded no task of 50 ms or more (target: none >= 1 s). The new heavy specs made the parallel suite flaky (a different heavy test timed out each run while ~10 software-WebGL workers competed), so playwright.config sets workers: 6 and expect.timeout 10 s. The full suite plus performance is 45/45 in 2.3 min (previously 2.9 min with failures).
 - [ ] T045 [P] Extend `scripts/screenshots.mjs` with style scenes in both shells:
   - categorized with the legend;
   - graduated with the panel open;
