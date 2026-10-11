@@ -218,12 +218,14 @@ results save as Parquet (FR-004, FR-008).
 
 **Independent Test**: quickstart Scenario 4.
 
-- [ ] T021 [P] [US3] Extend `tests/web/specs/export.spec.ts`:
+- [X] T021 [P] [US3] Extend `tests/web/specs/export.spec.ts`:
   - for a geometry result, the format radios are exactly GeoJSON, GeoParquet and CSV;
   - for `SELECT zone, count(*) AS n FROM layer GROUP BY zone`, they are exactly CSV and Parquet, with no CRS control;
   - Parquet export: the engine read-back shows 5 rows with columns zone and n, and no `geo` key;
   - no FlatGeobuf, GeoPackage, Shapefile or KML anywhere in the dialog.
-- [ ] T022 [US3] Make T021 pass: the Parquet path in `run.ts` (a plain `COPY … (FORMAT PARQUET)`) and availability reasons shown in the dialog. Document in `research.md` how to re-verify a GDAL format once a newer DuckDB-WASM ships (the spike recipe plus `read_back.py`). Commit.
+  - *Done*: export.spec US3: a geometry result's format radios are exactly GeoParquet, GeoJSON, CSV (no FlatGeobuf, GeoPackage, Shapefile or KML text); a GROUP BY table result gives exactly CSV and Parquet with no CRS control; the Parquet export reads back as 5 rows, columns [zone, n], and no geo key. Passes.
+- [X] T022 [US3] Make T021 pass: the Parquet path in `run.ts` (a plain `COPY … (FORMAT PARQUET)`) and availability reasons shown in the dialog. Document in `research.md` how to re-verify a GDAL format once a newer DuckDB-WASM ships (the spike recipe plus `read_back.py`). Commit.
+  - *Done*: No new code: the Parquet path (COPY … FORMAT PARQUET, GEOPARQUET_VERSION 'NONE') and the availability reasons came from T007/T009/T016. research.md gains 'Re-verifying a GDAL format later' (spike recipe, read_back.py, notice rules, then one EXPORT_FORMATS row).
 
 ---
 

@@ -252,3 +252,24 @@ read by `tests/qgis/read_back.py` (QGIS 4.2.3, GDAL 3.13.3):
 The projected GeoParquet case, the one DuckDB's default output got wrong
 (§3), now reads as EPSG:26912. The override case (EPSG:3857) is asserted on
 the PROJJSON `id` in `export.spec.ts`.
+
+## Re-verifying a GDAL format later (T022)
+
+When a newer DuckDB-WASM ships, a GDAL format (FlatGeobuf, GeoPackage,
+Shapefile, KML…) may be added only after:
+
+1. **Write test, in the real build.** With the web app opened via `?e2e=1`
+   and a temporary engine hook, run `COPY (SELECT * FROM layer) TO
+   '/se-source/x.<ext>' (FORMAT GDAL, DRIVER '<driver>', SRS 'EPSG:<code>')`
+   for a polygon file, a point file and a projected file (`usa-utm12n.gpkg`).
+   Then copy the bytes out with `copyFileToBuffer`. This is the §2 spike;
+   the recipe is in this file's history at commit `ba1b424`.
+2. **QGIS read-back.** Run `tests/qgis/read_back.py <files>`: the rows,
+   fields, CRS (EPSG:26912 for the projected file) and extent must match the
+   source.
+3. **Format-specific rules.** Note what the format forces (Shapefile:
+   10-character names, one geometry type, `.zip` of the companion files) as
+   notice rules in `export/plan.ts`.
+4. **Then the code.** Add one row to `EXPORT_FORMATS`, a writer branch in
+   `export/run.ts`, and tests (`export-formats.test.ts`, `export.spec.ts`).
+   Update FR-004's outcome in the spec.
