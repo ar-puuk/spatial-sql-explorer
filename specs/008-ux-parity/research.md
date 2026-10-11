@@ -430,9 +430,14 @@ Every format offered was written by the real web build, then read back:
   - The same applies to **reading** GeoPackages from tools that don't write
     it (e.g. ArcGIS): they fail to open in this runtime. This is a
     pre-existing reading gap, listed under residual risks.
-- **JSON** moved from the engine (`COPY … FORMAT JSON`) to a JS writer: the
-  engine lockdown refuses to autoload the `json` extension, and loading it at
-  every start isn't worth it for one export format.
+- **JSON** is the engine's `COPY … (FORMAT JSON, ARRAY true)`. The lockdown
+  refuses to autoload extensions, so `json` is now loaded before it (about
+  230 ms, during prewarm; not fatal if it fails, which only disables JSON
+  export).
+- **Checked at the user's prompt:** `COPY … (FORMAT SHAPEFILE)` and
+  `(FORMAT FGB)` don't exist ("Copy Function with name shapefile does not
+  exist", native DuckDB 1.5.6). Native DuckDB does write GPKG and FlatGeobuf
+  through `FORMAT GDAL` (read back 1/1); only the WASM build can't (above).
 - **KML** puts the first text column in `<name>`; QGIS shows the attribute
   as `name2` next to KML's own `Name`. That's standard KML behavior, left as is.
 

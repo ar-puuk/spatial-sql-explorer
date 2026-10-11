@@ -19,7 +19,6 @@ import { flatGeobufWriter } from './writers/flatgeobuf.js'
 import { shapefileWriter } from './writers/shapefile.js'
 import { xlsxWriter } from './writers/xlsx.js'
 import { geoPackageWriter } from './writers/geopackage.js'
-import { jsonWriter } from './writers/json.js'
 
 export interface ExportHooks {
   /** Rows written so far, or null while an engine COPY runs (no row progress). */
@@ -49,6 +48,7 @@ export function exportTarget(extension: string): string {
 /** COPY options per format (research §2/§3). */
 export function copyOptions(format: ExportPlan['format'], geo?: string): string {
   if (format === 'csv') return '(FORMAT CSV, HEADER)'
+  if (format === 'json') return '(FORMAT JSON, ARRAY true)'
   const kv = geo ? `, KV_METADATA {geo: '${geo.replace(/'/g, "''")}'}` : ''
   return `(FORMAT PARQUET, GEOPARQUET_VERSION 'NONE'${kv})`
 }
@@ -118,8 +118,6 @@ async function writerFor(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: Exp
       return shapefileWriter(columns, baseOf(plan), await wktFor(db, conn, srid, isCancelled).catch(() => null))
     case 'xlsx':
       return xlsxWriter(columns)
-    case 'json':
-      return jsonWriter(columns)
     case 'geopackage': {
       if (!assets.sqlWasmUrl) throw new Error('GeoPackage export is not available in this build (sql.js is missing).')
       return geoPackageWriter(columns, {

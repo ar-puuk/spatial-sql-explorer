@@ -20,7 +20,7 @@ describe('export formats', () => {
 
   it('GeoJSON, GeoJSONSeq and KML are WGS84 only; the engine writes only Parquet, CSV and JSON', () => {
     for (const id of ['geojson', 'geojsonseq', 'kml'] as const) expect(exportFormat(id).crs).toBe('wgs84-only')
-    expect(EXPORT_FORMATS.filter((f) => f.writer === 'engine').map((f) => f.id).sort()).toEqual(['csv', 'geoparquet', 'parquet'])
+    expect(EXPORT_FORMATS.filter((f) => f.writer === 'engine').map((f) => f.id).sort()).toEqual(['csv', 'geoparquet', 'json', 'parquet'])
     expect(exportFormat('parquet').group).toBe('attributes')
     expect(exportFormat('csv').group).toBe('both')
     expect(exportFormat('shapefile').extension).toBe('.shp.zip')

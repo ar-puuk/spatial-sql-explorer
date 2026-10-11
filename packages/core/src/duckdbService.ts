@@ -128,6 +128,10 @@ async function lockDown(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
   // format-matrix suite failed without this.
   await conn.query('INSTALL parquet')
   await conn.query('LOAD parquet')
+  // Spec 008: JSON export is the engine's COPY ... (FORMAT JSON) (~230 ms
+  // here, during prewarm). Not fatal: without it only JSON export fails.
+  await conn.query('INSTALL json').catch(() => {})
+  await conn.query('LOAD json').catch(() => {})
   await conn.query(`SET allowed_directories = ['${SOURCE_DIR}']`)
   await conn.query('SET enable_external_access = false')
   await conn.query('SET lock_configuration = true')

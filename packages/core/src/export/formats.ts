@@ -3,7 +3,7 @@
 // back by QGIS or a reader) appear here.
 //
 // Every GDAL writer still fails in DuckDB-WASM 1.32.0, so the engine writes
-// only Parquet/GeoParquet and CSV; the other formats are written in JS
+// only Parquet/GeoParquet, CSV and JSON; the other formats are written in JS
 // from the result's rows (export/writers/*), streamed out of the engine in
 // batches.
 
@@ -37,7 +37,7 @@ export const EXPORT_FORMATS: readonly ExportFormat[] = [
   { id: 'csv', label: 'CSV', extension: '.csv', group: 'both', crs: 'any', writer: 'engine', streams: false },
   { id: 'parquet', label: 'Parquet', extension: '.parquet', group: 'attributes', crs: 'any', writer: 'engine', streams: false },
   { id: 'xlsx', label: 'Excel workbook', extension: '.xlsx', group: 'attributes', crs: 'any', writer: 'js', streams: true },
-  { id: 'json', label: 'JSON', extension: '.json', group: 'attributes', crs: 'any', writer: 'js', streams: true },
+  { id: 'json', label: 'JSON', extension: '.json', group: 'attributes', crs: 'any', writer: 'engine', streams: false },
 ]
 
 export function exportFormat(id: ExportFormatId): ExportFormat {
