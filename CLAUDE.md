@@ -15,7 +15,8 @@ integration, plugin system, 3D tiles/terrain/planets, raster analysis, stacked
 basemaps. Say no to scope creep and flag it instead.
 Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection toggle
 (MapLibre's built-in globe, no terrain), and polygon extrusion as a style option
-(height from a column). Nothing else 3D.
+(height from a column). Nothing else 3D. Also allowed (2026-10-11): an opt-out place search
+(OpenStreetMap Nominatim) that sends only the typed text, disclosed before first use (constitution v1.1.0).
 
 ## Product decisions (already made)
 - Name: Spatial Explorer. Marketplace display name pattern: "Spatial Explorer: Spatial SQL & Map Viewer"

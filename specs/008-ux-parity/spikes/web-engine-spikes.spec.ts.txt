@@ -1,0 +1,94 @@
+// SPIKE (spec 008 plan, temporary; deleted after research.md is written).
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const scratch = process.env.SPIKE_DIR as string
+const fixtures = path.resolve('../vscode-ext/fixtures')
+type Hook = {
+  spike(files: Array<{ path: string; base64: string }>, sqls: string[]): Promise<unknown[]>
+  spikeFile(p: string): Promise<string>
+}
+const h = (page: Page) => ({
+  run: (files: Array<{ path: string; base64: string }>, sqls: string[]) =>
+    page.evaluate(([f, s]) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spike(f, s), [files, sqls] as const),
+  file: (p: string) => page.evaluate((p) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spikeFile(p), p),
+})
+const b64 = (p: string) => fs.readFileSync(p).toString('base64')
+const report: Record<string, unknown> = {}
+const save = (k: string, v: unknown) => {
+  report[k] = v
+  console.log(`== ${k}\n${JSON.stringify(v, null, 1).slice(0, 4000)}`)
+  fs.writeFileSync(path.join(scratch, 'spike-008.json'), JSON.stringify(report, null, 1))
+}
+
+test('S1 multi-layer GeoPackage and File Geodatabase', async ({ page }) => {
+  test.setTimeout(300000)
+  await page.goto('/?e2e=1')
+  const s = h(page)
+  const gdbDir = path.join(scratch, 'two.gdb')
+  const gdbFiles = fs.readdirSync(gdbDir).map((n) => ({ path: `/in/two.gdb/${n}`, base64: b64(path.join(gdbDir, n)) }))
+  save(
+    'S1',
+    await s.run(
+      [
+        { path: '/in/three.gpkg', base64: b64(path.join(scratch, 'three.gpkg')) },
+        { path: '/in/two.gdb.zip', base64: b64(path.join(scratch, 'two.gdb.zip')) },
+        ...gdbFiles,
+      ],
+      [
+        `SELECT * FROM ST_Read_Meta('/in/three.gpkg')`,
+        `SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/in/three.gpkg')`,
+        `SELECT count(*) FROM ST_Read('/in/three.gpkg', layer='city points')`,
+        `SELECT count(*) FROM ST_Read('/in/three.gpkg', layer='lookup_table')`,
+        `SELECT * FROM ST_Read('/in/three.gpkg', layer='lookup_table') LIMIT 2`,
+        `SELECT table_name, data_type, srs_id FROM ST_Read('/in/three.gpkg', layer='gpkg_contents')`,
+        `SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/in/two.gdb')`,
+        `SELECT count(*) FROM ST_Read('/in/two.gdb', layer='parcels')`,
+        `SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/vsizip//in/two.gdb.zip/two.gdb')`,
+        `SELECT count(*) FROM ST_Read('/vsizip//in/two.gdb.zip/two.gdb', layer='countries')`,
+        `SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/vsizip//in/two.gdb.zip')`,
+        `SELECT short_name FROM ST_Drivers() WHERE short_name IN ('OpenFileGDB','GPKG','FlatGeobuf','ESRI Shapefile','KML','LIBKML','GeoJSONSeq','XLSX','SQLite','CSV') ORDER BY 1`,
+        `SELECT short_name, can_create FROM ST_Drivers() WHERE can_create ORDER BY 1`,
+      ]
+    )
+  )
+})
+
+test('S2 writers', async ({ page }) => {
+  test.setTimeout(300000)
+  await page.goto('/?e2e=1')
+  const s = h(page)
+  const src = `(SELECT * EXCLUDE (geom), geom FROM ST_Read('/in/world.geojson') LIMIT 50)`
+  const r = await s.run(
+    [{ path: '/in/world.geojson', base64: b64(path.join(fixtures, 'world-boundaries.geojson')) }],
+    [
+      `CREATE TABLE t AS ${src}`,
+      `COPY t TO '/out/a.gpkg' (FORMAT GDAL, DRIVER 'GPKG')`,
+      `COPY t TO '/out/a.fgb' (FORMAT GDAL, DRIVER 'FlatGeobuf')`,
+      `COPY t TO '/out/a.shp' (FORMAT GDAL, DRIVER 'ESRI Shapefile')`,
+      `COPY t TO '/out/a.kml' (FORMAT GDAL, DRIVER 'KML')`,
+      `COPY t TO '/out/a.geojsonl' (FORMAT GDAL, DRIVER 'GeoJSONSeq')`,
+      `COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.json' (FORMAT json, ARRAY true)`,
+      `COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.ndjson' (FORMAT json)`,
+      `INSTALL excel`,
+      `LOAD excel`,
+      `COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.xlsx' (FORMAT xlsx, HEADER true)`,
+      `INSTALL sqlite`,
+      `LOAD sqlite`,
+      `ATTACH '/out/a.sqlite' AS lite (TYPE sqlite)`,
+      `CREATE TABLE lite.t AS SELECT * EXCLUDE geom, ST_AsWKB(geom) AS geom FROM t`,
+      `DETACH lite`,
+      `SELECT function_name FROM duckdb_functions() WHERE function_name ILIKE 'st_as%' GROUP BY 1 ORDER BY 1`,
+      `SELECT file FROM glob('/out/*')`,
+    ]
+  )
+  save('S2', r)
+  for (const f of ['a.gpkg', 'a.fgb', 'a.shp', 'a.kml', 'a.geojsonl', 'a.json', 'a.ndjson', 'a.xlsx', 'a.sqlite']) {
+    try {
+      fs.writeFileSync(path.join(scratch, 'out-' + f), Buffer.from(await s.file('/out/' + f), 'base64'))
+    } catch (e) {
+      save('S2-file-' + f, String(e).slice(0, 200))
+    }
+  }
+})

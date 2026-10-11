@@ -1,0 +1,49 @@
+diff --git a/apps/web/src/App.svelte b/apps/web/src/App.svelte
+index 72d1529..89290a3 100644
+--- a/apps/web/src/App.svelte
++++ b/apps/web/src/App.svelte
+@@ -59,6 +59,44 @@
+           await db.dropFile(path)
+         }
+       },
++      /** SPIKE (spec 008 plan, temporary): an unlocked engine running a list of statements. */
++      spike: async (files: Array<{ path: string; base64: string }>, sqls: string[]) => {
++        const core = await import('@spatial-explorer/core')
++        const w = window as unknown as { __spikeDb?: Awaited<ReturnType<typeof core.createDuckDb>> }
++        if (!w.__spikeDb) {
++          w.__spikeDb = await core.createDuckDb(duckdbAssets)
++          const c = await w.__spikeDb.connect()
++          await core.loadSpatialExtension(c)
++          await c.close()
++        }
++        const db = w.__spikeDb
++        for (const f of files) await db.registerFileBuffer(f.path, Uint8Array.from(atob(f.base64), (ch) => ch.charCodeAt(0)))
++        const conn = await db.connect()
++        const out: unknown[] = []
++        try {
++          for (const sql of sqls) {
++            const t = performance.now()
++            try {
++              const r = await conn.query(sql)
++              const rows = r.toArray().slice(0, 40).map((x) => x.toJSON())
++              out.push({ sql: sql.slice(0, 160), ms: Math.round(performance.now() - t), n: r.numRows, rows: JSON.parse(JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? Number(v) : v instanceof Uint8Array ? `<${v.length} bytes>` : v))) })
++            } catch (e) {
++              out.push({ sql: sql.slice(0, 160), error: String((e as Error).message ?? e).slice(0, 400) })
++            }
++          }
++        } finally {
++          await conn.close()
++        }
++        return out
++      },
++      /** SPIKE (spec 008 plan, temporary): a file the spike engine wrote, as base64. */
++      spikeFile: async (path: string) => {
++        const db = (window as unknown as { __spikeDb: { copyFileToBuffer(p: string): Promise<Uint8Array> } }).__spikeDb
++        const b = await db.copyFileToBuffer(path)
++        let s = ''
++        for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000))
++        return btoa(s)
++      },
+       /** Spec 005 T023: export files still in the engine's memory (should be none). */
+       exportFiles: () => {
+         const qs = store.querySession

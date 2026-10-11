@@ -1,0 +1,37 @@
+﻿# SPIKE (spec 008 plan): how QGIS writes polygon extrusion into a QML, and whether it reads it back.
+import sys, os
+from qgis.core import QgsApplication, QgsVectorLayer, QgsProperty, QgsAbstractPropertyCollection
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False)
+app.initQgis()
+from qgis._3d import QgsVectorLayer3DRenderer, QgsPolygon3DSymbol, Qgs3D
+Qgs3D.initialize()
+from qgis.core import QgsAbstract3DSymbol
+
+here = os.path.dirname(os.path.abspath(__file__))
+layer = QgsVectorLayer(r"D:\GitHub\spatial-sql-explorer\tests\vscode-ext\fixtures\world-boundaries.geojson", "w", "ogr")
+print("valid", layer.isValid(), [f.name() for f in layer.fields()])
+sym = QgsPolygon3DSymbol()
+sym.setExtrusionHeight(10)
+props = sym.dataDefinedProperties()
+props.setProperty(QgsAbstract3DSymbol.Property.ExtrusionHeight, QgsProperty.fromExpression('"pop_est" * 0.001'))
+sym.setDataDefinedProperties(props)
+r = QgsVectorLayer3DRenderer(sym)
+layer.setRenderer3D(r)
+out = os.path.join(here, "extrude.qml")
+print("save", layer.saveNamedStyle(out))
+xml = open(out, encoding="utf-8").read()
+i = xml.find("<renderer-3d")
+print(xml[i:i + 2500])
+# Read back into a fresh layer.
+l2 = QgsVectorLayer(r"D:\GitHub\spatial-sql-explorer\tests\vscode-ext\fixtures\world-boundaries.geojson", "w2", "ogr")
+print("load", l2.loadNamedStyle(out))
+r2 = l2.renderer3D()
+print("renderer3d", type(r2).__name__ if r2 else None)
+if r2:
+    s2 = r2.symbol()
+    print("symbol", type(s2).__name__, s2.type(), "dd", s2.dataDefinedProperties().property(QgsAbstract3DSymbol.Property.ExtrusionHeight).expressionString())
+app.exitQgis()
+
+
+

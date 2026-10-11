@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="maplibre-gl.css">
+<style>html,body,#m{margin:0;width:800px;height:600px}</style>
+</head>
+<body>
+<div id="m"></div>
+<script type="module">
+// SPIKE (spec 008 plan, temporary).
+import * as maplibregl from './maplibre-gl.mjs'
+const out = { errors: [] }
+window.__spike = out
+const world = await (await fetch('world.geojson')).json()
+world.features.forEach((f, i) => (f.properties.h = 50000 + (i % 10) * 100000))
+const params = new URLSearchParams(location.search)
+const raster = params.get('raster')
+const sources = { w: { type: 'geojson', data: world } }
+const layers = [{ id: 'bg', type: 'background', paint: { 'background-color': '#dde' } }]
+if (raster) {
+  sources.r = { type: 'raster', tiles: [raster], tileSize: 256 }
+  layers.push({ id: 'r', type: 'raster', source: 'r' })
+}
+if (params.has('fill')) layers.push({ id: 'f', type: 'fill', source: 'w', paint: { 'fill-color': '#33c', 'fill-opacity': params.has('hidden') ? 0 : 0.5 } })
+layers.push({ id: 'x', type: 'fill-extrusion', source: 'w', paint: { 'fill-extrusion-color': '#c33', 'fill-extrusion-height': ['get', 'h'], 'fill-extrusion-opacity': 0.9 } })
+const map = new maplibregl.Map({
+  container: 'm',
+  style: { version: 8, projection: { type: params.get('proj') ?? 'globe' }, sources, layers },
+  center: [-100, 40], zoom: 2, pitch: 50,
+  canvasContextAttributes: { preserveDrawingBuffer: params.has('pdb') },
+})
+map.on('error', (e) => out.errors.push(String(e.error?.message ?? e.error ?? e).slice(0, 300)))
+map.once('idle', () => {
+  out.projection = map.getProjection()?.type
+  out.rendered = map.queryRenderedFeatures({ layers: ['x'] }).length
+  if (params.has('fill')) { out.fillAll = map.queryRenderedFeatures({ layers: ['f'] }).length; out.fillPoint = map.queryRenderedFeatures(map.project([-100, 40]), { layers: ['f'] }).map((f) => f.properties.name); out.extrPoint = map.queryRenderedFeatures(map.project([-100, 40]), { layers: ['x'] }).length }
+  const capture = () => {
+    try {
+      const url = map.getCanvas().toDataURL('image/png')
+      const img = new Image()
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0)
+        const d = g.getImageData(0, 0, c.width, c.height).data
+        let red = 0, nonBg = 0
+        for (let i = 0; i < d.length; i += 4) { if (d[i] > 150 && d[i + 1] < 90) red++; if (!(d[i] === 0xdd && d[i + 2] === 0xee) && d[i + 3]) nonBg++ }
+        out.capture = { w: img.width, h: img.height, red, nonBg, bytes: url.length }
+        out.done = true
+      }
+      img.src = url
+    } catch (e) {
+      out.capture = { error: String(e).slice(0, 200) }
+      out.done = true
+    }
+  }
+  // Without preserveDrawingBuffer, read the canvas inside the render frame.
+  map.once('render', capture)
+  map.triggerRepaint()
+})
+fetch('https://nominatim.openstreetmap.org/search?q=Salt%20Lake%20City&format=jsonv2&limit=3')
+  .then(async (r) => (out.nominatim = { status: r.status, n: (await r.json()).length }))
+  .catch((e) => (out.nominatim = { error: String(e) }))
+</script>
+</body>
+</html>
