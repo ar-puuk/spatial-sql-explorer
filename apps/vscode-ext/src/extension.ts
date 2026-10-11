@@ -735,6 +735,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._saveStyle', () => provider.postToActive({ type: 'testSaveStyle' })),
     // Spec 008 T012: the Save button's menu (pair with _saveNextExportTo for formats other than the sidecar).
     vscode.commands.registerCommand('spatialExplorer._saveStyleAs', (format: string) => provider.postToActive({ type: 'testSaveStyleAs', format })),
+    // Spec 008 US7 T081: export the map image (pair with _saveNextExportTo).
+    vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number) => provider.postToActive({ type: 'testExportMapImage', scale })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null

@@ -4,6 +4,7 @@
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
+  import { decodeShareState, encodeShareState, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
   import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
   import ThemeMenu from './ThemeMenu.svelte'
 
@@ -139,6 +140,17 @@
         return v ? { generation: v.generation, drawn: v.features.length, inView: v.inView, thinned: v.thinned, ms: v.ms } : null
       },
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
+      /** Spec 008 US7: the link Copy link would copy. */
+      shareLink: () => shareUrl(),
+      /** Spec 008 US7: the map as a PNG (base64), without saving. */
+      captureMap: async (scale: 1 | 2, legend = false) => {
+        const legendSpec = legend ? { title: 'Legend', shape: 'area' as const, alpha: 1, rows: [{ color: '#ff0000', label: 'Test' }] } : null
+        const r = await store.captureMapImage({ scale, legend: legendSpec })
+        if (!r) return null
+        let bin = ''
+        for (let i = 0; i < r.bytes.length; i += 0x8000) bin += String.fromCharCode(...r.bytes.subarray(i, i + 0x8000))
+        return { width: r.width, height: r.height, notes: r.notes, base64: btoa(bin) }
+      },
       zoomToFeature: (id: number) => store.zoomToFeature(id),
       /** The first point of the drawn feature closest to the view center: a click target. */
       drawnCenter: () => {
@@ -194,8 +206,9 @@
   let fileName = $state<string | null>(null)
   let input: HTMLInputElement
 
-  function handleFiles(fileList: FileList): void {
+  function handleFiles(fileList: FileList | File[]): void {
     const files = Array.from(fileList)
+    isSample = files.length === 1 && files[0] === sampleFile
     if (files.length === 0) return
     // Order matters: store.load() must run first so its internal
     // hostAdapter.openFiles() call registers its pending-resolve callback
@@ -227,6 +240,121 @@
     input.value = ''
   }
 
+  // --- Spec 008 US7 (FR-031): the share link -----------------------------
+  // `#v1=…` holds the query, style, basemap, projection and view, and the
+  // file's name and size; never data or paths. Opening one asks for that
+  // file (or opens the sample), then applies what it holds.
+  const SAMPLE_URL = '/sample/us-counties.parquet'
+  let sampleFile: File | null = null
+  let isSample = false
+  let pendingShare = $state.raw<{ state: Partial<ShareState>; dropped: string[] } | null>(null)
+  let shareNotice = $state<{ kind: 'info' | 'warning'; text: string } | null>(null)
+  let copyStatus = $state<string | null>(null)
+  let longQuery = $state<string | null>(null)
+  let applying = false
+
+  async function openSample(): Promise<void> {
+    try {
+      const res = await fetch(SAMPLE_URL)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      sampleFile = new File([await res.blob()], 'us-counties.parquet')
+      handleFiles([sampleFile])
+    } catch (err) {
+      shareNotice = { kind: 'warning', text: `The sample data could not be loaded: ${err instanceof Error ? err.message : String(err)}` }
+    }
+  }
+
+  if (location.hash.startsWith('#v1=')) {
+    const parsed = decodeShareState(location.hash)
+    if (!parsed) shareNotice = { kind: 'warning', text: 'This link could not be read: it may be cut short or from a newer version.' }
+    else {
+      pendingShare = parsed
+      if (parsed.state.source?.kind === 'sample') void openSample()
+    }
+  }
+
+  /** What a link made now would hold. */
+  function currentShare(): ShareState | null {
+    if (!fileName || store.session.loadState !== 'ready') return null
+    const cam = store.mapCamera
+    return {
+      v: 1,
+      source: isSample ? { kind: 'sample' } : { kind: 'file', name: fileName, size: store.openedSize ?? 0 },
+      ...(store.activeLayer ? { layer: store.activeLayer } : {}),
+      query: store.lastRunText ?? '',
+      style: JSON.parse(JSON.stringify(store.style)),
+      basemap: store.basemap.id,
+      projection: store.projection,
+      view: cam ? { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing } : { center: [0, 0], zoom: 1, pitch: 0, bearing: 0 },
+    }
+  }
+  function shareUrl(): string | null {
+    const s = currentShare()
+    return s ? `${location.origin}${location.pathname}#${encodeShareState(s)}` : null
+  }
+
+  async function copyText(text: string, done: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text)
+      copyStatus = done
+    } catch {
+      copyStatus = 'The clipboard is not available here.'
+    }
+    setTimeout(() => (copyStatus = null), 2500)
+  }
+  async function copyLink(): Promise<void> {
+    const url = shareUrl()
+    if (!url) return
+    longQuery = null
+    if (url.length > SHARE_MAX_LENGTH) {
+      // Spec edge case: an over-long link (a long query) is refused; the query can still be copied.
+      longQuery = store.lastRunText
+      shareNotice = { kind: 'warning', text: `A link would be ${url.length.toLocaleString('en-US')} characters long (the limit is ${SHARE_MAX_LENGTH.toLocaleString('en-US')}), because of the query.` }
+      return
+    }
+    await copyText(url, 'Link copied')
+  }
+
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  /** After the file opened: layer, query, style, basemap, projection, view, in that order (contracts/host-and-shells.md). */
+  async function applyShare(share: { state: Partial<ShareState>; dropped: string[] }): Promise<void> {
+    const { state } = share
+    const failed = share.dropped.map((d) => (d === 'file' ? 'the file name' : `the ${d}`))
+    const notes: string[] = []
+    if (state.source?.kind === 'file' && !isSample && (state.source.name !== fileName || (store.openedSize !== null && state.source.size && store.openedSize !== state.source.size))) {
+      notes.push(`The link was made with ${state.source.name}; you opened ${fileName}, which may differ.`)
+    }
+    if (state.layer && state.layer !== store.activeLayer) {
+      if (store.fileLayers.some((l) => l.name === state.layer)) await store.switchLayer(state.layer).catch(() => failed.push('the layer'))
+      else failed.push(`the layer "${state.layer}"`)
+    }
+    if (state.query?.trim()) {
+      store.setQueryText(state.query)
+      await store.runQuery({ from: 0, to: state.query.length })
+      if (store.queryError) failed.push(`the query (${store.queryError.message})`)
+    }
+    if (state.style) store.setStyle(state.style)
+    if (state.basemap) store.setBasemap(state.basemap)
+    if (state.projection) store.setProjection(state.projection)
+    if (state.view) {
+      // After the new result's fit to its extent, which would move the map again.
+      await wait(400)
+      store.jumpTo(state.view.center, state.view.zoom, state.view.pitch, state.view.bearing)
+    }
+    const parts = [...notes]
+    if (failed.length) parts.push(`Not applied: ${failed.join(', ')}.`)
+    shareNotice = parts.length ? { kind: 'warning', text: parts.join(' ') } : { kind: 'info', text: 'The shared view was applied.' }
+    // Applied once: a reload doesn't ask again.
+    history.replaceState(null, '', location.pathname + location.search)
+  }
+  $effect(() => {
+    const share = pendingShare
+    if (!share || applying || store.session.loadState !== 'ready' || !fileName) return
+    applying = true
+    pendingShare = null
+    void applyShare(share).finally(() => (applying = false))
+  })
+
   let idleState = $derived(store.session.loadState === 'idle')
   // A cancelled open (spec 007 FR-002/FR-004) returns to the empty state: put
   // focus back on its "Choose a file" button rather than leaving it nowhere.
@@ -248,17 +376,40 @@
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
     <span class="spacer"></span>
+    {#if copyStatus}<span class="copy-status" role="status">{copyStatus}</span>{/if}
+    {#if !idleState}
+      <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
+        ><Icon name="link" size={14} />Copy link</button
+      >
+    {/if}
     <ThemeMenu value={themePreference} onChange={chooseTheme} />
     {#if !idleState}
       <button type="button" class="open" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
     {/if}
   </header>
 
+  {#if shareNotice}
+    <div class="share-notice {shareNotice.kind}" role={shareNotice.kind === 'warning' ? 'alert' : 'status'}>
+      <Icon name={shareNotice.kind === 'warning' ? 'warning' : 'info'} size={14} />
+      <span>{shareNotice.text}</span>
+      {#if longQuery}
+        <button type="button" class="open" onclick={() => void copyText(longQuery ?? '', 'Query copied')}>Copy query</button>
+      {/if}
+      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => ((shareNotice = null), (longQuery = null))}><Icon name="close" size={14} /></button>
+    </div>
+  {/if}
+
   <main class="content">
     {#if idleState}
       <!-- Empty state (no file loaded yet) — distinct from a loaded zero-feature
            file, which reaches 'ready' and is rendered by ViewerLayout instead. -->
       <div class="empty">
+        {#if pendingShare?.state.source?.kind === 'file'}
+          <p class="share-banner" role="status">
+            <Icon name="link" size={14} />
+            <span>This link shows a view of <strong>{pendingShare.state.source.name}</strong>. Choose that file to see it.</span>
+          </p>
+        {/if}
         <div class="drop-zone" class:drag-over={isDragOver} role="region" aria-label="Drop a geospatial file here">
           <div class="drop-icon" aria-hidden="true"><Icon name="file" size={28} /></div>
           <p class="title">Drag a geospatial file here</p>
@@ -357,6 +508,57 @@
     color: var(--se-button-secondary-fg);
     font: 500 12px var(--se-font-ui);
     cursor: pointer;
+  }
+  .open:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .copy-status {
+    color: var(--se-text-secondary);
+    font-size: 12px;
+  }
+  .share-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--se-border);
+    font-size: 12px;
+  }
+  .share-notice.info {
+    background: color-mix(in srgb, var(--se-info) 10%, var(--se-bg-base));
+  }
+  .share-notice.warning {
+    background: var(--se-warning-bg);
+    color: var(--se-warning-fg, var(--se-text-primary));
+  }
+  .share-notice span {
+    flex: 1;
+  }
+  .share-notice .dismiss {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .share-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 520px;
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--se-info);
+    border-radius: var(--se-radius);
+    background: color-mix(in srgb, var(--se-info) 10%, var(--se-bg-base));
+    color: var(--se-text-primary);
+    font-size: 13px;
   }
   .open:hover {
     background: var(--se-button-secondary-hover);

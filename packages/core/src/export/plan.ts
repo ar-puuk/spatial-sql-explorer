@@ -220,7 +220,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
       writerColumns.push({ name: other, type: 'VARCHAR' })
     }
     if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
-  } else if (hasGeometry) notices.push('The geometry is left out ("Include geometry" is off).')
+  } else if (hasGeometry) notices.push('The geometry is left out: the file holds the attributes only.')
 
   const g = facts.geometryColumn
   if (g && includeGeometry) {

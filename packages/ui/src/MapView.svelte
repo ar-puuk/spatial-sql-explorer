@@ -28,6 +28,7 @@
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
   import { drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
+  import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
 
   interface Props {
@@ -39,7 +40,7 @@
     /** A view takes longer than 300 ms: a thin bar on the map's top edge. */
     viewLoading?: boolean
     /** Moves the camera once per new request (test hooks). */
-    cameraRequest?: { center: [number, number]; zoom: number; seq: number } | null
+    cameraRequest?: { center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null
     /** The map drew the latest view data (idle after setData). */
     onPainted?: () => void
     /** The map settled on a new view (WGS84 bbox, zoom), debounced. */
@@ -81,6 +82,10 @@
     styleUnavailable?: string | null
     /** Spec 008 US6: polygons are raised (the style's extrusion applies to this layer). */
     extruded?: boolean
+    /** Spec 008 US7: hands the store the map's PNG capture once the map is ready. */
+    onCaptureReady?: (capture: MapCapture) => void
+    /** Spec 008 US7: opens the map image dialog. */
+    onExportImage?: () => void
   }
   let {
     layer,
@@ -113,6 +118,8 @@
     onInspectTileFeature,
     styleUnavailable = null,
     extruded = false,
+    onCaptureReady,
+    onExportImage,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -520,6 +527,78 @@
     })
   }
 
+  // --- Spec 008 US7 (research §6): the view as a PNG ------------------------
+  /** The frame, read inside a render (no preserveDrawingBuffer needed). */
+  function grabFrame(m: MapLibreMap): Promise<HTMLCanvasElement> {
+    return new Promise((resolve) => {
+      m.once('render', () => {
+        const src = m.getCanvas()
+        const c = document.createElement('canvas')
+        c.width = src.width
+        c.height = src.height
+        c.getContext('2d')?.drawImage(src, 0, 0)
+        resolve(c)
+      })
+      m.triggerRepaint()
+    })
+  }
+  function idle(m: MapLibreMap, timeoutMs = 8000): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, timeoutMs)
+      m.once('idle', () => {
+        clearTimeout(t)
+        resolve()
+      })
+      m.triggerRepaint()
+    })
+  }
+  const captureMap: MapCapture = async ({ scale, legend }) => {
+    const m = map
+    if (!m) throw new Error('The map is not ready.')
+    const notes: string[] = []
+    const cssW = container.clientWidth
+    const cssH = container.clientHeight
+    const gl = (m.getCanvas().getContext('webgl2') ?? m.getCanvas().getContext('webgl')) as WebGLRenderingContext | null
+    const max = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number) : 4096
+    let ratio: number = scale
+    if (Math.max(cssW, cssH) * ratio > max) {
+      ratio = 1
+      notes.push(`2× would be larger than this device can draw (${max} px): saved at 1×.`)
+    }
+    const previous = m.getPixelRatio()
+    const background = blankBackground()
+    const attribution = activeBasemap?.attribution ? plainAttribution(activeBasemap.attribution) : ''
+    const sky = untrack(() => projection) === 'globe' ? (skyCanvas ?? null) : null
+    try {
+      if (ratio !== previous) {
+        m.setPixelRatio(ratio)
+        await idle(m)
+      }
+      const compose = (frame: HTMLCanvasElement, withAttribution: boolean) =>
+        composeMapImage({ map: frame, under: sky, background, ratio, legend, attribution: withAttribution ? attribution : '' })
+      try {
+        const out = compose(await grabFrame(m), true)
+        return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'SecurityError')) throw err
+        // A basemap whose server doesn't allow reading its tiles taints the
+        // canvas: export without it, and say so (FR-030).
+        const ours = new Set([...layerInstances().map((l) => l.id), BLANK_BG])
+        const hidden = (m.getStyle().layers ?? []).filter((l) => !ours.has(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none').map((l) => l.id)
+        for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'none')
+        try {
+          const out = compose(await grabFrame(m), false)
+          notes.push(`The ${activeBasemap?.name ?? ''} basemap could not be captured (its server doesn't allow it) and was left out.`.replace('The  basemap', 'The basemap'))
+          return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+        } finally {
+          for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'visible')
+        }
+      }
+    } finally {
+      if (m.getPixelRatio() !== previous) m.setPixelRatio(previous)
+    }
+  }
+
   let resizeObserver: ResizeObserver | null = null
 
   onMount(() => {
@@ -546,6 +625,7 @@
     map.on('load', () => {
       registerHandlers()
       mapReady = true
+      onCaptureReady?.(captureMap)
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
@@ -740,7 +820,7 @@
     const req = cameraRequest
     if (!req || !mapReady || !map || req.seq === appliedCamera) return
     appliedCamera = req.seq
-    map.jumpTo({ center: req.center, zoom: req.zoom })
+    map.jumpTo({ center: req.center, zoom: req.zoom, ...(req.pitch !== undefined ? { pitch: req.pitch } : {}), ...(req.bearing !== undefined ? { bearing: req.bearing } : {}) })
   })
 
   $effect(() => {
@@ -772,6 +852,7 @@
       >
         <Icon name="globe" />
       </button>
+      <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
       {#if tilted}
         <!-- Spec 008 FR-026: back to flat and north-up. -->
         <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
@@ -889,7 +970,8 @@
   .map-view :global(.maplibregl-ctrl-attrib) {
     background: var(--se-control-bg);
     color: var(--se-text-secondary);
-    font: 10px/1.5 var(--se-font-ui);
+    /* MapLibre's standard size (user request: 10 px read as unnatural). */
+    font: 12px/18px var(--se-font-ui);
     backdrop-filter: var(--se-overlay-blur);
   }
   .map-view :global(.maplibregl-ctrl-attrib a) {
@@ -930,7 +1012,7 @@
     border: 1px solid var(--se-text-secondary);
     border-top: 0;
     color: var(--se-text-secondary);
-    font: 10px/1.6 var(--se-font-mono);
+    font: 11px/1.6 var(--se-font-mono);
     font-variant-numeric: tabular-nums;
     padding: 0 4px;
     backdrop-filter: var(--se-overlay-blur);

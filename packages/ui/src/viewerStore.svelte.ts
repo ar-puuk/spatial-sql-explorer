@@ -71,6 +71,7 @@ import {
 } from '@spatial-explorer/core'
 import { formatFromFileName } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
+import type { LegendSpec, MapCapture } from './mapImage.js'
 
 /** The attribute columns a style draws from (spec 007: map views read only these). */
 function styleColumns(style: LayerStyle): string[] {
@@ -103,6 +104,12 @@ export interface QueryTableInfo {
   crsLabel: string
   rows: number
 }
+
+/** Spec 008 US7: what a map image export did. */
+export type MapImageOutcome =
+  | { kind: 'saved'; location: string; width: number; height: number; notes: string[] }
+  | { kind: 'cancelled' }
+  | { kind: 'failed'; message: string }
 
 /** Spec 008: the engine's check of a typed EPSG code. */
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
@@ -174,6 +181,16 @@ export interface ViewerStore {
   readonly runCount: number
   // --- Spec 005: export ---------------------------------------------------
   readonly exportOpen: boolean
+  /** Spec 008 US7: the map image dialog. */
+  readonly mapImageOpen: boolean
+  openMapImage(): void
+  closeMapImage(): void
+  /** MapView hands over its capture once the map is ready. */
+  setMapCapture(capture: MapCapture): void
+  /** Captures the view (1x or 2x, with the legend or not) and saves it through the host as `<file>-map.png`. */
+  exportMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<MapImageOutcome>
+  /** Test hook: the capture only, no save. */
+  captureMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<{ bytes: Uint8Array; width: number; height: number; notes: string[] } | null>
   openExport(): void
   closeExport(): void
   readonly exportRequest: ExportRequest
@@ -302,8 +319,11 @@ export interface ViewerStore {
   /** The last view the map asked for (WGS84). */
   readonly lastViewBbox: [number, number, number, number] | null
   /** Moves the camera (test hooks); MapView applies each new request once. */
-  readonly cameraRequest: { center: [number, number]; zoom: number; seq: number } | null
-  jumpTo(center: [number, number], zoom: number): void
+  readonly cameraRequest: { center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null
+  /** Moves the map at once (spec 008: with tilt and rotation, for share links). */
+  jumpTo(center: [number, number], zoom: number, pitch?: number, bearing?: number): void
+  /** The opened file's size in bytes, when known (share links name the file by name and size). */
+  readonly openedSize: number | null
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
   setCursor(coords: { lon: number; lat: number } | null): void
@@ -599,6 +619,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // --- Spec 005: export ------------------------------------------------------
   const EXPORT_PREFS_KEY = 'export.prefs'
   let exportOpen = $state(false)
+  let mapImageOpen = $state(false)
+  let mapCapture: MapCapture | null = null
   let savedExportPrefs = ''
   let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
@@ -863,7 +885,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     return true
   }
   let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
-  let cameraRequest = $state<{ center: [number, number]; zoom: number; seq: number } | null>(null)
+  let cameraRequest = $state<{ center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null>(null)
   const viewNf = new Intl.NumberFormat()
 
   async function requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void> {
@@ -1366,6 +1388,36 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get mapDimmed() {
       return mapDimmed
     },
+    get mapImageOpen() {
+      return mapImageOpen
+    },
+    openMapImage() {
+      mapImageOpen = true
+    },
+    closeMapImage() {
+      mapImageOpen = false
+    },
+    setMapCapture(capture) {
+      mapCapture = capture
+    },
+    async captureMapImage(opts) {
+      return mapCapture ? mapCapture(opts) : null
+    },
+    async exportMapImage(opts) {
+      if (!mapCapture) return { kind: 'failed', message: 'The map is not ready yet.' }
+      try {
+        const shot = await mapCapture(opts)
+        const notes = [...shot.notes]
+        // A basemap that already failed (blank fallback) isn't in the image either.
+        if (basemapFailed && basemapNotice) notes.push('The basemap could not be loaded and is not in the image.')
+        const base = (currentFileName ?? 'map').replace(/\.[^.]+$/, '')
+        const saved = await hostAdapter.saveFile(`${base}-map.png`, shot.bytes, { kind: 'image' })
+        if (!saved.saved) return { kind: 'cancelled' }
+        return { kind: 'saved', location: saved.location ?? `${base}-map.png`, width: shot.width, height: shot.height, notes }
+      } catch (err) {
+        return { kind: 'failed', message: `The map image could not be made: ${err instanceof Error ? err.message : String(err)}` }
+      }
+    },
     get exportOpen() {
       return exportOpen
     },
@@ -1650,8 +1702,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get cameraRequest() {
       return cameraRequest
     },
-    jumpTo(center, zoom) {
-      cameraRequest = { center, zoom, seq: (cameraRequest?.seq ?? 0) + 1 }
+    jumpTo(center, zoom, pitch, bearing) {
+      cameraRequest = { center, zoom, ...(pitch !== undefined ? { pitch } : {}), ...(bearing !== undefined ? { bearing } : {}), seq: (cameraRequest?.seq ?? 0) + 1 }
+    },
+    get openedSize() {
+      return openedSize
     },
     dismissViewNotice() {
       if (memoryNotice) memoryNotice = null

@@ -28,7 +28,11 @@ test('the geometry switch picks the list; an invalid choice is replaced, and say
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   expect(await formats(page)).toEqual(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
-  await expect(exportDialog(page).getByRole('status').filter({ hasText: "Shapefile (zip) isn't available without geometry: using CSV." })).toBeVisible()
+  // The list follows the switch; the first attribute format is picked, and the switch says so.
+  await expect(exportDialog(page).getByLabel('Format', { exact: true })).toHaveValue('csv')
+  await expect(toggle).toContainText('Left out')
+  // CSV without geometry: no geometry options.
+  await expect(exportDialog(page).getByRole('radiogroup', { name: 'Geometry' })).toHaveCount(0)
 })
 
 for (const [label, ext] of [

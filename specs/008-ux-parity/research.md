@@ -515,3 +515,20 @@ Every format offered was written by the real web build, then read back:
   Not reproduced in screenshots; raster cross-fade draws stretched tile
   borders past the limb, so raster basemaps now have
   `raster-fade-duration: 0`.
+
+## Implementation outcomes (US7, 2026-10-11)
+
+- Map image: the frame is read inside a `render` event; 2× sets the pixel
+  ratio and waits for idle (capped by MAX_TEXTURE_SIZE/MAX_RENDERBUFFER_SIZE);
+  the legend (from the resolved style) and the basemap attribution are drawn
+  with canvas calls; on the globe the night sky is included (it is what the
+  user sees). 1× and 2× PNGs in about 1 s (SC-007), web and VS Code.
+- Tainting: MapLibre loads tiles with `fetch` (CORS) into ImageBitmaps, so
+  a server without CORS headers fails its tiles instead of tainting the
+  canvas; the basemap falls back to blank, and the image says the basemap
+  isn't in it. The SecurityError path (export without the basemap) stays
+  as a guard.
+- Share link: a typical link (graduated style with extrusion, globe, view)
+  is ~1 KB. Applying waits for the result's fit before moving the camera;
+  the hash is cleared once applied, so a reload doesn't ask again. A link
+  made with another file warns and still applies; failed parts are listed.

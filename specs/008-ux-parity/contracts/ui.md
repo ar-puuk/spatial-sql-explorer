@@ -77,7 +77,7 @@ radio (Rows), else the Format list.
 
 - `Rows` radiogroup with All, Filtered (N) and Selected (N), shown only
   when they apply.
-- `Include geometry` switch (`role="switch"`), disabled with a reason when
+- `Geometry` row: an `Include geometry` switch (`role="switch"`) whose visible state reads Included / Left out; disabled with a reason when
   the result has no geometry.
 - `Format`: a native `<select>` listing only the formats that fit the
   geometry choice.

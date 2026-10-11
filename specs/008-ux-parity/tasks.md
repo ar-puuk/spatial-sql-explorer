@@ -418,37 +418,37 @@ QML and Mapbox GL (FR-025–FR-027).
 
 ### Tests for US7
 
-- [ ] T078 [P] [US7] Core test `tests/core/share.test.ts`:
+- [X] T078 [P] [US7] Core test `tests/core/share.test.ts`:
   - encode/decode round trip;
   - invalid fields are dropped and listed;
   - a garbage hash returns null;
   - no row data can be encoded (the type only allows query, style and view);
   - a typical state is under 2 KB.
-- [ ] T079 [P] [US7] Web test `tests/web/specs/map-image.spec.ts`:
+- [X] T079 [P] [US7] Web test `tests/web/specs/map-image.spec.ts`:
   - the `Export map image` dialog;
   - 1× and 2× downloads are PNGs of the canvas size and twice it (decode the header);
   - with the legend, the image is larger than without, and legend pixels are present in the corner;
   - a route that drops CORS headers on a raster basemap still exports, with the "basemap left out" message;
   - done in ≤5 s (SC-007).
-- [ ] T080 [P] [US7] Web test `tests/web/specs/share-link.spec.ts`:
+- [X] T080 [P] [US7] Web test `tests/web/specs/share-link.spec.ts`:
   - `Copy link` writes a `#v1=` URL (clipboard permission granted);
   - opening it in a new page shows the "Choose that file" banner;
   - choosing the file restores the query, style, basemap, projection and view;
   - a different file warns but applies;
   - an over-long query offers "Copy query".
-- [ ] T081 [P] [US7] VS Code test in `tests/vscode-ext/src/suite/map-image.test.ts`: `Export map image` saves through the host with kind `image` and the file is a PNG; there is no `Copy link` in the webview.
+- [X] T081 [P] [US7] VS Code test in `tests/vscode-ext/src/suite/map-image.test.ts`: `Export map image` saves through the host with kind `image` and the file is a PNG; there is no `Copy link` in the webview.
 
 ### Implementation for US7
 
-- [ ] T082 [US7] Implement `captureMap({ scale, legend })` in `packages/ui/src/MapView.svelte` (research §6):
+- [X] T082 [US7] Implement `captureMap({ scale, legend })` in `packages/ui/src/MapView.svelte` (research §6):
   - capture in a `render` event;
   - draw the legend from `ResolvedStyle` with 2D canvas calls;
   - add the attribution text;
   - 2× via `setPixelRatio` with a max-texture fallback;
   - on a `SecurityError`, retry with the basemap hidden.
-- [ ] T083 [P] [US7] Create `packages/ui/src/MapImageDialog.svelte` (`1×`/`2×`, `Include legend`, `Export`) and add `Export map image…` to the map controls. Wire saving with `saveFile(name, bytes, { kind: 'image' })` in `viewerStore.svelte.ts`, plus the test hook `captureMap(scale)`.
-- [ ] T084 [US7] Implement `packages/core/src/share.ts` (contracts/core.md).
-- [ ] T085 [US7] Web share link in `apps/web/src/App.svelte`:
+- [X] T083 [P] [US7] Create `packages/ui/src/MapImageDialog.svelte` (`1×`/`2×`, `Include legend`, `Export`) and add `Export map image…` to the map controls. Wire saving with `saveFile(name, bytes, { kind: 'image' })` in `viewerStore.svelte.ts`, plus the test hook `captureMap(scale)`.
+- [X] T084 [US7] Implement `packages/core/src/share.ts` (contracts/core.md).
+- [X] T085 [US7] Web share link in `apps/web/src/App.svelte`:
   - `Copy link` in the header (enabled when a file is open);
   - on load, parse `#v1=`; with `sample`, open the sample; otherwise show the banner and "Choose file";
   - after opening, apply layer, query, style, basemap, projection and view in order;

@@ -442,7 +442,7 @@
             onclick={() => setExtrusion({ enabled: !ext?.enabled })}
           >
             <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-            <span>{ext?.enabled ? 'On' : 'Off'}</span>
+            <span class="state">{ext?.enabled ? 'On' : 'Off'}</span>
           </button>
         </div>
         {#if ext?.enabled}
@@ -648,54 +648,8 @@
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }
-  .switch {
-    display: inline-flex;
-    justify-self: start;
-    align-items: center;
-    gap: 8px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-  .switch .track {
-    position: relative;
-    width: 28px;
-    height: 16px;
-    box-sizing: border-box;
-    border-radius: 8px;
-    background: var(--se-input-bg);
-    border: 1px solid var(--se-input-border);
-  }
-  .switch .thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--se-text-secondary);
-    transition: left 0.12s;
-  }
-  .switch[aria-checked='true'] .track {
-    background: var(--se-button-bg);
-    border-color: var(--se-button-bg);
-  }
-  .switch[aria-checked='true'] .thumb {
-    left: 14px;
-    background: var(--se-button-fg);
-  }
-  .switch:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 2px;
-  }
   @media (prefers-reduced-motion: reduce) {
-    .switch .thumb {
-      transition: none;
     }
-  }
   select.narrow {
     justify-self: start;
     width: 64px;
@@ -853,5 +807,76 @@
   .icon-button:hover {
     background: var(--se-control-hover);
     color: var(--se-text-primary);
+  }
+  /* A VS Code-style toggle: a clear off state in every theme, the accent when on. */
+  .switch {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    padding: 0 4px 0 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+    font-weight: normal;
+    cursor: pointer;
+  }
+  .switch:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .switch .track {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--se-input-border);
+    background: color-mix(in srgb, var(--se-text-secondary) 22%, var(--se-input-bg));
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-primary);
+    opacity: 0.75;
+    transition:
+      transform 0.15s,
+      opacity 0.15s;
+  }
+  .switch:not(:disabled):hover .track {
+    border-color: var(--se-text-secondary);
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    transform: translateX(14px);
+    background: var(--se-button-fg);
+    opacity: 1;
+  }
+  .switch .state {
+    color: var(--se-text-secondary);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch .track,
+    .switch .thumb {
+      transition: none;
+    }
   }
 </style>

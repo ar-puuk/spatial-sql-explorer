@@ -17,6 +17,8 @@
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import MapImageDialog from './MapImageDialog.svelte'
+  import type { LegendSpec } from './mapImage.js'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
@@ -46,6 +48,17 @@
       (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
+  // Spec 008 US7: the legend as the map shows it, for the map image.
+  const legendSpec = $derived.by((): LegendSpec | null => {
+    if (!layer || !showLegend) return null
+    const r = store.resolvedStyle
+    return {
+      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
+      shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
+      alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+      rows: r.classes.filter((c) => c.visible).map((c) => ({ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined })),
+    }
+  })
   const loading = $derived(session.loadState === 'loading')
 
   const MIN_FRACTION = 0.15
@@ -290,6 +303,8 @@
         }}
         styleUnavailable={store.tilesOnlyReason}
         extruded={store.extruded}
+        onCaptureReady={(capture) => store.setMapCapture(capture)}
+        onExportImage={() => store.openMapImage()}
       />
       {#if inspected || store.fileLayers.length > 1}
         <div class="inspector-slot">
@@ -508,6 +523,16 @@
       </div>
     </div>
   </div>
+  {#if store.mapImageOpen}
+    <MapImageDialog
+      {store}
+      legend={legendSpec}
+      onClose={() => {
+        store.closeMapImage()
+        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Export map image…"]')?.focus())
+      }}
+    />
+  {/if}
   {#if store.exportOpen}
     <ExportDialog
       {store}

@@ -24,7 +24,6 @@
   const available = $derived(EXPORT_FORMATS.filter((f) => plan?.formats.find((x) => x.id === f.id)?.available))
   const hasGeometry = $derived(plan?.geometryColumn !== null && plan?.geometryColumn !== undefined)
   /** Spec 008 FR-019: the chosen format doesn't fit the geometry choice: the plan took another one. */
-  const replaced = $derived(plan && request.format !== plan.format ? EXPORT_FORMATS.find((f) => f.id === request.format)?.label : null)
 
   let dialog = $state<HTMLDivElement>()
   let now = $state(performance.now())
@@ -167,7 +166,7 @@
             onclick={() => store.setExportRequest({ includeGeometry: !plan.includeGeometry })}
           >
             <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-            <span>Include geometry</span>
+            <span class="state">{!hasGeometry ? 'None in this result' : plan.includeGeometry ? 'Included' : 'Left out'}</span>
           </button>
         </div>
         <div class="field">
@@ -179,9 +178,6 @@
             {/each}
           </select>
         </div>
-        {#if replaced}
-          <p class="hint" role="status">{replaced} isn't available {plan.includeGeometry ? 'with' : 'without'} geometry: using {EXPORT_FORMATS.find((f) => f.id === plan.format)?.label}.</p>
-        {/if}
 
         {#if plan.includeGeometry}
           <!-- Spec 008 (user request): any CRS the engine knows, searchable, the usual ones pinned. -->
@@ -210,7 +206,7 @@
           {/if}
         {/if}
 
-        {#if plan.format === 'csv' && hasGeometry}
+        {#if plan.format === 'csv' && plan.includeGeometry}
           <div class="field">
             <span class="label" id="export-geometry">Geometry</span>
             <div class="options" role="radiogroup" aria-labelledby="export-geometry">
@@ -401,51 +397,6 @@
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
   }
-  .switch {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-  .switch:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-  .switch .track {
-    position: relative;
-    width: 28px;
-    height: 16px;
-    border-radius: 8px;
-    background: var(--se-input-bg);
-    border: 1px solid var(--se-input-border);
-  }
-  .switch .thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--se-text-secondary);
-    transition: left 0.12s;
-  }
-  .switch[aria-checked='true'] .track {
-    background: var(--se-button-bg);
-    border-color: var(--se-button-bg);
-  }
-  .switch[aria-checked='true'] .thumb {
-    left: 14px;
-    background: var(--se-button-fg);
-  }
-  .switch:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 2px;
-  }
   .hint {
     margin: -4px 0 0 80px;
     color: var(--se-text-secondary);
@@ -621,6 +572,77 @@
       animation: none;
       width: 100%;
       opacity: 0.5;
+    }
+  }
+  /* A VS Code-style toggle: a clear off state in every theme, the accent when on. */
+  .switch {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    padding: 0 4px 0 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+    font-weight: normal;
+    cursor: pointer;
+  }
+  .switch:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .switch .track {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--se-input-border);
+    background: color-mix(in srgb, var(--se-text-secondary) 22%, var(--se-input-bg));
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-primary);
+    opacity: 0.75;
+    transition:
+      transform 0.15s,
+      opacity 0.15s;
+  }
+  .switch:not(:disabled):hover .track {
+    border-color: var(--se-text-secondary);
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    transform: translateX(14px);
+    background: var(--se-button-fg);
+    opacity: 1;
+  }
+  .switch .state {
+    color: var(--se-text-secondary);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch .track,
+    .switch .thumb {
+      transition: none;
     }
   }
 </style>

@@ -109,6 +109,8 @@ async function main(): Promise<void> {
       void store.saveStyle()
     } else if (msg.type === 'testSaveStyleAs' && (msg.format === 'qml' || msg.format === 'sld' || msg.format === 'mapbox')) {
       void store.saveStyleAs(msg.format)
+    } else if (msg.type === 'testExportMapImage') {
+      void store.exportMapImage({ scale: msg.scale === 2 ? 2 : 1, legend: null })
     } else if (msg.type === 'testCancelOpen') {
       void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {
