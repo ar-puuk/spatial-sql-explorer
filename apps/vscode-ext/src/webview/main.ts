@@ -98,6 +98,8 @@ async function main(): Promise<void> {
       void store.runExport()
     } else if (msg.type === 'testSaveStyle') {
       void store.saveStyle()
+    } else if (msg.type === 'testCancelOpen') {
+      void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {
       void store.cancelQuery()
     } else if (msg.type === 'testSelectFeature') {

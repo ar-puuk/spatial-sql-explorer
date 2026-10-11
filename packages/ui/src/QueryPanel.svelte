@@ -283,8 +283,12 @@
     background: var(--se-button-bg);
     color: var(--se-button-fg);
   }
-  .primary:hover {
+  .primary:hover:not(:disabled) {
     background: var(--se-button-hover);
+  }
+  .primary:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .secondary {
     background: var(--se-button-secondary-bg);

@@ -630,6 +630,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       provider.postToActive({ type: 'testRunQuery', sql })
     ),
     vscode.commands.registerCommand('spatialExplorer.exportData', () => provider.openExportInActive()),
+    vscode.commands.registerCommand('spatialExplorer._cancelOpen', () => provider.postToActive({ type: 'testCancelOpen' })),
     vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
     // Spec 003 test hooks: read the resolved style, apply a style, save it.

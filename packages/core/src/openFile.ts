@@ -13,6 +13,7 @@ import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { getDuckDb, resetDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
 import { isOutOfMemory, outOfMemoryMessage } from './outOfMemory.js'
+import { FgbReader } from './source/fgbReader.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
 import { formatFromFileName, readModeFor, testOverrides } from './source/readModes.js'
 import { extentToWgs84, flatGeobufFacts, parquetFacts } from './source/facts.js'
@@ -605,6 +606,9 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
   const srid = epsgFrom(geometry.type) ?? ff.srid
   const crs = resolveCrsInfo(srid)
   const rows = header.featuresCount ?? ff.rows
+  // Map views in JS for WGS84 files with an index (the JS reader can't reproject).
+  const fgbReader =
+    header.indexNodeSize > 0 && (srid === null || srid === 4326) ? await FgbReader.open((offset, length) => ctx.hostAdapter.readRange(ctx.ref, offset, length)) : undefined
   const table: QueryableTable = {
     name: 'layer',
     alias,
@@ -618,7 +622,7 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
     sourceExtent: header.envelope,
     geometryType: geometryTypeOf([ff.geometryType]),
   }
-  return { table, spatialIndex: header.indexNodeSize > 0 ? 'file' : 'none', invalid: null, view: { index: 'fgb', path: ctx.path, geom: quoteIdent(geometry.name), attrs, rowidExpr, extent: header.envelope } }
+  return { table, spatialIndex: header.indexNodeSize > 0 ? 'file' : 'none', invalid: null, view: { index: 'fgb', path: ctx.path, geom: quoteIdent(geometry.name), attrs, rowidExpr, extent: header.envelope, fgbReader } }
 }
 
 /**

@@ -59,7 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   opened file, in both the extension and the web app.
   - The file is the ready-made table `layer`, also aliased by its file name,
     in its original CRS. The initial view is the editable query
-    `SELECT * FROM layer LIMIT 1000`: remove or raise the `LIMIT` to see more.
+    `SELECT * FROM layer`: the whole file (spec 007).
   - Results with a geometry column replace the map layer and the table;
     results without one show in the table, with the last map dimmed. The
     result's CRS is resolved automatically and shown in a chip that can be
@@ -73,8 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Read-only by design: queries plus `CREATE TEMP TABLE/VIEW`. Writes,
     exports, extensions and settings are refused with a reason, and the
     engine itself is locked to the opened file (no file or network access).
-  - Cancel a running query with the Cancel button or Esc. Results over 50,000
-    rows ask first: show the first 50,000, show all, or cancel.
+  - Cancel a running query with the Cancel button or Esc. Results of any
+    size report their exact row count (spec 007).
   - Timing in the panel and in the "Spatial Explorer" output channel.
   - Reset returns to the original view and style. Per-file history keeps the
     20 most recent queries across reopening; picking one loads it without
@@ -109,8 +109,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     columns for points); results without geometry export as CSV or Parquet.
     Only formats verified in the embedded engine are offered: FlatGeobuf,
     GeoPackage, Shapefile and KML cannot be written by it yet.
-  - **Which rows**: the whole result. When only part of it is displayed, the
-    dialog asks: all rows (the default) or only the rows shown.
+  - **Which rows**: always the whole result (spec 007).
   - **CRS**: the result's own CRS by default, or WGS84. GeoParquet carries the
     full CRS definition, so QGIS reads projected exports in the right place
     (verified in QGIS 4.2.3). GeoJSON is always WGS84 (RFC 7946).
@@ -121,14 +120,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     saved and nothing is left behind. In VS Code the file is saved next to the
     data by default; the opened source can never be overwritten.
 
+- **Large files and viewport loading (spec 007).** Files of several GB open
+  in both shells without freezing.
+  - **Facts first**: row count, extent, CRS, geometry type and columns for the
+    whole file appear within seconds, with progress and a Cancel that always
+    ends the open within 3 s.
+  - **The map draws what's in view**: up to 25,000 features, refreshed as you
+    pan and zoom. Above that, an even, stable sample with a notice ("Showing
+    25,000 of 310,412 in view"); tiny features are drawn as dots so the
+    overview shows where the data is.
+  - **Read in parts where the format allows it**: GeoParquet/Parquet through
+    range reads (a loopback server in VS Code, file slices on the web);
+    FlatGeobuf through its spatial index, read in JavaScript; PMTiles tile by
+    tile.
+  - **Formats that must be read whole** (GeoJSON, Shapefile, CSV, GML,
+    GeoPackage) are parsed once into an indexed table, and files over 100 MB
+    are announced first with an estimate and a pointer to GeoParquet.
+  - **Whole-data pillars**: the attribute table pages through any number of
+    rows and sorts them in SQL; styles classify the whole result with exact
+    counts; export writes every row. FlatGeobuf files read in parts offer
+    **Load the whole file** before queries.
+  - **PMTiles (vector)**: view-only, with the archive's facts and an
+    inspector; SQL, table, styling and export say why they don't apply.
+  - **Out of memory** at any stage ends in a clear message, and the viewer
+    keeps working.
+
+### Changed
+
+- The default query no longer has `LIMIT 1000`, the "Show first 50,000"
+  prompt is gone, and export no longer asks which rows: every pillar works on
+  the whole data (spec 007).
+
 ### Performance
+
+- Large files (spec 007, measured in the web build on a laptop):
+  - 1.1 GB GeoParquet (6M rows): facts 2.0 s, overview 4.9 s, every city view
+    within 1.9 s; no task blocks the viewer for more than 0.15 s.
+  - 1.45 GB FlatGeobuf (4M rows): facts 2.0 s, overview 2.7 s, city views
+    0.4 s.
+  - 5 GB GeoParquet (27M rows): overview 9.5 s, and engine memory stays under
+    60 MB through pans, a filter, a style and an export.
+  - A 1,000,166-row filter on 4M rows: 11.6 s, exact; its GeoParquet export
+    (189 MB) has every row.
+
 
 - About 10 MB opens in ~1.2 s with the engine already started. DuckDB starts
   in the background (pre-warm) and is reused between opens. Each file is
   parsed once, then its memory is released.
 
-- At most 1,000 features are drawn at a time by default. Feature counts and
-  the map extent always cover the whole file.
 - A filtering query on a ~10 MB file returns in ~0.1 s, and cancelling takes
   ~0.1 s (spec 002 quickstart, Results).
 - Restyling 22,000 features takes ~0.1 s, and natural breaks on 50,000 values

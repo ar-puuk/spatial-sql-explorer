@@ -99,6 +99,14 @@ test.describe('US2: pan and zoom through a large file', () => {
     await expect.poll(async () => (await viewState(page))?.thinned).toBe(true)
     const v = (await viewState(page))!
     expect(v.drawn).toBeLessThanOrEqual(500)
-    await expect(page.locator('.map-notice')).toContainText(/Showing [\d,]+ of more than [\d,]+ in view\. Zoom in to see all\./)
+    await expect(page.locator('.map-notice')).toContainText(/Showing [\d,]+ of about [\d,]+ in view\. Zoom in to see all\./)
+
+    // Zoomed into one city: the features themselves, read from the file, with their attributes.
+    const city = await jumpTo(page, -112.6, 37.4, 15)
+    expect(city.thinned).toBe(false)
+    expect(city.drawn).toBeGreaterThan(0)
+    await expect.poll(() => rendered(page), { timeout: 15000 }).toBeGreaterThan(0)
+    const ids = await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { drawnIds: () => number[] } }).__spatialExplorerE2E.drawnIds())
+    expect(ids.every((id) => id < 2 ** 40)).toBe(true)
   })
 })

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
-    "@duckdb/duckdb-wasm": "1.32.0"
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "flatgeobuf": "^4.6.0"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.16",

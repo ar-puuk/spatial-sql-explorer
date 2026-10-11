@@ -588,7 +588,7 @@ they skip with a message, never pass silently.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T058 Write `tests/web/specs/scale.spec.ts` (in the Playwright `performance` project, so it runs alone; it skips with a message when `tests/.large-data` is missing). Record every number in `test-results/scale.json`:
+- [X] T058 Write `tests/web/specs/scale.spec.ts` (in the Playwright `performance` project, so it runs alone; it skips with a message when `tests/.large-data` is missing). Record every number in `test-results/scale.json`:
   - **SC-001**: `parcels-6m.parquet` (~1.1 GB) and `parcels-4m.fgb`: facts ≤ 5 s, map overview ≤ 10 s.
   - **SC-003**: after a pan stops, the view is drawn ≤ 2 s at or below the cap (10 city views).
   - **SC-004**: a `longtask` observer during open, pans, a query and styling: none ≥ 1 s.
@@ -596,17 +596,21 @@ they skip with a message, never pass silently.
   - **SC-006**: `parcels-460k.geojson` is announced; an out-of-memory error (`memoryLimit` override) ends in the message with a usable viewer.
   - **SC-007**: `value > 1500000` on `parcels-4m.parquet` = 1,000,166, and its GeoParquet export has 1,000,166 rows.
   - **SC-009**: the spec 001 10 MB open is no slower than before (compare with `performance.json` from spec 005's final run: 1,594 ms warm rendered).
-- [ ] T059 SC-002 (5 GB session), local and recorded. With `npm run large-data -- --huge`:
+  - *Done*: scale.spec.ts (performance project, skips without tests/.large-data): SC-001 GeoParquet 1.1 GB facts 2.0 s / overview 4.9 s, FlatGeobuf 1.45 GB 2.0 s / 2.7 s; SC-003 max 1.92 s (GeoParquet), ~0.37 s (FlatGeobuf); SC-004 longest task 152 ms; SC-005 0.23/2.40/2.41 s; SC-006 announced, OOM message; SC-007 1,000,166 rows and export. Found and fixed: FlatGeobuf in parts took 128 s for the overview through GDAL; map views now read it in JS (source/fgbReader.ts).
+- [X] T059 SC-002 (5 GB session), local and recorded. With `npm run large-data -- --huge`:
   - open `parcels-27m.parquet`, pan through 5 cities, run a filter, style it, and export the filtered result;
   - sample the engine memory (`duckdb_memory()` through an e2e hook) after each step: it stays under 3.1 GiB, with no out-of-memory error.
 
   Record the results in quickstart.md.
-- [ ] T060 VS Code scale run, local and recorded: a `@vscode/test-electron` test gated on `SE_LARGE_DATA=1` (`tests/vscode-ext/src/suite/scale.test.ts`):
+  - *Done*: SC-002 on parcels-27m.parquet (5.06 GB): facts 2.1 s, overview 9.5 s, 5 cities, filter 135,191 rows (29 s), style, export; engine memory 5-57 MiB throughout.
+- [X] T060 VS Code scale run, local and recorded: a `@vscode/test-electron` test gated on `SE_LARGE_DATA=1` (`tests/vscode-ext/src/suite/scale.test.ts`):
   - SC-001 on `parcels-6m.parquet`;
   - bytes served per the output channel (expect tens of MB, not GB);
   - SC-005 cancel.
-- [ ] T061 [P] Extend `tests/web/specs/accessibility.spec.ts` (light and dark): axe on OpenProgress during a read, ReadWholeDialog, a thinned map with its notice, the table while paging (skeleton rows), the "Load the whole file" state, and the PMTiles disabled panels. Keyboard: Cancel and the Load button are reachable; the dialog's Esc returns focus.
-- [ ] T062 [P] Extend `scripts/screenshots.mjs` with large-file scenes in both shells:
+  - *Done*: scale.test.ts (SE_LARGE_DATA=1): GeoParquet 1.1 GB facts 2.1-2.8 s / overview 7.0-7.8 s, 676 MB served (residual risk, recorded); FlatGeobuf 1.45 GB 1.8 s / 2.1 s; Cancel 2.1 s. New _cancelOpen hook.
+- [X] T061 [P] Extend `tests/web/specs/accessibility.spec.ts` (light and dark): axe on OpenProgress during a read, ReadWholeDialog, a thinned map with its notice, the table while paging (skeleton rows), the "Load the whole file" state, and the PMTiles disabled panels. Keyboard: Cancel and the Load button are reachable; the dialog's Esc returns focus.
+  - *Done*: Axe (light/dark) on a thinned map with notice, Load the whole file, PMTiles disabled panels (plus open progress, the announcement and the paged table from US3/US4); keyboard: Cancel opening and Load reachable and working.
+- [X] T062 [P] Extend `scripts/screenshots.mjs` with large-file scenes in both shells:
   - open progress;
   - a thinned overview with the notice;
   - a zoomed city;
@@ -615,17 +619,21 @@ they skip with a message, never pass silently.
   - PMTiles.
 
   Review all three VS Code themes and web light/dark.
-- [ ] T063 [P] Update the docs:
+  - *Done*: Large-file scenes in both shells (web: open progress, overview, city, table loading, announcement, PMTiles, FlatGeobuf Load; VS Code: PMTiles, deep-scrolled table), reviewed in 3 VS Code themes and web light/dark. Fixed from the review: Run didn't look disabled, PMTiles count label, the row hint shown without a table.
+- [X] T063 [P] Update the docs:
   - `apps/vscode-ext/README.md`: the "Supported formats" matrix gains a read-mode column with the measured limits (FR-018). For example: "GeoParquet: read in parts, any size (4M rows: facts 17 ms, views < 0.3 s)", "GeoJSON: read whole, announced above 100 MB (325 MB ≈ 23 s)".
   - `CHANGELOG.md` (Added: large files, viewport loading, PMTiles; Changed: no default LIMIT, no 50,000 prompt, no export rows choice);
   - `specs/007-viewport-loading/research.md`: outcomes and deviations.
   - If the user approves, update the "~512 MB" line in `CLAUDE.md` to the measured 3.1 GiB (research §1).
-- [ ] T064 Record the quickstart Results (SC-001–SC-009, plus the Remote-SSH observation in Scenario 7.2 if a remote host is available, otherwise "not run: no remote host") in `specs/007-viewport-loading/quickstart.md`, and tick the Definition of done.
-- [ ] T065 Run the final full verification and record the results in this file:
+  - *Done*: README large-files table with measured numbers (FR-018); CHANGELOG Added/Changed/Performance; research.md US3-US5 and Polish outcomes; THIRD-PARTY-NOTICES for pmtiles, flatgeobuf, flatbuffers, repeater, fflate; CLAUDE.md memory line (user approved).
+- [X] T064 Record the quickstart Results (SC-001–SC-009, plus the Remote-SSH observation in Scenario 7.2 if a remote host is available, otherwise "not run: no remote host") in `specs/007-viewport-loading/quickstart.md`, and tick the Definition of done.
+  - *Done*: quickstart.md Results (SC-001-SC-009 both shells; 7.2 not run: no remote host) and Definition of done ticked.
+- [X] T065 Run the final full verification and record the results in this file:
   - lint, all typechecks;
   - `test:core`, `test:web` (incl. performance and scale when the data exists) and `test:vscode-ext`;
   - package the VSIX and install it into a clean profile;
   - check that the installed copy registers `*.pmtiles` and ships `pmtiles` in `THIRD-PARTY-NOTICES.md`.
+  - *Done*: Lint 0, all four typechecks 0; core 319, web 93 (incl. performance; one timing-test race fixed), VS Code 66 (+3 scale, gated); VSIX 8.27 MB installed into a clean profile: *.pmtiles default editor, 4 menu entries, notices present.
 
 ---
 

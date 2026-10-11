@@ -166,6 +166,7 @@ async function captureVsCode() {
         await win.waitForTimeout(600)
         await shot(win, `${name}-statusbar`, { clip: { x: 840, y: 870, width: 600, height: 30 } })
       })
+      await largeScenesVsCode(win, name)
     } finally {
       await app.close()
       fs.rmSync(profile, { recursive: true, force: true })
@@ -346,6 +347,99 @@ async function exportScenes(ui, win, prefix, beforeSave) {
 
 // --- Web -------------------------------------------------------------------
 
+/**
+ * Spec 007 scenes (T062), web: test overrides (`?e2e=1`) make the 10k
+ * fixtures take the large-file paths: open progress, a thinned overview, a
+ * city, the table deep-scrolled while pages load, the whole-read
+ * announcement, PMTiles, and FlatGeobuf's "Load the whole file".
+ */
+async function largeScenesWeb(browser, base, scheme) {
+  const prefix = `web-${scheme}-large`
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: scheme })
+  const open = async (query, name) => {
+    await page.goto(`${base}/${query}`)
+    await page.locator('input[type="file"]').setInputFiles(path.join(fixtures, name))
+  }
+  const hook = (name, ...args) => page.evaluate(([n, a]) => window.__spatialExplorerE2E[n](...a), [name, args])
+  try {
+    await step('open progress', async () => {
+      await open('?e2e=1&slowParse=1', 'parcels-10k.parquet')
+      await page.getByRole('button', { name: 'Cancel opening' }).waitFor({ timeout: 10000 })
+      await page.waitForTimeout(1300)
+      await shot(page, `${prefix}-open-progress`)
+    })
+    await step('thinned overview', async () => {
+      await open('?e2e=1&cap=1000', 'parcels-10k.parquet')
+      await page.locator('.map-notice').filter({ hasText: 'Zoom in to see all' }).waitFor({ timeout: 60000 })
+      await page.waitForTimeout(1200)
+      await shot(page, `${prefix}-overview`)
+    })
+    await step('a city', async () => {
+      await hook('jumpTo', -112.6, 37.4, 12)
+      await page.waitForTimeout(2500)
+      await shot(page, `${prefix}-city`)
+    })
+    await step('table deep-scrolled', async () => {
+      await page.locator('.attribute-table').evaluate((el) => (el.scrollTop = el.scrollHeight * 0.6))
+      await page.waitForTimeout(30)
+      await shot(page, `${prefix}-table-loading`)
+      await page.waitForTimeout(1200)
+      await shot(page, `${prefix}-table`)
+    })
+    await step('whole-read announcement', async () => {
+      await open('?e2e=1&wholeThreshold=1000000', 'parcels-10k.geojson')
+      await page.getByRole('dialog', { name: 'Read the whole file?' }).waitFor({ timeout: 10000 })
+      await page.waitForTimeout(300)
+      await shot(page, `${prefix}-announce`)
+      await page.keyboard.press('Escape')
+    })
+    await step('PMTiles', async () => {
+      await open('?e2e=1', 'sample.pmtiles')
+      await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+      await page.waitForTimeout(1500)
+      await page.keyboard.press('Control+Shift+Q')
+      await page.waitForTimeout(400)
+      await shot(page, `${prefix}-pmtiles`)
+    })
+    await step('FlatGeobuf: load the whole file', async () => {
+      await open('?e2e=1&wholeThreshold=1&cap=1000', 'parcels-10k.fgb')
+      await page.getByRole('button', { name: 'Load' }).first().waitFor({ timeout: 60000 })
+      await page.waitForTimeout(1500)
+      await shot(page, `${prefix}-fgb-load`)
+    })
+  } finally {
+    await page.close()
+  }
+}
+
+/** Spec 007 scenes (T062), VS Code: PMTiles, and a 10k FlatGeobuf with the table deep-scrolled. */
+async function largeScenesVsCode(win, name) {
+  const openFixture = async (fixture) => {
+    await win.keyboard.press('Control+P')
+    await win.waitForTimeout(600)
+    await win.keyboard.type(fixture)
+    await win.waitForTimeout(600)
+    await win.keyboard.press('Enter')
+  }
+  await step('large: PMTiles', async () => {
+    await openFixture('sample.pmtiles')
+    const view = win.frameLocator('iframe.webview:visible').frameLocator('iframe')
+    await view.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await win.waitForTimeout(1500)
+    await shot(win, `${name}-large-pmtiles`)
+  })
+  await step('large: 10k FlatGeobuf, table deep-scrolled', async () => {
+    // The open webview holds keyboard focus, so open the file from the Explorer.
+    await win.getByRole('treeitem', { name: 'parcels-10k.fgb' }).click()
+    const view = win.frameLocator('iframe.webview:visible').frameLocator('iframe')
+    await view.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await win.waitForTimeout(1500)
+    await view.locator('.attribute-table').evaluate((el) => (el.scrollTop = el.scrollHeight * 0.6))
+    await win.waitForTimeout(1200)
+    await shot(win, `${name}-large-table`)
+  })
+}
+
 async function waitForServer(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -405,6 +499,7 @@ async function captureWeb() {
       await styleScenes(page, page, `web-${scheme}`)
       await exportScenes(page, page, `web-${scheme}`, async () => {})
       await page.close()
+      await largeScenesWeb(browser, `http://localhost:${port}`, scheme)
     }
   } finally {
     await browser.close()

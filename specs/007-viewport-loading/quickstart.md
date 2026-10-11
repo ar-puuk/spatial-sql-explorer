@@ -109,10 +109,44 @@
 | Browser (scale) | `scale.spec.ts` (needs `tests/.large-data`, else skipped with a message) | SC-001–SC-007 timings and memory on the 762 MB / 1 GB / 5 GB files |
 | Extension | `source-server.test.ts`, `large-open.test.ts` | Range, `HEAD` 206, 416, token, `Origin`; sidecars; bytes served (partial); forced fallback; parity with the web |
 
+## Results (2026-10-11)
+
+Measured on a Windows 11 laptop. The web numbers come from the production
+build in headless Chromium (SwiftShader WebGL, so map timings are
+pessimistic): `test-results/scale.json` from `scale.spec.ts`. The VS Code
+numbers come from `scale.test.ts` with `SE_LARGE_DATA=1`. Details are in
+research.md, "Implementation outcomes (Polish)".
+
+| Criterion | Web | VS Code | Verdict |
+|---|---|---|---|
+| SC-001 GeoParquet 1.1 GB (6M) | facts 2.0 s, overview 4.9 s | facts 2.1–2.8 s, overview 7.0–7.8 s | Pass |
+| SC-001 FlatGeobuf 1.45 GB (4M) | facts 2.0–2.5 s, overview 2.7 s | facts 1.8 s, overview 2.1 s | Pass (after the JS reader; 128 s before) |
+| SC-002 GeoParquet 5 GB (27M) | open, 5 cities, filter (135,191 rows), style, export; engine memory 5–57 MiB | not run | Pass (web) |
+| SC-003 views ≤ cap within 2 s | GeoParquet: 10 cities, max 1.92 s; FlatGeobuf: 5 cities, ~0.37 s | not measured separately | Pass |
+| SC-004 no task ≥ 1 s | longest 143–152 ms | not measurable from the extension host | Pass (web) |
+| SC-005 Cancel ≤ 3 s | GeoParquet 0.23 s, FlatGeobuf 2.40 s, 325 MB GeoJSON 2.41 s; engine-reset path 0.36–0.87 s | 325 MB GeoJSON 2.06–2.11 s | Pass |
+| SC-006 announce + OOM | 325 MB GeoJSON announced, opens in ~34 s; `memoryLimit` 8 MB / 64 MB → message, next open works | same code path | Pass |
+| SC-007 exact filter + export | 1,000,166 rows in 11.6 s; GeoParquet export 189 MB, 1,000,166 rows (DuckDB CLI count) | 10k parity: 4,958 rows, export 4,958 | Pass |
+| SC-008 no silent subsets | audited in screenshots and tests: thinned notice ("Showing 25,000 of 70,400"), "about N" for FlatGeobuf estimates, the legend's "(estimated from N values)", status bar rows vs features, invalid-geometry banner | same UI | Pass |
+| SC-009 no regression | 10 MB open: 1.48 s warm (spec 001 baseline 1.59 s); every earlier suite passes (core 319, web 84 + scale, VS Code 66) | | Pass |
+
+**Scenario notes**
+- **3.3**: the legend says "(estimated from 200,000 values)", not "Breaks
+  from a 50,000-value sample". Natural breaks keeps spec 003's 200,000-value
+  sampling (research.md, US3 outcomes). Counts are exact.
+- **5.1**: "Load the whole file" was run on the 10k FlatGeobuf (0.2–0.4 s).
+  It was not run on the 1.45 GB file: in memory, that file is close to the
+  engine's limit, and an out-of-memory error would end in the FR-014
+  message.
+- **7.2 (Remote-SSH/WSL)**: not run, because no remote host was available.
+- **VS Code bytes read**: the 1.1 GB GeoParquet overview read 676 MB of
+  1,139 MB over the loopback server, not "tens of MB". It is fine locally,
+  and a residual risk for slow remotes (research.md).
+
 ## Definition of done
 
-- [ ] Scenarios 1–7 pass (7.2 recorded as observed).
-- [ ] SC-001–SC-009 are measured and recorded in a "Results" section here.
-- [ ] Every format's read mode and measured limits are in the extension
+- [X] Scenarios 1–7 pass (7.2 not run: no remote host; see Results).
+- [X] SC-001–SC-009 are measured and recorded in a "Results" section here.
+- [X] Every format's read mode and measured limits are in the extension
       README's format matrix (FR-018).
-- [ ] The spec 001–005 suites pass with the FR-009 changes.
+- [X] The spec 001–005 suites pass with the FR-009 changes.

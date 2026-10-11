@@ -216,6 +216,8 @@
   let countLabel = $derived.by(() => {
     if (loading) return 'Loading…'
     if (!layer) return ''
+    // PMTiles (spec 007 US5): the archive's feature count, from its metadata.
+    if (layer.facts?.readMode === 'tiles') return `${nf.format(layer.featureCount)} features in tiles`
     if (layer.truncated) return `Showing ${nf.format(layer.rowCount)} of ${nf.format(layer.totalRows)} rows`
     // Rows with invalid geometry are listed but not drawn (spec 002 amendment).
     if (layer.rowCount !== layer.featureCount) return `${nf.format(layer.rowCount)} rows · ${nf.format(layer.featureCount)} mapped`
@@ -402,7 +404,7 @@
           </button>
           <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
           <span class="spacer"></span>
-          {#if layer && layer.rowCount > 0 && !collapsed}
+          {#if layer && layer.rowCount > 0 && !collapsed && !store.needsLoad && !store.tilesOnlyReason}
             <span class="hint">Double-click a row to zoom</span>
           {/if}
           {#if layer}

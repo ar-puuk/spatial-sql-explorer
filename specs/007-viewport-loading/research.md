@@ -584,6 +584,59 @@ What changed from §9–§12 while building, with the evidence behind each.
   the reason, and the export command opens the dialog with it. The status
   bar shows "PMTiles · Zoom 4–10 · bounds · 1 layer".
 
+## Implementation outcomes (Polish, 2026-10-11)
+
+### FlatGeobuf views in JS
+
+The scale run found FlatGeobuf in parts unusable at 1.45 GB (4M parcels):
+- the first overview took **128 s**;
+- a 0.04° city box with `LIMIT 100` took 2.1 s, and a dense 1/36-of-extent
+  tile with `LIMIT 70` took 7.5 s.
+
+GDAL's spatial filter collects every index candidate first, then reads
+features one at a time through the handle (0.74 ms each, §4). The 47 ms
+city view in §4 had landed on a sparse area (49 features), so it
+understated the cost.
+
+**Decision**: map views of a WGS84 FlatGeobuf read in parts no longer use
+the engine (`source/fgbReader.ts`).
+- **Zoomed views**: the `flatgeobuf` reference library (BSD-3-Clause)
+  searches the packed R-tree and reads features in coalesced range batches
+  through `HostAdapter.readRange`.
+- **Overview**: the index level above the leaves is read once (one box per
+  16 features; 10 MB for 4M). It estimates what's in view, and a stable
+  sample of its node centers is drawn as dots. The notice says "about N".
+
+Measured (web): facts 2.0 s; overview **2.7 s** (was 128 s); city views
+**0.37 s** with ~380 real features each. Files in other CRSs keep the GDAL
+path, because the JS reader can't reproject. Queries still need **Load**.
+
+### Scale results (T058–T060)
+
+Web build; numbers from `test-results/scale.json`.
+
+| Criterion | Result |
+|---|---|
+| SC-001 GeoParquet 1.1 GB (6M) | facts 2.0 s, overview 4.9 s |
+| SC-001 FlatGeobuf 1.45 GB (4M) | facts 2.0–2.5 s, overview 2.7 s |
+| SC-002 GeoParquet 5 GB (27M) | facts 2.1 s, overview 9.5 s; filter 135,191 rows in 29 s; style, export (26 MB); engine memory 5–57 MiB throughout |
+| SC-003 city views | GeoParquet: 10 views, max 1.92 s (includes the 150 ms debounce); FlatGeobuf: 5 views, ~0.37 s |
+| SC-004 longest task | 143–152 ms (open, 10 pans, a query, a style) |
+| SC-005 Cancel | GeoParquet 0.23 s, FlatGeobuf 2.40 s, GeoJSON 325 MB 2.41 s |
+| SC-006 | the 325 MB GeoJSON is announced and opens in ~34 s; with `memoryLimit=64MB` the out-of-memory message appears and the next file opens |
+| SC-007 | `value > 1500000` on 4M = 1,000,166 rows in 11.6 s; the GeoParquet export (189 MB, 38.7 s) has 1,000,166 rows (counted by the DuckDB CLI) |
+
+VS Code (`SE_LARGE_DATA=1`):
+- SC-001 GeoParquet 1.1 GB: facts 2.2–2.8 s, overview 7.3–7.8 s;
+- SC-005 Cancel during the 325 MB parse: 2.06–2.10 s.
+
+**Residual: bytes read in VS Code.** The 1.1 GB overview read **676 MB**
+over the loopback server, in 616 requests, not the "tens of MB" the plan
+expected. The thinned sample touches every row group, and DuckDB's HTTP
+read-ahead fetches whole column chunks. Locally it fits the 10 s target.
+Over a slow Remote-SSH link it would not, so this is listed with the other
+residual risks.
+
 ## Residual risks
 
 | Risk | Mitigation |
@@ -592,4 +645,5 @@ What changed from §9–§12 while building, with the evidence behind each.
 | A future VS Code may change the service-worker pattern. | The probe detects any breakage and falls back; a VS Code integration test guards the path. |
 | The display cap in software WebGL (CI) is pessimistic. | The cap is measured, and the SC-003 timing excludes GPU-bound frame time. |
 | The registered handle broke after an OOM. | Recovery re-registers the source (§1), with a test. |
-| GDAL's cancel granularity during a whole-read parse. | Verified by the SC-005 test in implementation; if a parse can't be interrupted, the worker is terminated and the engine re-created. |
+| The VS Code overview of a 1.1 GB GeoParquet reads 676 MB over the loopback server (whole column chunks). | Fine locally; slow over Remote-SSH. A future option: overview from row-group statistics. |
+| GDAL's cancel granularity during a whole-read parse. | Confirmed: a parse ignores cancel (10.5 s). The engine is reset after a 2 s grace (`resetDuckDb`); measured 2.4 s on 325 MB (US4 outcomes). |

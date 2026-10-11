@@ -137,6 +137,8 @@ export interface ViewFeatures {
   thinned: boolean
   /** FlatGeobuf read in parts: `inView` is a floor ("more than"), not an exact count. */
   inViewAtLeast?: boolean
+  /** `inView` is estimated from a spatial index (FlatGeobuf in parts: ~16 features per index node). */
+  inViewEstimated?: boolean
   /** A quick first view, replaced by the full one at once (no subset notice). */
   preview?: boolean
   ms: number

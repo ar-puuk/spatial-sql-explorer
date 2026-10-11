@@ -400,3 +400,59 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
   await expect(exportDialog(page)).toHaveCount(0)
   await expect(button).toBeFocused()
 })
+
+// T061 (spec 007): the large-file states. A thinned map with its notice, the
+// FlatGeobuf "Load the whole file" state, and PMTiles' disabled panels.
+const fixtureFile = (name: string) => path.resolve(__dirname, '../../vscode-ext/fixtures', name)
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the large-file states (${scheme})`, async ({ page }) => {
+    test.setTimeout(120000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+
+    await page.goto('/?e2e=1&cap=1000')
+    await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.parquet'))
+    await expect(page.locator('.map-notice')).toContainText('Zoom in to see all', { timeout: 60000 })
+    await audit(page, 'thinned map with notice')
+
+    await page.goto('/?e2e=1&cap=1000&wholeThreshold=1')
+    await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
+    await expect(page.getByRole('button', { name: 'Load' }).first()).toBeVisible({ timeout: 60000 })
+    await page.keyboard.press('Control+Shift+Q')
+    await audit(page, 'load the whole file')
+
+    await page.goto('/?e2e=1')
+    await page.locator('input[type="file"]').setInputFiles(fixtureFile('sample.pmtiles'))
+    await expect(page.getByRole('status').filter({ hasText: 'PMTiles holds map tiles' }).first()).toBeVisible({ timeout: 60000 })
+    await page.keyboard.press('Control+Shift+Q')
+    await audit(page, 'PMTiles disabled panels')
+  })
+}
+
+test('keyboard: Cancel opening and Load are reachable and work from the keyboard', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+  await page.goto('/?e2e=1&slowParse=1')
+  await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.parquet'))
+  const cancel = page.getByRole('button', { name: 'Cancel opening' })
+  await expect(cancel).toBeVisible({ timeout: 10000 })
+  await cancel.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Drag a geospatial file here')).toBeVisible({ timeout: 3000 })
+
+  await page.goto('/?e2e=1&cap=1000&wholeThreshold=1')
+  await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
+  const load = page.getByRole('button', { name: 'Load' }).first()
+  await expect(load).toBeVisible({ timeout: 60000 })
+  // Reachable with Tab from the drawer header.
+  await page.getByRole('button', { name: 'Attributes' }).focus()
+  let reached = false
+  for (let i = 0; i < 15 && !reached; i++) {
+    await page.keyboard.press('Tab')
+    reached = await load.evaluate((el) => el === document.activeElement)
+  }
+  expect(reached, 'Tab reaches the Load button').toBe(true)
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { openState: () => { facts: { needsLoad: boolean } | null } } }).__spatialExplorerE2E.openState().facts?.needsLoad), { timeout: 60000 }).toBe(false)
+})

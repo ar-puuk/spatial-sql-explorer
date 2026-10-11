@@ -76,9 +76,9 @@ test('SC-001 / SC-003: ~10 MB file, cold and warm', async ({ page }) => {
   const warm = await timeOpen(page)
   results.warmMetadataMs = warm.metadataMs
   results.warmRenderedMs = warm.renderedMs
+  // Read once the drawn view settles: the attribute is cleared while the full view replaces the preview.
+  await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-rendered-features')) ?? 0), { timeout: 15000 }).toBeGreaterThan(0)
   results.renderedFeatures = Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
-
-  expect(results.renderedFeatures).toBeGreaterThan(0)
   expect(warm.renderedMs, 'SC-001 (warm): ~10 MB file rendered in under 2 s').toBeLessThan(2000)
   expect(warm.metadataMs, 'SC-003 (warm): CRS / count / type visible in under 2 s').toBeLessThan(2000)
 })

@@ -13,6 +13,7 @@ import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, R
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
+import type { FgbReader } from '../source/fgbReader.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
   categoryTotalsSql,
@@ -167,6 +168,11 @@ export interface LayerViewInfo {
   extent?: Bbox | null
   /** The open counted no invalid geometry: views skip ST_IsValid. */
   allValid?: boolean
+  /**
+   * FlatGeobuf read in parts, in WGS84: views read the file in JS (index
+   * search + batched range reads) instead of GDAL (research.md US7 outcomes).
+   */
+  fgbReader?: FgbReader
   /** Quoted geometry column of `__se_layer`. */
   geom: string
   attrs: string[]
@@ -594,7 +600,21 @@ export class QuerySession {
       const minSize = req.widthPx && req.widthPx > 0 ? ((box[2] - box[0]) / req.widthPx) * 2 : undefined
       let inView: number
       let thinned = false
-      if (target.index === 'fgb') {
+      const fgbReader = target.index === 'fgb' && this.facts?.defaultView !== false ? this.layerView?.fgbReader : undefined
+      if (fgbReader) {
+        // FlatGeobuf in parts, in JS: the features in view, or an overview from the index.
+        const v = await fgbReader.view(box, req.cap, isCancelled)
+        if (isCancelled()) throw new QueryCancelledError()
+        const features = wanted ? v.features.map((f) => ({ ...f, attributes: Object.fromEntries(Object.entries(f.attributes).filter(([k]) => wanted.includes(k))) })) : v.features
+        return {
+          generation: req.generation,
+          features: partial ? features.map((f) => (f.geometry?.type === 'Point' && Object.keys(f.attributes).length === 0 ? f : { ...f, partialAttributes: true })) : features,
+          inView: v.inView,
+          thinned: v.thinned,
+          ms: Math.round(performance.now() - started),
+          ...(v.exact ? {} : { inViewEstimated: true }),
+        }
+      } else if (target.index === 'fgb') {
         // FlatGeobuf in parts: tiles, each capped (research §4: ~0.74 ms per feature).
         const tiles = viewTiles(box)
         const per = Math.max(1, Math.ceil(req.cap / tiles.length))

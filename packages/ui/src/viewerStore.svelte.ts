@@ -656,7 +656,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
     const v = viewFeatures
     if (v?.thinned) {
-      const of = v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
+      const of = v.inViewEstimated ? `about ${viewNf.format(v.inView)}` : v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
       return { text: `Showing ${viewNf.format(v.features.length)} of ${of} in view. Zoom in to see all.`, kind: 'info', dismissible: false }
     }
     return null
