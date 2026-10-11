@@ -75,7 +75,8 @@ async function describeAndFetch(ctx: BuildContext): Promise<BuiltResult> {
 
   const columns: Array<{ name: string; type: string }> = []
   await streamRows(conn, `DESCRIBE ${RESULT_TABLE}`, isCancelled, (rows) => {
-    for (const r of rows) columns.push({ name: String(r.column_name), type: String(r.column_type) })
+    // Hidden engine columns (spec 007) are neither displayed, styled nor exported.
+    for (const r of rows) if (!String(r.column_name).startsWith('__se_')) columns.push({ name: String(r.column_name), type: String(r.column_type) })
   })
   const geometryColumns = columns.filter((c) => isGeometryType(c.type))
   const primary = geometryColumns[0] ?? null

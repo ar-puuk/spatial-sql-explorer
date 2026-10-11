@@ -13,10 +13,12 @@ import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { getDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
+import { formatFromFileName, readModeFor } from './source/readModes.js'
+import { internalLayerViewSql, publicLayerViewSql, visibleColumns } from './source/layerSql.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
-import type { Bbox, Layer, QueryableTable } from './models.js'
+import type { Bbox, Layer, OpenPhase, QueryableTable, ReadModeKind } from './models.js'
 import { QuerySession, SOURCE_TABLE } from './query/session.js'
-import { geometryTypeOf, quoteIdent, singleRow } from './query/util.js'
+import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow } from './query/util.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -229,6 +231,16 @@ async function aliasFor(conn: AsyncDuckDBConnection, primaryFileName: string): P
   return Number(kw.toArray()[0]?.toJSON().n ?? 0) > 0 ? null : base
 }
 
+/** Progress and cancellation for an open (spec 007 FR-002, contracts/core-data-access.md). */
+export interface OpenHooks {
+  /** Reports each visible phase (OpenProgress). */
+  onPhase?(phase: OpenPhase, detail?: { readMode?: ReadModeKind; sizeBytes?: number; format?: string }): void
+  /** Whole-read files over the threshold wait for this (FR-004); false cancels the open. */
+  confirmWholeRead?(sizeBytes: number, format: string): Promise<boolean>
+  /** Polled between steps; true stops the open with QueryCancelledError. */
+  isCancelled?(): boolean
+}
+
 export interface OpenedFile {
   /** The initial view: DEFAULT_QUERY's result, fitted to the whole file. */
   layer: Layer
@@ -249,17 +261,23 @@ export interface OpenedFile {
  * directly (larger files, which stay readable under the lockdown's
  * allowed_directories).
  */
-export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<OpenedFile> {
+export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks = {}): Promise<OpenedFile> {
   const { hostAdapter, duckdbAssets } = deps
+  const checkCancelled = (): void => {
+    if (hooks.isCancelled?.()) throw new QueryCancelledError()
+  }
+  hooks.onPhase?.('registering')
   let source = await hostAdapter.getFileSource(ref)
+  checkCancelled()
   const strategy = detectStrategy(source.name)
+  const format = formatFromFileName(source.name)
   // Small files that are parsed whole anyway read faster from memory than
   // through many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm),
   // and their size is no memory concern.
   if (source.kind !== 'bytes' && strategy !== 'parquet' && source.size <= MATERIALIZE_MAX_BYTES) {
     source = await hostAdapter.getFileSource(ref, { whole: true })
   }
-  if (strategy === 'unsupported') {
+  if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
     throw new Error(
       `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, and GML.`
     )
@@ -281,21 +299,37 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     return ms
   }
 
+  // How the engine reaches this file (research §4); a whole-transfer fallback
+  // means partial reads aren't available in this window (FR-015).
+  const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
+  const mode = readModeFor(format, source.size, { partialReads: fallback === null })
+
   try {
-    registered = await registerSource(db, source)
+    if (mode.mode === 'whole' && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
+      hooks.onPhase?.('announce', { sizeBytes: source.size, format })
+      if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
+    }
+    checkCancelled()
+    registered = await registerSource(db, source, () => hostAdapter.getFileSource(ref, { whole: true }))
+    hooks.onPhase?.(mode.mode === 'whole' ? 'reading' : 'facts', { readMode: mode.mode, sizeBytes: source.size, format })
     const vfsPath = registered.primaryPath
     const materialized = source.size <= MATERIALIZE_MAX_BYTES
     const read = await buildFromExpr(conn, strategy, vfsPath, materialized)
     const srid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, vfsPath, strategy)
     const crs = resolveCrsInfo(srid)
 
-    // The `layer` view: attributes, then the geometry as `geom` (source CRS).
+    checkCancelled()
+
+    // `__se_layer` (internal, with the hidden row id and bbox) and `layer`
+    // (what users query): attributes, then the geometry as `geom` in the
+    // source CRS (spec 002 FR-014; spec 007 research §9).
     const exclude = [read.geometryColumn, strategy === 'st_read' && read.columns.includes('OGC_FID') ? 'OGC_FID' : null].filter(
       (c): c is string => c !== null && read.columns.includes(c)
     )
     const geomName = read.columns.includes('geom') && read.geometryColumn !== 'geom' ? 'geometry' : 'geom'
-    const star = exclude.length ? `* EXCLUDE (${exclude.map(quoteIdent).join(', ')})` : '*'
-    await conn.query(`CREATE OR REPLACE VIEW layer AS SELECT ${star}, ${read.geomExpr} AS ${quoteIdent(geomName)} FROM ${read.fromExpr}`)
+    const attrs = read.columns.filter((c) => !exclude.includes(c))
+    await conn.query(internalLayerViewSql({ kind: 'reader', from: read.fromExpr, attrs, geomExpr: read.geomExpr, geomName }))
+    await conn.query(publicLayerViewSql({ kind: 'reader', from: read.fromExpr, attrs, geomExpr: read.geomExpr, geomName }))
     const alias = await aliasFor(conn, source.name)
     if (alias) await conn.query(`CREATE OR REPLACE VIEW ${quoteIdent(alias)} AS SELECT * FROM layer`)
     timings.prepare = lap()
@@ -347,6 +381,8 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
       geometryType: geometryTypeOf(stats.gtypes),
     }
     timings.scan = lap()
+    checkCancelled()
+    hooks.onPhase?.('facts', { readMode: mode.mode, sizeBytes: source.size, format })
 
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered.paths, hostAdapter.log?.bind(hostAdapter))
@@ -369,7 +405,22 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
       source: table.totals,
       styleSidecar,
       loadTimings: timings,
+      facts: {
+        rows,
+        rowsEstimated: false,
+        invalid: rows - features,
+        extent: table.extent,
+        crs: table.crs,
+        crsAssumed: table.crsAssumed,
+        srid,
+        geometryType: table.geometryType,
+        columns: visibleColumns(columns),
+        readMode: mode.mode,
+        spatialIndex: 'none',
+        fallback,
+      },
     }
+    hooks.onPhase?.('ready', { readMode: mode.mode })
     return { layer, session }
   } catch (err) {
     await session?.dispose().catch(() => {})

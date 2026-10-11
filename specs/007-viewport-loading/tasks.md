@@ -189,7 +189,7 @@ they skip with a message, never pass silently.
 
   Remove the temporary adapter from T006 once both shells use the new kinds.
   - *Done*: web getFileSource -> handle (style sidecar as text, data sidecars as handles), whole -> bytes; readRange via File.slice
-- [ ] T015 [P] Write `tests/core/result-model.test.ts` against pure SQL builders (no engine). Cover:
+- [X] T015 [P] Write `tests/core/result-model.test.ts` against pure SQL builders (no engine). Cover:
   - `layerViewSql(mode, info)`:
     - `partial` with covering → hidden columns mapped from `bbox.xmin…`;
     - `partial` without covering → hidden columns joined from `__se_bbox` on `file_row_number`;
@@ -198,14 +198,16 @@ they skip with a message, never pass silently.
   - `visibleColumns(columns)` strips every `__se_` name.
   - `resultSql(userSql, { hasHidden })` either keeps or recomputes the hidden columns.
   - Identifiers are quoted.
-- [ ] T016 Implement `packages/core/src/source/layerSql.ts` (the builders from T015, so T015 passes). Strip hidden columns everywhere columns leave core:
+  - *Done*: tests/core/result-model.test.ts: 9 tests (hidden names, visibleColumns, __se_layer per source kind incl. covering/no-covering/table/reader/st_read, quoting, public layer reads the source directly)
+- [X] T016 Implement `packages/core/src/source/layerSql.ts` (the builders from T015, so T015 passes). Strip hidden columns everywhere columns leave core:
   - `packages/core/src/query/catalog.ts` (autocomplete);
   - the `DESCRIBE` in `packages/core/src/openFile.ts`;
   - `packages/core/src/export/plan.ts` (column lists and the `SELECT` list);
   - the style column lists in `packages/core/src/style/resolve.ts`.
 
   Add a unit test asserting that the export plan's SQL never selects a `__se_` column.
-- [ ] T017 Rework `packages/core/src/openFile.ts`:
+  - *Done*: source/layerSql.ts builders. Design settled: internal __se_layer carries __se_rowid + bbox; public 'layer' reads the same source WITHOUT them (no row_number window, no lost pushdown in user queries). Hidden columns stripped in catalog, run.ts describe, export plan (+ unit test: never selected in any format)
+- [X] T017 Rework `packages/core/src/openFile.ts`:
   - **Signature**: `openFile(db, source: FileSource, hooks: { onPhase, confirmWholeRead, isCancelled })`. Use `registerSource` and `readModeFor`, and report phases.
   - **For now**, every mode except `tiles` still runs today's path through the new registration: parse and materialize, then `DEFAULT_QUERY`. Behavior is unchanged except that VS Code no longer transfers whole files.
   - **Wire the store**: update `packages/ui/src/viewerStore.svelte.ts` to call it.
@@ -215,6 +217,7 @@ they skip with a message, never pass silently.
   - all of `test:web`;
   - all of `test:vscode-ext`;
   - the VS Code output channel shows partial byte counts for `sample.parquet`.
+  - *Done*: openFile(ref, deps, hooks): phases (registering/announce/reading/facts/ready), confirmWholeRead, isCancelled; readModeFor with the FR-015 fallback; __se_layer + layer views; Layer.facts; session drops __se_layer/__se_bbox. Lint 0, core 280, web 58, vscode 57
 
 **Checkpoint**: both shells open every existing fixture through handles or the loopback server. The fallback works. Nothing user-visible changes yet.
 

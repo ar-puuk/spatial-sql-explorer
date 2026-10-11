@@ -196,3 +196,14 @@ describe('runner details', () => {
     expect(exportErrorMessage(new Error('Binder Error: x\nLINE 1'))).toBe('Binder Error: x')
   })
 })
+
+// T016 (spec 007): hidden engine columns never leave core.
+describe('hidden columns (spec 007)', () => {
+  it('are never selected, whatever the format', () => {
+    const c = ctx({ layer: { ...ctx().layer, columns: [...ctx().layer.columns, { name: '__se_rowid', type: 'BIGINT' }, { name: '__se_xmin', type: 'DOUBLE' }] } })
+    for (const format of ['geoparquet', 'geojson', 'csv'] as const) {
+      const sql = planExport(request({ format }), c).sql
+      expect(sql, format).not.toMatch(/__se_(rowid|xmin)/)
+    }
+  })
+})

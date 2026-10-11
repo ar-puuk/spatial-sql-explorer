@@ -1,6 +1,7 @@
 // What an export will do, decided before anything runs (spec 005
 // contracts/export-core.md, data-model.md ExportPlan). Pure: the dialog shows
 // the plan, and the runner executes its SQL.
+import { visibleColumns } from '../source/layerSql.js'
 import { reprojectToWgs84Sql } from '../crs.js'
 import type { GeometryType, Layer } from '../models.js'
 import type { ResultFacts } from '../query/session.js'
@@ -134,7 +135,9 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     if (/^(DECIMAL|NUMERIC)/i.test(type)) return `CAST(${id} AS DOUBLE) AS ${id}`
     return id
   }
-  const select: string[] = layer.columns.map(column)
+  // Hidden engine columns (__se_rowid, bbox) are never exported (spec 007).
+  const columns = visibleColumns(layer.columns)
+  const select: string[] = columns.map(column)
   for (const other of facts.otherGeometryColumns) select.push(`ST_AsText(${quoteIdent(other)}) AS ${quoteIdent(other)}`)
   if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
 
@@ -146,7 +149,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     if (format === 'geoparquet') select.push(`${valid(`ST_AsWKB(${projected})::BLOB`)} AS ${col}`)
     else if (format === 'geojson') select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
     else if (format === 'csv' && csvGeometry === 'xy') {
-      const taken = new Set(layer.columns.map((c) => c.name.toLowerCase()))
+      const taken = new Set(columns.map((c) => c.name.toLowerCase()))
       const [x, y] = taken.has('x') || taken.has('y') ? [`${g}_x`, `${g}_y`] : ['x', 'y']
       select.push(`${valid(`ST_X(${projected})`)} AS ${quoteIdent(x)}, ${valid(`ST_Y(${projected})`)} AS ${quoteIdent(y)}`)
     } else select.push(`${valid(`ST_AsText(${projected})`)} AS ${col}`)
@@ -162,7 +165,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
       )
     }
   }
-  notices.push(...typeNotices(format, layer.columns))
+  notices.push(...typeNotices(format, columns))
 
   const from = source === 'layer' ? quoteIdent('layer') : RESULT_TABLE
   const limit = shownOnly && displayLimited ? ` LIMIT ${displayLimited.shown}` : ''

@@ -368,6 +368,8 @@ export class QuerySession {
     await drop(`DROP TABLE IF EXISTS ${RESULT_TABLE}`)
     if (this.table.alias) await drop(`DROP VIEW IF EXISTS ${quoteIdent(this.table.alias)}`)
     await drop('DROP VIEW IF EXISTS layer')
+    await drop('DROP VIEW IF EXISTS __se_layer')
+    await drop('DROP TABLE IF EXISTS __se_bbox')
     await drop(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`)
     await this.conn.close().catch(() => {})
     for (const path of this.liveFiles) await this.db.dropFile(path).catch(() => {})

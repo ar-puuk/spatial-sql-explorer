@@ -29,7 +29,8 @@ export async function loadCatalog(conn: AsyncDuckDBConnection, isCancelled: () =
   for (const c of columns) {
     const t = String(c.table_name)
     const list = byTable.get(t) ?? []
-    list.push({ name: String(c.column_name), type: String(c.data_type) })
+    // Hidden engine columns (spec 007: __se_rowid, bbox) are never offered.
+    if (!String(c.column_name).startsWith('__se_')) list.push({ name: String(c.column_name), type: String(c.data_type) })
     byTable.set(t, list)
   }
   const tables = objects
