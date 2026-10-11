@@ -692,6 +692,33 @@
   .map-view :global(.maplibregl-ctrl-attrib.maplibregl-compact) {
     border: 1px solid var(--se-control-border);
   }
+  /* Spec 008 FR-035: MapLibre draws the compact attribution's "i" as a black
+     background image, invisible on dark themes. The same glyph is painted
+     here as a mask filled with the text token, so it follows light, dark and
+     high contrast. */
+  .map-view :global(.maplibregl-ctrl-attrib-button) {
+    background-image: none;
+    background-color: transparent;
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button)::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: var(--se-text-secondary);
+    -webkit-mask: var(--se-attrib-icon) center / 24px 24px no-repeat;
+    mask: var(--se-attrib-icon) center / 24px 24px no-repeat;
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button:hover)::before {
+    background-color: var(--se-text);
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button:focus-visible) {
+    box-shadow: none;
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
+  }
+  .map-view {
+    --se-attrib-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20fill-rule%3D%22evenodd%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M4%2010a6%206%200%201%200%2012%200%206%206%200%201%200-12%200m5-3a1%201%200%201%200%202%200%201%201%200%201%200-2%200m0%203a1%201%200%201%201%202%200v3a1%201%200%201%201-2%200%22%2F%3E%3C%2Fsvg%3E");
+  }
   .map-view :global(.maplibregl-ctrl-scale) {
     background: var(--se-control-bg);
     border: 1px solid var(--se-text-secondary);
