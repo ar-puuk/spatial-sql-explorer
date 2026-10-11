@@ -97,6 +97,8 @@
     // A typed code the list doesn't hold can still be used (the engine checks it).
     const typed = /^\s*(?:epsg\s*:?)?\s*(\d{3,6})\s*$/i.exec(q)
     if (typed && !catalog.byCode.has(Number(typed[1]))) add('Other code', [{ choice: Number(typed[1]), label: `Use EPSG:${typed[1]}`, code: null }], true, true)
+    // A local, built per search: not state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const byGroup = new Map<string, Item[]>()
     for (const e of hits) {
       const list = byGroup.get(e.group)

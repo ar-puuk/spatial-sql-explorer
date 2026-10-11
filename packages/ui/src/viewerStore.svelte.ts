@@ -631,6 +631,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // (PROJ), and every result is remembered. Only while the dialog is open,
   // and only when the code changes (not on every other export setting).
   let exportCrsCheck = $state.raw<ExportCrsCheck | null>(null)
+  // A cache, not state: exportCrsCheck is what the UI reads.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const crsChecked = new Map<number, ExportCrsCheck>()
   const crsToCheck = $derived(exportOpen && exportRequest.crs === 'custom' && exportRequest.crsCode !== undefined ? exportRequest.crsCode : null)
   // A root: the VS Code webview creates the store outside any component.
