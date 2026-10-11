@@ -209,7 +209,7 @@
   let countLabel = $derived.by(() => {
     if (loading) return 'Loading…'
     if (!layer) return ''
-    if (layer.truncated) return `Showing ${nf.format(layer.rowCount)} of ${nf.format(layer.source.rows)} rows`
+    if (layer.truncated) return `Showing ${nf.format(layer.rowCount)} of ${nf.format(layer.totalRows)} rows`
     // Rows with invalid geometry are listed but not drawn (spec 002 amendment).
     if (layer.rowCount !== layer.featureCount) return `${nf.format(layer.rowCount)} rows · ${nf.format(layer.featureCount)} mapped`
     return `${nf.format(layer.featureCount)} ${layer.featureCount === 1 ? 'feature' : 'features'}`

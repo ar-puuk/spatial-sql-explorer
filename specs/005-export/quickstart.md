@@ -70,10 +70,24 @@
 
 ## Definition of done
 
-- [ ] Scenarios 1–6 pass in both shells.
-- [ ] SC-002 is checked in QGIS for GeoJSON, GeoParquet (UTM and WGS84) and
+- [x] Scenarios 1–6 pass in both shells (automated: `export.spec.ts` for
+      the web, `export.test.ts` for VS Code; Scenario 6 is VS Code only).
+- [x] SC-002 is checked in QGIS for GeoJSON, GeoParquet (UTM and WGS84) and
       CSV.
-- [ ] SC-003 (100,000 polygons to GeoParquet in under 15 s) and SC-004
+- [x] SC-003 (100,000 polygons to GeoParquet in under 15 s) and SC-004
       (cancel in under 3 s) are measured.
-- [ ] SC-007: the source checksum is unchanged after every export test.
-- [ ] All spec 001–003 suites still pass.
+- [x] SC-007: the source checksum is unchanged after every export test.
+- [x] All spec 001–003 suites still pass (T034).
+
+## Results (2026-10-10)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| SC-002 QGIS read-back | **Pass.** QGIS 4.2.3 reads every offered format with all rows, the same fields and types, and the stated CRS; the projected GeoParquet reads as EPSG:26912 (DuckDB's default output read as EPSG:4326, research §3). | research.md, "SC-002 read-back"; `tests/qgis/read_back.py` |
+| SC-003 100,000 polygons → GeoParquet | **Pass.** 2,033 ms from Export to the download (18.6 MB); longest task 0 ms. Limit: 15 s, no task ≥ 1 s. 100,000 polygons to GeoJSON also streams with "rows written" progress. | `performance.spec.ts` (headless Chromium, production build) |
+| SC-004 cancel | **Pass.** 93 ms on a 1,000,000-row GeoJSON export (limit 3 s); no download, no file left in the engine, and the next query runs. | `performance.spec.ts`, `export.spec.ts` (US4) |
+| SC-005 notices | **Pass.** Unit tests cover every forced change: invalid/missing geometry, nested values (JSON text), big integers and dates (GeoJSON), blobs (base64 / text), extra geometry columns (WKT), reprojection, an assumed CRS. GeoParquet keeps every type and gets no type notices. Long names and mixed types don't apply: no offered format limits names (Shapefile is not offered), and GeoParquet, GeoJSON and CSV all hold mixed geometry types. | `export-plan.test.ts`, "notices known in advance" |
+| SC-006 parity | **Pass.** `world-boundaries.geojson` → GeoJSON: 180 features, 1 null geometry in both shells. `usa-utm12n.gpkg` → GeoParquet: PROJJSON `id` EPSG:26912 in both. | `export.spec.ts` (US1, US2); `export.test.ts` (US1, US2) |
+| SC-007 source unchanged | **Pass.** SHA-256 of the source before and after every checksummed export is identical; choosing the source as the target in VS Code is refused. | `export.spec.ts` (US1), `export.test.ts` (US1, T030) |
+| Accessibility | **Pass.** axe finds no violations in light or dark for the dialog (geometry result, CSV options, table result, running, cancelled); Tab reaches every control, focus stays in the dialog, Esc returns focus to Export. | `accessibility.spec.ts` (T028) |
+| Large transfer in VS Code | **Pass.** An 80,000-row GeoJSON (more than 32 MB, several base64 chunks) is saved with exactly the reported size and parses with every row. | `export.test.ts` (T030) |

@@ -332,6 +332,8 @@
   .options button[aria-checked='true'] {
     background: var(--se-button-bg);
     color: var(--se-button-fg);
+    /* High contrast has no filled button: the active contrast border marks the choice. */
+    box-shadow: inset 0 0 0 1px var(--se-selected-indicator);
   }
   .options button:disabled {
     opacity: 0.5;

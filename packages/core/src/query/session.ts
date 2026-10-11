@@ -240,6 +240,7 @@ export class QuerySession {
         featureCount: 0,
         invalidGeometryCount: 0,
         truncated: false,
+        totalRows: features.length,
         extent: null,
         features,
         columns,

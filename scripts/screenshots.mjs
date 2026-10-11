@@ -80,6 +80,12 @@ async function captureVsCode() {
         'extensions.ignoreRecommendations': true,
       })
     )
+    // Export scenes (spec 005 T031): a keybinding that points the next export
+    // at a temp file, so no native save dialog opens under automation.
+    fs.writeFileSync(
+      path.join(profile, 'User', 'keybindings.json'),
+      JSON.stringify([{ key: 'ctrl+alt+shift+f12', command: 'spatialExplorer._saveNextExportTo', args: path.join(profile, 'export-shot.geojson') }])
+    )
     const app = await electron.launch({
       executablePath,
       args: [
@@ -152,6 +158,7 @@ async function captureVsCode() {
       })
       await queryScenes(view, win, name)
       await styleScenes(view, win, name)
+      await exportScenes(view, win, name, async () => win.keyboard.press('Control+Alt+Shift+F12'))
       await step('native status bar while hovering', async () => {
         const box = await win.locator('iframe.webview').boundingBox()
         await win.mouse.move(box.x + box.width / 2 - 20, box.y + box.height * 0.3)
@@ -284,6 +291,60 @@ async function styleScenes(ui, win, prefix) {
   })
 }
 
+/**
+ * Spec 005 scenes (T031): the export dialog for a geometry result, the done
+ * confirmation with its notices, the display-limited rows choice, and the
+ * running progress. `beforeSave` points VS Code's save at a temp file.
+ */
+async function exportScenes(ui, win, prefix, beforeSave) {
+  const dialog = ui.getByRole('dialog', { name: 'Export data' })
+  const editor = ui.getByRole('textbox', { name: 'SQL query' })
+  await step('export: dialog', async () => {
+    await win.keyboard.press('Escape')
+    await ui.getByRole('button', { name: 'Export data…' }).click()
+    await dialog.waitFor({ timeout: 5000 })
+    await win.waitForTimeout(400)
+    await shot(win, `${prefix}-export`)
+  })
+  await step('export: done with notices', async () => {
+    await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await beforeSave()
+    if (prefix.startsWith('web')) {
+      await Promise.all([win.waitForEvent('download', { timeout: 30000 }), dialog.getByRole('button', { name: 'Export…' }).click()])
+    } else {
+      await dialog.getByRole('button', { name: 'Export…' }).click()
+    }
+    await dialog.getByRole('status').filter({ hasText: 'Saved' }).waitFor({ timeout: 30000 })
+    await win.waitForTimeout(300)
+    await shot(win, `${prefix}-export-done`)
+    await dialog.getByRole('button', { name: 'Done' }).click()
+  })
+  await step('export: display-limited rows', async () => {
+    await editor.click()
+    await win.keyboard.press('Control+A')
+    await win.waitForTimeout(250)
+    await win.keyboard.press('Delete')
+    await win.keyboard.insertText('SELECT a.name, ST_Centroid(a.geom) AS geom FROM layer a, range(10000) b LIMIT 1000000')
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('Control+Enter')
+    await ui.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click({ timeout: 30000 })
+    await ui.locator('.query-status').filter({ hasText: 'Showing first 50,000' }).waitFor({ timeout: 60000 })
+    await ui.getByRole('button', { name: 'Export data…' }).click()
+    await dialog.waitFor({ timeout: 5000 })
+    await win.waitForTimeout(400)
+    await shot(win, `${prefix}-export-limited`)
+  })
+  await step('export: running progress', async () => {
+    await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Export…' }).click()
+    await dialog.getByRole('status').filter({ hasText: /rows written/ }).waitFor({ timeout: 30000 })
+    await shot(win, `${prefix}-export-progress`)
+    await dialog.getByRole('button', { name: 'Cancel export' }).click()
+    await dialog.getByText('Export cancelled').waitFor({ timeout: 10000 })
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+  })
+}
+
 // --- Web -------------------------------------------------------------------
 
 async function waitForServer(url, timeoutMs) {
@@ -343,6 +404,7 @@ async function captureWeb() {
       })
       await queryScenes(page, page, `web-${scheme}`)
       await styleScenes(page, page, `web-${scheme}`)
+      await exportScenes(page, page, `web-${scheme}`, async () => {})
       await page.close()
     }
   } finally {

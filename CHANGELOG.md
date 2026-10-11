@@ -102,6 +102,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     says so before writing.
 - **Accessibility**: closing a map popover with Esc returns focus to its
   button (unless you were typing elsewhere).
+- **Export (spec 005).** Save the displayed result to a new file from the
+  **Export** button above the attribute table, or with **Spatial Explorer:
+  Export Data…** in the VS Code command palette.
+  - **Formats**: GeoParquet, GeoJSON and CSV (geometry as WKT, or X/Y
+    columns for points); results without geometry export as CSV or Parquet.
+    Only formats verified in the embedded engine are offered: FlatGeobuf,
+    GeoPackage, Shapefile and KML cannot be written by it yet.
+  - **Which rows**: the whole result. When only part of it is displayed, the
+    dialog asks: all rows (the default) or only the rows shown.
+  - **CRS**: the result's own CRS by default, or WGS84. GeoParquet carries the
+    full CRS definition, so QGIS reads projected exports in the right place
+    (verified in QGIS 4.2.3). GeoJSON is always WGS84 (RFC 7946).
+  - **Nothing lost silently**: a notice lists what the format changes
+    (invalid geometries written empty, nested values as JSON text, other
+    geometry columns as WKT, reprojection).
+  - **Large exports** show rows written and can be cancelled; nothing is
+    saved and nothing is left behind. In VS Code the file is saved next to the
+    data by default; the opened source can never be overwritten.
 
 ### Performance
 
@@ -115,3 +133,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ~0.1 s (spec 002 quickstart, Results).
 - Restyling 22,000 features takes ~0.1 s, and natural breaks on 50,000 values
   take ~0.2 s with no long tasks (spec 003 quickstart, Results).
+- Exporting 100,000 polygons to GeoParquet takes ~2 s with no long tasks, and
+  cancelling an export takes ~0.1 s (spec 005 quickstart, Results).

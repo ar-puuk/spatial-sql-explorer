@@ -286,14 +286,15 @@ results save as Parquet (FR-004, FR-008).
   - a result of more than 32 MB exported as GeoJSON (e.g. 80,000 generated polygons), proving the chunked transfer (bytes on disk equal the reported size);
   - choosing the source path via `_saveNextExportTo(<source>)` is refused, with the reply `saved: false` and the message.
   - *Done*: 80,000-row GeoJSON (>32 MB) saved byte-exact via chunks; source path refused, file unchanged. A 50 MB GeoJSON SOURCE did not open within 45 s in VS Code, so the large result is built by a query (noted in research.md)
-- [ ] T031 [P] Extend `scripts/screenshots.mjs` with export scenes in both shells:
+- [X] T031 [P] Extend `scripts/screenshots.mjs` with export scenes in both shells:
   - the dialog for a geometry result;
   - the display-limited rows choice;
   - the running progress;
   - the done confirmation with notices.
 
   Review all three VS Code themes and web light/dark.
-- [ ] T032 Record in `specs/005-export/quickstart.md`, in a "Results" section:
+  - *Done*: 4 export scenes x (3 VS Code themes + web light/dark), 20 shots reviewed. Fixed: HC checked segmented choices were indistinguishable (export dialog + style renderer switch now use the contrast active border); 'Showing 50,000 of N' reported the file's total instead of the result's (Layer.totalRows, regression test in query-large.spec)
+- [X] T032 Record in `specs/005-export/quickstart.md`, in a "Results" section:
   - SC-002 (the QGIS read-back from T020);
   - SC-003 and SC-004 (T029);
   - SC-005 (the notice coverage list);
@@ -301,10 +302,12 @@ results save as Parquet (FR-004, FR-008).
   - SC-007 (checksums).
 
   Tick the Definition-of-done boxes.
-- [ ] T033 [P] Update the docs:
+  - *Done*: Results table for SC-002..SC-007 + a11y + large transfer; DoD ticked
+- [X] T033 [P] Update the docs:
   - `CHANGELOG.md` (Added: export);
   - `apps/vscode-ext/README.md` (an Export bullet: formats, CRS, command);
   - `specs/005-export/research.md` (outcomes and deviations).
+  - *Done*: CHANGELOG (Added + Performance), extension README Export bullet, research.md 'Outcomes and deviations'
 - [ ] T034 Run the final full verification:
   - lint, all typechecks;
   - `test:core`, `test:web` (incl. performance) and `test:vscode-ext`;

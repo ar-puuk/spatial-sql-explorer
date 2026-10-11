@@ -233,7 +233,31 @@ and QGIS reads the result as EPSG:4326 with the right extent.
 - **The VS Code message channel**: binary `postMessage` from the webview is
   supported (VS Code serializes `ArrayBuffer`s). The 32 MB chunks mirror the
   proven host→webview direction, and the VS Code suite exports a file larger
-  than one chunk to prove it.
+  than one chunk to prove it. *Outcome:* sent as base64 instead (see
+  "Outcomes and deviations"); proven by T030.
+
+## Outcomes and deviations (T033, 2026-10-10)
+
+- **Bytes cross the VS Code bridge as base64 chunks**, not `Uint8Array`s.
+  The webview's `post()` JSON-normalizes every message (the same path every
+  other message uses), which turns a typed array into an object of indices.
+  Base64 chunks of 24 MB raw (32 MB encoded) keep each message bounded. The
+  VS Code suite saves an 80,000-row GeoJSON (more than 32 MB, so several
+  chunks) and checks that the bytes on disk equal the reported size (T030).
+- **No new code for T019, T022 and T025.** The CRS override (T019) already
+  flowed from spec 002's result CRS into the plan, the format list (T022) was
+  already driven by `EXPORT_FORMATS`, and cancel cleanup (T025) was already
+  in `runExport`'s `finally`. Each task added its test only.
+- **The footer button is "Done"**, not "Close", after a successful export:
+  the header already has a "Close" icon button, and two buttons with the same
+  name confused screen readers and tests.
+- **A 50 MB GeoJSON source did not open within 45 s in VS Code** (found while
+  writing T030). That is spec 001's loading path, not export: the T030 test
+  builds its large result with a query instead. Viewport loading (the next
+  planned spec) is where this belongs.
+- **Measured** (T029, production web build, headless Chromium): 100,000
+  polygons to GeoParquet in 2,033 ms (18.6 MB), longest task 0 ms; cancelling
+  a 1,000,000-row GeoJSON export took 93 ms.
 
 ## SC-002 read-back (T020, 2026-10-10)
 

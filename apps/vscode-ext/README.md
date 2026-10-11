@@ -40,6 +40,11 @@ table, without opening a desktop GIS.
   selection. Results go to the map and the table. Autocomplete covers your
   columns and the spatial functions, errors are underlined where they
   happen, and recent queries are kept per file.
+- **Export.** Save the displayed result as GeoParquet, GeoJSON or CSV (or
+  Parquet for tables) from the **Export** button above the table, or with
+  **Spatial Explorer: Export Data…**. Exports keep the data's CRS (GeoParquet
+  records it so QGIS reads it correctly) or reproject to WGS84, and a notice
+  lists anything the format changes. The source file is never modified.
 - **Local-first.** Files are read by an embedded DuckDB engine inside the
   editor and are never uploaded. The network is used only for the DuckDB
   spatial extension and basemap tiles.
