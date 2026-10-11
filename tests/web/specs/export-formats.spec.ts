@@ -1,12 +1,13 @@
-// T049 (spec 008 US4, FR-019–FR-021, SC-010): the "Include geometry" switch,
-// the grouped format list, and every new format written by the real build and
-// read back by the real engine (GDAL's readers), with the same row count.
+// T049 (spec 008 US4, FR-019–FR-021, SC-010): the format list grouped by
+// geometry, the output CRS (any EPSG code), and every new format written by
+// the real build and read back by the real engine (GDAL's readers), with the
+// same row count.
 import { test, expect, type Page } from '@playwright/test'
 import { unzipSync, strFromU8 } from 'fflate'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { exportDialog, exportVia, fixture, openFile, writeParcels } from './helpers'
+import { chooseFormat, exportDialog, exportVia, fixture, formatGroup, openFile, writeParcels } from './helpers'
 
 type Inspected = { rows: number; types: string[]; crs: string | null; columns: string[] }
 const inspect = (page: Page, files: Array<{ name: string; bytes: Uint8Array | Buffer }>): Promise<Inspected> =>
@@ -14,21 +15,67 @@ const inspect = (page: Page, files: Array<{ name: string; bytes: Uint8Array | Bu
     (f) => (window as unknown as { __spatialExplorerE2E: { inspectExport(f: unknown): Promise<Inspected> } }).__spatialExplorerE2E.inspectExport(f),
     files.map((f) => ({ name: f.name, base64: Buffer.from(f.bytes).toString('base64') }))
   )
-const formats = (page: Page) => exportDialog(page).getByRole('radiogroup', { name: 'Format' }).getByRole('radio').allTextContents()
+const crsSelect = (page: Page) => exportDialog(page).getByLabel('Coordinate reference system')
 
-test('the geometry switch picks the list; an invalid choice is replaced, and says so', async ({ page }) => {
+test('formats are grouped by geometry; the group picked decides whether it is written', async ({ page }) => {
   await openFile(page, fixture('wide-50.parquet'), '?e2e=1')
   await page.getByRole('button', { name: 'Export data…' }).click()
-  const toggle = exportDialog(page).getByRole('switch', { name: 'Include geometry' })
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  expect(await formats(page)).toEqual(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV'])
-  await exportDialog(page).getByRole('radio', { name: 'Shapefile (zip)' }).click()
+  await expect(exportDialog(page).getByLabel('Format', { exact: true })).toBeFocused()
+  expect(await formatGroup(page, 'With geometry')).toEqual(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV'])
+  expect(await formatGroup(page, 'Attributes only')).toEqual(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
+  await chooseFormat(page, 'Shapefile (zip)')
+  await expect(exportDialog(page)).toContainText('wide-50-export.shp.zip')
   // Shapefile field names: every rename listed before export (FR-021).
   await expect(exportDialog(page)).toContainText('a very long column name 5 → a_very_lon')
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'false')
-  expect(await formats(page)).toEqual(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
-  await expect(exportDialog(page).getByRole('status').filter({ hasText: "Shapefile (zip) isn't available without geometry: using CSV." })).toBeVisible()
+  await expect(crsSelect(page)).toBeVisible()
+  await chooseFormat(page, 'CSV', 'Attributes only')
+  await expect(crsSelect(page)).toHaveCount(0)
+  await expect(exportDialog(page).getByLabel('Geometry as')).toHaveCount(0)
+  await chooseFormat(page, 'CSV', 'With geometry')
+  await expect(exportDialog(page).getByLabel('Geometry as')).toBeVisible()
+})
+
+test('any EPSG code: checked by the engine before export, and written', async ({ page }) => {
+  test.setTimeout(120000)
+  await openFile(page, fixture('usa-utm12n.gpkg'), '?e2e=1')
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await chooseFormat(page, 'GeoPackage')
+  await expect(crsSelect(page).locator('option')).toHaveText([/^EPSG:26912.* · as the result$/, 'EPSG:4326 · WGS 84', 'EPSG:3857 · Web Mercator', 'Other EPSG code…'])
+  await crsSelect(page).selectOption('other')
+  const code = exportDialog(page).getByLabel('EPSG code')
+  await expect(code).toBeFocused()
+  const status = exportDialog(page).locator('#export-epsg-status')
+  const exportButton = exportDialog(page).getByRole('button', { name: 'Export…' })
+  await expect(exportButton).toBeDisabled()
+  await code.fill('999999')
+  await expect(status).toContainText('EPSG:999999 is not a known CRS.')
+  await expect(code).toHaveAttribute('aria-invalid', 'true')
+  await expect(exportButton).toBeDisabled()
+  // An unusable code blocks this dialog only, not the toolbar's Export button.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Export data…' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await expect(code).toHaveValue('999999')
+  await code.fill('EPSG:5070')
+  await expect(status).toContainText('NAD83 / Conus Albers')
+  await expect(exportButton).toBeEnabled()
+  await expect(exportDialog(page)).toContainText('reprojected from')
+  const { name, bytes } = await exportVia(page, { format: 'GeoPackage' })
+  const back = await inspect(page, [{ name, bytes }])
+  expect(back.rows).toBe(1)
+  expect(back.crs).toBe('5070')
+
+  // The choice is remembered, code included.
+  await exportDialog(page).getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await expect(crsSelect(page)).toHaveValue('other')
+  await expect(exportDialog(page).getByLabel('EPSG code')).toHaveValue('5070')
+
+  // Back to the result's CRS: the code box goes, and nothing is reprojected.
+  await crsSelect(page).selectOption('result')
+  await expect(exportDialog(page).getByLabel('EPSG code')).toHaveCount(0)
+  await expect(exportDialog(page)).not.toContainText('reprojected')
+  await expect(crsSelect(page)).toHaveValue('result')
 })
 
 for (const [label, ext] of [
@@ -73,7 +120,7 @@ test('Shapefile (zip): one set, the CRS kept, read back with the same rows', asy
 test('a mixed result as Shapefile: one set per geometry type', async ({ page }) => {
   await openFile(page, fixture('mixed-types.geojson'), '?e2e=1')
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await exportDialog(page).getByRole('radio', { name: 'Shapefile (zip)' }).click()
+  await chooseFormat(page, 'Shapefile (zip)')
   await expect(exportDialog(page)).toContainText('points, lines and polygons are written as separate Shapefiles')
   const { bytes } = await exportVia(page, { format: 'Shapefile (zip)' })
   expect(Object.keys(unzipSync(new Uint8Array(bytes))).filter((n) => n.endsWith('.shp')).sort()).toEqual(['mixed-types_points.shp', 'mixed-types_polygons.shp'])
@@ -82,8 +129,6 @@ test('a mixed result as Shapefile: one set per geometry type', async ({ page }) 
 test('without geometry: Excel and JSON', async ({ page }) => {
   test.setTimeout(120000)
   await openFile(page, writeParcels(300), '?e2e=1')
-  await page.getByRole('button', { name: 'Export data…' }).click()
-  await exportDialog(page).getByRole('switch', { name: 'Include geometry' }).click()
   const xlsx = await exportVia(page, { format: 'Excel workbook' })
   expect(xlsx.name).toBe('parcels-300-export.xlsx')
   const sheet = strFromU8(unzipSync(new Uint8Array(xlsx.bytes))['xl/worksheets/sheet1.xml'])

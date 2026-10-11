@@ -2,7 +2,7 @@
 // contracts/export-core.md, data-model.md ExportPlan). Pure: the dialog shows
 // the plan, and the runner executes its SQL.
 import { visibleColumns } from '../source/layerSql.js'
-import { reprojectToWgs84Sql } from '../crs.js'
+import { reprojectSql } from '../crs.js'
 import type { GeometryType, Layer } from '../models.js'
 import type { ResultFacts } from '../query/session.js'
 import { quoteIdent } from '../query/util.js'
@@ -17,7 +17,10 @@ export const GEOJSON_JSON_PREFIX = '__se_json__'
 
 export interface ExportRequest {
   format: ExportFormatId
-  crs: 'result' | 'wgs84'
+  /** The result's CRS, WGS84, or (spec 008) another EPSG code, `crsCode`. */
+  crs: 'result' | 'wgs84' | 'custom'
+  /** Spec 008: the EPSG code for `crs: 'custom'` (checked by the engine before export, QuerySession.describeCrs). */
+  crsCode?: number
   /** CSV only; 'xy' only for point layers. */
   csvGeometry: 'wkt' | 'xy'
   /**
@@ -27,8 +30,9 @@ export interface ExportRequest {
    */
   scope?: ExportScope
   /**
-   * Spec 008 FR-019: write the geometry (on by default when the result has
-   * one). Off lists the attribute formats (CSV, Parquet, Excel, JSON).
+   * Spec 008 FR-019: write the geometry. By default on when the result has
+   * one, unless the format holds attributes only. Off lists the attribute
+   * formats (CSV, Parquet, Excel, JSON).
    */
   includeGeometry?: boolean
 }
@@ -53,7 +57,7 @@ export interface ExportPlan {
   blocked: string | null
   /** The format actually used (the request's, or the first available). */
   format: ExportFormatId
-  crs: { output: 'result' | 'wgs84'; label: string; srid: number | null; forced: boolean; reason?: string }
+  crs: { output: 'result' | 'wgs84' | 'custom'; label: string; srid: number | null; forced: boolean; reason?: string; /** The result's own CRS, whatever is chosen. */ resultLabel: string }
   csvGeometry: 'wkt' | 'xy'
   xyAvailable: boolean
   geometryColumn: string | null
@@ -113,13 +117,13 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const hasGeometry = facts.geometryColumn !== null
   const blocked = facts.exportable ? null : 'Run a query (not DESCRIBE, SHOW, SUMMARIZE or EXPLAIN) to export its result.'
 
-  // Spec 008 FR-019: "Include geometry" picks the list: spatial formats, or attribute formats.
-  const includeGeometry = hasGeometry && request.includeGeometry !== false
+  // Spec 008 FR-019: with geometry, the spatial formats; without, the attribute formats.
+  const includeGeometry = hasGeometry && (request.includeGeometry ?? EXPORT_FORMATS.find((f) => f.id === request.format)?.group !== 'attributes')
   const formats = EXPORT_FORMATS.map((f) => {
     if (blocked) return { id: f.id, available: false, reason: blocked }
     if (f.group === 'spatial' && !hasGeometry) return { id: f.id, available: false, reason: `${f.label} needs a geometry column; this result has none.` }
-    if (f.group === 'spatial' && !includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds geometry: turn on "Include geometry".` }
-    if (f.group === 'attributes' && includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds attributes only: turn off "Include geometry".` }
+    if (f.group === 'spatial' && !includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds geometry: it is listed under "With geometry".` }
+    if (f.group === 'attributes' && includeGeometry) return { id: f.id, available: false, reason: `${f.label} holds attributes only: it is listed under "Attributes only".` }
     return { id: f.id, available: true }
   })
   const format = formats.find((f) => f.id === request.format && f.available)?.id ?? formats.find((f) => f.available)?.id ?? request.format
@@ -138,11 +142,14 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const resultCrs = facts.resultCrs
   const resultIsWgs84 = !resultCrs || resultCrs.srid === null || resultCrs.srid === 4326
   const forced = fmt.crs === 'wgs84-only'
-  const output: 'result' | 'wgs84' = forced || resultIsWgs84 ? (forced ? 'wgs84' : request.crs) : request.crs
+  const customCode = request.crs === 'custom' && Number.isInteger(request.crsCode) && (request.crsCode ?? 0) > 0 ? (request.crsCode as number) : null
+  const output: 'result' | 'wgs84' | 'custom' = forced ? 'wgs84' : request.crs === 'custom' ? (customCode ? 'custom' : 'result') : request.crs
+  const targetSrid = output === 'wgs84' ? 4326 : output === 'custom' ? (customCode as number) : (resultCrs?.srid ?? null)
   const crs: ExportPlan['crs'] = {
     output,
-    label: output === 'wgs84' ? 'EPSG:4326 (WGS84)' : (resultCrs?.label ?? 'EPSG:4326 (WGS84)'),
-    srid: output === 'wgs84' ? 4326 : (resultCrs?.srid ?? null),
+    resultLabel: resultCrs?.label ?? 'EPSG:4326 (WGS84)',
+    label: output === 'wgs84' ? 'EPSG:4326 (WGS84)' : output === 'custom' ? `EPSG:${customCode}` : (resultCrs?.label ?? 'EPSG:4326 (WGS84)'),
+    srid: targetSrid,
     forced,
     reason: forced ? (format === 'kml' ? 'KML is always WGS84 (longitude, latitude).' : `${fmt.label} is always WGS84 (longitude, latitude), as RFC 7946 requires.`) : undefined,
   }
@@ -181,7 +188,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const g = facts.geometryColumn
   if (g && includeGeometry) {
     const col = quoteIdent(g)
-    const projected = output === 'wgs84' && !resultIsWgs84 ? reprojectToWgs84Sql(col, resultCrs?.srid ?? null) : col
+    const projected = output === 'result' || targetSrid === null ? col : reprojectSql(col, resultCrs?.srid ?? null, targetSrid)
     const valid = (expr: string) => `CASE WHEN ${col} IS NOT NULL AND ST_IsValid(${col}) THEN ${expr} END`
     if (format === 'geoparquet') select.push(`${valid(`ST_AsWKB(${projected})::BLOB`)} AS ${col}`)
     else if (format === 'geojson' || jsWriter) select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
@@ -191,6 +198,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
       select.push(`${valid(`ST_X(${projected})`)} AS ${quoteIdent(x)}, ${valid(`ST_Y(${projected})`)} AS ${quoteIdent(y)}`)
     } else select.push(`${valid(`ST_AsText(${projected})`)} AS ${col}`)
 
+    if (output === 'custom' && customCode !== (resultCrs?.srid ?? 4326)) notices.push(`Coordinates are reprojected from ${resultCrs?.label ?? 'EPSG:4326 (WGS84)'} to EPSG:${customCode}.`)
     if (fmt.crs === 'wgs84-only' && !resultIsWgs84) notices.push(`${fmt.label} is always WGS84 (longitude, latitude): coordinates are reprojected from ${resultCrs?.label}.`)
     if (format === 'shapefile') {
       if (layer.geometryType === 'Mixed') notices.push('A Shapefile holds one geometry type: points, lines and polygons are written as separate Shapefiles in the zip.')
@@ -217,7 +225,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const selectList =
     format === 'geojsonseq'
       ? `'Feature' AS "type", ${columns.length ? `struct_pack(${columns.map((c) => `${quoteIdent(c.name)} := ${quoteIdent(c.name)}`).join(', ')})` : 'NULL'} AS properties, ${
-          g ? `CASE WHEN ${quoteIdent(g)} IS NOT NULL AND ST_IsValid(${quoteIdent(g)}) THEN ST_AsGeoJSON(${output === 'wgs84' && !resultIsWgs84 ? reprojectToWgs84Sql(quoteIdent(g), resultCrs?.srid ?? null) : quoteIdent(g)})::JSON END` : 'NULL'
+          g ? `CASE WHEN ${quoteIdent(g)} IS NOT NULL AND ST_IsValid(${quoteIdent(g)}) THEN ST_AsGeoJSON(${output === 'result' || targetSrid === null ? quoteIdent(g) : reprojectSql(quoteIdent(g), resultCrs?.srid ?? null, targetSrid)})::JSON END` : 'NULL'
         } AS geometry`
       : select.join(', ') || '*'
   const sql = `SELECT ${selectList} FROM ${from}`

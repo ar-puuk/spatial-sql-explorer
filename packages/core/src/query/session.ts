@@ -4,6 +4,7 @@
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
+import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
 import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest, type ViewFeatures, type ViewRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
@@ -240,6 +241,22 @@ export class QuerySession {
   private filterWhere: string | null = null
   /** Rows matching the filters, once counted (null: not counted, or no filters). */
   private matchingRows: number | null = null
+  /**
+   * Spec 008: checks an EPSG code against the engine's PROJ database (for
+   * exporting to a CRS the user types), and returns its name.
+   */
+  async describeCrs(srid: number): Promise<{ ok: true; name: string } | { ok: false; reason: string }> {
+    if (!Number.isInteger(srid) || srid <= 0) return { ok: false, reason: 'Enter an EPSG code, e.g. 26912.' }
+    return this.exclusive(async (isCancelled) => {
+      try {
+        const p = (await projjsonFor(this.db, this.conn, srid, isCancelled)) as { name?: string }
+        return { ok: true as const, name: p.name ?? `EPSG:${srid}` }
+      } catch {
+        return { ok: false as const, reason: `EPSG:${srid} is not a known CRS.` }
+      }
+    }, 'background')
+  }
+
   /** Spec 008: assets JS export writers need (sql.js's wasm). */
   private exportAssets: ExportAssets = {}
   setExportAssets(assets: ExportAssets): void {

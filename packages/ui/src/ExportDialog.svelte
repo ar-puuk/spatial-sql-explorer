@@ -20,10 +20,67 @@
   const request = $derived(store.exportRequest)
   const running = $derived(store.exportPhase === 'running')
   const outcome = $derived(store.exportOutcome)
-  const available = $derived(EXPORT_FORMATS.filter((f) => plan?.formats.find((x) => x.id === f.id)?.available))
   const hasGeometry = $derived(plan?.geometryColumn !== null && plan?.geometryColumn !== undefined)
-  /** Spec 008 FR-019: the chosen format doesn't fit the geometry choice: the plan took another one. */
-  const replaced = $derived(plan && request.format !== plan.format ? EXPORT_FORMATS.find((f) => f.id === request.format)?.label : null)
+  const withGeometry = EXPORT_FORMATS.filter((f) => f.group !== 'attributes')
+  const attributesOnly = EXPORT_FORMATS.filter((f) => f.group !== 'spatial')
+  /** Spec 008 (user request): one line on what each format is good for. */
+  const ABOUT: Record<ExportFormatId, string> = {
+    geoparquet: 'Columnar and compact; keeps the CRS. Reads in QGIS, DuckDB and GeoPandas.',
+    geopackage: "A single SQLite file; keeps the CRS. QGIS's default format.",
+    geojson: 'Text, for the web. Always WGS 84.',
+    flatgeobuf: 'Binary and streamable; keeps the CRS.',
+    shapefile: '.shp, .dbf, .shx and .prj in one zip. Field names are cut to 10 characters.',
+    kml: 'For Google Earth. Always WGS 84.',
+    geojsonseq: 'One GeoJSON feature per line. Always WGS 84.',
+    csv: 'A plain text table.',
+    parquet: 'Columnar and compact.',
+    xlsx: 'An Excel workbook, one sheet.',
+    json: 'An array of row objects.',
+  }
+  const SCOPE_LABEL: Record<ExportScope, string> = { all: 'All rows', filtered: 'Filtered rows', selected: 'Selected rows' }
+
+  // The CRS choice: the result's, WGS 84, Web Mercator, or any EPSG code (checked by the engine).
+  const WEB_MERCATOR = 3857
+  // svelte-ignore state_referenced_locally
+  let otherChosen = $state(request.crs === 'custom' && request.crsCode !== WEB_MERCATOR)
+  // svelte-ignore state_referenced_locally
+  let epsgText = $state(request.crs === 'custom' && request.crsCode !== WEB_MERCATOR && request.crsCode ? String(request.crsCode) : '')
+  let epsgInput = $state<HTMLInputElement>()
+  const crsChoice = $derived(
+    plan?.crs.forced ? 'wgs84' : request.crs !== 'custom' ? request.crs : !otherChosen && request.crsCode === WEB_MERCATOR ? 'webmercator' : 'other'
+  )
+  const resultIsWgs84 = $derived(plan?.crs.resultLabel.startsWith('EPSG:4326') ?? false)
+  const check = $derived(store.exportCrsCheck)
+
+  /** "26912", "EPSG:26912": the code; empty: none; anything else: 0 (the engine says why). */
+  const parseCode = (text: string): number | undefined => {
+    if (!text.trim()) return undefined
+    const m = /^\s*(?:epsg\s*:?)?\s*(\d{1,6})\s*$/i.exec(text)
+    return m ? Number(m[1]) : 0
+  }
+  let typing: ReturnType<typeof setTimeout> | null = null
+  function commitCode(): void {
+    if (typing) clearTimeout(typing)
+    typing = null
+    store.setExportRequest({ crs: 'custom', crsCode: parseCode(epsgText) })
+  }
+  function chooseCrs(v: string): void {
+    otherChosen = v === 'other'
+    if (!otherChosen && typing) clearTimeout(typing)
+    if (v === 'result' || v === 'wgs84') store.setExportRequest({ crs: v })
+    else if (v === 'webmercator') store.setExportRequest({ crs: 'custom', crsCode: WEB_MERCATOR })
+    else {
+      commitCode()
+      void tick().then(() => epsgInput?.focus())
+    }
+  }
+
+  /** Format options carry the geometry choice: CSV is in both groups. */
+  const formatValue = $derived(plan ? `${plan.includeGeometry ? 'g' : 'a'}:${plan.format}` : '')
+  function chooseFormat(value: string): void {
+    const [g, id] = value.split(':')
+    store.setExportRequest({ format: id as ExportFormatId, includeGeometry: g === 'g' })
+  }
 
   let dialog = $state<HTMLDivElement>()
   let now = $state(performance.now())
@@ -37,6 +94,7 @@
   })
   onDestroy(() => {
     if (timer) clearInterval(timer)
+    if (typing) clearTimeout(typing)
   })
 
   const progressText = $derived.by(() => {
@@ -49,10 +107,6 @@
 
   const size = (bytes: number): string =>
     bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} bytes`
-
-  function chooseFormat(id: ExportFormatId): void {
-    store.setExportRequest({ format: id })
-  }
 
   function close(): void {
     if (running) return
@@ -67,7 +121,12 @@
       else close()
       return
     }
-    if (e.key === 'Enter' && !running && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement)) {
+    if (e.key === 'Enter' && e.target === epsgInput) {
+      e.preventDefault()
+      commitCode()
+      return
+    }
+    if (e.key === 'Enter' && !running && !store.exportDisabled && !store.exportCrsProblem && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement)) {
       e.preventDefault()
       void store.runExport()
       return
@@ -88,19 +147,8 @@
     }
   }
 
-  /** Radio groups: arrows move and select (WAI-ARIA radio group). */
-  function radioKeys(e: KeyboardEvent, values: string[], current: string, pick: (v: string) => void): void {
-    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
-    if (!dir) return
-    e.preventDefault()
-    const next = values[(values.indexOf(current) + dir + values.length) % values.length]
-    pick(next)
-    const group = (e.currentTarget as HTMLElement).closest('[role="radiogroup"]')
-    void tick().then(() => group?.querySelector<HTMLElement>(`[data-value="${next}"]`)?.focus())
-  }
-
   onMount(() => {
-    void tick().then(() => dialog?.querySelector<HTMLElement>('[aria-checked="true"], button.primary')?.focus())
+    void tick().then(() => dialog?.querySelector<HTMLElement>('.body select:not([disabled]), button.primary')?.focus())
   })
 </script>
 
@@ -117,115 +165,91 @@
       <div class="body">
         {#if plan.scopes.length > 1}
           <!-- Spec 008 FR-014: all rows, the filtered rows, or the selected rows. -->
-          <div class="field">
-            <span class="label" id="export-rows">Rows</span>
-            <div class="options" role="radiogroup" aria-labelledby="export-rows">
+          <div class="setting">
+            <label for="export-rows">Rows</label>
+            <select id="export-rows" value={plan.scope} disabled={running} onchange={(e) => store.setExportRequest({ scope: e.currentTarget.value as ExportScope })}>
               {#each plan.scopes as sc (sc.id)}
-                {@const label = `${sc.id === 'all' ? 'All' : sc.id === 'filtered' ? 'Filtered' : 'Selected'} (${sc.rows.toLocaleString('en-US')})`}
-                <button
-                  type="button"
-                  role="radio"
-                  data-value={sc.id}
-                  aria-checked={plan.scope === sc.id}
-                  tabindex={plan.scope === sc.id ? 0 : -1}
-                  disabled={running}
-                  onclick={() => store.setExportRequest({ scope: sc.id })}
-                  onkeydown={(e) =>
-                    radioKeys(
-                      e,
-                      plan.scopes.map((x) => x.id),
-                      plan.scope,
-                      (v) => store.setExportRequest({ scope: v as ExportScope })
-                    )}>{label}</button
-                >
+                <option value={sc.id}>{SCOPE_LABEL[sc.id]} ({nf.format(sc.rows)})</option>
               {/each}
-            </div>
-          </div>
-        {/if}
-        <!-- Spec 008 FR-019: with geometry, the spatial formats; without, the attribute formats. -->
-        <div class="field">
-          <span class="label" id="export-geometry-switch">Geometry</span>
-          <button
-            type="button"
-            role="switch"
-            class="switch"
-            aria-label="Include geometry"
-            aria-checked={plan.includeGeometry}
-            disabled={running || !hasGeometry}
-            title={hasGeometry ? undefined : 'This result has no geometry column.'}
-            onclick={() => store.setExportRequest({ includeGeometry: !plan.includeGeometry })}
-          >
-            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-            <span>Include geometry</span>
-          </button>
-        </div>
-        <div class="field">
-          <span class="label" id="export-format">Format</span>
-          <div class="options" role="radiogroup" aria-labelledby="export-format">
-            {#each available as f (f.id)}
-              <button
-                type="button"
-                role="radio"
-                data-value={f.id}
-                aria-checked={plan.format === f.id}
-                tabindex={plan.format === f.id ? 0 : -1}
-                disabled={running}
-                onclick={() => chooseFormat(f.id)}
-                onkeydown={(e) =>
-                  radioKeys(
-                    e,
-                    available.map((x) => x.id),
-                    plan.format,
-                    (v) => chooseFormat(v as ExportFormatId)
-                  )}>{f.label}</button
-              >
-            {/each}
-          </div>
-        </div>
-        {#if replaced}
-          <p class="hint" role="status">{replaced} isn't available {plan.includeGeometry ? 'with' : 'without'} geometry: using {EXPORT_FORMATS.find((f) => f.id === plan.format)?.label}.</p>
-        {/if}
-
-        {#if hasGeometry && plan.format !== 'parquet'}
-          <div class="field">
-            <label class="label" for="export-crs">CRS</label>
-            <select
-              id="export-crs"
-              value={plan.crs.forced ? 'wgs84' : request.crs}
-              disabled={running || plan.crs.forced}
-              title={plan.crs.reason}
-              onchange={(e) => store.setExportRequest({ crs: e.currentTarget.value as 'result' | 'wgs84' })}
-            >
-              {#if plan.crs.forced}
-                <option value="wgs84">EPSG:4326 (WGS84), required by {EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? 'this format'}</option>
-              {:else}
-                <option value="result">{plan.crs.output === 'result' ? plan.crs.label : 'Result CRS'} (result)</option>
-                <option value="wgs84">EPSG:4326 (WGS84)</option>
-              {/if}
             </select>
           </div>
-          {#if plan.crs.forced}<p class="hint">{plan.crs.reason}</p>{/if}
         {/if}
 
-        {#if plan.format === 'csv' && hasGeometry}
-          <div class="field">
-            <span class="label" id="export-geometry">Geometry</span>
-            <div class="options" role="radiogroup" aria-labelledby="export-geometry">
-              {#each [{ v: 'wkt', label: 'WKT text' }, { v: 'xy', label: 'X / Y columns' }] as o (o.v)}
-                <button
-                  type="button"
-                  role="radio"
-                  data-value={o.v}
-                  aria-checked={plan.csvGeometry === o.v}
-                  tabindex={plan.csvGeometry === o.v ? 0 : -1}
-                  disabled={running || (o.v === 'xy' && !plan.xyAvailable)}
-                  title={o.v === 'xy' && !plan.xyAvailable ? 'X / Y columns are for point layers only.' : undefined}
-                  onclick={() => store.setExportRequest({ csvGeometry: o.v as 'wkt' | 'xy' })}
-                  onkeydown={(e) => radioKeys(e, plan.xyAvailable ? ['wkt', 'xy'] : ['wkt'], plan.csvGeometry, (v) => store.setExportRequest({ csvGeometry: v as 'wkt' | 'xy' }))}
-                  >{o.label}</button
-                >
-              {/each}
-            </div>
+        <!-- Spec 008 FR-019: the format list is grouped by whether the geometry is written. -->
+        <div class="setting">
+          <label for="export-format">Format</label>
+          <select id="export-format" value={formatValue} disabled={running} aria-describedby="export-format-about" onchange={(e) => chooseFormat(e.currentTarget.value)}>
+            {#if hasGeometry}
+              <optgroup label="With geometry">
+                {#each withGeometry as f (f.id)}<option value={`g:${f.id}`}>{f.label}</option>{/each}
+              </optgroup>
+            {/if}
+            <optgroup label="Attributes only">
+              {#each attributesOnly as f (f.id)}<option value={`a:${f.id}`}>{f.label}</option>{/each}
+            </optgroup>
+          </select>
+          <p class="desc" id="export-format-about">
+            {plan.format === 'csv' && plan.includeGeometry ? 'A plain text table, with the geometry as text or X / Y columns.' : ABOUT[plan.format]}
+            <span class="file">{plan.fileName}</span>
+          </p>
+        </div>
+
+        {#if plan.includeGeometry}
+          <div class="setting">
+            <label for="export-crs">Coordinate reference system</label>
+            <select id="export-crs" value={crsChoice} disabled={running || plan.crs.forced} title={plan.crs.reason} onchange={(e) => chooseCrs(e.currentTarget.value)}>
+              {#if plan.crs.forced}
+                <option value="wgs84">EPSG:4326 · WGS 84</option>
+              {:else}
+                <option value="result">{plan.crs.resultLabel} · as the result</option>
+                {#if !resultIsWgs84}<option value="wgs84">EPSG:4326 · WGS 84</option>{/if}
+                <option value="webmercator">EPSG:3857 · Web Mercator</option>
+                <option value="other">Other EPSG code…</option>
+              {/if}
+            </select>
+            {#if plan.crs.forced}
+              <p class="desc">{plan.crs.reason}</p>
+            {:else if crsChoice === 'other'}
+              <div class="epsg">
+                <span class="prefix" aria-hidden="true">EPSG:</span>
+                <input
+                  id="export-epsg"
+                  bind:this={epsgInput}
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-label="EPSG code"
+                  aria-describedby="export-epsg-status"
+                  aria-invalid={check?.state === 'invalid'}
+                  placeholder="26912"
+                  disabled={running}
+                  value={epsgText}
+                  oninput={(e) => {
+                    epsgText = e.currentTarget.value
+                    if (typing) clearTimeout(typing)
+                    typing = setTimeout(commitCode, 300)
+                  }}
+                  onblur={() => {
+                    // Leaving "Other" removes the box, which blurs it: nothing to commit then.
+                    if (otherChosen) commitCode()
+                  }}
+                />
+              </div>
+              <p class="desc" id="export-epsg-status" class:invalid={check?.state === 'invalid'} role="status">
+                {#if !check}Enter an EPSG code, e.g. 26912.{:else if check.state === 'checking'}Checking…{:else if check.state === 'ok'}<Icon name="check" size={12} />{check.name}{:else}{check.reason}{/if}
+              </p>
+            {/if}
+          </div>
+        {/if}
+
+        {#if plan.format === 'csv' && plan.includeGeometry}
+          <div class="setting">
+            <label for="export-csv-geometry">Geometry as</label>
+            <select id="export-csv-geometry" value={plan.csvGeometry} disabled={running} onchange={(e) => store.setExportRequest({ csvGeometry: e.currentTarget.value as 'wkt' | 'xy' })}>
+              <option value="wkt">WKT text</option>
+              <option value="xy" disabled={!plan.xyAvailable}>X / Y columns{plan.xyAvailable ? '' : ' (points only)'}</option>
+            </select>
           </div>
         {/if}
 
@@ -265,8 +289,8 @@
         <button
           type="button"
           class="primary"
-          disabled={!plan || !!plan.blocked || !!store.exportDisabled}
-          title={store.exportDisabled ?? undefined}
+          disabled={!plan || !!plan.blocked || !!store.exportDisabled || !!store.exportCrsProblem}
+          title={store.exportDisabled ?? store.exportCrsProblem ?? undefined}
           onclick={() => void store.runExport()}
         >
           <Icon name="export" size={14} />Export…
@@ -317,8 +341,8 @@
   }
   .body {
     display: grid;
-    gap: 10px;
-    padding: 12px;
+    gap: 14px;
+    padding: 14px 12px;
     overflow-y: auto;
   }
   .blocked {
@@ -326,105 +350,69 @@
     padding: 16px 12px;
     color: var(--se-text-secondary);
   }
-  .field {
+  .setting {
     display: grid;
-    grid-template-columns: 72px 1fr;
-    align-items: center;
-    gap: 8px;
+    gap: 4px;
   }
-  .label {
-    color: var(--se-text-secondary);
+  .setting label {
+    font-weight: 600;
   }
-  .options {
+  .desc {
     display: flex;
     flex-wrap: wrap;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    overflow: hidden;
-    justify-self: start;
-  }
-  .options button {
-    height: 24px;
-    padding: 0 10px;
-    border: 0;
-    border-left: 1px solid var(--se-input-border);
-    background: var(--se-input-bg);
+    align-items: center;
+    gap: 4px 8px;
+    margin: 0;
     color: var(--se-text-secondary);
-    font: inherit;
-    cursor: pointer;
+    font-size: 0.92em;
   }
-  .options button:first-child {
-    border-left: 0;
+  .desc.invalid {
+    color: var(--se-error-fg, var(--se-error));
   }
-  .options button[aria-checked='true'] {
-    background: var(--se-button-bg);
-    color: var(--se-button-fg);
-    /* High contrast has no filled button: the active contrast border marks the choice. */
-    box-shadow: inset 0 0 0 1px var(--se-selected-indicator);
+  .desc .file {
+    font-family: var(--se-font-mono, monospace);
+    color: var(--se-text-muted, var(--se-text-secondary));
   }
-  .options button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  select {
+  select,
+  .epsg {
+    width: 100%;
     min-width: 0;
-    height: 24px;
-    padding: 0 4px;
+    height: 26px;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
     background: var(--se-input-bg);
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
   }
-  .switch {
-    display: inline-flex;
+  select {
+    padding: 0 4px;
+  }
+  select:disabled {
+    opacity: 0.7;
+  }
+  .epsg {
+    display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0;
+    box-sizing: border-box;
+    padding: 0 6px;
+  }
+  .epsg:focus-within {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .epsg .prefix {
+    color: var(--se-text-secondary);
+  }
+  .epsg input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 2px;
     border: 0;
+    outline: none;
     background: transparent;
     color: inherit;
     font: inherit;
-    cursor: pointer;
-  }
-  .switch:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-  .switch .track {
-    position: relative;
-    width: 28px;
-    height: 16px;
-    border-radius: 8px;
-    background: var(--se-input-bg);
-    border: 1px solid var(--se-input-border);
-  }
-  .switch .thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--se-text-secondary);
-    transition: left 0.12s;
-  }
-  .switch[aria-checked='true'] .track {
-    background: var(--se-button-bg);
-    border-color: var(--se-button-bg);
-  }
-  .switch[aria-checked='true'] .thumb {
-    left: 14px;
-    background: var(--se-button-fg);
-  }
-  .switch:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 2px;
-  }
-  .hint {
-    margin: -4px 0 0 80px;
-    color: var(--se-text-secondary);
-    font-size: 0.9em;
   }
   .notices {
     display: grid;
@@ -551,7 +539,6 @@
     color: var(--se-text-secondary);
     cursor: pointer;
   }
-  .options button:focus-visible,
   select:focus-visible,
   footer button:focus-visible,
   .icon-button:focus-visible {

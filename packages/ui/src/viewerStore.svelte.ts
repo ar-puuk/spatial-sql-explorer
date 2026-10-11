@@ -96,6 +96,9 @@ export interface QueryTableInfo {
   rows: number
 }
 
+/** Spec 008: the engine's check of a typed EPSG code. */
+export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
+
 export interface ViewerStore {
   readonly session: ViewerSession
   /** The open file's query session (spec 002), or null before a file is open. */
@@ -169,6 +172,10 @@ export interface ViewerStore {
   setExportRequest(patch: Partial<ExportRequest>): void
   /** What an export would do now, or null when there's nothing to export. */
   readonly exportPlan: ExportPlan | null
+  /** Spec 008: the engine's check of a typed EPSG code (export to another CRS). */
+  readonly exportCrsCheck: ExportCrsCheck | null
+  /** Spec 008: why the chosen output CRS can't be used yet (blocks the dialog's Export button only). */
+  readonly exportCrsProblem: string | null
   /** Why Export is unavailable right now (a query is running, nothing open), or null. */
   readonly exportDisabled: string | null
   readonly exportPhase: 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -566,8 +573,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     .then((saved) => {
       // Spec 007: older saved prefs may carry `rows` (the removed rows choice); only known fields are kept.
       if (saved && typeof saved === 'object') {
-        const { format, crs, csvGeometry } = { ...exportRequest, ...saved }
-        exportRequest = { format, crs, csvGeometry }
+        const { format, crs, csvGeometry, crsCode } = { ...exportRequest, ...saved }
+        exportRequest = { format, crs, csvGeometry, ...(typeof crsCode === 'number' ? { crsCode } : {}) }
       }
     })
     .catch(() => {})
@@ -585,6 +592,42 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const selected = isEmptySelection(selection) ? null : selectionSize(selection, filterCounts?.matching ?? facts.totalRows)
     return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts, scopes: { filtered: narrowedRows, selected } })
   })
+  // Spec 008 (user request): a typed EPSG code is checked against the engine's PROJ database.
+  let exportCrsCheck = $state.raw<ExportCrsCheck | null>(null)
+  // A root: the VS Code webview creates the store outside any component.
+  $effect.root(() => {
+    $effect(() => {
+      const qs = querySession
+      const { crs, crsCode } = exportRequest
+      if (crs !== 'custom' || crsCode === undefined || !qs) {
+        exportCrsCheck = null
+        return
+      }
+      exportCrsCheck = { code: crsCode, state: 'checking' }
+      let current = true
+      void retryWhenBusy(qs, () => qs.describeCrs(crsCode))
+        .then((r) => {
+          if (current) exportCrsCheck = r.ok ? { code: crsCode, state: 'ok', name: r.name } : { code: crsCode, state: 'invalid', reason: r.reason }
+        })
+        .catch(() => {
+          if (current) exportCrsCheck = { code: crsCode, state: 'invalid', reason: `EPSG:${crsCode} could not be checked.` }
+        })
+      return () => {
+        current = false
+      }
+    })
+  })
+  const customCrsProblem = $derived(
+    exportRequest.crs !== 'custom' || exportPlan?.crs.forced || !exportPlan?.includeGeometry
+      ? null
+      : exportRequest.crsCode === undefined
+        ? 'Enter an EPSG code for the output CRS.'
+        : exportCrsCheck?.state === 'invalid'
+          ? exportCrsCheck.reason
+          : exportCrsCheck?.state === 'checking'
+            ? 'Checking the CRS…'
+            : null
+  )
   // Spec 007 T044: the opened file, to load it whole later, and its size.
   let openedRef: OpenedFileRef | null = null
   let openedSize = $state<number | null>(null)
@@ -1285,11 +1328,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setExportRequest(patch) {
       exportRequest = { ...exportRequest, ...patch }
-      const { format, crs, csvGeometry } = exportRequest
-      void hostAdapter.saveState(EXPORT_PREFS_KEY, { format, crs, csvGeometry }).catch(() => {})
+      const { format, crs, csvGeometry, crsCode } = exportRequest
+      void hostAdapter.saveState(EXPORT_PREFS_KEY, { format, crs, csvGeometry, crsCode }).catch(() => {})
     },
     get exportPlan() {
       return exportPlan
+    },
+    get exportCrsCheck() {
+      return exportCrsCheck
+    },
+    get exportCrsProblem() {
+      return customCrsProblem
     },
     get exportDisabled() {
       return exportDisabled
@@ -1306,7 +1355,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     async runExport() {
       const plan = exportPlan
       const qs = querySession
-      if (!plan || !qs || exportDisabled || exportPhase === 'running') return
+      if (!plan || !qs || exportDisabled || customCrsProblem || exportPhase === 'running') return
       exportPhase = 'running'
       exportOutcome = null
       const startedAt = performance.now()

@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { writeParcels } from './helpers'
+import { chooseFormat, writeParcels } from './helpers'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(__dirname, '../../vscode-ext/fixtures/world-boundaries.geojson')
@@ -334,8 +334,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Export data…' }).click()
     await expect(exportDialog(page)).toBeVisible()
     await audit(page, 'export: geometry result')
-    await exportDialog(page).getByRole('radio', { name: 'CSV', exact: true }).click()
+    await chooseFormat(page, 'CSV', 'With geometry')
     await audit(page, 'export: CSV geometry options')
+    await chooseFormat(page, 'GeoPackage')
+    await exportDialog(page).getByLabel('Coordinate reference system').selectOption('other')
+    await exportDialog(page).getByLabel('EPSG code').fill('999999')
+    await expect(exportDialog(page).locator('#export-epsg-status')).toContainText('not a known CRS')
+    await audit(page, 'export: invalid EPSG code')
     await page.keyboard.press('Escape')
 
     await page.keyboard.press('Control+Shift+Q')
@@ -348,7 +353,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await runSql(page, 'SELECT a.* FROM layer a, range(10) b')
     await expect(page.locator('.query-status')).toContainText('200,000 rows', { timeout: 120000 })
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await exportDialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await chooseFormat(page, 'GeoJSON')
     await exportDialog(page).getByRole('button', { name: 'Export…' }).click()
     await expect(exportDialog(page).getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
     await audit(page, 'export: running')
@@ -369,14 +374,13 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(exportDialog(page)).toBeVisible()
-  // Focus starts on the first checked choice, inside the dialog.
-  await expect(exportDialog(page).getByRole('radio', { name: 'GeoParquet' })).toBeFocused()
+  // Focus starts on the first control, inside the dialog.
+  const format = exportDialog(page).getByLabel('Format', { exact: true })
+  await expect(format).toBeFocused()
 
-  // Format: arrows move and choose; choosing CSV adds the geometry group.
-  await exportDialog(page).getByRole('radio', { name: 'GeoParquet' }).focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('ArrowRight')
-  await expect(exportDialog(page).getByRole('radio', { name: 'CSV', exact: true })).toHaveAttribute('aria-checked', 'true')
+  // Format: a native list (arrows choose); CSV with geometry adds "Geometry as".
+  await chooseFormat(page, 'CSV', 'With geometry')
+  await format.focus()
 
   const reached: string[] = []
   for (let i = 0; i < 16; i++) {
@@ -392,7 +396,7 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
     )
     expect(await exportDialog(page).evaluate((d) => d.contains(document.activeElement)), 'focus stays in the dialog').toBe(true)
   }
-  for (const name of ['Close', 'CSV', 'CRS', 'WKT text', 'Cancel', 'Export…']) {
+  for (const name of ['Close', 'Format', 'Coordinate reference system', 'Geometry as', 'Cancel', 'Export…']) {
     expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
   }
 

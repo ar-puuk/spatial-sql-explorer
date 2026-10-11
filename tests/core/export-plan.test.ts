@@ -45,7 +45,13 @@ describe('formats offered (FR-004, FR-008)', () => {
   it('a geometry result offers the spatial formats (spec 008), not the attribute ones', () => {
     const f = planExport(request(), ctx()).formats
     expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geojsonseq', 'geopackage', 'geoparquet', 'kml', 'shapefile'])
-    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/turn off "Include geometry"/)
+    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/listed under "Attributes only"/)
+  })
+
+  it('an attribute-only format asked for without a geometry choice leaves the geometry out', () => {
+    const p = planExport(request({ format: 'xlsx' }), ctx())
+    expect(p.format).toBe('xlsx')
+    expect(p.includeGeometry).toBe(false)
   })
 
   it('"Include geometry" off offers the attribute formats, and the SQL has no geometry (spec 008 FR-019)', () => {
@@ -59,7 +65,7 @@ describe('formats offered (FR-004, FR-008)', () => {
 
   it('a format that does not fit the geometry choice is replaced by the first that does', () => {
     expect(planExport(request({ format: 'shapefile', includeGeometry: false }), ctx()).format).toBe('csv')
-    expect(planExport(request({ format: 'xlsx' }), ctx()).format).toBe('geoparquet')
+    expect(planExport(request({ format: 'xlsx', includeGeometry: true }), ctx()).format).toBe('geoparquet')
   })
 
   it('a table result offers the attribute formats only, with a reason for the others', () => {
@@ -232,5 +238,23 @@ describe('export scope', () => {
     const p = planExport(request({ scope: 'filtered' }), base())
     expect(p.scope).toBe('all')
     expect(p.rowCount).toBe(22000)
+  })
+})
+
+// Spec 008 (user request): export to an EPSG code the user chooses.
+describe('custom CRS', () => {
+  it('reprojects from the result CRS to the chosen code, and says so', () => {
+    const p = planExport(request({ crs: 'custom', crsCode: 3857 }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
+    expect(p.crs).toMatchObject({ output: 'custom', srid: 3857, label: 'EPSG:3857', forced: false })
+    expect(p.sql).toContain(`ST_Transform("geom", 'EPSG:26912', 'EPSG:3857', always_xy := true)`)
+    expect(p.notices.join()).toMatch(/reprojected from EPSG:26912 to EPSG:3857/)
+  })
+  it('a WGS84-only format still wins, and a missing code falls back to the result CRS', () => {
+    expect(planExport(request({ format: 'geojson', crs: 'custom', crsCode: 3857 }), ctx()).crs.output).toBe('wgs84')
+    expect(planExport(request({ crs: 'custom' }), ctx()).crs.output).toBe('result')
+  })
+  it('the same code as the result needs no transform', () => {
+    const p = planExport(request({ crs: 'custom', crsCode: 26912 }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
+    expect(p.sql).not.toContain('ST_Transform')
   })
 })

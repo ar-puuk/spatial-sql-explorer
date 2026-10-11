@@ -71,11 +71,25 @@ binding (tests query by role and name).
 
 ## Export dialog
 
-- `Include geometry` switch (`role="switch"`), disabled with a reason when
-  the result has no geometry.
-- The `Format` radiogroup lists only the current group's formats.
-- `Rows` radiogroup with All, Filtered (N) and Selected (N), shown only
-  when they apply.
+Settings stacked in VS Code's settings-editor style (label, native
+`<select>`, one line of description). Focus starts on the first select.
+
+- `Rows` select (All rows, Filtered rows (N), Selected rows (N)), shown
+  only when a narrower scope applies.
+- `Format` select with two `<optgroup>`s: `With geometry` (the spatial
+  formats, and CSV) and `Attributes only` (CSV, Parquet, Excel workbook,
+  JSON). The group an option is in sets whether the geometry is written
+  (user request, 2026-10-11; replaces the `Include geometry` switch). A
+  result with no geometry shows `Attributes only` alone. Under it: what the
+  format is good for, and the output file name.
+- `Coordinate reference system` select, with geometry only: the result's
+  CRS, `EPSG:4326 · WGS 84`, `EPSG:3857 · Web Mercator`, `Other EPSG code…`.
+  Disabled, showing WGS 84 and the reason, for WGS84-only formats. `Other`
+  shows an `EPSG code` box (accepts `26912` or `EPSG:26912`) and a status
+  line: the CRS name from the engine's PROJ database, or why the code is
+  not usable (`aria-invalid`). While it's unusable, the dialog's Export
+  button is disabled (the toolbar's Export data… button is not).
+- `Geometry as` select (WKT text, X / Y columns) for CSV with geometry.
 - The "What changes" list shows `forcedChanges`, including Shapefile field
   renames.
 

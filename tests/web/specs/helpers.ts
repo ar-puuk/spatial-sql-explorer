@@ -119,13 +119,47 @@ export function largeData(name: string): string {
 // Spec 005 export helpers (shared by export.spec and paging.spec).
 export const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
 
+export type FormatGroup = 'With geometry' | 'Attributes only'
+
+/** Spec 008: the format options of one group of the Format list, in order. */
+export function formatGroup(page: Page, group: FormatGroup): Promise<string[]> {
+  return exportDialog(page)
+    .getByLabel('Format', { exact: true })
+    .evaluate((el, g) => Array.from(el.querySelectorAll(`optgroup[label="${g}"] option`)).map((o) => (o.textContent ?? '').trim()), group)
+}
+
+/** Picks a format by its label (CSV is in both groups: the group says which). */
+export async function chooseFormat(page: Page, label: string, group?: FormatGroup): Promise<void> {
+  const select = exportDialog(page).getByLabel('Format', { exact: true })
+  const value = await select.evaluate(
+    (el, [l, g]) =>
+      Array.from(el.querySelectorAll('option')).find((o) => (o.textContent ?? '').trim() === l && (!g || (o.parentElement as HTMLOptGroupElement).label === g))?.value ?? null,
+    [label, group ?? null] as const
+  )
+  if (!value) throw new Error(`No format "${label}"${group ? ` under "${group}"` : ''}`)
+  await select.selectOption(value)
+}
+
+/** Picks the output CRS: the result's, WGS 84, or an EPSG code (typed, and checked by the engine). */
+export async function chooseCrs(page: Page, crs: 'result' | 'wgs84' | number): Promise<void> {
+  const select = exportDialog(page).getByLabel('Coordinate reference system')
+  if (typeof crs === 'string') return void (await select.selectOption(crs))
+  if (crs === 3857) return void (await select.selectOption('webmercator'))
+  await select.selectOption('other')
+  await exportDialog(page).getByLabel('EPSG code').fill(String(crs))
+  await expect(exportDialog(page).locator('#export-epsg-status')).not.toContainText(/Checking|Enter an EPSG/)
+}
+
 /** Opens the dialog, sets choices, exports, and returns the downloaded bytes. */
-export async function exportVia(page: Page, choices: { format: string; crs?: 'result' | 'wgs84'; geometry?: string }): Promise<{ name: string; bytes: Buffer }> {
+export async function exportVia(
+  page: Page,
+  choices: { format: string; group?: FormatGroup; crs?: 'result' | 'wgs84' | number; geometry?: string }
+): Promise<{ name: string; bytes: Buffer }> {
   if (!(await exportDialog(page).isVisible())) await page.getByRole('button', { name: 'Export data…' }).click()
   await expect(exportDialog(page)).toBeVisible()
-  await exportDialog(page).getByRole('radio', { name: choices.format, exact: true }).click()
-  if (choices.crs) await exportDialog(page).getByLabel('CRS').selectOption(choices.crs)
-  if (choices.geometry) await exportDialog(page).getByRole('radio', { name: choices.geometry }).click()
+  await chooseFormat(page, choices.format, choices.group)
+  if (choices.crs !== undefined) await chooseCrs(page, choices.crs)
+  if (choices.geometry) await exportDialog(page).getByLabel('Geometry as').selectOption({ label: choices.geometry })
   const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), exportDialog(page).getByRole('button', { name: 'Export…' }).click()])
   const file = await download.path()
   await expect(exportDialog(page).getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()

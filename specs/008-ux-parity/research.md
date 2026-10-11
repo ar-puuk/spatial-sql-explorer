@@ -121,8 +121,8 @@ JS writers, checked against GDAL 3.13 (`js-writers.mjs.txt`):
   Parquet, plus **JSON** via `COPY … FORMAT json`) and **JS-written**
   formats. The JS writers stream rows out of the engine in pages, as the
   GeoJSON writer already does (spec 005), with geometry from `ST_AsWKB`
-  (FlatGeobuf, GeoPackage, Shapefile) or `ST_AsGeoJSON` (KML,
-  GeoJSONSeq).
+  (FlatGeobuf, GeoPackage, Shapefile) or `ST_AsGeoJSON` (KML).
+  (Outcome: GeoJSONSeq is engine-written too; see Implementation outcomes.)
 - **FlatGeobuf**: the `flatgeobuf` library's feature serializer, written
   without a spatial index. Header feature count is known from the result
   count.
@@ -136,8 +136,9 @@ JS writers, checked against GDAL 3.13 (`js-writers.mjs.txt`):
   DBF types) are planned in `export/plan.ts` and shown before export
   (FR-021).
 - **KML**: our own streaming writer (WGS84 only, like GeoJSON).
-- **GeoJSONSeq** (newline-delimited GeoJSON): our streaming GeoJSON writer,
-  one feature per line.
+- **GeoJSONSeq** (newline-delimited GeoJSON): planned as our streaming
+  GeoJSON writer. Outcome: the engine writes it (`COPY … (FORMAT JSON)` over
+  a select shaped as Features), per the DuckDB-native-first rule.
 - **Excel**: our own minimal `.xlsx` writer (inline strings, one sheet,
   zipped with `fflate`). That avoids loading the `excel` extension at
   startup (the lockdown forbids loading it later) and its stray-byte bug.
@@ -446,3 +447,15 @@ Every format offered was written by the real web build, then read back:
 - GeoPackages without `gpkg_ogr_contents` don't open (above). Possible fix
   to spike: a GDAL open option, or adding the table to a copy before opening.
 - GeoPackage output is built in memory (capped at 1.5 GB with a message).
+
+### Export to any CRS (user request, 2026-10-11)
+
+- The dialog offers the result's CRS, WGS 84, Web Mercator, or any EPSG code.
+  The plan reprojects with `ST_Transform(geom, 'EPSG:from', 'EPSG:to',
+  always_xy := true)` (`crs.ts` `reprojectSql`), and every writer takes the
+  plan's SRID (PROJJSON for GeoParquet, WKT for Shapefile and GeoPackage).
+- A typed code is checked by the engine before export
+  (`QuerySession.describeCrs`: PROJ's PROJJSON for the code, background work).
+  Unknown codes (e.g. 999999) get a message, and Export stays disabled.
+- Verified: `usa-utm12n.gpkg` exported to EPSG:5070 as GeoPackage reads back
+  with CRS 5070 and 1 row (export-formats.spec).
