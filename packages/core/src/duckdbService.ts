@@ -177,6 +177,18 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
 }
 
 /**
+ * Ends the shared engine and its worker (spec 007 T050: a cancelled whole-file
+ * parse that doesn't stop in time). Everything it held is gone; the next
+ * getDuckDb() starts a fresh instance.
+ */
+export async function resetDuckDb(): Promise<void> {
+  const current = sharedDb
+  sharedDb = null
+  const db = await current?.catch(() => null)
+  await db?.terminate().catch(() => {})
+}
+
+/**
  * Starts DuckDB + spatial initialization early, so it overlaps with the file
  * transfer (VS Code) or with the user choosing a file (web) instead of
  * starting only once the bytes have arrived. Never throws: a failure here

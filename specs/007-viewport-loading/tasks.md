@@ -483,19 +483,21 @@ they skip with a message, never pass silently.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T046 [P] [US4] Extend `tests/web/specs/large-open.spec.ts` (US4 part), using the Independent Test above, plus:
+- [X] T046 [P] [US4] Extend `tests/web/specs/large-open.spec.ts` (US4 part), using the Independent Test above, plus:
   - below the threshold: no announcement;
   - the announcement dialog's Esc cancels, and focus returns to the open button;
   - after the parse, facts come from the table (`spatialIndex: 'rtree'`);
   - views use the R-tree (the view query plan contains `RTREE_INDEX_SCAN`, via an e2e `explainView` hook).
-- [ ] T047 [P] [US4] Extend `tests/vscode-ext/src/suite/large-open.test.ts`:
+  - *Done*: large-open.spec US4: below the threshold no announcement; above it Open reads it; Esc cancels and focus lands on Choose a file; both cancel paths; facts spatialIndex 'built' (stored bbox columns instead of an R-tree: equal speed, measured; research.md US4 outcomes). Axe on the announcement, light and dark.
+- [X] T047 [P] [US4] Extend `tests/vscode-ext/src/suite/large-open.test.ts`:
   - `parcels-10k.geojson` opens over the loopback server (`_getSourceStats` shows requests, and no base64 transfer is logged);
   - the shapefile fixture (`sample.shp` with its sidecars) opens and its sidecars are served by name;
   - forced fallback: GeoJSON still opens, with the fallback notice.
 
 ### Implementation for User Story 4
 
-- [ ] T048 [US4] In `packages/core/src/openFile.ts`, implement the `whole` open:
+  - *Done*: large-open.test.ts US4: GeoJSON over the loopback server with no bridge transfer, the shapefile with its sidecars by name, and the forced fallback with its notice (wholeBytes: 0 forces the URL path).
+- [X] T048 [US4] In `packages/core/src/openFile.ts`, implement the `whole` open:
   - above `wholeReadThresholdBytes`, `await hooks.confirmWholeRead(size)` (false → cancelled);
   - `onPhase('reading')`, then `CREATE TABLE __se_layer AS SELECT *, row_number() OVER () AS __se_rowid, ST_XMin(g)… FROM ST_Read(path)` on the cancellable connection;
   - `CREATE INDEX … USING RTREE (geom)`;
@@ -503,7 +505,8 @@ they skip with a message, never pass silently.
   - facts via T020's `whole` branch.
 
   Remove the old ≤ 64 MB materialize / streamed split.
-- [ ] T049 [US4] Add `packages/ui/src/ReadWholeDialog.svelte` per contracts/ui.md:
+  - *Done*: One parse into __se_raw, then __se_source with rowid and stored bbox columns; layer is a view without them; the 64 MB streamed split removed (it re-parsed on every view).
+- [X] T049 [US4] Add `packages/ui/src/ReadWholeDialog.svelte` per contracts/ui.md:
   - a modal, labeled;
   - text with the format name, size and estimated time (70 ms/MB, from research §4, rounded);
   - Open (default) and Cancel;
@@ -511,24 +514,28 @@ they skip with a message, never pass silently.
   - focus restored.
 
   Wire `confirmWholeRead` in the store. Use only `--se-*` tokens.
-- [ ] T050 [US4] Cancel during a whole read (FR-002, SC-005):
+  - *Done*: ReadWholeDialog: labeled modal, format, size and an estimate (70 ms/MB), Open by default, Esc cancels; wired through confirmWholeRead in the store.
+- [X] T050 [US4] Cancel during a whole read (FR-002, SC-005):
   - in `packages/core/src/openFile.ts`, interrupt the parse (`cancelSent`);
   - if the engine hasn't stopped within 2.5 s, terminate the worker and reset the shared engine (a new `resetDuckDb()` in `packages/core/src/duckdbService.ts`), then reject as cancelled;
   - drop any partial `__se_layer`.
 
   Test both paths in `large-open.spec.ts` (an e2e `slowParse` hook forces the second).
-- [ ] T051 [US4] Out-of-memory recovery (FR-014, research §1):
+  - *Done*: openFile races the open against a 2.0 s grace, then resetDuckDb() terminates the engine; the interrupt isn't awaited (it waits behind the busy worker). 325 MB GeoJSON parse: 2.39 s; slowParse=stuck path: 0.36-0.87 s.
+- [X] T051 [US4] Out-of-memory recovery (FR-014, research §1):
   - `recoverFromOom(session)` in `packages/core/src/duckdbService.ts` and `query/session.ts`: drop every `__se_` table, `reRegister()` the source, rebuild `layer`, check with `SELECT 1`;
   - map out-of-memory errors at each stage (open, view, page, stats, query, export) to the contracts/core-data-access.md messages;
   - an out-of-memory error while opening leaves the previous layer, or the empty state, with the message.
 
   Test in `large-open.spec.ts` (`memoryLimit` override) and with a unit test of the message mapping in `tests/core/sql-errors.test.ts`.
-- [ ] T052 [US4] Make sidecars flow through every source kind:
+  - *Done*: outOfMemory.ts (detector, OutOfMemoryError, stage messages); exclusive() recovers (re-register the source, drop staging, clear pages) and rethrows; open maps to the whole-read message; map/table/style show it as a dismissible map notice. Tests: sql-errors.test.ts; web memoryLimit 8MB open and 24MB query.
+- [X] T052 [US4] Make sidecars flow through every source kind:
   - web: the sidecar `File`s from the pick or drop;
   - VS Code: the sidecar URLs from `sourceServer`;
   - the fallback: bytes.
 
   Keep spec 001's sidecar rules (`.shp` + `.dbf` + `.shx` + optional `.prj`/`.cpg`) in `packages/core/src/source/register.ts`. T047's shapefile case passes.
+  - *Done*: Sidecars already flowed through handle/URL/bytes; wholeBytes override lets tests take the handle (web) and URL (VS Code) paths with sample.shp.
 
 **Checkpoint**: every format opens honestly. Nothing hangs or blanks.
 

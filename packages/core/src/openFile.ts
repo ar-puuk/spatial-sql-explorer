@@ -11,7 +11,8 @@
 
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
-import { getDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { getDuckDb, resetDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { isOutOfMemory, outOfMemoryMessage } from './outOfMemory.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
 import { formatFromFileName, readModeFor, testOverrides } from './source/readModes.js'
 import { extentToWgs84, flatGeobufFacts, parquetFacts } from './source/facts.js'
@@ -119,22 +120,25 @@ async function geoParquetFromExpr(conn: AsyncDuckDBConnection, vfsPath: string, 
   throw new Error(`The Parquet column "${pick.name}" (${pick.type}) is not a geometry or WKB column.`)
 }
 
+/** The reader's raw output, parsed once while a whole-read file opens; dropped after (spec 007 T048). */
+const RAW_TABLE = '__se_raw'
+
 /**
  * Every ST_Read bind re-ingests the whole file (GDAL parses e.g. GeoJSON
- * completely on open), and an open needs several passes (DESCRIBE, stats,
- * rows). Up to MATERIALIZE_MAX_BYTES the reader's output is parsed exactly
- * once into a temp table, and everything else reads that table; openFile
- * drops it after loading. Larger files stream each pass rather than hold a
- * second full copy against the ~512 MB WASM ceiling (CLAUDE.md performance
- * rules). T046: this took a ~10 MB GeoJSON from 3.2 s to ~1 s warm.
+ * completely on open), and an open needs several passes (DESCRIBE, the
+ * indexed table). Whole-read files are therefore parsed exactly once into
+ * RAW_TABLE, and everything else reads that (spec 007 research §4). The
+ * former streamed mode for files over 64 MB re-parsed the file on every map
+ * view; with the 3.1 GiB engine limit (research §1) parsing once is both
+ * faster and affordable (325 MB of GeoJSON holds 140 MB in the engine).
  */
 async function readerSource(conn: AsyncDuckDBConnection, reader: string, materialize: boolean): Promise<string> {
   if (!materialize) return reader
   // A regular table, not TEMP: DuckDB temp tables are visible only to the
   // connection that created them, and queries run on the session's own
-  // connection (spec 002). QuerySession.dispose() drops it.
-  await conn.query(`CREATE OR REPLACE TABLE ${SOURCE_TABLE} AS SELECT * FROM ${reader}`)
-  return SOURCE_TABLE
+  // connection (spec 002).
+  await conn.query(`CREATE OR REPLACE TABLE ${RAW_TABLE} AS SELECT * FROM ${reader}`)
+  return RAW_TABLE
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
@@ -220,7 +224,11 @@ async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, st
   return Number.isFinite(srid) ? srid : null
 }
 
-/** Files up to this size are parsed once into a table (see readerSource). */
+/**
+ * Whole-read files up to this size are fetched into memory first (faster than
+ * many small handle or HTTP reads), and small Parquet files read in parts
+ * count their invalid geometries up front.
+ */
 const MATERIALIZE_MAX_BYTES = 64 * 1024 * 1024
 
 /** A file name usable as an unquoted SQL alias for `layer` (e.g. `parcels`). */
@@ -278,6 +286,39 @@ export interface OpenedFile {
  * allowed_directories).
  */
 export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks = {}, options: OpenOptions = {}): Promise<OpenedFile> {
+  // Cancel within 3 s (FR-002, SC-005): the engine is asked to stop; a GDAL
+  // parse doesn't check for that (a 325 MB GeoJSON took 10.5 s to stop), so
+  // if the open hasn't ended within CANCEL_GRACE_MS the engine is terminated
+  // and the next open starts a fresh one (research.md US4 outcomes).
+  let abort: (err: Error) => void = () => {}
+  const aborted = new Promise<never>((_, reject) => {
+    abort = reject
+  })
+  aborted.catch(() => {})
+  const opening: Promise<OpenedFile> = openFileOnce(ref, deps, {
+    ...hooks,
+    onCancelHandle: (interrupt) =>
+      hooks.onCancelHandle?.(async () => {
+        const settled = opening.then(
+          () => true,
+          () => true
+        )
+        // Not awaited: the interrupt message itself waits behind a busy worker.
+        void interrupt().catch(() => {})
+        const stopped = await Promise.race([settled, new Promise<boolean>((r) => setTimeout(() => r(false), CANCEL_GRACE_MS))])
+        if (stopped) return
+        await resetDuckDb()
+        abort(new QueryCancelledError())
+      }),
+  }, options)
+  opening.catch(() => {})
+  return Promise.race([opening, aborted])
+}
+
+/** How long a cancelled open may take to stop before the engine is reset. */
+const CANCEL_GRACE_MS = 2000
+
+async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks, options: OpenOptions): Promise<OpenedFile> {
   const { hostAdapter, duckdbAssets } = deps
   const checkCancelled = (): void => {
     if (hooks.isCancelled?.()) throw new QueryCancelledError()
@@ -301,7 +342,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
   // Whole reads from memory: small files read faster from memory than through
   // many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm), and
   // FlatGeobuf is ~1,500x faster from memory (research §4).
-  if (mode.mode === 'whole' && source.kind !== 'bytes' && (format === 'flatgeobuf' || source.size <= MATERIALIZE_MAX_BYTES)) {
+  if (mode.mode === 'whole' && source.kind !== 'bytes' && (format === 'flatgeobuf' || source.size <= (testOverrides().wholeBytes ?? MATERIALIZE_MAX_BYTES))) {
     source = await hostAdapter.getFileSource(ref, { whole: true })
   }
 
@@ -340,8 +381,8 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
     if (mode.mode === 'partial') opened = await openParquetInParts(ctx)
     else if (mode.mode === 'partial-view') opened = await openFlatGeobufInParts(ctx)
     else {
-      opened = await openWhole(ctx, strategy, source.size <= MATERIALIZE_MAX_BYTES)
-      keepRegistered = opened.table.backing === 'streamed'
+      opened = await openWhole(ctx, strategy)
+      keepRegistered = false
     }
     timings.prepare = lap()
     checkCancelled()
@@ -352,6 +393,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
+    if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -377,7 +419,18 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
     return { layer, session }
   } catch (err) {
     await session?.dispose().catch(() => {})
+    // A failed or cancelled whole read leaves nothing behind.
+    await conn.query(`DROP TABLE IF EXISTS ${RAW_TABLE}`).catch(() => {})
+    if (!session) await conn.query(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`).catch(() => {})
     keepRegistered = false
+    if (isOutOfMemory(err)) {
+      // FR-014: a clear message; the engine itself survives (research §1).
+      const limit = await conn
+        .query(`SELECT current_setting('memory_limit') AS m`)
+        .then((r) => String(r.toArray()[0]?.toJSON().m ?? '') || null)
+        .catch(() => null)
+      throw new Error(outOfMemoryMessage(mode.mode === 'whole' ? 'open-whole' : 'open', limit), { cause: err })
+    }
     throw err
   } finally {
     await conn.close().catch(() => {})
@@ -428,7 +481,14 @@ function factsOf(table: QueryableTable, opened: OpenedTable, readMode: ReadModeK
 
 /** e2e only (`slowParse=1`): a 3 s pause that stays cancellable, for the Cancel tests. */
 async function testDelay(checkCancelled: () => void): Promise<void> {
-  if (!testOverrides().slowParse) return
+  const slow = testOverrides().slowParse
+  if (!slow) return
+  if (slow === 'stuck') {
+    // Like a GDAL parse: the engine's cancel isn't checked (T050's reset path).
+    await new Promise((r) => setTimeout(r, 8000))
+    checkCancelled()
+    return
+  }
   for (let i = 0; i < 60; i++) {
     checkCancelled()
     await new Promise((r) => setTimeout(r, 50))
@@ -565,10 +625,10 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
  * Whole-read formats (research §4): parsed once (a table for files up to
  * 64 MB, the reader otherwise), then one scan for totals, extent and types.
  */
-async function openWhole(ctx: ModeContext, strategy: ReadStrategy, materialize: boolean): Promise<OpenedTable> {
+async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<OpenedTable> {
   const { conn } = ctx
   ctx.hooks.onPhase?.('reading', ctx.detail)
-  const read = await buildFromExpr(conn, strategy, ctx.path, materialize)
+  const read = await buildFromExpr(conn, strategy, ctx.path, true)
   const srid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, ctx.path, strategy)
   const crs = resolveCrsInfo(srid)
   ctx.checkCancelled()
@@ -581,7 +641,18 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy, materialize: 
   )
   const geomName = geomNameFor(read.columns, read.geometryColumn)
   const attrs = read.columns.filter((c) => !exclude.includes(c))
-  const src = { kind: 'reader' as const, from: read.fromExpr, attrs, geomExpr: read.geomExpr, geomName }
+  // The indexed table (spec 007 T048): stable row ids in read order and
+  // stored bbox columns. Views filter those columns: 1-3 ms for a city view
+  // over 1M polygons in the WASM build, the same as an R-tree, without its
+  // build time or memory (research.md US4 outcomes).
+  const g0 = quoteIdent(geomName)
+  await conn.query(
+    `CREATE OR REPLACE TABLE ${SOURCE_TABLE} AS SELECT *, ST_XMin(${g0}) AS __se_xmin, ST_YMin(${g0}) AS __se_ymin, ST_XMax(${g0}) AS __se_xmax, ST_YMax(${g0}) AS __se_ymax
+     FROM (SELECT ${attrs.map(quoteIdent).join(', ')}${attrs.length ? ', ' : ''}${read.geomExpr} AS ${g0}, rowid AS __se_rowid FROM ${read.fromExpr})`
+  )
+  await conn.query(`DROP TABLE IF EXISTS ${RAW_TABLE}`)
+  ctx.checkCancelled()
+  const src = { kind: 'table' as const, table: SOURCE_TABLE, attrs, geomExpr: g0, geomName }
   await conn.query(internalLayerViewSql(src))
   await conn.query(publicLayerViewSql(src))
   const alias = await createAlias(conn, ctx.name)
@@ -620,13 +691,13 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy, materialize: 
     crs: crs.crs,
     crsAssumed: crs.assumed,
     srid,
-    backing: materialize ? 'materialized' : 'streamed',
+    backing: 'materialized',
     totals: { rows, features, invalid: rows - features },
     extent: box(stats.wx0, stats.wy0, stats.wx1, stats.wy1),
     sourceExtent: box(stats.sx0, stats.sy0, stats.sx1, stats.sy1),
     geometryType: geometryTypeOf(stats.gtypes),
   }
-  return { table, spatialIndex: 'none', invalid: rows - features, view: { index: 'columns', geom: quoteIdent(geomName), attrs: attrs.filter((a) => !isGeometryColumn(table, a)) } }
+  return { table, spatialIndex: 'built', invalid: rows - features, view: { index: 'columns', geom: quoteIdent(geomName), attrs: attrs.filter((a) => !isGeometryColumn(table, a)) } }
 }
 
 /** Other geometry columns stay out of map attributes (they're shown as text in the table). */

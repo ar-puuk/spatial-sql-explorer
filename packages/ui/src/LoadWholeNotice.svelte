@@ -23,7 +23,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 8px;
-    color: var(--se-text);
+    color: var(--se-text-primary);
     background: color-mix(in srgb, var(--se-accent) 10%, var(--se-bg-base));
     border-bottom: 1px solid var(--se-border);
   }

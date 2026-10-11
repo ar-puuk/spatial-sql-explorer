@@ -170,6 +170,12 @@
   }
 
   let idleState = $derived(store.session.loadState === 'idle')
+  // A cancelled open (spec 007 FR-002/FR-004) returns to the empty state: put
+  // focus back on its "Choose a file" button rather than leaving it nowhere.
+  let chooseButton = $state<HTMLButtonElement>()
+  $effect(() => {
+    if (idleState && store.openPhase === 'cancelled') chooseButton?.focus()
+  })
 </script>
 
 <input bind:this={input} type="file" multiple class="visually-hidden" tabindex="-1" aria-hidden="true" onchange={handlePickerChange} />
@@ -198,7 +204,7 @@
           <div class="drop-icon" aria-hidden="true"><Icon name="file" size={28} /></div>
           <p class="title">Drag a geospatial file here</p>
           <p class="or">or</p>
-          <button type="button" class="primary" onclick={() => input.click()}>Choose a file</button>
+          <button type="button" class="primary" bind:this={chooseButton} onclick={() => input.click()}>Choose a file</button>
           <ul class="formats" aria-label="Supported formats">
             {#each FORMATS as f (f)}<li>{f}</li>{/each}
           </ul>

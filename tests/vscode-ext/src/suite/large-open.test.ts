@@ -176,3 +176,46 @@ suite('Spec 007 US3: whole-result queries in VS Code', () => {
     assert.strictEqual(fs.readFileSync(out).subarray(0, 4).toString('latin1'), 'PAR1')
   })
 })
+
+// T047/T052 (US4): formats read whole, over the loopback server (wholeBytes: 0
+// skips the small-file memory fetch so the URL path is the one tested).
+suite('Spec 007 US4: formats read whole in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', null)
+    await vscode.commands.executeCommand('spatialExplorer._forceBytesFallback', false)
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('GeoJSON is parsed once over the loopback server, into an indexed table', async function () {
+    this.timeout(90000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { wholeBytes: 0 })
+    const s = await openReady('parcels-10k.geojson')
+    assert.deepStrictEqual({ rows: s.facts?.rows, readMode: s.facts?.readMode, spatialIndex: s.facts?.spatialIndex }, { rows: 10000, readMode: 'whole', spatialIndex: 'built' })
+    const stats = (await vscode.commands.executeCommand('spatialExplorer._getSourceStats')) as SourceStats
+    assert.strictEqual(stats.chunksSent, false, 'no whole-file transfer through the bridge')
+    assert.ok(stats.requests > 0, `read over the loopback server (${stats.requests} requests)`)
+  })
+
+  test('a shapefile and its sidecars are served by name', async function () {
+    this.timeout(90000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { wholeBytes: 0 })
+    const s = await openReady('sample.shp', 'spatialExplorer.editor')
+    assert.strictEqual(s.facts?.rows, 180)
+    assert.strictEqual(s.facts?.crs.label, 'EPSG:4326 (WGS84)')
+    const stats = (await vscode.commands.executeCommand('spatialExplorer._getSourceStats')) as SourceStats
+    assert.strictEqual(stats.chunksSent, false)
+  })
+
+  test('forced fallback: GeoJSON still opens, and says why (FR-015)', async function () {
+    this.timeout(90000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { wholeBytes: 0 })
+    await vscode.commands.executeCommand('spatialExplorer._forceBytesFallback', true)
+    try {
+      const s = await openReady('parcels-10k.geojson')
+      assert.strictEqual(s.facts?.rows, 10000)
+      assert.match(s.facts?.fallback ?? '', /Partial reads aren't available in this window/)
+    } finally {
+      await vscode.commands.executeCommand('spatialExplorer._forceBytesFallback', false)
+    }
+  })
+})

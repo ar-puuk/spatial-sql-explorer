@@ -93,15 +93,18 @@ export function readModeFor(format: FormatId, sizeBytes: number, platform: { par
 export interface TestOverrides {
   cap?: number
   wholeThreshold?: number
+  /** Whole-read files up to this many bytes are fetched into memory first (default 64 MB); 0 tests the handle/URL path. */
+  wholeBytes?: number
   materializeCap?: number
   jenksSample?: number
   memoryLimit?: string
   slowViewMs?: number
-  slowParse?: boolean
+  /** `true`: a 3 s cancellable pause in the open; `'stuck'`: an 8 s pause that ignores Cancel, like a GDAL parse. */
+  slowParse?: boolean | 'stuck'
 }
 
 /** Query-string keys honored with `e2e=1` (documented in tests/web/specs/helpers.ts). */
-export const TEST_OVERRIDE_KEYS = ['cap', 'wholeThreshold', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowViewMs', 'slowParse'] as const
+export const TEST_OVERRIDE_KEYS = ['cap', 'wholeThreshold', 'wholeBytes', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowViewMs', 'slowParse'] as const
 
 let overrides: TestOverrides = {}
 
@@ -118,18 +121,20 @@ export function parseTestOverrides(search: string): TestOverrides {
   const params = new URLSearchParams(search)
   if (!params.has('e2e')) return {}
   const out: TestOverrides = {}
-  const num = (key: 'cap' | 'wholeThreshold' | 'materializeCap' | 'jenksSample' | 'slowViewMs'): void => {
+  const num = (key: 'cap' | 'wholeThreshold' | 'wholeBytes' | 'materializeCap' | 'jenksSample' | 'slowViewMs'): void => {
     const v = params.get(key)
     if (v !== null && /^\d+$/.test(v)) out[key] = Number(v)
   }
   num('cap')
   num('wholeThreshold')
+  num('wholeBytes')
   num('materializeCap')
   num('jenksSample')
   const mem = params.get('memoryLimit')
   if (mem && /^\d+(\.\d+)?\s*(KB|MB|GB|KiB|MiB|GiB)$/i.test(mem)) out.memoryLimit = mem
   num('slowViewMs')
   if (params.get('slowParse') === '1') out.slowParse = true
+  else if (params.get('slowParse') === 'stuck') out.slowParse = 'stuck'
   return out
 }
 

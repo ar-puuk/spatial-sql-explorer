@@ -18,6 +18,7 @@
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
+  import ReadWholeDialog from './ReadWholeDialog.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -226,6 +227,9 @@
 <div class="viewer-layout" class:dragging>
   {#if loading}
     <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} onCancel={() => void store.cancelOpen()} />
+  {/if}
+  {#if store.wholeReadPrompt}
+    <ReadWholeDialog sizeBytes={store.wholeReadPrompt.sizeBytes} format={store.wholeReadPrompt.format} onAnswer={(open) => store.answerWholeRead(open)} />
   {/if}
   <ErrorBanner message={session.loadState === 'error' ? (session.loadError?.message ?? 'Unknown error') : null} />
   {#if store.sourceChanged}

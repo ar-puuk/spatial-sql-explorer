@@ -166,6 +166,18 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
+// Spec 007 T046/T049: the whole-read announcement (a 5 MB GeoJSON over a 1 MB test threshold).
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the whole-read announcement (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/?e2e=1&wholeThreshold=1000000')
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../../vscode-ext/fixtures/parcels-10k.geojson'))
+    await expect(page.getByRole('dialog', { name: 'Read the whole file?' })).toBeVisible({ timeout: 10000 })
+    await audit(page, 'whole-read announcement')
+  })
+}
+
 test('keyboard: every query control is reachable, and Tab leaves the editor', async ({ page }) => {
   test.setTimeout(120000)
   await page.route('https://tiles.openfreemap.org/styles/**', (route) =>

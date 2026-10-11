@@ -55,6 +55,7 @@ import {
   viewCapFor,
   ViewSkippedError,
   WorkPreemptedError,
+  OutOfMemoryError,
 } from '@spatial-explorer/core'
 
 /** The attribute columns a style draws from (spec 007: map views read only these). */
@@ -198,6 +199,9 @@ export interface ViewerStore {
   readonly needsLoad: { sizeLabel: string } | null
   /** Re-opens the file whole into memory (progress and Cancel through the open). */
   loadWhole(): Promise<void>
+  /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
+  readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
+  answerWholeRead(open: boolean): void
   /** Spec 007: the open in progress (null when none), its whole-file facts as soon as known, and Cancel (FR-001, FR-002). */
   readonly openPhase: OpenPhase | null
   readonly openStartedAt: number | null
@@ -346,7 +350,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
       if (generation === styleGeneration) resolvedStyle = r
     } catch (err) {
-      if (!(err instanceof QueryCancelledError)) console.warn('Spatial Explorer: style failed', err)
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: style failed', err)
     } finally {
       clearTimeout(slow)
       if (generation === styleGeneration) classifying = false
@@ -568,6 +572,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   /** Features in the quick first view of a new file or result. */
   const PREVIEW_CAP = 2_000
   let fallbackDismissed = $state(false)
+  // FR-014: a map view, table page or style that ran out of memory says so (the session has recovered).
+  let memoryNotice = $state<string | null>(null)
+  function noteOutOfMemory(err: unknown): boolean {
+    if (!(err instanceof OutOfMemoryError)) return false
+    memoryNotice = err.message
+    return true
+  }
   let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
   let cameraRequest = $state<{ center: [number, number]; zoom: number; seq: number } | null>(null)
   const viewNf = new Intl.NumberFormat()
@@ -619,7 +630,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         }
       }
     } catch (err) {
-      console.warn('Spatial Explorer: map view failed', err)
+      if (!noteOutOfMemory(err)) console.warn('Spatial Explorer: map view failed', err)
     } finally {
       clearTimeout(slow)
       if (generation === viewGeneration) viewLoading = false
@@ -627,6 +638,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   }
 
   const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
+    if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
     const v = viewFeatures
@@ -643,6 +655,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let openFacts = $state<DatasetFacts | null>(null)
   let openCancelled = false
   let openInterrupt: (() => Promise<void>) | null = null
+  let wholeReadPrompt = $state<{ sizeBytes: number; format: string; resolve: (open: boolean) => void } | null>(null)
+
+  function answerWholeRead(open: boolean): void {
+    const prompt = wholeReadPrompt
+    wholeReadPrompt = null
+    prompt?.resolve(open)
+  }
+
   async function loadWhole(): Promise<void> {
     if (!openedRef || !needsLoad) return
     await load({ ref: openedRef, loadWhole: true })
@@ -658,6 +678,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     viewFeatures = null
     outsideFeature = null
     fallbackDismissed = false
+    memoryNotice = null
     openPhase = null
     openStartedAt = null
     try {
@@ -688,6 +709,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
             // File-level metadata (FR-006) before the first view (FR-001).
             hostAdapter.setStatus({ crs: facts.crs.label, featureCount: facts.rows - (facts.invalid ?? 0), countLabel: facts.invalid === null ? 'rows' : 'features' })
           },
+          confirmWholeRead: (sizeBytes, format) => new Promise<boolean>((resolve) => (wholeReadPrompt = { sizeBytes, format, resolve })),
           onCancelHandle: (interrupt) => {
             openInterrupt = interrupt
           },
@@ -903,6 +925,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       } catch (err) {
         // A page interrupted by user work: the table asks again when it next scrolls or redraws.
         if (err instanceof QueryCancelledError) return null
+        if (noteOutOfMemory(err)) return null
         throw err
       }
     },
@@ -1093,6 +1116,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return needsLoad
     },
     loadWhole,
+    get wholeReadPrompt() {
+      return wholeReadPrompt
+    },
+    answerWholeRead,
     selectFeature(id) {
       session.selectedFeatureId = id
       // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
@@ -1152,7 +1179,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       cameraRequest = { center, zoom, seq: (cameraRequest?.seq ?? 0) + 1 }
     },
     dismissViewNotice() {
-      fallbackDismissed = true
+      if (memoryNotice) memoryNotice = null
+      else fallbackDismissed = true
     },
     setCursor(coords) {
       session.cursorCoordinates = coords

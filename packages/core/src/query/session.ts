@@ -13,6 +13,7 @@ import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, R
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
+import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
   categoryTotalsSql,
   classCountsSql,
@@ -214,6 +215,8 @@ export class QuerySession {
   private inFlightKind: EngineWorkKind | null = null
   /** Marks the in-flight work as interrupted by newer work, before cancelling it. */
   private preemptInFlight: (() => void) | null = null
+  /** Re-registers a source read in parts after an out-of-memory error (its handle reads as empty after). */
+  private reRegisterSource: (() => Promise<void>) | null = null
   private layerView: LayerViewInfo | null = null
   private cancelRequested = false
   private disposed = false
@@ -300,7 +303,9 @@ export class QuerySession {
       outcome =
         err instanceof QueryCancelledError || err instanceof ResultDeclinedError
           ? { kind: 'cancelled', durationMs: elapsed(), statement }
-          : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query'), durationMs: elapsed(), statement }
+          : err instanceof OutOfMemoryError
+            ? { kind: 'error', error: { kind: 'Out of Memory', message: err.message, hints: [] }, durationMs: elapsed(), statement }
+            : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query'), durationMs: elapsed(), statement }
     }
     this.log?.(`[query] ${describeOutcome(outcome)} — ${oneLine(span.text)}`)
     return outcome
@@ -396,6 +401,8 @@ export class QuerySession {
       return await promise
     } catch (err) {
       if (preempted && kind === 'background') throw new WorkPreemptedError()
+      // FR-014: recover while still holding the engine, then say what happened.
+      if (isOutOfMemory(err) && !(err instanceof OutOfMemoryError)) throw new OutOfMemoryError(await this.recoverFromOom(), { cause: err })
       throw err
     } finally {
       this.inFlight = null
@@ -487,6 +494,34 @@ export class QuerySession {
       const row = await singleRow<Record<string, bigint | number>>(this.conn, `SELECT ${select} FROM (SELECT * FROM ${relation} LIMIT ${STYLE_VALUES_CAP})`, isCancelled)
       return Object.fromEntries(textual.map((c, i) => [c.name, Number(row[`d${i}`])]))
     }, 'background')
+  }
+
+  /** Called once by openFile for sources read in parts. */
+  setSourceRecovery(reRegister: () => Promise<void>): void {
+    this.reRegisterSource = reRegister
+  }
+
+  /**
+   * After an out-of-memory error (research §1): the engine survives, but a
+   * source read in parts must be re-registered, and half-built objects go.
+   * Returns the message for the user.
+   */
+  private async recoverFromOom(): Promise<string> {
+    const quiet = async (sql: string): Promise<void> => {
+      await this.conn.query(sql).catch(() => {})
+    }
+    await quiet(`DROP TABLE IF EXISTS ${RESULT_STAGING}`)
+    await this.reRegisterSource?.().catch(() => {})
+    this.pages.clear()
+    let limit: string | null = null
+    try {
+      const r = await this.conn.query(`SELECT current_setting('memory_limit') AS m`)
+      limit = String(r.toArray()[0]?.toJSON().m ?? '') || null
+    } catch {
+      // The engine didn't answer: the message still stands.
+    }
+    this.log?.(`[engine] out of memory; recovered (limit ${limit ?? 'unknown'})`)
+    return outOfMemoryMessage('work', limit)
   }
 
   /** Resolves when nothing holds the engine (a skipped view waits for this, then asks again). */
@@ -793,6 +828,7 @@ export class QuerySession {
     await drop('DROP VIEW IF EXISTS __se_layer')
     await drop('DROP TABLE IF EXISTS __se_bbox')
     await drop(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`)
+    await drop('DROP TABLE IF EXISTS __se_raw')
     await this.conn.close().catch(() => {})
     for (const path of this.liveFiles) await this.db.dropFile(path).catch(() => {})
   }

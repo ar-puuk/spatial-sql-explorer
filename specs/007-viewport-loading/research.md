@@ -517,6 +517,47 @@ What changed from §9–§12 while building, with the evidence behind each.
   or a swatch right after a change now wait for the expected content. A
   legend from the previous column can briefly satisfy a row-count check.
 
+## Implementation outcomes (US4, 2026-10-11)
+
+- **Whole-read files: one parse into a table with stored bbox columns, and no
+  R-tree.** Measured in the WASM build on 1M parcels:
+  - a city view filtering the stored `__se_xmin`…`__se_ymax` columns takes
+    1–3 ms, and a region view (23k features) 1 ms;
+  - the R-tree answers the same city view in 1–3 ms but adds 503 ms to
+    build, plus memory;
+  - map views already filter those columns.
+
+  Every whole-read file is parsed exactly once into `__se_raw`, then copied
+  into `__se_source` with `rowid AS __se_rowid` and the four bbox columns;
+  `__se_raw` is then dropped. `layer` is a view over `__se_source` without
+  the hidden columns. The old split, where files over 64 MB re-parsed through
+  the reader on every pass, is gone; that path re-read a 325 MB GeoJSON on
+  each map view. Facts report `spatialIndex: 'built'`.
+- **Cancel can't interrupt a GDAL parse.** `cancelSent()` during a 325 MB
+  GeoJSON parse took 10.5 s to take effect, because the message waits behind
+  the busy worker. So `openFile` no longer awaits the interrupt. It races the
+  open against a 2.0 s grace period, then terminates the shared engine
+  (`resetDuckDb()`), and the next open starts a fresh one. Measured: 2.38 s
+  on the 325 MB parse, 0.36 s on the e2e `slowParse=stuck` path. The grace
+  period is 2.0 s rather than the planned 2.5 s, because 2.5 s measured
+  2.91 s against SC-005's 3 s.
+- **Out of memory.** A real out-of-memory error was forced with the e2e
+  `memoryLimit` (8 MB fails the 10k GeoJSON open; 24 MB fails a self-join on
+  the 10k Parquet). `exclusive()` catches it, recovers while still holding
+  the engine, and throws `OutOfMemoryError` with the contract message (the
+  limit read from `current_setting('memory_limit')`). Recovery re-registers
+  a source read in parts, drops staging tables and clears the page cache.
+  Open, query, view, page and style each show their stage's message; the
+  next open or query works.
+- **The announcement** (`ReadWholeDialog`) estimates 70 ms/MB, rounded to
+  5 s. It names the format; a GeoParquet or FlatGeobuf that arrives here
+  because partial reads failed is described as such. After a cancel, the web
+  app focuses "Choose a file", because the element that started the open no
+  longer exists.
+- **Sidecars** already flowed through all three source kinds. The e2e
+  `wholeBytes` override (default 64 MB) makes tests take the handle and
+  loopback-URL paths with a small shapefile.
+
 ## Residual risks
 
 | Risk | Mitigation |
