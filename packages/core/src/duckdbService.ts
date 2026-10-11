@@ -20,6 +20,7 @@
 // directly from bytes delivered via `postMessage`, so the worker never
 // performs a network fetch of its own at all.
 import * as duckdb from '@duckdb/duckdb-wasm'
+import { testOverrides } from './source/readModes.js'
 
 export interface DuckDbAssetUrls {
   /** Fetchable URL for the `eh` bundle's worker script (e.g. a webview.asWebviewUri() result). */
@@ -75,6 +76,11 @@ ${workerScriptText}
   const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
   const db = new duckdb.AsyncDuckDB(logger, worker)
   await db.instantiate(SENTINEL_WASM_URL)
+  // Spec 007 research §3: registered URLs (VS Code's loopback server) must be
+  // read with Range requests. With the defaults, DuckDB-WASM silently
+  // downloaded a whole 762 MB file instead; this makes a server without
+  // range support fail loudly rather than fall back to a full read.
+  await db.open({ filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false, forceFullHTTPReads: false } })
   return db
 }
 
@@ -148,6 +154,10 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
         const conn = await db.connect()
         try {
           await loadSpatialExtension(conn)
+          // e2e only (spec 007 out-of-memory tests): a smaller engine. Must
+          // precede the lockdown, which locks the configuration.
+          const memoryLimit = testOverrides().memoryLimit
+          if (memoryLimit) await conn.query(`SET memory_limit = '${memoryLimit}'`)
           await lockDown(conn)
         } finally {
           await conn.close()

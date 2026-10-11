@@ -70,6 +70,26 @@ function ensureFileSourcePromise(): Promise<FileSource> {
   return fileSourcePromise
 }
 
+/**
+ * The whole-transfer FileSource: the primary file plus its same-basename
+ * data sidecars, with the QGIS style sidecar (<basename>.qml) split off as
+ * text (spec 007 FileSource).
+ */
+function bytesSource(files: Array<{ name: string; isPrimary: boolean; bytes: Uint8Array }>): FileSource {
+  const primary = files.find((f) => f.isPrimary) ?? files[0]
+  const wantedStyle = `${primary.name.replace(/\.[^.]+$/, '')}.qml`.toLowerCase()
+  const style = files.find((f) => f !== primary && f.name.toLowerCase() === wantedStyle)
+  const isStyle = (name: string): boolean => ['.qml', '.sld'].some((ext) => name.toLowerCase().endsWith(ext))
+  return {
+    kind: 'bytes',
+    name: primary.name,
+    size: primary.bytes.byteLength,
+    bytes: primary.bytes,
+    sidecars: files.filter((f) => f !== primary && !isStyle(f.name)).map((f) => ({ name: f.name, bytes: f.bytes })),
+    styleSidecar: style ? { fileName: style.name, text: new TextDecoder().decode(style.bytes) } : null,
+  }
+}
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
@@ -169,16 +189,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     if (pending) pending.chunks[msg.index] = msg.bytesBase64
   } else if (msg.type === 'initFilesDone') {
     if (pendingFiles && fileSourceResolve) {
-      const files: Record<string, ArrayBuffer> = {}
-      let primaryFileName = ''
-      let totalBytes = 0
-      for (const pending of pendingFiles.values()) {
-        const buf = base64ToArrayBuffer(pending.chunks.join(''))
-        files[pending.name] = buf
-        totalBytes += buf.byteLength
-        if (pending.isPrimary) primaryFileName = pending.name
-      }
-      fileSourceResolve({ files, primaryFileName, totalBytes })
+      fileSourceResolve(bytesSource([...pendingFiles.values()].map((f) => ({ name: f.name, isPrimary: f.isPrimary, bytes: new Uint8Array(base64ToArrayBuffer(f.chunks.join(''))) }))))
     }
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
@@ -208,6 +219,10 @@ export function createVsCodeHostAdapter(): HostAdapter {
     },
     async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
       return ensureFileSourcePromise()
+    },
+    async readRange(): Promise<Uint8Array> {
+      // Implemented with the loopback source (spec 007 T013).
+      throw new Error('Range reads are not available yet.')
     },
     async saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult> {
       if (options?.kind !== 'data' && typeof content === 'string') {

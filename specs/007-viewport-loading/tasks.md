@@ -107,33 +107,38 @@ they skip with a message, never pass silently.
 
 **⚠️ CRITICAL**: no user story work can begin until this phase is complete.
 
-- [ ] T005 [P] Write `tests/core/read-modes.test.ts`:
+- [X] T005 [P] Write `tests/core/read-modes.test.ts`:
   - every `ReadStrategy` has exactly one `READ_MODES` row;
   - GeoParquet/Parquet → `partial`; FlatGeobuf → `partial-view`; GeoJSON, Shapefile, CSV, GML, GeoPackage → `whole`; PMTiles → `tiles`;
   - caps: 25,000 and about 2,500 for `partial-view`;
   - the whole-read threshold is 100 MB;
   - `readModeFor(…, { partialReads: false })` maps every engine format to `whole` and leaves `tiles` unchanged (FR-015);
   - e2e overrides apply only when passed.
-- [ ] T006 Add the types to `packages/core/src/models.ts`, as in data-model.md: `ReadMode`, `DatasetFacts`, `ViewRequest`, `ViewFeatures`, `TablePageRequest`, `TablePage`, `StyleStats` and `OpenPhase`.
+  - *Done*: tests/core/read-modes.test.ts: 10 tests (catalog, caps, thresholds, FGB size rule, platform override, detection, e2e overrides) pass
+- [X] T006 Add the types to `packages/core/src/models.ts`, as in data-model.md: `ReadMode`, `DatasetFacts`, `ViewRequest`, `ViewFeatures`, `TablePageRequest`, `TablePage`, `StyleStats` and `OpenPhase`.
   - Add `facts: DatasetFacts` to `Layer`.
   - Keep `features` for now; it is removed in T040.
   - Replace `FileSource` in `packages/core/src/hostAdapter.ts` with the `handle | url | bytes` union (data-model.md).
   - Add `readRange(ref, offset, length)` and `getFileSource(ref, { whole? })` to `HostAdapter`.
   - Keep a temporary adapter that converts the old `{ files, primaryFileName }` shape to `bytes`, so both shells compile until T011–T014 land.
-- [ ] T007 Implement `packages/core/src/source/readModes.ts` (`READ_MODES`, `readModeFor`, the constants with their measurement notes) and `packages/core/src/source/index.ts`. Export them from `packages/core/src/index.ts`. T005 passes.
-- [ ] T008 In `packages/core/src/duckdbService.ts`:
+  - *Done*: Types in models.ts (DatasetFacts, ViewRequest/ViewFeatures, TablePage, StyleStats, OpenPhase, ReadModeKind, SpatialIndexKind; Layer.facts optional), FileSource union + styleSidecar text + readRange + getFileSource({whole}). No temporary adapter: both shells moved to the union directly
+- [X] T007 Implement `packages/core/src/source/readModes.ts` (`READ_MODES`, `readModeFor`, the constants with their measurement notes) and `packages/core/src/source/index.ts`. Export them from `packages/core/src/index.ts`. T005 passes.
+  - *Done*: source/readModes.ts: READ_MODES, readModeFor (FGB <= threshold -> whole), measured constants, test overrides (parseTestOverrides, e2e only), exported
+- [X] T008 In `packages/core/src/duckdbService.ts`:
   - call `db.open({ filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false, forceFullHTTPReads: false } })` right after `instantiate`, before spatial and the lockdown;
   - add an e2e-only `memoryLimit` option to `createDuckDb`, used by T055's out-of-memory test (`SET memory_limit` before the lockdown);
   - keep the existing comment style.
 
   Verify `npm run test:core` and `tests/web/specs/open-file.spec.ts` pass.
-- [ ] T009 Implement `packages/core/src/source/register.ts`:
+  - *Done*: db.open filesystem config after instantiate; e2e memoryLimit SET before lockdown. test:core 270, test:web 58 (after the small-file rule below), test:vscode-ext 46
+- [X] T009 Implement `packages/core/src/source/register.ts`:
   - `registerSource(db, source)`:
     - `handle` → `registerFileHandle(path, handle, 2 /* BROWSER_FILEREADER */, true)`;
     - `url` → `registerFileURL(path, url, 4 /* HTTP */, false)`;
     - `bytes` → `registerFileBuffer`.
   - Primary and sidecars go under `/se-source/<name>`.
   - It returns `{ primaryPath, paths, reRegister() }`. `reRegister` drops, then registers again, as needed by out-of-memory recovery (research §1).
+  - *Done*: source/register.ts: handle/url/bytes + sidecars; reRegister (bytes re-fetched, no second copy); drop. openFile bridged onto it; small whole-read files (<= 64 MB) fetched as bytes (10 MB GeoJSON warm 2,106 -> 1,616 ms)
 - [ ] T010 [P] Write `tests/vscode-ext/src/suite/source-server.test.ts`, against `sourceServer` directly in the extension host (exported for tests through `spatialExplorer._sourceServerForTests`). Cover:
   - `HEAD` with `Range: bytes=0-` → 206, `Content-Length` = size, `Content-Range`;
   - `HEAD` without `Range` → 200;
@@ -173,12 +178,13 @@ they skip with a message, never pass silently.
     4. Otherwise post `requestBytes` and assemble the chunks as today into `{ kind: 'bytes' }`, with the platform set to `partialReads: false` and the reason.
     5. `{ whole: true }` always uses the chunked transfer.
   - **`readRange`**: `fetch(resourceUri, { headers: { Range: 'bytes=a-b' } })` on the main thread, returning the bytes.
-- [ ] T014 [P] Change `apps/web/src/hostAdapter.ts`:
+- [X] T014 [P] Change `apps/web/src/hostAdapter.ts`:
   - `getFileSource` returns `{ kind: 'handle', handle: file, size, sidecars }`, with the sidecars from the same pick or drop as today;
   - `{ whole: true }` returns `{ kind: 'bytes' }` via `file.arrayBuffer()`;
   - `readRange` returns `file.slice(offset, offset + length).arrayBuffer()`.
 
   Remove the temporary adapter from T006 once both shells use the new kinds.
+  - *Done*: web getFileSource -> handle (style sidecar as text, data sidecars as handles), whole -> bytes; readRange via File.slice
 - [ ] T015 [P] Write `tests/core/result-model.test.ts` against pure SQL builders (no engine). Cover:
   - `layerViewSql(mode, info)`:
     - `partial` with covering → hidden columns mapped from `bbox.xmin…`;

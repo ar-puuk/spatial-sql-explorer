@@ -9,10 +9,10 @@
 // GML. Shapefile needs its sidecar files (.shx/.dbf/.prj) — see
 // HostAdapter.getFileSource's multi-file FileSource shape.
 
-import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
-import { getDuckDb, SOURCE_DIR, type DuckDbAssetUrls } from './duckdbService.js'
-import { sidecarStyleFileName } from './style/index.js'
+import { getDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { registerSource, type RegisteredSource } from './source/register.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, Layer, QueryableTable } from './models.js'
 import { QuerySession, SOURCE_TABLE } from './query/session.js'
@@ -41,42 +41,6 @@ function detectStrategy(fileName: string): ReadStrategy {
     return 'st_read'
   }
   return 'unsupported'
-}
-
-const STYLE_SIDECAR_EXTENSIONS = ['.qml', '.sld']
-
-/**
- * Splits off the QGIS-convention style sidecar (`<basename>.qml`, see
- * style/index.ts) before anything is handed to DuckDB: registerFileBuffer
- * transfers (detaches) the bytes, so they can't be read afterwards. Other
- * style files are skipped too; they're never data.
- */
-function takeStyleSidecar(
-  files: Record<string, ArrayBuffer>,
-  primaryFileName: string
-): { dataFiles: Record<string, ArrayBuffer>; styleSidecar: Layer['styleSidecar'] } {
-  const wanted = sidecarStyleFileName(primaryFileName).toLowerCase()
-  const dataFiles: Record<string, ArrayBuffer> = {}
-  let styleSidecar: Layer['styleSidecar'] = null
-  for (const [name, bytes] of Object.entries(files)) {
-    const lower = name.toLowerCase()
-    if (name !== primaryFileName && STYLE_SIDECAR_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
-      if (lower === wanted) styleSidecar = { fileName: name, text: new TextDecoder().decode(bytes) }
-      continue
-    }
-    dataFiles[name] = bytes
-  }
-  return { dataFiles, styleSidecar }
-}
-
-async function registerSourceFiles(db: AsyncDuckDB, files: Record<string, ArrayBuffer>): Promise<string[]> {
-  const paths: string[] = []
-  for (const [name, bytes] of Object.entries(files)) {
-    const path = `${SOURCE_DIR}${name}`
-    await db.registerFileBuffer(path, new Uint8Array(bytes))
-    paths.push(path)
-  }
-  return paths
 }
 
 interface FromExpr {
@@ -287,18 +251,24 @@ export interface OpenedFile {
  */
 export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<OpenedFile> {
   const { hostAdapter, duckdbAssets } = deps
-  const source = await hostAdapter.getFileSource(ref)
-  const strategy = detectStrategy(source.primaryFileName)
+  let source = await hostAdapter.getFileSource(ref)
+  const strategy = detectStrategy(source.name)
+  // Small files that are parsed whole anyway read faster from memory than
+  // through many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm),
+  // and their size is no memory concern.
+  if (source.kind !== 'bytes' && strategy !== 'parquet' && source.size <= MATERIALIZE_MAX_BYTES) {
+    source = await hostAdapter.getFileSource(ref, { whole: true })
+  }
   if (strategy === 'unsupported') {
     throw new Error(
       `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, and GML.`
     )
   }
 
-  const { dataFiles, styleSidecar } = takeStyleSidecar(source.files, source.primaryFileName)
+  const styleSidecar = source.styleSidecar
   const db = await getDuckDb(duckdbAssets)
   const conn: AsyncDuckDBConnection = await db.connect()
-  let registered: string[] = []
+  let registered: RegisteredSource | null = null
   let session: QuerySession | null = null
 
   // Per-step timings, surfaced in the VS Code output channel.
@@ -312,9 +282,9 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
   }
 
   try {
-    registered = await registerSourceFiles(db, dataFiles)
-    const vfsPath = `${SOURCE_DIR}${source.primaryFileName}`
-    const materialized = source.totalBytes <= MATERIALIZE_MAX_BYTES
+    registered = await registerSource(db, source)
+    const vfsPath = registered.primaryPath
+    const materialized = source.size <= MATERIALIZE_MAX_BYTES
     const read = await buildFromExpr(conn, strategy, vfsPath, materialized)
     const srid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, vfsPath, strategy)
     const crs = resolveCrsInfo(srid)
@@ -326,7 +296,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     const geomName = read.columns.includes('geom') && read.geometryColumn !== 'geom' ? 'geometry' : 'geom'
     const star = exclude.length ? `* EXCLUDE (${exclude.map(quoteIdent).join(', ')})` : '*'
     await conn.query(`CREATE OR REPLACE VIEW layer AS SELECT ${star}, ${read.geomExpr} AS ${quoteIdent(geomName)} FROM ${read.fromExpr}`)
-    const alias = await aliasFor(conn, source.primaryFileName)
+    const alias = await aliasFor(conn, source.name)
     if (alias) await conn.query(`CREATE OR REPLACE VIEW ${quoteIdent(alias)} AS SELECT * FROM layer`)
     timings.prepare = lap()
 
@@ -379,7 +349,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     timings.scan = lap()
 
     // The initial view IS the default query's result (FR-003, SC-002).
-    session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered, hostAdapter.log?.bind(hostAdapter))
+    session = new QuerySession(db, await db.connect(), table, materialized ? [] : registered.paths, hostAdapter.log?.bind(hostAdapter))
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -409,6 +379,6 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
     // Materialized files' bytes are no longer needed: the WASM heap keeps
     // only the table (~512 MB ceiling, CLAUDE.md). Streamed files stay
     // registered until the session is disposed.
-    if (source.totalBytes <= MATERIALIZE_MAX_BYTES) for (const path of registered) await db.dropFile(path).catch(() => {})
+    if (source.size <= MATERIALIZE_MAX_BYTES) await registered?.drop()
   }
 }

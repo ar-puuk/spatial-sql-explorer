@@ -71,7 +71,86 @@ export interface Layer {
   styleSidecar: { fileName: string; text: string } | null
   /** Milliseconds per load step, for logs. Diagnostic only. */
   loadTimings?: Record<string, number>
+  /** Whole-file facts, never derived from what's on screen (spec 007 FR-001). */
+  facts?: DatasetFacts
 }
+
+// --- Spec 007: large files and viewport loading ------------------------------------
+
+/** How the engine reaches a file (research §4). `tiles`: the map reads it, not the engine. */
+export type ReadModeKind = 'partial' | 'partial-view' | 'whole' | 'tiles'
+
+/** Where map views get feature bounding boxes. */
+export type SpatialIndexKind = 'covering' | 'built' | 'building' | 'file' | 'rtree' | 'none'
+
+/** Whole-file facts shown at once (FR-001). */
+export interface DatasetFacts {
+  rows: number
+  /** True only while a count is still pending. */
+  rowsEstimated: boolean
+  /** Rows with missing or invalid geometry, when known without a full scan (null = unknown). */
+  invalid: number | null
+  extent: Bbox | null
+  crs: CrsInfo
+  crsAssumed: boolean
+  srid: number | null
+  geometryType: GeometryType
+  columns: Array<{ name: string; type: string }>
+  readMode: ReadModeKind
+  spatialIndex: SpatialIndexKind
+  /** Why the whole file is being read, when partial reads failed (FR-015). */
+  fallback: string | null
+}
+
+/** A map view to load (data-model.md). `bbox` is WGS84. */
+export interface ViewRequest {
+  generation: number
+  bbox: Bbox
+  zoom: number
+  cap: number
+}
+
+export interface ViewFeatures {
+  generation: number
+  /** WGS84 geometry; `id` is the stable `__se_rowid`. */
+  features: Feature[]
+  /** Exact count of the result's mappable rows intersecting the view. */
+  inView: number
+  /** inView > cap: one feature per grid cell was drawn. */
+  thinned: boolean
+  ms: number
+}
+
+export interface TablePageRequest {
+  offset: number
+  limit: number
+  sort: { column: string; dir: 'asc' | 'desc' } | null
+}
+
+export interface TablePage {
+  offset: number
+  rows: Array<{ id: number; attributes: Feature['attributes']; invalidGeometry: boolean }>
+}
+
+/** The input to classification, computed in SQL over the whole result (research §11). */
+export interface StyleStats {
+  column: string
+  rows: number
+  nulls: number
+  categories?: Array<{ value: string | number | boolean | null; count: number }>
+  otherCount?: number
+  min?: number
+  max?: number
+  quantiles?: number[]
+  /** Natural-breaks input: every value, or a deterministic sample when `sampled`. */
+  values?: number[]
+  sampled?: boolean
+  /** Exact, after breaks are known. */
+  classCounts?: number[]
+}
+
+/** The open pipeline's visible phases (data-model.md OpenPhase). */
+export type OpenPhase = 'registering' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
 
 // --- Spec 002: query ------------------------------------------------------------
 
