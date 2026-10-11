@@ -8,7 +8,7 @@ import { fixture, openFixture } from './helpers'
 
 interface OpenState {
   phase: string
-  facts: { rows: number; readMode: string; spatialIndex: string; crs: { label: string }; geometryType: string; fallback: string | null } | null
+  facts: { rows: number; readMode: string; spatialIndex: string; crs: { label: string }; geometryType: string; fallback: string | null; needsLoad: boolean } | null
 }
 
 const openState = (page: Page): Promise<OpenState> =>
@@ -67,5 +67,32 @@ test.describe('US1: open a large file and see it quickly', () => {
     await page.goto('/?e2e=1')
     await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.parquet'))
     await expect(statusBar(page)).toContainText('10,000 features', { timeout: 60000 })
+  })
+})
+
+// T044/T045: a FlatGeobuf read in parts draws the map from its index; whole-file
+// work waits for "Load", which re-opens it in memory with queries enabled.
+test.describe('FlatGeobuf: load the whole file to query it', () => {
+  test('the query panel, table and export offer Load; after it, queries run on all rows', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&cap=1000&wholeThreshold=1')
+    expect((await openState(page)).facts).toMatchObject({ readMode: 'partial-view', needsLoad: true })
+
+    const notice = page.getByRole('status').filter({ hasText: /Load the whole file \(.+ MB\) to list its rows\./ })
+    await expect(notice).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Export data…' })).toBeDisabled()
+    await page.keyboard.press('Control+Shift+Q')
+    const queryNotice = page.getByRole('status').filter({ hasText: /Load the whole file \(.+ MB\) to query it\./ })
+    await expect(queryNotice).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Run' })).toBeDisabled()
+
+    const t0 = Date.now()
+    await queryNotice.getByRole('button', { name: 'Load' }).click()
+    await expect.poll(async () => (await openState(page)).facts?.needsLoad, { timeout: 60000 }).toBe(false)
+    console.log(`TIMING T044 load whole (parcels-10k.fgb): ${Date.now() - t0} ms`)
+    expect((await openState(page)).facts).toMatchObject({ rows: 10000, readMode: 'whole' })
+    await expect(notice).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Export data…' })).toBeEnabled()
+    await expect(page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr:not(.spacer):not(.skeleton)').first()).toBeVisible()
   })
 })

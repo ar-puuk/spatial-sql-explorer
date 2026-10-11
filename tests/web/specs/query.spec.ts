@@ -9,7 +9,7 @@ test('the default query reproduces the initial view, and a filter replaces it', 
   // Collapsed by default: spec 001's view is unchanged until opened.
   await expect(editor(page)).toBeHidden()
   await openQueryPanel(page)
-  await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
+  await expect(editor(page)).toHaveText('SELECT * FROM layer')
   const header = queryPanel(page).locator('.query-table')
   await expect(header).toContainText('layer')
   await expect(header).toContainText('EPSG:4326')
@@ -68,7 +68,7 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
 
   // Unedited since the last run: Reset needs no confirmation.
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
-  await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
+  await expect(editor(page)).toHaveText('SELECT * FROM layer')
   expect(await rowCount(page)).toBe(180)
   await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveText(initialScale ?? '')
@@ -84,7 +84,7 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   await expect(editor(page)).toHaveText('SELECT name FROM layer -- my work')
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
   await queryPanel(page).getByRole('button', { name: 'Discard' }).click()
-  await expect(editor(page)).toHaveText('SELECT * FROM layer LIMIT 1000')
+  await expect(editor(page)).toHaveText('SELECT * FROM layer')
 })
 
 // Spec 003 T006: the displayed result carries its attribute columns with

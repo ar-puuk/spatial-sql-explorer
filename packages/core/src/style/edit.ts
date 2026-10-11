@@ -19,14 +19,17 @@ import {
 } from './model.js'
 import { toCategory } from './classify.js'
 import { defaultRamp } from './ramps.js'
-import { eligibleColumns, type ResolveInput } from './resolve.js'
+import { eligibleColumns, valuesOf, type ResolveInput } from './resolve.js'
 
 const TEXTUAL = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i
 
 function distinctCount(layer: ResolveInput | null, column: string, stopAt = Infinity): number {
+  // Spec 007: counted by the engine for results whose values aren't fetched.
+  const known = layer?.distinct?.[column]
+  if (known !== undefined) return known
   const seen = new Set<string>()
-  for (const f of layer?.features ?? []) {
-    const v = toCategory(f.attributes[column])
+  for (const value of layer ? valuesOf(layer, column) : []) {
+    const v = toCategory(value)
     if (v !== null) seen.add(v)
     if (seen.size > stopAt) break
   }

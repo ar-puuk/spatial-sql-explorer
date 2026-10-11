@@ -233,6 +233,16 @@ async function aliasFor(conn: AsyncDuckDBConnection, primaryFileName: string): P
   return Number(kw.toArray()[0]?.toJSON().n ?? 0) > 0 ? null : base
 }
 
+/** How to open (spec 007 T044). */
+export interface OpenOptions {
+  /**
+   * Load a file normally read in parts (FlatGeobuf) whole into memory, so
+   * queries, the table, styles and export work on it. The user asked for it
+   * ("Load"), so the whole-read confirmation is skipped.
+   */
+  loadWhole?: boolean
+}
+
 /** Progress and cancellation for an open (spec 007 FR-002, contracts/core-data-access.md). */
 export interface OpenHooks {
   /** Reports each visible phase (OpenProgress). */
@@ -267,7 +277,7 @@ export interface OpenedFile {
  * directly (larger files, which stay readable under the lockdown's
  * allowed_directories).
  */
-export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks = {}): Promise<OpenedFile> {
+export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks = {}, options: OpenOptions = {}): Promise<OpenedFile> {
   const { hostAdapter, duckdbAssets } = deps
   const checkCancelled = (): void => {
     if (hooks.isCancelled?.()) throw new QueryCancelledError()
@@ -286,7 +296,8 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
   // How the engine reaches this file (research §4); a whole-transfer fallback
   // means partial reads aren't available in this window (FR-015).
   const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
-  const mode = readModeFor(format, source.size, { partialReads: fallback === null })
+  const chosen = readModeFor(format, source.size, { partialReads: fallback === null })
+  const mode = options.loadWhole && chosen.mode === 'partial-view' ? { ...chosen, mode: 'whole' as const } : chosen
   // Whole reads from memory: small files read faster from memory than through
   // many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm), and
   // FlatGeobuf is ~1,500x faster from memory (research §4).
@@ -316,7 +327,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
   }
 
   try {
-    if (mode.mode === 'whole' && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
+    if (mode.mode === 'whole' && !options.loadWhole && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
       hooks.onPhase?.('announce', detail)
       if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
     }
@@ -411,6 +422,7 @@ function factsOf(table: QueryableTable, opened: OpenedTable, readMode: ReadModeK
     readMode,
     spatialIndex: opened.spatialIndex,
     fallback,
+    needsLoad: readMode === 'partial-view',
   }
 }
 

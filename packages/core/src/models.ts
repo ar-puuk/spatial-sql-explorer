@@ -55,8 +55,6 @@ export interface Layer {
   totalRows: number
   /** WGS84 extent to fit. For the initial view this is the whole file's extent, not just the loaded subset. */
   extent: Bbox | null
-  /** All rows of the result. `geometry` is null when the row's geometry is missing or invalid. */
-  features: Feature[]
   /**
    * The result's attribute columns (no geometry columns) with their DuckDB
    * types, in result order. Decides which columns each thematic renderer can
@@ -102,6 +100,11 @@ export interface DatasetFacts {
   spatialIndex: SpatialIndexKind
   /** Why the whole file is being read, when partial reads failed (FR-015). */
   fallback: string | null
+  /**
+   * FlatGeobuf read in parts (T044): the map works, but queries, the table,
+   * thematic styles and export wait until the user loads the whole file.
+   */
+  needsLoad: boolean
 }
 
 /** A map view to load (data-model.md). `bbox` is WGS84. */
@@ -168,11 +171,12 @@ export type OpenPhase = 'registering' | 'facts' | 'announce' | 'reading' | 'inde
 
 // --- Spec 002: query ------------------------------------------------------------
 
-/** The initial view's query (spec 002 FR-003); Reset restores it (FR-011). */
-export const DEFAULT_QUERY = 'SELECT * FROM layer LIMIT 1000'
-
-/** Results larger than this ask before rendering (spec 002 FR-012). */
-export const LARGE_RESULT_THRESHOLD = 50_000
+/**
+ * The initial view's query (spec 002 FR-003); Reset restores it (FR-011).
+ * Spec 007 FR-009: no LIMIT. The whole file is the result; the map draws it
+ * by view and the table pages it.
+ */
+export const DEFAULT_QUERY = 'SELECT * FROM layer'
 
 /** The opened file as SQL sees it (spec 002 data-model.md). */
 export interface QueryableTable {

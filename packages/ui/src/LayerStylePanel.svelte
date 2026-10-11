@@ -37,6 +37,7 @@
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
+  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -57,6 +58,11 @@
     onReset: () => void
     onDismissNotice: () => void
     onClose: () => void
+    /** Spec 007 T044: a FlatGeobuf read in parts; thematic styles need the whole file. */
+    needsLoad?: { sizeLabel: string } | null
+    onLoad?: () => void
+    /** Spec 007: rows being classified by the engine (shown after 300 ms), or null. */
+    classifyingRows?: number | null
   }
   let {
     style,
@@ -75,6 +81,9 @@
     onReset,
     onDismissNotice,
     onClose,
+    needsLoad = null,
+    onLoad = () => {},
+    classifyingRows = null,
   }: Props = $props()
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string }> = [
@@ -88,6 +97,7 @@
   /** Why a renderer can't be chosen, or null. */
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
+    if (needsLoad) return 'Load the whole file to style by its values.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -184,6 +194,12 @@
         >
       {/each}
     </div>
+    {#if classifyingRows !== null}
+      <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
+    {/if}
+    {#if needsLoad}
+      <LoadWholeNotice sizeLabel={needsLoad.sizeLabel} purpose="style by its values" {onLoad} />
+    {/if}
 
     {#if renderer.kind !== 'single'}
       <div class="row field">
@@ -386,6 +402,10 @@
 </div>
 
 <style>
+  .classifying {
+    margin: 0;
+    color: var(--se-text-secondary);
+  }
   .panel {
     display: flex;
     flex-direction: column;

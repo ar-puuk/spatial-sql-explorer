@@ -199,7 +199,6 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   await openFile(page, writeParcels(100_000, 'parcels-100k.geojson'))
   const dialog = page.getByRole('dialog', { name: 'Export data' })
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await expect(dialog.getByRole('radio', { name: 'All 100,000 rows' })).toHaveAttribute('aria-checked', 'true')
   await dialog.getByRole('radio', { name: 'GeoParquet', exact: true }).click()
   await page.evaluate(() => {
     const w = window as unknown as { __longTasks: number[] }
@@ -220,8 +219,8 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   // SC-004: a 1,000,000-row GeoJSON export, cancelled while it writes.
   await openQueryPanel(page)
   await runQuery(page, 'SELECT a.* FROM layer a, range(10) b')
-  await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
-  await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+  // Spec 007 FR-009: no prompt; the 1,000,000-row result is the export.
+  await expect(page.locator('.query-status')).toContainText('1,000,000 rows', { timeout: 120000 })
   await page.getByRole('button', { name: 'Export data…' }).click()
   await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
   await dialog.getByRole('button', { name: 'Export…' }).click()

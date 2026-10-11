@@ -462,6 +462,61 @@ Times include engine start-up.
   view replaced the preview unseen. The 10 MB warm first paint is now 1,588 to
   1,612 ms over three runs (spec 001 baseline: 1,594 ms).
 
+## Implementation outcomes (US3, 2026-10-11)
+
+What changed from §9–§12 while building, with the evidence behind each.
+
+- **A query replaces the result only once it has succeeded.** The capped run
+  goes into a staging table (`__se_result_next`). After it succeeds, the old
+  result is dropped and the staging table renamed (`ALTER TABLE … RENAME`), or
+  replaced by a view when it is over the cap. A failed query keeps the
+  previous result, as spec 002 requires. Without staging, a query after a
+  view result failed: `CREATE OR REPLACE TABLE` refuses to replace a view
+  ("Existing object __se_result is of type View").
+- **Engine quirk (DuckDB-WASM 1.32.0 / v1.4.3):** after `ALTER TABLE x RENAME
+  TO y`, `duckdb_tables()` no longer lists the table as `y`, though `SELECT`
+  and `DROP TABLE y` work. Probed in the real build: the catalog check
+  reported "no result" on the second cycle, and the rename then failed with
+  "another entry with this name already exists". The result is therefore
+  dropped by trying `DROP TABLE`, then `DROP VIEW` when the engine says it is
+  a view; the catalog is never consulted.
+- **Three kinds of engine work.** `exclusive()` now distinguishes three kinds:
+  - map views, which anything interrupts;
+  - background work (table pages, style statistics, distinct counts, a
+    feature by id), which user work interrupts; it then raises
+    `WorkPreemptedError` and the store retries it after `whenIdle()`.
+    Views wait behind it instead of interrupting it: when they did, the views
+    fired while a file opens kept a style from finishing (11 web failures);
+  - user work (queries, exports), which nothing interrupts.
+
+  Before this change, a 1,000,000-row export failed with "A query is already
+  running" while a page or style statistic was computing over the view.
+- **Jenks keeps spec 003's sampling, not a 50,000-value reservoir.** Style
+  values are fetched and classified exactly up to 200,000 rows
+  (`JENKS_SAMPLE` = `JENKS_EXACT_LIMIT`). Above that, the engine returns the
+  same evenly spaced order statistics that spec 003's `sampleSorted` picks,
+  so the breaks equal spec 003's own breaks. A unit test checks this on
+  300,000 values. Quantile breaks come from the two exact order statistics
+  around each break, and class counts come from one exact `CASE`
+  aggregation. The legend keeps spec 003's caption, "(estimated from N
+  values)". The `jenksSample` test override lowers N, so a 10,000-row
+  fixture can exercise the sampled path.
+- **FlatGeobuf in parts needs Load (T044).** Whole-file statements over
+  `ST_Read` through the file handle are slow, and DuckDB can't interrupt them
+  midway. On `parcels-10k.fgb` read in parts, a table page plus distinct
+  counts held the engine for about 14 s, and the first map view waited
+  behind them (open ready at 2.4 s, first view at 24 s). The session now
+  refuses whole-file work while `needsLoad` is set: queries are refused,
+  pages are empty, and there are no style statistics and no export. The UI
+  shows "Load the whole file (size) to …" with a Load button. Load re-opens
+  the file with `loadWhole` (bytes, then a table); it took 176 ms on the 10k
+  fixture. It keeps the current style. Load is a re-open rather than
+  `session.loadWhole()`: that reuses the whole-read path, with its progress
+  and Cancel, unchanged.
+- **The style and table resolve asynchronously.** Tests that read a legend
+  or a swatch right after a change now wait for the expected content. A
+  legend from the previous column can briefly satisfy a row-count check.
+
 ## Residual risks
 
 | Risk | Mitigation |

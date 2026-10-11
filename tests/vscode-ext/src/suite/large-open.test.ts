@@ -3,10 +3,14 @@
 // the web build). Later tasks add views, queries, whole-read formats and PMTiles.
 import * as assert from 'assert'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+/** Rows of parcels-10k with value > 1,000,000 (the web paging test asserts the same). */
+const FILTERED_ROWS = 4958
+
 const fixture = (name: string): string => path.resolve(__dirname, '../../fixtures', name)
 
 interface OpenState {
@@ -115,5 +119,60 @@ suite('Spec 007 US2: map views in VS Code', () => {
     assert.strictEqual(city.thinned, false)
     assert.strictEqual(city.drawn, city.inView)
     assert.ok(city.drawn > 0)
+  })
+})
+
+/** Runs SQL through the test hook and waits for it to finish (spec 002 hooks). */
+async function run(sql: string): Promise<{ phase: string; rowCount?: number; errorMessage?: string; refusedReason?: string } | null> {
+  type State = { phase: string; runCount: number; rowCount?: number; errorMessage?: string; refusedReason?: string } | null
+  const state = (): Thenable<State> => vscode.commands.executeCommand('spatialExplorer._getQueryState')
+  const before = (await state())?.runCount ?? 0
+  await vscode.commands.executeCommand('spatialExplorer._runQuery', sql)
+  const deadline = Date.now() + 60000
+  for (;;) {
+    const s = await state()
+    if (s && s.runCount > before && ['succeeded', 'failed', 'cancelled', 'refused'].includes(s.phase)) return s
+    assert.ok(Date.now() < deadline, `query did not finish: ${sql}`)
+    await sleep(150)
+  }
+}
+
+/** Exports the displayed result to `target` through the spec 005 hooks and waits for the outcome. */
+async function runExport(request: object, target: string): Promise<{ outcome: { kind: string; rows?: number } | null }> {
+  type State = { phase: string; outcome: { kind: string; rows?: number } | null } | null
+  await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', target)
+  await vscode.commands.executeCommand('spatialExplorer._runExport', request)
+  const deadline = Date.now() + 60000
+  await sleep(200)
+  for (;;) {
+    const s = (await vscode.commands.executeCommand('spatialExplorer._getExportState')) as State
+    if (s && s.phase !== 'running' && s.outcome) return s
+    assert.ok(Date.now() < deadline, `export did not finish: ${JSON.stringify(s)}`)
+    await sleep(150)
+  }
+}
+
+// T043 (US3): queries, counts and export on the whole data, as in the web build
+// (tests/web/specs/paging.spec.ts asserts the same count).
+suite('Spec 007 US3: whole-result queries in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('the default query, an exact filtered count, and an export of every row', async function () {
+    this.timeout(120000)
+    await openReady('parcels-10k.parquet')
+    const initial = (await vscode.commands.executeCommand('spatialExplorer._getQueryState')) as { queryText?: string } | null
+    assert.strictEqual(initial?.queryText, 'SELECT * FROM layer')
+
+    const s = await run('SELECT * FROM layer WHERE value > 1000000')
+    assert.strictEqual(s?.phase, 'succeeded', s?.errorMessage ?? s?.refusedReason ?? '')
+    assert.strictEqual(s?.rowCount, FILTERED_ROWS)
+
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-007-')), 'filtered.parquet')
+    const e = await runExport({ format: 'geoparquet', crs: 'result' }, out)
+    assert.strictEqual(e.outcome?.kind, 'saved', JSON.stringify(e.outcome))
+    assert.strictEqual(e.outcome?.rows, FILTERED_ROWS)
+    assert.strictEqual(fs.readFileSync(out).subarray(0, 4).toString('latin1'), 'PAR1')
   })
 })

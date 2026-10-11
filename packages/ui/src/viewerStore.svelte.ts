@@ -2,6 +2,7 @@
 // packages/ui holds mutable state. Business logic (parsing, DuckDB, style
 // interchange) stays in packages/core; this just drives the UI from a
 // ViewerSession and routes file I/O through the HostAdapter.
+import { untrack } from 'svelte'
 import {
   DEFAULT_LAYER_STYLE,
   createInitialViewerSession,
@@ -17,6 +18,7 @@ import {
   setClassVisible,
   resolveStyle,
   type ResolvedStyle,
+  type ResolveInput,
   sidecarStyleFileName,
   styleFileName,
   STYLE_FILE_EXTENSIONS,
@@ -38,6 +40,7 @@ import {
   type ExportRequest,
   type EngineError,
   type Layer,
+  type OpenedFileRef,
   DEFAULT_QUERY,
   describeOutcome,
   layerFromResult,
@@ -47,8 +50,11 @@ import {
   type OpenPhase,
   type Feature,
   type ViewFeatures,
+  type TablePage,
+  PAGE_SIZE,
   viewCapFor,
   ViewSkippedError,
+  WorkPreemptedError,
 } from '@spatial-explorer/core'
 
 /** The attribute columns a style draws from (spec 007: map views read only these). */
@@ -71,7 +77,7 @@ export interface StyleNotice {
 }
 
 /** Query lifecycle (spec 002 data-model.md, "Query state transitions"). */
-export type QueryPhase = 'idle' | 'running' | 'awaitingConfirm' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
+export type QueryPhase = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
 
 export interface QueryTableInfo {
   name: string
@@ -97,10 +103,17 @@ export interface ViewerStore {
   readonly resultCrs: { label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null
   readonly crsOverride: number | null
   setCrsOverride(epsg: number | null): void
-  readonly fetchProgress: { fetched: number; total: number } | null
   readonly runStartedAt: number | null
-  readonly pendingLargeResult: { rowCount: number } | null
-  answerLargeResult(choice: 'all' | 'first' | 'cancel'): void
+  /** Spec 007: the attribute table pages the whole result (FR-011). */
+  readonly tableTotal: number
+  readonly tableSort: { column: string; dir: 'asc' | 'desc' } | null
+  /** Bumps when the result or the sort changes: loaded pages are stale. */
+  readonly tableRevision: number
+  /** A big result whose pages and views re-run the query (said once in the table header). */
+  readonly tableReRuns: boolean
+  setTableSort(sort: { column: string; dir: 'asc' | 'desc' } | null): void
+  /** One page of rows (PAGE_SIZE) at `offset`, in the current sort; null when there's nothing to page. */
+  loadPage(offset: number): Promise<TablePage | null>
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -143,6 +156,10 @@ export interface ViewerStore {
   readonly resolvedStyle: ResolvedStyle
   /** The displayed result without reactive proxies, for classification and pickers. */
   readonly displayedLayer: Layer | null
+  /** Spec 007: a style is being classified over a big result (shown after 300 ms). */
+  readonly classifying: boolean
+  /** What the style panel resolves against: columns, rows, distinct counts. */
+  readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
   readonly legendCollapsed: boolean
   setLegendCollapsed(collapsed: boolean): void
@@ -174,6 +191,13 @@ export interface ViewerStore {
   dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
+  /**
+   * Spec 007 T044: a FlatGeobuf read in parts. The map works; queries, the
+   * table, thematic styles and export wait for `loadWhole()`. Null otherwise.
+   */
+  readonly needsLoad: { sizeLabel: string } | null
+  /** Re-opens the file whole into memory (progress and Cancel through the open). */
+  loadWhole(): Promise<void>
   /** Spec 007: the open in progress (null when none), its whole-file facts as soon as known, and Cancel (FR-001, FR-002). */
   readonly openPhase: OpenPhase | null
   readonly openStartedAt: number | null
@@ -278,10 +302,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let queryTable = $state<QueryTableInfo | null>(null)
   let resultCrs = $state<{ label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null>(null)
   let crsOverride = $state<number | null>(null)
-  let fetchProgress = $state<{ fetched: number; total: number } | null>(null)
   let runStartedAt = $state<number | null>(null)
-  let pendingLargeResult = $state<{ rowCount: number } | null>(null)
-  let largeResultResolve: ((choice: 'all' | 'first' | 'cancel') => void) | null = null
+  // Spec 007: the table's paging state.
+  let tableSort = $state<{ column: string; dir: 'asc' | 'desc' } | null>(null)
+  let tableRevision = $state(0)
   let mapLayer = $state.raw<Layer | null>(null)
   // The displayed result, unproxied: classification walks every row, which
   // must not create a reactive signal per attribute (spec 003 T012). Kept in
@@ -290,19 +314,82 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   function setLayer(l: Layer | null): void {
     displayedLayer = l
     session.layer = l
+    // A new result: the table's loaded pages and sort belong to the old one.
+    tableSort = null
+    tableRevision++
   }
-  const resolvedStyle = $derived.by(() => resolveStyle(style, displayedLayer))
+  // Spec 007 FR-012: styles are resolved by the engine over the whole result
+  // (fetched values for small results, SQL statistics for big ones).
+  let resolvedStyle = $state.raw<ResolvedStyle>(resolveStyle(DEFAULT_LAYER_STYLE, null))
+  let styleDistinct = $state.raw<Record<string, number>>({})
+  let classifying = $state(false)
+  let styleGeneration = 0
+  let distinctFor: Layer | null = null
+
+  async function refreshStyle(): Promise<void> {
+    const generation = ++styleGeneration
+    const s = style
+    const layer = displayedLayer
+    const qs = querySession
+    if (!qs || !layer) {
+      resolvedStyle = resolveStyle(s, layer ? { columns: layer.columns, rowCount: layer.totalRows } : null)
+      return
+    }
+    const slow = setTimeout(() => {
+      if (generation === styleGeneration) classifying = true
+    }, 300)
+    try {
+      if (distinctFor !== layer) {
+        distinctFor = layer
+        styleDistinct = await retryWhenBusy(qs, () => qs.distinctCounts()).catch(() => ({}))
+      }
+      const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
+      if (generation === styleGeneration) resolvedStyle = r
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError)) console.warn('Spatial Explorer: style failed', err)
+    } finally {
+      clearTimeout(slow)
+      if (generation === styleGeneration) classifying = false
+    }
+  }
+
+  /** Runs engine work, waiting out a running query or export (it never queues behind them). */
+  async function retryWhenBusy<T>(qs: QuerySession, work: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await work()
+      } catch (err) {
+        // Interrupted by user work: always ask again. Blocked by it: a few times.
+        const preempted = err instanceof WorkPreemptedError
+        const busy = err instanceof Error && /already running/.test(err.message)
+        if (!preempted && (attempt >= 5 || !busy)) throw err
+        await qs.whenIdle()
+      }
+    }
+  }
+
+  $effect.root(() => {
+    $effect(() => {
+      void style
+      void displayedLayer
+      void untrack(() => refreshStyle())
+    })
+  })
   let mapDimmed = $state(false)
   let runCount = $state(0)
 
   // --- Spec 005: export ------------------------------------------------------
   const EXPORT_PREFS_KEY = 'export.prefs'
   let exportOpen = $state(false)
-  let exportRequest = $state<ExportRequest>({ format: 'geoparquet', rows: 'all', crs: 'result', csvGeometry: 'wkt' })
+  let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
     .loadState<Partial<ExportRequest>>(EXPORT_PREFS_KEY)
     .then((saved) => {
-      if (saved && typeof saved === 'object') exportRequest = { ...exportRequest, ...saved, rows: 'all' }
+      // Spec 007: older saved prefs may carry `rows` (the removed rows choice); only known fields are kept.
+      if (saved && typeof saved === 'object') {
+        const { format, crs, csvGeometry } = { ...exportRequest, ...saved }
+        exportRequest = { format, crs, csvGeometry }
+      }
     })
     .catch(() => {})
   let exportPhase = $state<'idle' | 'running' | 'done' | 'failed' | 'cancelled'>('idle')
@@ -317,8 +404,22 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (!layer || !facts) return null
     return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts })
   })
+  // Spec 007 T044: the opened file, to load it whole later, and its size.
+  let openedRef: OpenedFileRef | null = null
+  let openedSize = $state<number | null>(null)
+
+  const sizeLabel = (bytes: number): string =>
+    bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+  const needsLoad = $derived(session.layer?.facts?.needsLoad && openedSize !== null ? { sizeLabel: sizeLabel(openedSize) } : null)
+
   const exportDisabled = $derived(
-    !displayedLayer ? 'Open a file first.' : queryPhase === 'running' || queryPhase === 'awaitingConfirm' ? 'Wait for the running query to finish.' : (exportPlan?.blocked ?? null)
+    !displayedLayer
+      ? 'Open a file first.'
+      : needsLoad
+        ? `Load the whole file (${needsLoad.sizeLabel}) to export it.`
+        : queryPhase === 'running'
+          ? 'Wait for the running query to finish.'
+          : (exportPlan?.blocked ?? null)
   )
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
   let lastRunText = $state<string | null>(null)
@@ -331,7 +432,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function refreshCatalog(): Promise<void> {
     const qs = querySession
     if (!qs) return
-    const snapshot = await qs.catalog().catch(() => null)
+    const snapshot = await retryWhenBusy(qs, () => qs.catalog()).catch(() => null)
     if (snapshot && qs === querySession) catalog = snapshot
   }
   let resultGeometryColumn = $state<string | null>('geom')
@@ -358,9 +459,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     queryError = null
     queryErrorRange = null
     crsOverride = null
-    fetchProgress = null
     runStartedAt = null
-    pendingLargeResult = null
     mapLayer = null
     mapDimmed = false
     lastRun = null
@@ -373,38 +472,18 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
   async function runQuery(selection: { from: number; to: number }): Promise<void> {
     const qs = querySession
-    if (!qs || queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+    if (!qs || queryPhase === 'running') return
     queryPhase = 'running'
     queryError = null
     queryErrorRange = null
-    fetchProgress = null
     runStartedAt = performance.now()
     lastRun = { text: queryText, selection }
-    const outcome: RunOutcome = await qs.run(
-      { editorText: queryText, selection, crsOverride },
-      {
-        confirmLargeResult: (rowCount) =>
-          new Promise((resolve) => {
-            queryPhase = 'awaitingConfirm'
-            pendingLargeResult = { rowCount }
-            largeResultResolve = (choice) => {
-              pendingLargeResult = null
-              largeResultResolve = null
-              queryPhase = 'running'
-              runStartedAt = performance.now()
-              resolve(choice)
-            }
-          }),
-        onProgress: (fetched, total) => {
-          if (total > 2000) fetchProgress = { fetched, total }
-        },
-      }
-    )
+    // Spec 007 FR-009: no large-result prompt; any result size is shown by view and page.
+    const outcome: RunOutcome = await qs.run({ editorText: queryText, selection, crsOverride })
     applyOutcome(outcome)
   }
 
   function applyOutcome(outcome: RunOutcome): void {
-    fetchProgress = null
     runStartedAt = null
     queryStatus = describeOutcome(outcome)
     remember(outcome)
@@ -564,8 +643,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let openFacts = $state<DatasetFacts | null>(null)
   let openCancelled = false
   let openInterrupt: (() => Promise<void>) | null = null
+  async function loadWhole(): Promise<void> {
+    if (!openedRef || !needsLoad) return
+    await load({ ref: openedRef, loadWhole: true })
+  }
 
-  async function load(): Promise<void> {
+  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean } = {}): Promise<void> {
+    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : null
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
@@ -577,7 +661,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     openPhase = null
     openStartedAt = null
     try {
-      const [ref] = await hostAdapter.openFiles()
+      const ref = options.ref ?? (await hostAdapter.openFiles())[0]
+      openedRef = ref
       currentFileName = ref.displayName
       historyStateKey = ref.stateKey
       history = []
@@ -594,8 +679,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         ref,
         { hostAdapter, duckdbAssets },
         {
-          onPhase: (phase) => {
+          onPhase: (phase, detail) => {
             if (!openCancelled) openPhase = phase
+            if (detail?.sizeBytes !== undefined) openedSize = detail.sizeBytes
           },
           onFacts: (facts) => {
             openFacts = facts
@@ -606,7 +692,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
             openInterrupt = interrupt
           },
           isCancelled: () => openCancelled,
-        }
+        },
+        { loadWhole: options.loadWhole }
       )
       openInterrupt = null
       openPhase = null
@@ -619,7 +706,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       initialLayer = layer
       setLayer(layer)
       session.loadState = 'ready'
-      applySidecar(layer.styleSidecar)
+      if (keptStyle) {
+        // Loading the whole file keeps the style the user was looking at.
+        style = keptStyle.style
+        styleSource = keptStyle.styleSource
+        styleDirty = keptStyle.styleDirty
+      } else applySidecar(layer.styleSidecar)
       // File-level metadata (FR-006): the whole file, not the displayed result.
       hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: layer.facts?.invalid === null ? 'rows' : 'features' })
     } catch (err) {
@@ -741,7 +833,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return queryText !== DEFAULT_QUERY && queryText !== (lastRunText ?? DEFAULT_QUERY)
     },
     async resetQuery() {
-      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') await this.cancelQuery()
+      if (queryPhase === 'running') await this.cancelQuery()
       const original = initialLayer
       resetQueryState()
       querySession?.showDefaultView()
@@ -782,17 +874,37 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         void runQuery(selection)
       }
     },
-    get fetchProgress() {
-      return fetchProgress
-    },
     get runStartedAt() {
       return runStartedAt
     },
-    get pendingLargeResult() {
-      return pendingLargeResult
+    get tableTotal() {
+      return displayedLayer?.totalRows ?? 0
     },
-    answerLargeResult(choice) {
-      largeResultResolve?.(choice)
+    get tableSort() {
+      return tableSort
+    },
+    get tableRevision() {
+      return tableRevision
+    },
+    get tableReRuns() {
+      return querySession?.lastResult?.reRuns ?? false
+    },
+    setTableSort(sort) {
+      tableSort = sort
+      tableRevision++
+    },
+    async loadPage(offset) {
+      const qs = querySession
+      if (!qs) return null
+      try {
+        // Waits out style or map work holding the engine rather than leaving skeleton rows.
+        const sort = tableSort ? { column: tableSort.column, dir: tableSort.dir } : null
+        return await retryWhenBusy(qs, () => qs.page({ offset, limit: PAGE_SIZE, sort }))
+      } catch (err) {
+        // A page interrupted by user work: the table asks again when it next scrolls or redraws.
+        if (err instanceof QueryCancelledError) return null
+        throw err
+      }
     },
     get mapLayer() {
       return mapLayer
@@ -880,7 +992,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return history
     },
     loadFromHistory(entry) {
-      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+      if (queryPhase === 'running') return
       queryText = entry.text
       queryError = null
       queryErrorRange = null
@@ -889,12 +1001,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     runQuery,
     async cancelQuery() {
-      // A pending large-result question is answered "cancel"; otherwise the engine is interrupted.
-      if (largeResultResolve) largeResultResolve('cancel')
       await querySession?.cancel()
     },
     get resolvedStyle() {
       return resolvedStyle
+    },
+    get classifying() {
+      return classifying
+    },
+    get styleInput() {
+      const l = displayedLayer
+      return l ? { columns: l.columns, rowCount: l.totalRows, distinct: styleDistinct } : null
     },
     get displayedLayer() {
       return displayedLayer
@@ -971,14 +1088,18 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     prewarm() {
       prewarmDuckDb(duckdbAssets)
     },
-    load,
+    load: () => load(),
+    get needsLoad() {
+      return needsLoad
+    },
+    loadWhole,
     selectFeature(id) {
       session.selectedFeatureId = id
       // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
       const drawn = viewFeatures?.features.find((f) => f.id === id)
       if (drawn?.partialAttributes && typeof id === 'number' && querySession) {
-        void querySession
-          .featureById(id)
+        const qs = querySession
+        void retryWhenBusy(qs, () => qs.featureById(id))
           .then((f) => {
             if (session.selectedFeatureId === id) detailFeature = f
           })
@@ -996,8 +1117,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
         return
       }
-      void querySession
-        .featureById(id)
+      const qs = querySession
+      void retryWhenBusy(qs, () => qs.featureById(id))
         .then((f) => {
           if (session.selectedFeatureId !== id) return
           outsideFeature = f

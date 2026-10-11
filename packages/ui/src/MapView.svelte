@@ -328,7 +328,7 @@
   }
 
   function zoomToFeature(id: string | number): void {
-    const feature = viewFeatures?.features.find((f) => f.id === id) ?? (extraFeature?.id === id ? extraFeature : undefined) ?? layer?.features.find((f) => f.id === id)
+    const feature = viewFeatures?.features.find((f) => f.id === id) ?? (extraFeature?.id === id ? extraFeature : undefined)
     if (!map || !feature?.geometry) return
     const b = geometryBounds(feature.geometry)
     if (!b) return

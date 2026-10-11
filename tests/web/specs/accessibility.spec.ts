@@ -138,16 +138,31 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.locator('.query-status')).toContainText('Parser Error')
     await audit(page, 'query error')
 
+    // Spec 007: a large result is paged, with no prompt; mid-table rows may still be loading.
     await runSql(page, 'SELECT * FROM range(60000)')
-    const dialog = page.getByRole('dialog', { name: 'Large result' })
-    await expect(dialog).toBeVisible({ timeout: 60000 })
-    await audit(page, 'large-result dialog')
-    await page.keyboard.press('Escape')
-    await expect(dialog).toBeHidden()
+    await expect(page.locator('.query-status')).toContainText('60,000 rows', { timeout: 60000 })
+    await page.getByRole('grid', { name: 'Attribute table' }).evaluate((g) => {
+      const scroller = g.closest('.attribute-table')
+      if (scroller) scroller.scrollTop = scroller.scrollHeight / 2
+    })
+    await audit(page, 'paged table')
 
     await page.getByRole('button', { name: 'Query history' }).click()
     await expect(page.getByRole('listbox', { name: 'Query history' })).toBeVisible()
     await audit(page, 'history popover')
+  })
+}
+
+// Spec 007 T042: the open progress (held open by the slowParse test override).
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations while a file opens (${scheme})`, async ({ page }) => {
+    test.setTimeout(120000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/?e2e=1&slowParse=1')
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../../vscode-ext/fixtures/parcels-10k.parquet'))
+    await expect(page.getByRole('button', { name: 'Cancel opening' })).toBeVisible({ timeout: 10000 })
+    await audit(page, 'open progress')
   })
 }
 
@@ -253,6 +268,8 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   await expect(page.getByRole('radio', { name: 'Categorized' })).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('ArrowRight')
   await expect(page.getByRole('radio', { name: 'Graduated' })).toHaveAttribute('aria-checked', 'true')
+  // The classes resolve in the engine (spec 007): wait for them before tabbing.
+  await expect(page.getByRole('button', { name: /^Hide 0/ }).first()).toBeVisible()
 
   // Tab through the panel and record what receives focus.
   // The legend comes before the panel in tab order, so go all the way around.
@@ -290,7 +307,7 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
 })
 
 // T028 (spec 005, Constitution Principle VII): the export dialog, for a
-// geometry result, a table result, display-limited rows and while running.
+// geometry result, a table result and while running (spec 007: never display-limited).
 const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -304,7 +321,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: 'Export data…' }).click()
     await expect(exportDialog(page)).toBeVisible()
-    await audit(page, 'export: geometry result, display-limited rows')
+    await audit(page, 'export: geometry result')
     await exportDialog(page).getByRole('radio', { name: 'CSV', exact: true }).click()
     await audit(page, 'export: CSV geometry options')
     await page.keyboard.press('Escape')
@@ -317,8 +334,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape')
 
     await runSql(page, 'SELECT a.* FROM layer a, range(10) b')
-    await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
-    await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+    await expect(page.locator('.query-status')).toContainText('200,000 rows', { timeout: 120000 })
     await page.getByRole('button', { name: 'Export data…' }).click()
     await exportDialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
     await exportDialog(page).getByRole('button', { name: 'Export…' }).click()
@@ -342,7 +358,7 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
   await page.keyboard.press('Enter')
   await expect(exportDialog(page)).toBeVisible()
   // Focus starts on the first checked choice, inside the dialog.
-  await expect(exportDialog(page).getByRole('radio', { name: 'All 2,000 rows' })).toBeFocused()
+  await expect(exportDialog(page).getByRole('radio', { name: 'GeoParquet' })).toBeFocused()
 
   // Format: arrows move and choose; choosing CSV adds the geometry group.
   await exportDialog(page).getByRole('radio', { name: 'GeoParquet' }).focus()
@@ -364,7 +380,7 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
     )
     expect(await exportDialog(page).evaluate((d) => d.contains(document.activeElement)), 'focus stays in the dialog').toBe(true)
   }
-  for (const name of ['Close', 'All 2,000 rows', 'CSV', 'CRS', 'WKT text', 'Cancel', 'Export…']) {
+  for (const name of ['Close', 'CSV', 'CRS', 'WKT text', 'Cancel', 'Export…']) {
     expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
   }
 

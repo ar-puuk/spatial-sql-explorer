@@ -28,7 +28,8 @@ test.describe('categorized (US1)', () => {
     await expect(page.getByLabel('Column')).toHaveValue('zone')
     await expect(legend(page)).toContainText('zone · 5 categories')
     await expect(legendRows(page)).toHaveCount(5)
-    expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(1000)
+    // Spec 007 FR-012: classified over the whole file, not the rows first shown.
+    await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
 
     // The whole file, by owner (997 values): 12 classes + Other.
     await openQueryPanel(page)
@@ -48,8 +49,8 @@ test.describe('categorized (US1)', () => {
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Categorized' }).click()
     await page.getByLabel('Column').selectOption('name')
-    const labels = await legendRows(page).locator('.label').allTextContents()
-    expect(labels).toEqual([
+    // The style resolves in the engine: wait for this column's classes, not the previous one's.
+    await expect(legendRows(page).locator('.label')).toHaveText([
       'Afghanistan',
       'Albania',
       'Algeria',
@@ -92,10 +93,10 @@ test.describe('graduated (US2)', () => {
     await page.getByRole('radio', { name: 'Graduated' }).click()
     await page.getByLabel('Column').selectOption('value')
     await expect(legend(page)).toContainText('value · Quantile, 5 classes')
+    await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
     const counts = await legendCounts(page)
     expect(counts).toHaveLength(5)
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(1000)
-    for (const n of counts) expect(Math.abs(n - 200)).toBeLessThanOrEqual(2)
+    for (const n of counts) expect(Math.abs(n - 4400)).toBeLessThanOrEqual(10)
 
     await page.getByLabel('Method').selectOption('equal')
     await expect(legend(page)).toContainText('value · Equal interval, 5 classes')
@@ -105,7 +106,7 @@ test.describe('graduated (US2)', () => {
     await expect(legendRows(page)).toHaveCount(3)
     await page.getByLabel('Classes').selectOption('10')
     await expect(legendRows(page)).toHaveCount(10)
-    expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(1000)
+    await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
   })
 
   test('the same classes as the VS Code build (FR-020)', async ({ page }) => {
@@ -137,7 +138,7 @@ test.describe('ramps and class edits (US3)', () => {
     await openFile(page, writeSquares())
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Graduated' }).click()
-    expect(await swatchColor(page, 0)).toBe('#440154') // viridis
+    await expect.poll(() => swatchColor(page, 0)).toBe('#440154') // viridis
 
     // Ramp picker, keyboard only: Enter opens, End + 4×Up reaches Red–blue, Enter applies.
     const colors = page.getByRole('button', { name: /^Colors: Viridis/ })
@@ -207,7 +208,7 @@ test.describe('styles follow query results (US5)', () => {
     await page.locator('input[type="file"]').setInputFiles([data, sidecar])
     await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
     await expect(legend(page)).toContainText('value · Quantile, 5 classes')
-    expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(1000)
+    await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(2000)
 
     // A filter: reclassified over the new result (FR-011).
     await openQueryPanel(page)

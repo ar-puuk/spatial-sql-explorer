@@ -626,8 +626,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
     // Spec 002 test hooks: drive and observe queries in the active viewer.
-    vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string, confirm?: 'all' | 'first' | 'cancel') =>
-      provider.postToActive({ type: 'testRunQuery', sql, confirm })
+    vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string) =>
+      provider.postToActive({ type: 'testRunQuery', sql })
     ),
     vscode.commands.registerCommand('spatialExplorer.exportData', () => provider.openExportInActive()),
     vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),

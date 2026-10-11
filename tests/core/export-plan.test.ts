@@ -6,7 +6,7 @@ import { planExport, type ExportPlanContext, type ExportRequest } from '@spatial
 
 const ALL_TYPES = (JSON.parse(readFileSync(`${import.meta.dirname}/fixtures/export/columns.json`, 'utf8')) as { columns: Array<{ name: string; type: string }> }).columns
 
-const request = (patch: Partial<ExportRequest> = {}): ExportRequest => ({ format: 'geoparquet', rows: 'all', crs: 'result', csvGeometry: 'wkt', ...patch })
+const request = (patch: Partial<ExportRequest> = {}): ExportRequest => ({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt', ...patch })
 
 const ctx = (patch: Partial<ExportPlanContext> = {}): ExportPlanContext => ({
   sourceName: 'parcels.geojson',
@@ -24,36 +24,20 @@ const ctx = (patch: Partial<ExportPlanContext> = {}): ExportPlanContext => ({
 })
 const utm = { label: 'EPSG:26912', srid: 26912, assumed: false }
 
-describe('which rows (FR-002)', () => {
-  it('the untouched default view is display-limited; all = the whole file from layer, shown = its first 1,000', () => {
-    const all = planExport(request(), ctx())
-    expect(all.displayLimited).toEqual({ shown: 1000, total: 22000 })
-    expect(all.rowCount).toBe(22000)
-    expect(all.source).toBe('layer')
-    expect(all.sql).toMatch(/FROM "?layer"?(\s|$)/)
-    expect(all.sql).not.toMatch(/LIMIT/)
-    const shown = planExport(request({ rows: 'shown' }), ctx())
-    expect(shown.rowCount).toBe(1000)
-    expect(shown.sql).toMatch(/LIMIT 1000/)
-  })
-
-  it('"Show first 50,000" is display-limited over the full result', () => {
-    const c = ctx({ facts: { ...ctx().facts, defaultView: false, totalRows: 60000, truncatedTo: 50000 }, layer: { ...ctx().layer, rowCount: 50000 } })
-    expect(planExport(request(), c)).toMatchObject({ displayLimited: { shown: 50000, total: 60000 }, rowCount: 60000, source: 'result' })
-    expect(planExport(request(), c).sql).toMatch(/FROM __se_result/)
-    expect(planExport(request({ rows: 'shown' }), c).sql).toMatch(/LIMIT 50000/)
-  })
-
-  it("a user's own LIMIT is the query: not display-limited", () => {
-    const c = ctx({ facts: { ...ctx().facts, defaultView: false, totalRows: 50 }, layer: { ...ctx().layer, rowCount: 50 } })
-    const p = planExport(request({ rows: 'shown' }), c)
-    expect(p.displayLimited).toBeNull()
-    expect(p.rowCount).toBe(50)
+describe('which rows (FR-002; spec 007 FR-009: nothing is display-limited)', () => {
+  it('the default view exports the whole file from layer', () => {
+    const p = planExport(request(), ctx({ layer: { ...ctx().layer, rowCount: 22000 } }))
+    expect(p.rowCount).toBe(22000)
+    expect(p.source).toBe('layer')
+    expect(p.sql).toMatch(/FROM "?layer"?(\s|$)/)
     expect(p.sql).not.toMatch(/LIMIT/)
   })
 
-  it('a default view of a small file (all rows shown) is not display-limited', () => {
-    expect(planExport(request(), ctx({ facts: { ...ctx().facts, totalRows: 180 }, layer: { ...ctx().layer, rowCount: 180 } })).displayLimited).toBeNull()
+  it('a query result exports all of its rows from __se_result', () => {
+    const c = ctx({ facts: { ...ctx().facts, defaultView: false, totalRows: 60000 }, layer: { ...ctx().layer, rowCount: 60000 } })
+    expect(planExport(request(), c)).toMatchObject({ rowCount: 60000, source: 'result' })
+    expect(planExport(request(), c).sql).toMatch(/FROM __se_result/)
+    expect(planExport(request(), c).sql).not.toMatch(/LIMIT/)
   })
 })
 
@@ -159,7 +143,7 @@ describe('notices known in advance (FR-009)', () => {
   })
 
   it('rows without valid geometry are counted when known', () => {
-    const p = planExport(request({ rows: 'shown' }), ctx({ layer: { ...ctx().layer, invalidGeometryCount: 3 } }))
+    const p = planExport(request(), ctx({ layer: { ...ctx().layer, invalidGeometryCount: 3 } }))
     expect(p.notices.join()).toMatch(/3 rows have no valid geometry/)
   })
 })

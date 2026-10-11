@@ -22,6 +22,7 @@ export type QueryState = {
   refusedReason?: string
   durationMs?: number
   historyLength?: number
+  queryText?: string
 } | null
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -43,9 +44,9 @@ export async function openAndWait(file: string, viewType = 'spatialExplorer.edit
 }
 
 /** Runs SQL via the hook and waits for a new terminal state. */
-export async function run(sql: string, confirm?: 'all' | 'first' | 'cancel', terminal = ['succeeded', 'failed', 'cancelled', 'refused']): Promise<QueryState> {
+export async function run(sql: string, terminal = ['succeeded', 'failed', 'cancelled', 'refused']): Promise<QueryState> {
   const before = (await queryState())?.runCount ?? 0
-  await vscode.commands.executeCommand('spatialExplorer._runQuery', sql, confirm)
+  await vscode.commands.executeCommand('spatialExplorer._runQuery', sql)
   const deadline = Date.now() + 60000
   while (Date.now() < deadline) {
     const s = await queryState()
@@ -55,7 +56,8 @@ export async function run(sql: string, confirm?: 'all' | 'first' | 'cancel', ter
   assert.fail(`query did not finish: ${sql}`)
 }
 
-const DEFAULT = 'SELECT * FROM layer LIMIT 1000'
+// Spec 007 FR-009: the default query reads the whole layer (views draw what's in view).
+const DEFAULT = 'SELECT * FROM layer'
 
 suite('Spec 002 US1: run a query in VS Code', () => {
   suiteTeardown(async () => {

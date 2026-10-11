@@ -76,3 +76,37 @@ describe('the public layer view', () => {
     expect(reader).toBe('CREATE OR REPLACE VIEW layer AS SELECT "parcel_id", "zone", "value", "geom" AS "geom" FROM __se_source')
   })
 })
+
+// T034 (spec 007 research §9): one capped run materializes small results; big ones become views.
+import { CTAS_PREFIX, dropResultSql, isDefaultQuery, materializeSql, promoteStagingSql, reRunsFromPlan, resultViewSql } from '@spatial-explorer/core'
+
+describe('the result model', () => {
+  it('materializes at most cap + 1 rows in one run, the statement starting on line 2, column 1', () => {
+    const sql = materializeSql('SELECT * FROM layer WHERE zone = 1', 500000)
+    expect(sql).toBe('CREATE OR REPLACE TEMP TABLE __se_result_next AS SELECT * FROM (\nSELECT * FROM layer WHERE zone = 1\n) LIMIT 500001')
+    expect(sql.startsWith(CTAS_PREFIX)).toBe(true)
+    expect(CTAS_PREFIX.endsWith('\n')).toBe(true)
+  })
+
+  it('replaces the previous result only after the query succeeded, table or view', () => {
+    expect(promoteStagingSql()).toBe('ALTER TABLE __se_result_next RENAME TO __se_result')
+    expect(dropResultSql('view')).toBe('DROP VIEW IF EXISTS __se_result')
+    expect(dropResultSql('table')).toBe('DROP TABLE IF EXISTS __se_result')
+  })
+
+  it('a result over the cap becomes a view over the statement', () => {
+    expect(resultViewSql('SELECT 1')).toBe('CREATE OR REPLACE TEMP VIEW __se_result AS\nSELECT 1')
+  })
+
+  it('marks big results that re-run expensive work, from the plan', () => {
+    expect(reRunsFromPlan('┌ ORDER_BY ┐')).toBe(true)
+    expect(reRunsFromPlan('HASH_JOIN')).toBe(true)
+    expect(reRunsFromPlan('HASH_GROUP_BY')).toBe(true)
+    expect(reRunsFromPlan('PROJECTION\nFILTER\nREAD_PARQUET')).toBe(false)
+  })
+
+  it('recognizes the default query, whatever its spacing or trailing semicolon', () => {
+    expect(isDefaultQuery('select *\n  from layer;', 'SELECT * FROM layer')).toBe(true)
+    expect(isDefaultQuery('SELECT * FROM layer LIMIT 10', 'SELECT * FROM layer')).toBe(false)
+  })
+})

@@ -14,7 +14,7 @@ export interface ExportState {
   open: boolean
   phase: string
   disabled: string | null
-  plan: { format: string; rowCount: number; displayLimited: { shown: number; total: number } | null; formats: string[]; crs: string; notices: string[] } | null
+  plan: { format: string; rowCount: number; formats: string[]; crs: string; notices: string[] } | null
   outcome: { kind: string; rows?: number; bytes?: number; location?: string; message?: string; notices?: string[] } | null
 }
 const exportState = (): Thenable<ExportState | null> => vscode.commands.executeCommand('spatialExplorer._getExportState')
@@ -66,7 +66,7 @@ suite('Spec 005 US1: export in VS Code', () => {
     const before = sha(file)
     try {
       const parquet = path.join(dir, 'world-boundaries-export.parquet')
-      const s1 = await runExport({ format: 'geoparquet', rows: 'all', crs: 'result' }, parquet)
+      const s1 = await runExport({ format: 'geoparquet', crs: 'result' }, parquet)
       assert.strictEqual(s1.outcome?.kind, 'saved', JSON.stringify(s1.outcome))
       assert.strictEqual(s1.outcome?.rows, 180)
       assert.strictEqual(fs.readFileSync(parquet).subarray(0, 4).toString('latin1'), 'PAR1')
@@ -115,7 +115,7 @@ suite('Spec 005 US2: export keeps the CRS in VS Code', () => {
     const { dir } = await openCopy('usa-utm12n.gpkg', 'spatialExplorer.editor')
     try {
       const out = path.join(dir, 'utm-export.parquet')
-      const s = await runExport({ format: 'geoparquet', rows: 'all', crs: 'result' }, out)
+      const s = await runExport({ format: 'geoparquet', crs: 'result' }, out)
       assert.strictEqual(s.outcome?.kind, 'saved', JSON.stringify(s.outcome))
       const tail = fs.readFileSync(out).subarray(-8192).toString('latin1')
       const start = tail.indexOf('{"version":"1.1.0"')

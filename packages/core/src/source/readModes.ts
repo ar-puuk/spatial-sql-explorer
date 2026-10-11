@@ -32,8 +32,12 @@ export const WHOLE_READ_THRESHOLD_BYTES = 100 * MB
 /** Query results up to this many rows are materialized with an R-tree; larger ones stay views (research §9). */
 export const MATERIALIZE_CAP = 500_000
 
-/** Natural breaks runs on at most this many values; larger results use a deterministic sample (research §11). */
-export const JENKS_SAMPLE = 50_000
+/**
+ * Styles fetch and classify at most this many values; above, natural breaks
+ * runs on this many evenly spaced order statistics (spec 003's own sampling,
+ * so breaks match spec 003 exactly; research.md US3 outcomes). Counts stay exact.
+ */
+export const JENKS_SAMPLE = 200_000
 
 export interface ReadModeRow {
   format: FormatId

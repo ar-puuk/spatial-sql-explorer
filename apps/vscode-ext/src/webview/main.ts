@@ -75,17 +75,13 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; confirm?: 'all' | 'first' | 'cancel'; style?: unknown; request?: Record<string, unknown> }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown> }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
-      // with the whole text selected, auto-answering the large-result dialog.
+      // with the whole text selected. (Spec 007 removed the large-result prompt.)
       const sql = msg.sql
-      const confirm = msg.confirm ?? 'first'
       store.setQueryText(sql)
-      const answer = setInterval(() => {
-        if (store.pendingLargeResult) store.answerLargeResult(confirm)
-      }, 50)
-      void store.runQuery({ from: 0, to: sql.length }).finally(() => clearInterval(answer))
+      void store.runQuery({ from: 0, to: sql.length })
     } else if (msg.type === 'testSetStyle' && msg.style && typeof msg.style === 'object') {
       // Test-only (spec 003 T013): the same store action the style panel uses.
       store.setStyle(msg.style as Parameters<typeof store.setStyle>[0])

@@ -113,28 +113,6 @@
       <p class="blocked" role="status">{plan?.blocked ?? store.exportDisabled ?? 'Nothing to export yet.'}</p>
     {:else}
       <div class="body">
-        {#if plan.displayLimited}
-          {@const limited = plan.displayLimited}
-          <div class="field">
-            <span class="label" id="export-rows">Rows</span>
-            <div class="options" role="radiogroup" aria-labelledby="export-rows">
-              {#each [{ v: 'all', label: `All ${nf.format(limited.total)} rows` }, { v: 'shown', label: `Only the ${nf.format(limited.shown)} shown` }] as o (o.v)}
-                <button
-                  type="button"
-                  role="radio"
-                  data-value={o.v}
-                  aria-checked={request.rows === o.v}
-                  tabindex={request.rows === o.v ? 0 : -1}
-                  disabled={running}
-                  onclick={() => store.setExportRequest({ rows: o.v as 'all' | 'shown' })}
-                  onkeydown={(e) => radioKeys(e, ['all', 'shown'], request.rows, (v) => store.setExportRequest({ rows: v as 'all' | 'shown' }))}
-                  >{o.label}</button
-                >
-              {/each}
-            </div>
-          </div>
-        {/if}
-
         <div class="field">
           <span class="label" id="export-format">Format</span>
           <div class="options" role="radiogroup" aria-labelledby="export-format">

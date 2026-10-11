@@ -11,6 +11,7 @@
   import ResultCrsChip from './ResultCrsChip.svelte'
   import QueryHistory from './QueryHistory.svelte'
   import Icon from './Icon.svelte'
+  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -50,7 +51,7 @@
   let now = $state(performance.now())
   let timer: ReturnType<typeof setInterval> | null = null
 
-  const busy = $derived(store.queryPhase === 'running' || store.queryPhase === 'awaitingConfirm')
+  const busy = $derived(store.queryPhase === 'running')
   // A live "Running… 1.2 s" while a query runs (contract: status line).
   $effect(() => {
     if (busy && !timer) timer = setInterval(() => (now = performance.now()), 100)
@@ -64,10 +65,7 @@
   })
 
   const statusText = $derived.by(() => {
-    if (store.queryPhase === 'awaitingConfirm') return 'Waiting for your choice…'
     if (store.queryPhase === 'running') {
-      const p = store.fetchProgress
-      if (p) return `Fetching ${nf.format(p.fetched)} / ${nf.format(p.total)} rows…`
       const s = store.runStartedAt === null ? 0 : (now - store.runStartedAt) / 1000
       return `Running… ${s.toFixed(1)} s`
     }
@@ -141,7 +139,9 @@
       {#if busy}
         <button type="button" class="secondary" onclick={() => void store.cancelQuery()} title="Cancel (Esc)"><Icon name="close" size={14} />Cancel</button>
       {:else}
-        <button type="button" class="primary" onclick={() => run()} title="Run (Ctrl+Enter)"><Icon name="arrow-up" size={14} />Run</button>
+        <button type="button" class="primary" onclick={() => run()} title={store.needsLoad ? 'Load the whole file to query it' : 'Run (Ctrl+Enter)'} disabled={!!store.needsLoad}
+          ><Icon name="arrow-up" size={14} />Run</button
+        >
       {/if}
     {/if}
   </header>
@@ -165,6 +165,9 @@
     </div>
   {/if}
   <div class="body" id="query-body" hidden={collapsed}>
+    {#if store.needsLoad}
+      <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} onLoad={() => void store.loadWhole()} />
+    {/if}
     <div class="editor">
       <SqlEditor
         bind:this={editor}

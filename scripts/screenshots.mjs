@@ -175,8 +175,8 @@ async function captureVsCode() {
 
 /**
  * Spec 002 scenes, shared by both shells (T049): a result, an error with its
- * squiggle, the autocomplete list, the history popover and the large-result
- * dialog. `ui` finds elements (the webview frame in VS Code), `win` types and
+ * squiggle, the autocomplete list, the history popover and (spec 007) a
+ * large result: paged in the table, a thinned overview on the map. `ui` finds elements (the webview frame in VS Code), `win` types and
  * captures.
  */
 async function queryScenes(ui, win, prefix) {
@@ -221,13 +221,13 @@ async function queryScenes(ui, win, prefix) {
     await shot(win, `${prefix}-query-history`)
     await win.keyboard.press('Escape')
   })
-  await step('large-result dialog', async () => {
-    await replace('SELECT * FROM range(60000)')
+  await step('large result: thinned overview', async () => {
+    await replace('SELECT a.* FROM layer a, range(400) b')
     await win.keyboard.press('Control+Enter')
-    await ui.getByRole('dialog', { name: 'Large result' }).waitFor({ timeout: 30000 })
-    await win.waitForTimeout(300)
-    await shot(win, `${prefix}-query-large`)
-    await win.keyboard.press('Escape')
+    await ui.locator('.query-status').filter({ hasText: '72,000 rows' }).waitFor({ timeout: 60000 })
+    await ui.locator('.map-notice').filter({ hasText: 'Zoom in to see all' }).waitFor({ timeout: 30000 })
+    await win.waitForTimeout(1200)
+    await shot(win, `${prefix}-query-thinned`)
   })
 }
 
@@ -319,7 +319,7 @@ async function exportScenes(ui, win, prefix, beforeSave) {
     await shot(win, `${prefix}-export-done`)
     await dialog.getByRole('button', { name: 'Done' }).click()
   })
-  await step('export: display-limited rows', async () => {
+  await step('export: a large result', async () => {
     await editor.click()
     await win.keyboard.press('Control+A')
     await win.waitForTimeout(250)
@@ -327,12 +327,11 @@ async function exportScenes(ui, win, prefix, beforeSave) {
     await win.keyboard.insertText('SELECT a.name, ST_Centroid(a.geom) AS geom FROM layer a, range(10000) b LIMIT 1000000')
     await win.keyboard.press('Escape')
     await win.keyboard.press('Control+Enter')
-    await ui.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click({ timeout: 30000 })
-    await ui.locator('.query-status').filter({ hasText: 'Showing first 50,000' }).waitFor({ timeout: 60000 })
+    await ui.locator('.query-status').filter({ hasText: '1,000,000 rows' }).waitFor({ timeout: 60000 })
     await ui.getByRole('button', { name: 'Export data…' }).click()
     await dialog.waitFor({ timeout: 5000 })
     await win.waitForTimeout(400)
-    await shot(win, `${prefix}-export-limited`)
+    await shot(win, `${prefix}-export-large`)
   })
   await step('export: running progress', async () => {
     await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()

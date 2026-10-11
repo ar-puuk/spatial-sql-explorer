@@ -369,10 +369,11 @@ they skip with a message, never pass silently.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T032 [P] [US3] Write `tests/core/pages-sql.test.ts`:
+- [X] T032 [P] [US3] Write `tests/core/pages-sql.test.ts`:
   - the page SQL (visible columns, `__se_rowid`, the invalid-geometry flag, `ORDER BY col NULLS LAST, __se_rowid`, `LIMIT 200 OFFSET k`);
   - LRU behavior (hit, eviction after 50 pages, cleared on result or sort change).
-- [ ] T033 [P] [US3] Write `tests/core/stats-sql.test.ts`:
+  - *Done*: pages-sql.test.ts: page SQL (visible columns, __se_rowid, invalid flag, sort NULLS LAST, LIMIT/OFFSET) and the LRU.
+- [X] T033 [P] [US3] Write `tests/core/stats-sql.test.ts`:
   - top-12 categories plus the "other" count;
   - nulls;
   - min/max;
@@ -381,20 +382,24 @@ they skip with a message, never pass silently.
   - class counts as one `CASE` aggregation, upper-inclusive (spec 003 convention).
 
   Also check that `style/classify.ts` gives the same breaks from `StyleStats` as from the old feature path, on spec 003's fixtures.
-- [ ] T034 [P] [US3] Extend `tests/core/result-model.test.ts` with the count-then-materialize decision:
+  - *Done*: stats-sql.test.ts: SQL value rules, top categories, order statistics, CASE class counts, and spec 003 parity of the classifier on SQL inputs. Jenks keeps spec 003's evenly spaced sampling instead of a reservoir (research.md US3 outcomes).
+- [X] T034 [P] [US3] Extend `tests/core/result-model.test.ts` with the count-then-materialize decision:
   - default query → `layer`, no copy;
   - count ≤ cap → `CREATE TEMP TABLE __se_result` plus an R-tree when it has geometry;
   - count > cap → `CREATE TEMP VIEW`;
   - `reRuns` true when `EXPLAIN` shows ORDER BY, a join or an aggregate.
-- [ ] T035 [P] [US3] Write `tests/web/specs/paging.spec.ts`, using the Independent Test above, plus:
+  - *Done*: result-model.test.ts: capped CTAS into a staging table, swap after success (table or view), view over the cap, reRuns from EXPLAIN, default query.
+- [X] T035 [P] [US3] Write `tests/web/specs/paging.spec.ts`, using the Independent Test above, plus:
   - keyboard End/PageDown in the table reaches the last row across pages;
   - skeleton rows carry `aria-busy`;
   - the query panel's default text is `SELECT * FROM layer`.
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Implement `packages/core/src/view/pages.ts` (page SQL plus the LRU) and `QuerySession.page()` in `packages/core/src/query/session.ts`. T032 passes.
-- [ ] T037 [US3] Rework `QuerySession.run` in `packages/core/src/query/session.ts` and `packages/core/src/query/run.ts`:
+  - *Done*: paging.spec.ts on parcels-10k.parquet (materializeCap=4000, jenksSample=2000): exact 4,958, End across pages, aria-busy skeletons, SQL sort, Jenks sample caption with exact counts, export of every row. Found and fixed: the selection-sync effect pulled End back to row 0.
+- [X] T036 [US3] Implement `packages/core/src/view/pages.ts` (page SQL plus the LRU) and `QuerySession.page()` in `packages/core/src/query/session.ts`. T032 passes.
+  - *Done*: view/pages.ts + QuerySession.page() (background work, retried when interrupted).
+- [X] T037 [US3] Rework `QuerySession.run` in `packages/core/src/query/session.ts` and `packages/core/src/query/run.ts`:
   - the default query uses `layer`;
   - otherwise `SELECT count(*)` first (exact), then materialize (≤ `MATERIALIZE_CAP`, with hidden columns and an R-tree) or define a view (with `reRuns`);
   - remove the feature-array building from `run.ts`.
@@ -405,7 +410,8 @@ they skip with a message, never pass silently.
   - remove the `confirm` auto-answer in `apps/vscode-ext/src/webview/main.ts` (`testRunQuery`) and the `confirm` argument of `_runQuery`.
 
   T034 passes.
-- [ ] T038 [US3] Rework `packages/ui/src/AttributeTable.svelte` and the store per contracts/ui.md:
+  - *Done*: run.ts/session.ts result model; DEFAULT_QUERY = 'SELECT * FROM layer'; prompt, dialog and confirm hooks removed. Staging fixes a failed run after a view result; engine quirk: duckdb_tables() misses renamed tables.
+- [X] T038 [US3] Rework `packages/ui/src/AttributeTable.svelte` and the store per contracts/ui.md:
   - the row count from `result.rows`;
   - paged rows via `session.page()`;
   - skeleton rows (`aria-busy`);
@@ -414,25 +420,29 @@ they skip with a message, never pass silently.
   - keyboard navigation across pages.
 
   Remove the JS sort and the `layer.features` uses.
-- [ ] T039 [US3] Implement `packages/core/src/view/stats.ts` and `QuerySession.styleStats()`. Rework `packages/core/src/style/resolve.ts`, `classify.ts` and `edit.ts` to classify from `StyleStats`, with exact class counts from the `CASE` aggregation.
+  - *Done*: AttributeTable paged from SQL, skeleton rows, SQL sort, keyboard across pages; page loads wait out other engine work.
+- [X] T039 [US3] Implement `packages/core/src/view/stats.ts` and `QuerySession.styleStats()`. Rework `packages/core/src/style/resolve.ts`, `classify.ts` and `edit.ts` to classify from `StyleStats`, with exact class counts from the `CASE` aggregation.
   - **Store**: `packages/ui/src/viewerStore.svelte.ts` requests stats when the renderer or result changes, and a newer request supersedes an older one.
   - **Panel** (`packages/ui/src/LayerStylePanel.svelte`): shows "Classifying N rows…".
   - **Legend** (`packages/ui/src/MapLegend.svelte`): shows "Breaks from a 50,000-value sample; counts are exact." when `sampled`.
 
   T033 passes, and the spec 003 suites still pass.
-- [ ] T040 [US3] Remove `Layer.features` from `packages/core/src/models.ts` and every consumer:
+  - *Done*: view/stats.ts + QuerySession.resolveStyle(); store resolves styles asynchronously; style panel shows 'Classifying N rows…'; legend keeps spec 003's '(estimated from N values)' caption.
+- [X] T040 [US3] Remove `Layer.features` from `packages/core/src/models.ts` and every consumer:
   - `ViewerLayout.svelte` (the inspector via `featureById`);
   - `style/edit.ts`;
   - `MapView.svelte` (the feature lookup);
   - the e2e hooks in `apps/web/src/App.svelte` and `apps/vscode-ext/src/webview/*`.
 
   `npm run typecheck:core`, `typecheck:ui`, the web svelte-check and the extension `tsc` must all reach 0.
-- [ ] T041 [US3] Simplify export for FR-009:
+  - *Done*: Layer.features removed; inspector uses view features, detailFeature and outsideFeature; all typechecks 0.
+- [X] T041 [US3] Simplify export for FR-009:
   - remove `displayLimited` and the rows choice from `packages/core/src/export/plan.ts`, `packages/ui/src/ExportDialog.svelte`, `apps/vscode-ext/src/webview/exportState.svelte.ts` and the export prefs;
   - the export source is always the complete result (`layer` or `__se_result`).
 
   Update `tests/core/export-plan.test.ts`.
-- [ ] T042 [US3] Update the earlier suites for FR-009, keeping each one's intent:
+  - *Done*: displayLimited and the rows choice removed (plan, dialog, VS Code state, saved prefs); export-plan.test.ts updated.
+- [X] T042 [US3] Update the earlier suites for FR-009, keeping each one's intent:
   - `tests/web/specs/query-large.spec.ts`: replace the prompt tests with "a 60,000-row result shows its exact count, no prompt, map in view";
   - `tests/web/specs/export.spec.ts`: remove the rows-choice assertions; the US4 test runs its 1,000,000-row export without the prompt;
   - `tests/web/specs/accessibility.spec.ts`: remove the "large-result dialog" state; add the OpenProgress and paging states;
@@ -441,18 +451,22 @@ they skip with a message, never pass silently.
   - `scripts/screenshots.mjs`: replace the "large-result dialog" scene with a "thinned overview" scene.
 
   Full `test:web` and `test:vscode-ext` pass.
-- [ ] T043 [US3] VS Code parity: extend `tests/vscode-ext/src/suite/large-open.test.ts`, using `_runQuery` and `_getQueryState`:
+  - *Done*: query-large, export, accessibility (OpenProgress and paged-table states), performance, style-thematic (async waits, whole-result totals), query specs; VS Code query/export tests and _runQuery confirm removed; screenshots: thinned-overview and large-export scenes.
+- [X] T043 [US3] VS Code parity: extend `tests/vscode-ext/src/suite/large-open.test.ts`, using `_runQuery` and `_getQueryState`:
   - a filtering query on `parcels-10k.parquet` reports the same exact count as the web;
   - a GeoParquet export of it (spec 005 hooks) has that row count;
   - the default query text is `SELECT * FROM layer`.
-- [ ] T044 [P] [US3] FlatGeobuf "load for queries":
+  - *Done*: large-open.test.ts: default query text, the same exact 4,958 as the web, GeoParquet export of 4,958 rows. Found and fixed: catalog loading blocked the first query (now background work).
+- [X] T044 [P] [US3] FlatGeobuf "load for queries":
   - core: `QuerySession.loadWhole()` in `packages/core/src/query/session.ts`;
   - shell: `getFileSource(ref, { whole: true })` → buffer, then `layer` rebuilt as a table;
   - UI: while the layer is FlatGeobuf in parts and not loaded, the query panel, table, style panel and export show "Load the whole file (<size>) to query it" with a **Load** button (progress and Cancel through OpenProgress);
   - memory: an out-of-memory failure shows the FR-014 message suggesting GeoParquet.
 
   Test in `tests/web/specs/large-open.spec.ts`: `parcels-10k.fgb` with `?e2e=1&wholeThreshold=1` shows the button; Load enables the query.
-- [ ] T045 [US3] Wire T044 into `packages/core/src/openFile.ts` (`partial-view` marks `needsLoad`) and the store. Run the full suites.
+  - *Done*: Load the whole file: OpenOptions.loadWhole re-opens through the whole-read path (progress, Cancel), keeping the style; LoadWholeNotice in the table, query panel and style panel; Export disabled with the reason. 176 ms on parcels-10k.fgb.
+- [X] T045 [US3] Wire T044 into `packages/core/src/openFile.ts` (`partial-view` marks `needsLoad`) and the store. Run the full suites.
+  - *Done*: DatasetFacts.needsLoad for partial-view; the session refuses whole-file work until loaded (it was holding the engine about 14 s and delaying the first view). Full suites: core 316, web 74, VS Code 62.
 
 **Checkpoint**: on large files, every pillar works on the whole data, in both shells.
 

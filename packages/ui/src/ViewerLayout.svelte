@@ -16,8 +16,8 @@
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
-  import LargeResultDialog from './LargeResultDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -120,7 +120,7 @@
     const id = session.selectedFeatureId
     if (!inspectorOpen || !layer || id === null) return null
     if (store.detailFeature?.id === id) return store.detailFeature
-    return layer.features.find((f) => f.id === id) ?? store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
+    return store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
   })
 
   // Popovers that need a layer close when it goes away (new file, error).
@@ -318,7 +318,7 @@
           <LayerStylePanel
             style={store.style}
             resolved={store.resolvedStyle}
-            layer={store.displayedLayer}
+            layer={store.styleInput}
             geometryType={layer.geometryType}
             sidecarName={sidecarStyleFileName(fileName ?? 'layer')}
             styleSource={store.styleSource}
@@ -332,13 +332,16 @@
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
             onClose={closePanel}
+            needsLoad={store.needsLoad}
+            classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
+            onLoad={() => {
+              closePanel()
+              void store.loadWhole()
+            }}
           />
         </div>
       {/if}
       {@render mapOverlay?.()}
-      {#if store.pendingLargeResult}
-        <LargeResultDialog rowCount={store.pendingLargeResult.rowCount} onChoose={(c) => store.answerLargeResult(c)} />
-      {/if}
     </div>
 
     <!-- A focusable separator is the WAI-ARIA "window splitter" pattern: it is
@@ -387,7 +390,7 @@
           </button>
           <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
           <span class="spacer"></span>
-          {#if layer && layer.features.length > 0 && !collapsed}
+          {#if layer && layer.rowCount > 0 && !collapsed}
             <span class="hint">Double-click a row to zoom</span>
           {/if}
           {#if layer}
@@ -405,13 +408,22 @@
           {/if}
         </div>
         <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
+          {#if store.needsLoad}
+            <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} purpose="list its rows" onLoad={() => void store.loadWhole()} />
+          {:else}
           <AttributeTable
             {layer}
             {loading}
+            total={store.tableTotal}
+            revision={store.tableRevision}
+            sort={store.tableSort}
+            loadPage={(offset) => store.loadPage(offset)}
+            onSort={(s) => store.setTableSort(s)}
             selectedFeatureId={session.selectedFeatureId}
             onSelectFeature={(id) => store.selectFeature(id)}
             onZoomToFeature={(id) => store.zoomToFeature(id)}
           />
+          {/if}
         </div>
       </div>
     </div>

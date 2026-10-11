@@ -115,3 +115,31 @@ export function largeData(name: string): string {
   test.skip(!fs.existsSync(file), `Run \`npm run large-data\` to generate ${name}`)
   return file
 }
+
+// Spec 005 export helpers (shared by export.spec and paging.spec).
+export const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
+
+/** Opens the dialog, sets choices, exports, and returns the downloaded bytes. */
+export async function exportVia(page: Page, choices: { format: string; crs?: 'result' | 'wgs84'; geometry?: string }): Promise<{ name: string; bytes: Buffer }> {
+  if (!(await exportDialog(page).isVisible())) await page.getByRole('button', { name: 'Export data…' }).click()
+  await expect(exportDialog(page)).toBeVisible()
+  await exportDialog(page).getByRole('radio', { name: choices.format, exact: true }).click()
+  if (choices.crs) await exportDialog(page).getByLabel('CRS').selectOption(choices.crs)
+  if (choices.geometry) await exportDialog(page).getByRole('radio', { name: choices.geometry }).click()
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), exportDialog(page).getByRole('button', { name: 'Export…' }).click()])
+  const file = await download.path()
+  await expect(exportDialog(page).getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
+  return { name: download.suggestedFilename(), bytes: fs.readFileSync(file) }
+}
+
+export async function inspectParquet(page: Page, bytes: Buffer) {
+  return page.evaluate(
+    (b64) =>
+      (
+        window as unknown as {
+          __spatialExplorerE2E: { inspectParquet: (b: string) => Promise<{ rows: number; columns: string[]; geo: any; geoKeys: number }> }
+        }
+      ).__spatialExplorerE2E.inspectParquet(b64),
+    bytes.toString('base64')
+  )
+}
