@@ -282,9 +282,10 @@ results save as Parquet (FR-004, FR-008).
 
   Record the numbers.
   - *Done*: 100k polygons to GeoParquet 2,033 ms (18.6 MB), longest task 0 ms; cancel 93 ms
-- [ ] T030 [P] Extend `tests/vscode-ext/src/suite/export.test.ts` with:
+- [X] T030 [P] Extend `tests/vscode-ext/src/suite/export.test.ts` with:
   - a result of more than 32 MB exported as GeoJSON (e.g. 80,000 generated polygons), proving the chunked transfer (bytes on disk equal the reported size);
   - choosing the source path via `_saveNextExportTo(<source>)` is refused, with the reply `saved: false` and the message.
+  - *Done*: 80,000-row GeoJSON (>32 MB) saved byte-exact via chunks; source path refused, file unchanged. A 50 MB GeoJSON SOURCE did not open within 45 s in VS Code, so the large result is built by a query (noted in research.md)
 - [ ] T031 [P] Extend `scripts/screenshots.mjs` with export scenes in both shells:
   - the dialog for a geometry result;
   - the display-limited rows choice;

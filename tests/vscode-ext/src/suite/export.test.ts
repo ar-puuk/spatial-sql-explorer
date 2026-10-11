@@ -24,16 +24,21 @@ export async function openCopy(fixture: string, viewType = 'spatialExplorer.edit
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-export-'))
   const file = path.join(dir, fixture)
   fs.copyFileSync(path.resolve(__dirname, '../../fixtures', fixture), file)
+  await openPath(file, viewType)
+  return { dir, file }
+}
+
+/** Opens `file` in a viewer and waits until it is ready. */
+async function openPath(file: string, viewType = 'spatialExplorer.editorOption'): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), viewType)
   const deadline = Date.now() + 45000
   for (;;) {
     const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
     if (s?.loadState === 'ready') break
-    assert.ok(Date.now() < deadline, `${fixture} did not load`)
+    assert.ok(Date.now() < deadline, `${path.basename(file)} did not load`)
     await sleep(200)
   }
-  return { dir, file }
 }
 
 /** Runs an export to `target` and waits for a terminal phase. */
@@ -148,6 +153,78 @@ suite('Spec 005 US5: Export Data… command', () => {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       const none = await vscode.commands.executeCommand('spatialExplorer.exportData')
       assert.strictEqual(none, false)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/** `count` parcel-like 12-vertex polygons with a few attributes (about 0.6 KB of GeoJSON each). */
+function writeParcels(file: string, count: number): void {
+  const out = fs.openSync(file, 'w')
+  fs.writeSync(out, '{"type":"FeatureCollection","features":[')
+  for (let i = 0; i < count; i++) {
+    const cx = -112 + (i % 400) * 0.002
+    const cy = 40 + Math.floor(i / 400) * 0.002
+    const ring = Array.from({ length: 12 }, (_, k) => {
+      const a = (k / 12) * 2 * Math.PI
+      return `[${(cx + Math.cos(a) * 0.0008).toFixed(7)},${(cy + Math.sin(a) * 0.0008).toFixed(7)}]`
+    })
+    ring.push(ring[0])
+    const props = `{"parcel_id":"P${String(i).padStart(7, '0')}","zone":"Z${i % 5}","acres":${((i % 97) / 7).toFixed(3)},"owner":"Owner ${i % 1000}"}`
+    fs.writeSync(out, `${i ? ',' : ''}{"type":"Feature","properties":${props},"geometry":{"type":"Polygon","coordinates":[[${ring.join(',')}]]}}`)
+  }
+  fs.writeSync(out, ']}')
+  fs.closeSync(out)
+}
+
+// T030: the chunked transfer (more than 32 MB crosses the bridge in pieces)
+// and the guard that never overwrites the opened source.
+suite('Spec 005: large exports and the source guard in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('a GeoJSON export of more than 32 MB arrives intact', async function () {
+    this.timeout(300000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-export-'))
+    const source = path.join(dir, 'parcels-8k.geojson')
+    writeParcels(source, 8_000)
+    try {
+      await openPath(source)
+      // Ten copies of each parcel: an 80,000-row result from a small source.
+      await vscode.commands.executeCommand('spatialExplorer._runQuery', 'SELECT a.* FROM layer a, range(10) b ORDER BY b.range, a.parcel_id', 'first')
+      const deadline = Date.now() + 60000
+      while (((await exportState())?.plan?.rowCount ?? 0) !== 80_000) {
+        assert.ok(Date.now() < deadline, `the 80,000-row query did not finish: ${JSON.stringify(await exportState())}`)
+        await sleep(200)
+      }
+      const out = path.join(dir, 'parcels-80k-export.geojson')
+      const s = await runExport({ format: 'geojson', rows: 'all' }, out)
+      assert.strictEqual(s.outcome?.kind, 'saved', JSON.stringify(s.outcome))
+      assert.strictEqual(s.outcome?.rows, 80_000)
+      const size = fs.statSync(out).size
+      assert.ok(size > 32 * 1024 * 1024, `expected more than 32 MB, got ${size}`)
+      assert.strictEqual(size, s.outcome?.bytes)
+      const doc = JSON.parse(fs.readFileSync(out, 'utf8')) as { features: Array<{ properties: { parcel_id: string } }> }
+      assert.strictEqual(doc.features.length, 80_000)
+      assert.strictEqual(doc.features[79_999].properties.parcel_id, 'P0007999')
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('the opened source is refused as the target, and left unchanged', async function () {
+    this.timeout(120000)
+    const { dir, file } = await openCopy('world-boundaries.geojson')
+    const before = sha(file)
+    try {
+      const s = await runExport({ format: 'geojson' }, file)
+      assert.strictEqual(s.outcome?.kind, 'failed', JSON.stringify(s.outcome))
+      assert.match(s.outcome?.message ?? '', /Choose a different file: this is the opened source\./)
+      assert.strictEqual(sha(file), before)
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       fs.rmSync(dir, { recursive: true, force: true })
