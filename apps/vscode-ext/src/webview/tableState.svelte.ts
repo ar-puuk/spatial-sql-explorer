@@ -9,6 +9,10 @@ export interface TableStateReport {
   matching: number | null
   total: number
   selected: number
+  /** Spec 008 T040: a multi-layer file's layers and the one shown. */
+  layers: Array<{ name: string; geometryType: string | null; featureCount: number | null }>
+  activeLayer: string | null
+  rowCount: number | null
 }
 
 export function watchTableState(store: ViewerStore, report: (state: TableStateReport) => void): () => void {
@@ -20,6 +24,9 @@ export function watchTableState(store: ViewerStore, report: (state: TableStateRe
         matching: store.filterCounts?.matching ?? null,
         total: store.tableTotal,
         selected: store.selectedCount,
+        layers: store.fileLayers.map((l) => ({ ...l })),
+        activeLayer: store.activeLayer,
+        rowCount: store.session.layer?.rowCount ?? null,
       })
     })
   })

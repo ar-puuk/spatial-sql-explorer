@@ -383,8 +383,10 @@
               ondblclick={() => onZoomToFeature(row.id)}
             >
               <td class="check" role="gridcell">
+                <!-- Not a Tab stop: rows are reached with the grid's arrow keys, and Space ticks the cursor row. -->
                 <input
                   type="checkbox"
+                  tabindex="-1"
                   aria-label="Select row {index + 1}"
                   checked={isSelected(row.id)}
                   onclick={(e) => e.stopPropagation()}

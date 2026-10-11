@@ -228,11 +228,11 @@ Geodatabase gets an honest message (FR-015–FR-018).
 
 ### Tests for US3
 
-- [ ] T038 [P] [US3] Core test `tests/core/layers.test.ts` with `three-layers.gpkg`:
+- [X] T038 [P] [US3] Core test `tests/core/layers.test.ts` with `three-layers.gpkg`:
   - `listLayers` returns 3 layers with names, counts, geometry types (`null` for `lookup_table`) and CRS;
   - single-layer formats return `[]` or 1 layer;
   - `.gdb` paths raise `UnsupportedFormatError` with the ogr2ogr hint.
-- [ ] T039 [P] [US3] Web test `tests/web/specs/layers.spec.ts`:
+- [X] T039 [P] [US3] Web test `tests/web/specs/layers.spec.ts`:
   - the `Layers in this file` listbox has 3 options and the status "This file has 3 layers";
   - countries is active;
   - switching to `city points` updates the map, table, facts and style in <2 s (SC-009);
@@ -240,26 +240,26 @@ Geodatabase gets an honest message (FR-015–FR-018).
   - `SELECT count(*) FROM "lookup_table"` works and autocomplete offers layer names;
   - a style set on one layer survives switching away and back;
   - a single-layer file shows no layer list.
-- [ ] T040 [P] [US3] VS Code test `tests/vscode-ext/src/suite/layers.test.ts`:
+- [X] T040 [P] [US3] VS Code test `tests/vscode-ext/src/suite/layers.test.ts`:
   - the same listing and switch through test hooks;
   - update `format-matrix.test.ts` (`multi-layer.gpkg` note: "two layers listed; first opens");
   - the `.gdb` folder command shows the unsupported message (stub `showInformationMessage`).
 
 ### Implementation for US3
 
-- [ ] T041 [US3] Implement `packages/core/src/source/layers.ts` (`listLayers`, `FileLayer`, `UnsupportedFormatError` for `.gdb`), and change `packages/core/src/source/layerSql.ts` to read `ST_Read(path, layer = <literal>)`.
-- [ ] T042 [US3] Change `packages/core/src/openFile.ts`:
+- [X] T041 [US3] Implement `packages/core/src/source/layers.ts` (`listLayers`, `FileLayer`, `UnsupportedFormatError` for `.gdb`), and change `packages/core/src/source/layerSql.ts` to read `ST_Read(path, layer = <literal>)`.
+- [X] T042 [US3] Change `packages/core/src/openFile.ts`:
   - `OpenOptions.layer`;
   - the active-layer rule;
   - `facts.layers` and `facts.activeLayer` when there are 2 or more layers (`packages/core/src/models.ts`);
   - switching re-uses the registered source with no new transfer.
-- [ ] T043 [US3] Change `packages/core/src/query/session.ts` to create lazy views for the other layers (skipping names that collide with `layer` or `__se_*`). Check that `packages/core/src/query/catalog.ts` lists them for autocomplete.
-- [ ] T044 [P] [US3] Create `packages/ui/src/LayerList.svelte`, a listbox per contracts/ui.md, and place it in `packages/ui/src/ViewerLayout.svelte` (shown only when `facts.layers` is present).
-- [ ] T045 [US3] Wire `switchLayer(name)` in `packages/ui/src/viewerStore.svelte.ts`:
+- [X] T043 [US3] Change `packages/core/src/query/session.ts` to create lazy views for the other layers (skipping names that collide with `layer` or `__se_*`). Check that `packages/core/src/query/catalog.ts` lists them for autocomplete.
+- [X] T044 [P] [US3] Create `packages/ui/src/LayerList.svelte`, a listbox per contracts/ui.md, and place it in `packages/ui/src/ViewerLayout.svelte` (shown only when `facts.layers` is present).
+- [X] T045 [US3] Wire `switchLayer(name)` in `packages/ui/src/viewerStore.svelte.ts`:
   - per-layer `stateKey` (`<file>#<layer>`) for style, columns and history;
   - clear filters and selection;
   - test hook `layers()`.
-- [ ] T046 [US3] VS Code `.gdb`:
+- [X] T046 [US3] VS Code `.gdb`:
   - in `apps/vscode-ext/package.json`, an `explorer/context` entry when `explorerResourceIsFolder && resourceExtname == .gdb`;
   - in `apps/vscode-ext/src/extension.ts`, a handler showing the message with a "Copy command" action.
 

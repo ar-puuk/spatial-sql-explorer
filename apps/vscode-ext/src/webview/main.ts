@@ -101,6 +101,8 @@ async function main(): Promise<void> {
       void store.runExport()
     } else if (msg.type === 'testSetFilter' && typeof msg.column === 'string') {
       store.setFilter(msg.column, (msg.filter ?? null) as Parameters<typeof store.setFilter>[1])
+    } else if (msg.type === 'testSwitchLayer' && typeof msg.column === 'string') {
+      void store.switchLayer(msg.column)
     } else if (msg.type === 'testSetHiddenColumns' && Array.isArray(msg.hidden)) {
       store.setHiddenColumns(msg.hidden as string[])
     } else if (msg.type === 'testSaveStyle') {

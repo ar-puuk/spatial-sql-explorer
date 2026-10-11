@@ -87,6 +87,13 @@ export type SpatialIndexKind = 'covering' | 'built' | 'building' | 'file' | 'rtr
 
 /** Whole-file facts shown at once (FR-001). */
 export interface DatasetFacts {
+  /**
+   * Spec 008 US3: every layer of a file holding more than one (GeoPackage),
+   * in file order; absent for single-layer files. `activeLayer` names the
+   * one opened as `layer`.
+   */
+  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null }>
+  activeLayer?: string
   rows: number
   /** True only while a count is still pending. */
   rowsEstimated: boolean

@@ -22,6 +22,7 @@
   import UnavailableNotice from './UnavailableNotice.svelte'
   import ColumnChooser from './ColumnChooser.svelte'
   import SelectionBar from './SelectionBar.svelte'
+  import LayerList from './LayerList.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -286,9 +287,15 @@
         }}
         styleUnavailable={store.tilesOnlyReason}
       />
-      {#if inspected}
+      {#if inspected || store.fileLayers.length > 1}
         <div class="inspector-slot">
-          <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
+          {#if store.fileLayers.length > 1}
+            <!-- Spec 008 US3: the file's layers, with the inspector under them. -->
+            <LayerList layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+          {/if}
+          {#if inspected}
+            <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
+          {/if}
         </div>
       {/if}
       {#if openPanel === 'basemap'}
@@ -550,7 +557,9 @@
     bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
     z-index: 6;
     display: flex;
+    flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
     pointer-events: none;
   }
   .inspector-slot > :global(*) {

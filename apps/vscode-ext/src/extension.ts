@@ -80,6 +80,15 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
  */
 const RASTER_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
 
+/**
+ * Spec 008 FR-018: the same text as GDB_UNSUPPORTED in
+ * packages/core/src/source/layers.ts (the extension host doesn't import core).
+ */
+const GDB_UNSUPPORTED =
+  "File Geodatabase (.gdb) isn't supported yet: this build has no reader for it. Convert it to GeoPackage, for example: ogr2ogr -f GPKG out.gpkg in.gdb"
+/** Test hook: the last File Geodatabase message shown. */
+let lastGdbMessage: string | null = null
+
 /** Spec 008: the setting the webview needs (contracts/host-and-shells.md). */
 function placeSearchEnabled(): boolean {
   return vscode.workspace.getConfiguration('spatialExplorer').get<boolean>('placeSearch.enabled', true)
@@ -664,10 +673,20 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri
       if (!target) return
       const ext = path.posix.extname(target.path).toLowerCase()
+      if (ext === '.gdb') {
+        // Spec 008 FR-018 (research §2): no File Geodatabase reader in this runtime. Say so, with a way forward.
+        const command = `ogr2ogr -f GPKG "${path.basename(target.fsPath, '.gdb')}.gpkg" "${target.fsPath}"`
+        lastGdbMessage = GDB_UNSUPPORTED
+        void vscode.window.showInformationMessage(GDB_UNSUPPORTED, 'Copy command').then(async (choice) => {
+          if (choice === 'Copy command') await vscode.env.clipboard.writeText(command)
+        })
+        return
+      }
       const viewType = DEFAULT_EDITOR_EXTENSIONS.has(ext) ? 'spatialExplorer.editor' : 'spatialExplorer.editorOption'
       await vscode.commands.executeCommand('vscode.openWith', target, viewType)
     }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
+    vscode.commands.registerCommand('spatialExplorer._getGdbMessage', () => lastGdbMessage),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
     // Spec 002 test hooks: drive and observe queries in the active viewer.
     vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string) =>
@@ -682,6 +701,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // Spec 008 T026: table columns, filters and selection.
     vscode.commands.registerCommand('spatialExplorer._getTableState', () => lastTableState),
     vscode.commands.registerCommand('spatialExplorer._setFilter', (column: string, filter: unknown) => provider.postToActive({ type: 'testSetFilter', column, filter })),
+    vscode.commands.registerCommand('spatialExplorer._switchLayer', (name: string) => provider.postToActive({ type: 'testSwitchLayer', column: name })),
     vscode.commands.registerCommand('spatialExplorer._setHiddenColumns', (hidden: string[]) => provider.postToActive({ type: 'testSetHiddenColumns', hidden })),
     // Spec 005 test hooks: run an export, read its state.
     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),

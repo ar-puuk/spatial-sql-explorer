@@ -236,6 +236,15 @@ export interface ViewerStore {
   readonly needsLoad: { sizeLabel: string } | null
   /** Re-opens the file whole into memory (progress and Cancel through the open). */
   loadWhole(): Promise<void>
+  /** Spec 008 US3: the layers of a multi-layer file, and the one shown; empty for single-layer files. */
+  readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>
+  readonly activeLayer: string | null
+  /**
+   * Shows another layer of the file (FR-016). A layer with geometry is opened
+   * as `layer`; a table without geometry is shown as a query result. Each
+   * layer keeps its own style for the session.
+   */
+  switchLayer(name: string): Promise<void>
   /** Spec 007 US5: the open PMTiles archive (the map draws its tiles), or null. */
   readonly tiles: TilesArchive | null
   /** FR-009a: why SQL, the table, styling and export aren't available (PMTiles), or null. */
@@ -829,8 +838,30 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, loadWhole: true })
   }
 
-  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean } = {}): Promise<void> {
-    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : null
+  // --- Spec 008 US3: layers of a multi-layer file -----------------------------
+  let fileLayers = $state.raw<ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>>([])
+  let activeLayer = $state<string | null>(null)
+  /** Each layer's style for this session (FR-016: switching back restores it). */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const layerStyles = new Map<string, { style: LayerStyle; styleSource: string | null; styleDirty: boolean }>()
+
+  async function switchLayer(name: string): Promise<void> {
+    const target = fileLayers.find((l) => l.name === name)
+    if (!target || !openedRef || name === activeLayer) return
+    if (target.geometryType === null) {
+      // A table without geometry can't be `layer`: show it as a result (the map dims, the table lists it).
+      queryText = `SELECT * FROM "${name.replace(/"/g, '""')}"`
+      activeLayer = name
+      await runQuery({ from: 0, to: queryText.length })
+      return
+    }
+    if (activeLayer) layerStyles.set(activeLayer, { style, styleSource, styleDirty })
+    await load({ ref: openedRef, layer: name })
+  }
+
+  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean; layer?: string } = {}): Promise<void> {
+    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
+    if (options.layer === undefined && !options.loadWhole) layerStyles.clear()
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
@@ -893,7 +924,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           },
           isCancelled: () => openCancelled,
         },
-        { loadWhole: options.loadWhole }
+        { loadWhole: options.loadWhole, layer: options.layer }
       )
       openInterrupt = null
       openPhase = null
@@ -905,10 +936,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const layer = opened.layer
       initialLayer = layer
       initialLayerState = layer
+      fileLayers = layer.facts?.layers ?? []
+      activeLayer = layer.facts?.activeLayer ?? null
+      // Spec 008: the column view is per layer of a multi-layer file.
+      if (activeLayer && historyStateKey) loadColumnView(`${historyStateKey}#${activeLayer}`)
       setLayer(layer)
       session.loadState = 'ready'
       if (keptStyle) {
-        // Loading the whole file keeps the style the user was looking at.
+        // Loading the whole file (or switching layer) keeps that layer's style.
         style = keptStyle.style
         styleSource = keptStyle.styleSource
         styleDirty = keptStyle.styleDirty
@@ -1398,6 +1433,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get tilesOnlyReason() {
       return tilesOnlyReason
     },
+    get fileLayers() {
+      return fileLayers
+    },
+    get activeLayer() {
+      return activeLayer
+    },
+    switchLayer,
     inspectTileFeature(feature) {
       detailFeature = feature
       session.selectedFeatureId = feature?.id ?? null
