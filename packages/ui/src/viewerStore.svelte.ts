@@ -51,6 +51,12 @@ import {
   ViewSkippedError,
 } from '@spatial-explorer/core'
 
+/** The attribute columns a style draws from (spec 007: map views read only these). */
+function styleColumns(style: LayerStyle): string[] {
+  const r = style.renderer
+  return r && r.kind !== 'single' && r.column ? [r.column] : []
+}
+
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
 /** The result of the last export (spec 005 data-model ExportOutcome). */
 export type ExportOutcome =
@@ -179,6 +185,10 @@ export interface ViewerStore {
   readonly viewNotice: { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null
   /** A selected feature outside the drawn set, fetched by id and drawn highlighted (FR-008). */
   readonly outsideFeature: Feature | null
+  /** The full record of a map-selected feature (view rows carry only the style's columns). */
+  readonly detailFeature: Feature | null
+  /** The map drew the latest view data (MapLibre idle after setData). */
+  notifyPainted(): void
   /** The map moved (debounced): load the result's features for this WGS84 view. */
   requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void>
   dismissViewNotice(): void
@@ -456,6 +466,24 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let viewLoading = $state(false)
   let outsideFeature = $state.raw<Feature | null>(null)
   let viewGeneration = 0
+  let lastViewArgs: { bbox: [number, number, number, number]; zoom: number; widthPx?: number } | null = null
+  /** The attribute columns the drawn view carries (the style's column; spec 007). */
+  let viewAttrs: string[] = []
+  // The map reports each paint of new view data (MapView onPainted).
+  let paintWaiters: Array<() => void> = []
+  function waitForPaint(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        paintWaiters = paintWaiters.filter((w) => w !== done)
+        resolve()
+      }
+      const timer = setTimeout(done, timeoutMs)
+      paintWaiters.push(done)
+    })
+  }
+  /** The full record of a map-selected feature whose view row had only the style's columns. */
+  let detailFeature = $state.raw<Feature | null>(null)
   /** The layer whose first view already had its preview (see requestView). */
   let previewedLayer: Layer | null = null
   /** Features in the quick first view of a new file or result. */
@@ -477,10 +505,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (generation === viewGeneration) viewLoading = true
     }, 300)
     const cap = viewCapFor(layer.facts?.readMode ?? 'whole')
+    lastViewArgs = { bbox, zoom, widthPx }
+    const attrs = styleColumns(style)
+    viewAttrs = attrs
     // The first view of a new file or result is drawn in two steps: a quick
     // spread-out preview, then the full view, which replaces it without a
-    // blank map (FR-007). The preview shows no subset notice (it's replaced at once).
-    let preview = previewedLayer !== layer && cap > PREVIEW_CAP
+    // blank map (FR-007). The preview shows no subset notice (it's replaced at
+    // once). Only for files in memory, where drawing dominates; for files read
+    // in parts the overview is I/O-bound, and a preview would double it.
+    let preview = previewedLayer !== layer && cap > PREVIEW_CAP && (layer.facts?.readMode ?? 'whole') === 'whole'
     previewedLayer = layer
     try {
       // A view never blocks user work (a query, export, autocomplete): it is
@@ -488,12 +521,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       // unless a newer view came meanwhile.
       for (let attempt = 0; attempt < 5 && current(); attempt++) {
         try {
-          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx })
+          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx, attrs })
           if (!current()) return
           if (preview) {
             viewFeatures = { ...v, thinned: false, preview: true }
             preview = false
             attempt = -1
+            // Paint the preview before loading the full view; otherwise a
+            // quick full view replaces it unseen (at most 1 s).
+            await waitForPaint(1000)
             continue
           }
           viewFeatures = v
@@ -938,6 +974,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     load,
     selectFeature(id) {
       session.selectedFeatureId = id
+      // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
+      const drawn = viewFeatures?.features.find((f) => f.id === id)
+      if (drawn?.partialAttributes && typeof id === 'number' && querySession) {
+        void querySession
+          .featureById(id)
+          .then((f) => {
+            if (session.selectedFeatureId === id) detailFeature = f
+          })
+          .catch(() => {})
+      }
+    },
+    get detailFeature() {
+      return detailFeature
     },
     zoomToFeature(id) {
       session.selectedFeatureId = id
@@ -969,6 +1018,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return outsideFeature
     },
     requestView,
+    notifyPainted() {
+      for (const w of [...paintWaiters]) w()
+    },
     get lastViewBbox() {
       return lastViewBbox
     },
@@ -988,6 +1040,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setStyle(patch) {
       style = sanitizeStyle({ ...style, ...patch })
       styleDirty = true
+      // A thematic column the drawn view doesn't carry yet: load the view again with it.
+      if (lastViewArgs && styleColumns(style).some((c) => !viewAttrs.includes(c))) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
     },
     resetStyle() {
       style = { ...DEFAULT_LAYER_STYLE }

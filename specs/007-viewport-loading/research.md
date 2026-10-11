@@ -432,6 +432,36 @@ What changed from the plan while building, with the measurement behind each.
   opening.** It used to register it after the open and the first render, so
   a hook message sent at "ready" was lost.
 
+### MVP checkpoint on the 762 MB file (2026-10-11)
+
+| | Web (File handle) | VS Code (loopback) |
+|---|---|---|
+| Facts shown | 2.1 s | 2.1 s |
+| Overview drawn (25,000 of 4,000,000) | 4.0 s | 4.2 s |
+| City view (all parcels in view) | 0.9 s | under 1 s |
+| Bytes read for open + overview | n/a | 237 MB of 762 MB |
+
+Times include engine start-up.
+
+- **Only the style's columns.** Map views read only the attribute columns the
+  style draws from: none for a single symbol, one for a thematic style. The
+  inspector fetches a clicked feature's full record by id. Reading every
+  attribute made one overview cost 148 MB in VS Code; now a repeat overview
+  reads 0 bytes, because the bbox columns are cached.
+- **What the 237 MB is.** Most of it is DuckDB-WASM's HTTP read-ahead: about
+  4 MB after each row group's bbox columns, spilling into the next row group's
+  attribute and geometry columns. The bbox columns themselves are the other
+  part. The read-ahead isn't settable from SQL; `disable_parquet_prefetching`
+  changed nothing. Over the local loopback it costs little time.
+- **No preview step for files read in parts.** The progressive preview runs
+  only for files held in memory, where drawing dominates. For files read in
+  parts it would double the I/O of the overview.
+- **The preview is painted before the full view is requested.** The map
+  reports each paint (`onPainted`; a monotonic `data-paints` counter on the
+  canvas host), and the store waits for it, at most 1 s. Otherwise a fast full
+  view replaced the preview unseen. The 10 MB warm first paint is now 1,588 to
+  1,612 ms over three runs (spec 001 baseline: 1,594 ms).
+
 ## Residual risks
 
 | Risk | Mitigation |

@@ -53,7 +53,8 @@ async function timeOpen(page: Page): Promise<{ metadataMs: number; renderedMs: n
   await page.locator('input[type="file"]').setInputFiles(fixture)
   await expect(page.locator('.status-bar')).toContainText('22,000 features', { timeout: 60000 })
   const metadataMs = Date.now() - t0
-  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  // The first paint of data (spec 007: a quick preview, then the full view).
+  await page.locator('.canvas-host[data-paints]').waitFor({ state: 'attached', timeout: 60000 })
   return { metadataMs, renderedMs: Date.now() - t0 }
 }
 

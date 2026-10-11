@@ -38,6 +38,8 @@
     viewLoading?: boolean
     /** Moves the camera once per new request (test hooks). */
     cameraRequest?: { center: [number, number]; zoom: number; seq: number } | null
+    /** The map drew the latest view data (idle after setData). */
+    onPainted?: () => void
     /** The map settled on a new view (WGS84 bbox, zoom), debounced. */
     onViewChange: (bbox: [number, number, number, number], zoom: number, widthPx: number) => void
     selectedFeatureId: string | number | null
@@ -66,6 +68,7 @@
     extraFeature = null,
     viewLoading = false,
     cameraRequest = null,
+    onPainted,
     onViewChange,
     selectedFeatureId,
     style,
@@ -246,6 +249,14 @@
       // the data arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
       container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
+      if (paintPending) {
+        paintPending = false
+        // Monotonic "view data was drawn" counter: unlike data-rendered-features
+        // (cleared when new data arrives), it never disappears, so a quick
+        // preview paint is observable (spec 007, SC-009 timing).
+        container.dataset.paints = String(Number(container.dataset.paints ?? 0) + 1)
+        onPainted?.()
+      }
     })
     m.on('sourcedata', (e: { sourceId?: string; tile?: unknown }) => {
       if (e.sourceId !== SOURCE_ID && e.tile) health.recordSuccess()
@@ -403,6 +414,8 @@
   }
 
   let dataLoaded = false
+  /** New view data was set and hasn't been reported painted yet. */
+  let paintPending = false
   let shownLayer: Layer | null = null
   $effect(() => {
     const current = layer
@@ -432,6 +445,7 @@
     ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
     hoveredId = null
     dataLoaded = true
+    paintPending = true
     // Marks the rendered-feature count stale until the next idle (above).
     delete container.dataset.renderedFeatures
   })

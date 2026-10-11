@@ -375,8 +375,12 @@ export class QuerySession {
     return this.exclusive(async (isCancelled) => {
       const delay = testOverrides().slowViewMs
       if (delay) await new Promise((r) => setTimeout(r, delay))
-      const target = this.viewTarget()
-      if (!target) return { generation: req.generation, features: [], inView: 0, thinned: false, ms: 0 }
+      const full = this.viewTarget()
+      if (!full) return { generation: req.generation, features: [], inView: 0, thinned: false, ms: 0 }
+      // Only the attributes the map needs (spec 007): a 4M-row overview read 148 MB with all of them.
+      const wanted = req.attrs
+      const target = wanted ? { ...full, attrs: full.attrs.filter((a) => wanted.includes(a)) } : full
+      const partial = target.attrs.length < full.attrs.length
       let box = clampWgs84(req.bbox)
       const boxSql = viewBoxSql(box, target.srid)
       if (boxSql) {
@@ -452,7 +456,9 @@ export class QuerySession {
           await streamRows(this.conn, featuresByIdsSql(target, thinnedIdsSql(target, box, req.cap, inView), minSize), isCancelled, collect)
         }
       }
-      const features = rows.filter((r) => r.__se_geojson !== null && r.__se_geojson !== undefined).map(toViewFeature)
+      const features = rows
+        .filter((r) => r.__se_geojson !== null && r.__se_geojson !== undefined)
+        .map((r) => (partial ? { ...toViewFeature(r), partialAttributes: true } : toViewFeature(r)))
       const atLeast = target.index === 'fgb' && thinned
       return { generation: req.generation, features, inView, thinned, ms: Math.round(performance.now() - started), ...(atLeast ? { inViewAtLeast: true } : {}) }
     }, 'view')

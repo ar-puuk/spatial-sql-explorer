@@ -119,6 +119,7 @@
   let inspected = $derived.by(() => {
     const id = session.selectedFeatureId
     if (!inspectorOpen || !layer || id === null) return null
+    if (store.detailFeature?.id === id) return store.detailFeature
     return layer.features.find((f) => f.id === id) ?? store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
   })
 
@@ -246,6 +247,7 @@
         extraFeature={store.outsideFeature}
         viewLoading={store.viewLoading}
         cameraRequest={store.cameraRequest}
+        onPainted={() => store.notifyPainted()}
         onViewChange={(bbox, zoom, widthPx) => void store.requestView(bbox, zoom, widthPx)}
         dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}

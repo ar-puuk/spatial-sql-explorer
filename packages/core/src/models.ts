@@ -21,6 +21,8 @@ export interface Feature {
   /** Reprojected to EPSG:4326 for display. */
   geometry: GeoJSON.Geometry | null
   attributes: Record<string, string | number | boolean | null>
+  /** Spec 007: only the columns a map view needed; fetch by id for the full record. */
+  partialAttributes?: boolean
 }
 
 /**
@@ -110,6 +112,12 @@ export interface ViewRequest {
   cap: number
   /** The map canvas width in CSS pixels: features under ~2 px are sent as points so they stay visible. */
   widthPx?: number
+  /**
+   * The attribute columns the map needs (the style's column), or undefined
+   * for all. Fewer columns read far less of a large file; features then
+   * carry `partialAttributes` and the inspector fetches the full record.
+   */
+  attrs?: string[]
 }
 
 export interface ViewFeatures {
