@@ -278,6 +278,9 @@
         onSelectFeature={handleMapSelect}
         tickedIds={store.selection.kind === 'all-matching' ? 'all' : store.selection.ids}
         fitRequest={store.fitRequest}
+        projection={store.projection}
+        onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
+        onCameraChange={(c) => store.setMapCamera(c)}
         onCursorMove={(c) => store.setCursor(c)}
         tiles={store.tiles}
         onInspectTileFeature={(f) => {

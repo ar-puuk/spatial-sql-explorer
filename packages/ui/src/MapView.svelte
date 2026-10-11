@@ -65,6 +65,11 @@
     tickedIds?: ReadonlySet<number> | 'all'
     /** Spec 008 FR-013: fits the map to a WGS84 box once per new request. */
     fitRequest?: { bbox: [number, number, number, number]; seq: number } | null
+    /** Spec 008 FR-023: flat (Web Mercator) or globe. */
+    projection?: 'mercator' | 'globe'
+    onToggleProjection?: () => void
+    /** Spec 008: the camera after each move (center, zoom, pitch, bearing). */
+    onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
@@ -96,6 +101,9 @@
     onSelectFeature,
     tickedIds = new Set<number>(),
     fitRequest = null,
+    projection = 'mercator',
+    onToggleProjection = () => {},
+    onCameraChange = () => {},
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
@@ -237,6 +245,8 @@
     // and switching basemaps keeps wherever the user is.
     const camera = doc as unknown as Record<string, unknown>
     for (const key of ['center', 'zoom', 'bearing', 'pitch', 'roll']) delete camera[key]
+    // Spec 008: the projection belongs to the viewer too, not to the basemap style.
+    camera.projection = { type: untrack(() => projection) }
     // Always show the catalog's attribution (CLAUDE.md "Basemaps").
     if (base && entry.attribution) {
       const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
@@ -289,6 +299,10 @@
     })
     // Spec 007 FR-007: load the new view once the map settles.
     m.on('moveend', scheduleViewChange)
+    m.on('moveend', () => {
+      const c = m.getCenter()
+      onCameraChange({ center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() })
+    })
     m.on('mouseout', () => onCursorMove(null))
 
     // Tile/sprite/glyph failures after the style document itself loaded
@@ -307,6 +321,9 @@
     // webview). Refreshed on every idle, since a basemap switch rebuilds
     // the style. Read by the VS Code test hook and the browser tests.
     m.on('idle', () => {
+      if (activeBasemap && activeBasemap.type !== 'blank' && health.settledWithoutTiles()) {
+        onBasemapFailure(`${activeBasemap.name} basemap unavailable (tiles could not be loaded). Showing a blank background.`)
+      }
       // Only meaningful once this layer's first view is drawn: an idle before
       // the data arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
@@ -341,7 +358,8 @@
     }
     activeBasemap = entry
     activeBaseStyle = result.style
-    basemapHost = entry.url ? new URL(entry.url).host : ''
+    // Raster templates hold `{s}` in the host (spec 008): match on the part after it.
+    basemapHost = entry.url ? (/^https?:\/\/([^/]+)/.exec(entry.url)?.[1] ?? '').replace(/^\{s\}\./, '') : ''
     health = new BasemapHealth()
     const m = map
     m.setStyle(buildStyle(result.style, entry), { diff: false })
@@ -569,6 +587,13 @@
     untrack(() => applyTicked())
   })
 
+  // Spec 008 FR-023: switching keeps the camera (center and zoom).
+  $effect(() => {
+    const type = projection
+    if (!map || !mapReady) return
+    if (map.getProjection()?.type !== type) map.setProjection({ type })
+  })
+
   let appliedFit = 0
   $effect(() => {
     const req = fitRequest
@@ -627,6 +652,16 @@
       <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
       <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
       <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
+      <button
+        type="button"
+        title={projection === 'globe' ? 'Flat map' : 'Globe view'}
+        aria-label="Globe view"
+        aria-pressed={projection === 'globe'}
+        class:active={projection === 'globe'}
+        onclick={onToggleProjection}
+      >
+        <Icon name="globe" />
+      </button>
     </div>
     <div class="group">
       <button

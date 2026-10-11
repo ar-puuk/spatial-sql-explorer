@@ -5,8 +5,30 @@ import type { FileSource, HostAdapter, OpenedFileRef, SaveOptions, SaveResult, S
 
 const fileMap = new Map<string, File[]>()
 
-function detectTheme(): ThemeKind {
+/** Spec 008 FR-022: the web app's theme choice. 'system' follows the OS live. */
+export type ThemePreference = 'system' | 'light' | 'dark'
+let themePreference: ThemePreference = 'system'
+const themeListeners = new Set<(theme: ThemeKind) => void>()
+
+function systemTheme(): ThemeKind {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function detectTheme(): ThemeKind {
+  return themePreference === 'system' ? systemTheme() : themePreference
+}
+
+/** Applies a theme choice: `data-theme` on <html> (none for 'system'), then tells the viewer. */
+export function setThemePreference(preference: ThemePreference): void {
+  themePreference = preference
+  if (preference === 'system') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = preference
+  const theme = detectTheme()
+  themeListeners.forEach((cb) => cb(theme))
+}
+
+export function getThemePreference(): ThemePreference {
+  return themePreference
 }
 
 function isLikelySidecar(name: string): boolean {
@@ -47,8 +69,9 @@ export function provideFiles(files: File[]): void {
 export const rangeReads = { count: 0, bytes: 0, largest: 0 }
 
 export function createWebHostAdapter(): HostAdapter {
-  const themeListeners = new Set<(theme: ThemeKind) => void>()
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    // An explicit Light or Dark choice ignores the OS.
+    if (themePreference !== 'system') return
     const theme = detectTheme()
     themeListeners.forEach((cb) => cb(theme))
   })

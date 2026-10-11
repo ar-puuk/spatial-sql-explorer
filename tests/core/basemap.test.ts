@@ -121,3 +121,14 @@ describe('raster basemaps', () => {
     expect(src.attribution).toMatch(/OpenTopoMap/)
   })
 })
+
+describe('BasemapHealth (spec 008)', () => {
+  it('a settled map with failed tiles and none loaded gives up, even under the threshold', () => {
+    const h = new BasemapHealth(4)
+    expect(h.settledWithoutTiles()).toBe(false)
+    expect(h.recordFailure()).toBe(false)
+    expect(h.settledWithoutTiles()).toBe(true)
+    h.recordSuccess()
+    expect(h.settledWithoutTiles()).toBe(false)
+  })
+})

@@ -150,6 +150,12 @@ export interface ViewerStore {
   zoomToSelection(): Promise<void>
   /** Fits the map to a WGS84 box once per new request. */
   readonly fitRequest: { bbox: [number, number, number, number]; seq: number } | null
+  /** Spec 008 FR-023: flat map or globe, remembered for the user. */
+  readonly projection: 'mercator' | 'globe'
+  setProjection(projection: 'mercator' | 'globe'): void
+  /** The map's camera after its last move (null before the first). */
+  readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
+  setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }): void
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -423,6 +429,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let selection = $state.raw<Selection>(EMPTY_SELECTION)
   let showSelectedOnly = $state(false)
   let fitRequest = $state.raw<{ bbox: [number, number, number, number]; seq: number } | null>(null)
+  let projection = $state<'mercator' | 'globe'>('mercator')
+  let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
+  void hostAdapter
+    .loadState<string>('projection')
+    .then((v) => {
+      if (v === 'globe' || v === 'mercator') projection = v
+    })
+    .catch(() => {})
 
   /** After the rows were narrowed: new pages, a new view, the style and the count. */
   async function narrowed(): Promise<void> {
@@ -1232,6 +1246,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get fitRequest() {
       return fitRequest
+    },
+    get projection() {
+      return projection
+    },
+    get mapCamera() {
+      return mapCamera
+    },
+    setMapCamera(camera) {
+      mapCamera = camera
+    },
+    setProjection(next) {
+      projection = next
+      void hostAdapter.saveState('projection', next).catch(() => {})
     },
     get mapLayer() {
       return mapLayer

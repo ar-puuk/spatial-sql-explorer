@@ -4,11 +4,29 @@
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
-  import { createWebHostAdapter, provideFiles, rangeReads } from './hostAdapter.js'
+  import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import ThemeMenu from './ThemeMenu.svelte'
 
   // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
   const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
   const hostAdapter = createWebHostAdapter()
+
+  // Spec 008 FR-022: the theme choice (System follows the OS), remembered.
+  let themePreference = $state<ThemePreference>('system')
+  void hostAdapter
+    .loadState<ThemePreference>('theme')
+    .then((saved) => {
+      if (saved === 'light' || saved === 'dark' || saved === 'system') {
+        themePreference = saved
+        setThemePreference(saved)
+      }
+    })
+    .catch(() => {})
+  function chooseTheme(value: ThemePreference): void {
+    themePreference = value
+    setThemePreference(value)
+    void hostAdapter.saveState('theme', value).catch(() => {})
+  }
   const store = createViewerStore(hostAdapter, duckdbAssets)
 
   // Warm DuckDB up while the user is still choosing a file (design-plan.md
@@ -64,6 +82,8 @@
         JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.viewFeatures?.inView ?? null })),
       /** Spec 008 T025: the ticked rows. */
       selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
+      /** Spec 008 T064: the map's projection and camera. */
+      mapState: () => ({ projection: store.projection, ...(store.mapCamera ?? {}) }),
       /** Spec 008 T025: the map's current bounds (zoom to selection). */
       mapBounds: () => store.lastViewBbox,
       /**
@@ -228,6 +248,7 @@
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
     <span class="spacer"></span>
+    <ThemeMenu value={themePreference} onChange={chooseTheme} />
     {#if !idleState}
       <button type="button" class="open" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
     {/if}

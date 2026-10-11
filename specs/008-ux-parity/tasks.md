@@ -335,33 +335,33 @@ verified writers (FR-019–FR-021).
 
 ### Tests for US5
 
-- [ ] T063 [P] [US5] Web test `tests/web/specs/theme.spec.ts`:
+- [X] T063 [P] [US5] Web test `tests/web/specs/theme.spec.ts`:
   - the `Theme` menu with System, Light and Dark;
   - Light persists across reload;
   - with System, `page.emulateMedia({ colorScheme })` switches live;
   - with Light picked, an OS change is ignored;
   - the default basemap follows the effective theme;
   - the switch takes ≤1 s (SC-005).
-- [ ] T064 [P] [US5] Web test `tests/web/specs/globe.spec.ts`:
+- [X] T064 [P] [US5] Web test `tests/web/specs/globe.spec.ts`:
   - `Globe view` toggles `mapState().projection` and keeps the center;
   - the choice persists;
   - with a large-file fixture (`parcels-10k.parquet`, `cap` override), the spec 007 notices still appear;
   - map clicks still open the inspector on the globe.
-- [ ] T065 [P] [US5] Web test `tests/web/specs/basemaps-raster.spec.ts`: each new basemap is offered with a preview and attribution text. Route its tile host to a failing response and check the fallback to Blank with a message (network stubbed with `page.route`).
-- [ ] T066 [P] [US5] VS Code test `tests/vscode-ext/src/suite/theme-csp.test.ts`: the webview CSP contains the new tile and Nominatim hosts; there is no theme control in the webview.
+- [X] T065 [P] [US5] Web test `tests/web/specs/basemaps-raster.spec.ts`: each new basemap is offered with a preview and attribution text. Route its tile host to a failing response and check the fallback to Blank with a message (network stubbed with `page.route`).
+- [X] T066 [P] [US5] VS Code test `tests/vscode-ext/src/suite/theme-csp.test.ts`: the webview CSP contains the new tile and Nominatim hosts; there is no theme control in the webview.
 
 ### Implementation for US5
 
-- [ ] T067 [US5] Web theme:
+- [X] T067 [US5] Web theme:
   - in `apps/web/src/App.svelte`, a header `Theme` menu button (`menuitemradio`) driving `data-theme`;
   - `saveState('theme')`; `matchMedia` live for System;
   - in `apps/web/src/hostAdapter.ts`, `getTheme`/`onThemeChange` derive from the preference;
   - `apps/web/src/theme.css` gets a full light token set next to the dark one (omx-viewer brand palette).
-- [ ] T068 [US5] Globe:
+- [X] T068 [US5] Globe:
   - `packages/ui/src/MapView.svelte`: a `Globe view` toggle in `Map controls`, calling `map.setProjection`;
   - store `projection` via `saveState('projection')` in `viewerStore.svelte.ts`;
   - test hook `mapState()`.
-- [ ] T069 [US5] Check that `packages/ui/src/BasemapPicker.svelte` renders raster previews (the catalog's preview color or a z2 tile snapshot), with attribution, and that the failure fallback covers raster sources.
+- [X] T069 [US5] Check that `packages/ui/src/BasemapPicker.svelte` renders raster previews (the catalog's preview color or a z2 tile snapshot), with attribution, and that the failure fallback covers raster sources.
 
 **Checkpoint**: US5 tests green.
 

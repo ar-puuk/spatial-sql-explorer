@@ -537,6 +537,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     }
   }
 
+  /** Test hook (spec 008 T066): the CSP of the active viewer's page. */
+  activeCsp(): string | null {
+    const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
+    return panel ? (/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(panel.webview.html)?.[1] ?? null) : null
+  }
+
   /** Spec 008: tells every open viewer about a changed setting. */
   postPreferences(): void {
     for (const panel of this.panels) void panel.webview.postMessage({ type: 'preferences', placeSearchEnabled: placeSearchEnabled() })
@@ -687,6 +693,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
     vscode.commands.registerCommand('spatialExplorer._getGdbMessage', () => lastGdbMessage),
+    // Spec 008 T066: the active viewer's Content-Security-Policy.
+    vscode.commands.registerCommand('spatialExplorer._getCsp', () => provider.activeCsp()),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
     // Spec 002 test hooks: drive and observe queries in the active viewer.
     vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string) =>

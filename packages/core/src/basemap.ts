@@ -105,6 +105,14 @@ export class BasemapHealth {
     this.failures++
     return this.successes === 0 && this.failures >= this.threshold
   }
+  /**
+   * Spec 008: the map settled (idle) with failed tiles and none loaded. A
+   * small view may need fewer tiles than the threshold (a raster basemap over
+   * a city is one or two tiles), so this ends the wait too.
+   */
+  settledWithoutTiles(): boolean {
+    return this.successes === 0 && this.failures > 0
+  }
 }
 
 
