@@ -14,6 +14,18 @@
     type GraduatedMethod,
     rendererOf,
     startStyle,
+    addClass,
+    deleteClass,
+    setCategorizedAuto,
+    setCategoryValue,
+    setClassBound,
+    setClassColor,
+    setClassCount,
+    setClassLabel,
+    setClassVisible,
+    setMethod,
+    setRamp,
+    validateStyle,
     type GeometryType,
     type LayerStyle,
     type Renderer,
@@ -22,6 +34,8 @@
     type StyleFormat,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import RampPicker from './RampPicker.svelte'
+  import ClassList from './ClassList.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -77,7 +91,6 @@
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
   let symbolOpen = $state(false)
-  const nf = new Intl.NumberFormat('en-US')
 
   function chooseRenderer(kind: Renderer['kind']): void {
     if (kind === renderer.kind || unavailable(kind)) return
@@ -101,14 +114,26 @@
   const CLASS_COUNTS = Array.from({ length: MAX_CLASS_COUNT - MIN_CLASS_COUNT + 1 }, (_, i) => MIN_CLASS_COUNT + i)
 
   function chooseMethod(method: GraduatedMethod): void {
-    if (renderer.kind !== 'graduated' || method === renderer.method) return
-    // A method recomputes the classes; overrides by index are kept (data-model Transitions).
-    onChange({ renderer: { ...renderer, method, classes: renderer.classes.map(({ lower: _l, upper: _u, ...o }) => o) } })
+    if (renderer.kind !== 'graduated' || method === renderer.method || method === 'manual') return
+    apply(setMethod(style, method))
   }
 
   function chooseClassCount(classCount: number): void {
-    if (renderer.kind !== 'graduated') return
-    onChange({ renderer: { ...renderer, classCount, method: renderer.method === 'manual' ? 'quantile' : renderer.method, classes: [] } })
+    apply(setClassCount(style, classCount))
+  }
+
+  /** The last rejected edit (FR-009 validation), shown under the class list. */
+  let editError = $state<string | null>(null)
+
+  /** Applies an edited style unless it breaks a rule (e.g. overlapping manual ranges). */
+  function apply(next: LayerStyle): void {
+    const errors = validateStyle(next)
+    if (errors.length) {
+      editError = errors[0]
+      return
+    }
+    editError = null
+    onChange(next)
   }
 
   function chooseColumn(column: string): void {
@@ -197,18 +222,37 @@
       {#if resolved.status === 'fallback'}
         <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
       {:else}
-        <div class="classes-head">
-          <span>{resolved.caption}</span>
+        <div class="row field">
+          <span class="label" id="ramp-label">Colors</span>
+          <RampPicker
+            value={renderer.ramp}
+            renderer={renderer.kind}
+            classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
+            onChange={(ramp) => apply(setRamp(style, ramp))}
+          />
         </div>
-        <ul class="classes" aria-label="Class list">
-          {#each resolved.classes as c (c.key)}
-            <li class:hidden={!c.visible}>
-              <span class="swatch" style:background={c.color} aria-hidden="true"></span>
-              <span class="class-label" title={c.label}>{c.label}</span>
-              <span class="count">{nf.format(c.count)}</span>
-            </li>
-          {/each}
-        </ul>
+        <ClassList
+          {resolved}
+          kind={renderer.kind}
+          manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
+          onColor={(key, color) => apply(setClassColor(style, key, color))}
+          onLabel={(key, label) => apply(setClassLabel(style, key, label))}
+          onVisible={(key, visible) => apply(setClassVisible(style, key, visible))}
+          onValue={(key, value) => apply(setCategoryValue(style, resolved, key, value))}
+          onBound={(index, side, value) => apply(setClassBound(style, resolved, index, side, value))}
+          onAdd={() => apply(addClass(style, resolved))}
+          onDelete={(key) => apply(deleteClass(style, resolved, key))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+        {/if}
+        {#if renderer.kind === 'categorized' && renderer.manual}
+          <p class="inline-note">
+            <Icon name="info" size={14} /><span>Fixed classes (Manual). <button type="button" class="link" onclick={() => apply(setCategorizedAuto(style))}>Back to automatic</button></span>
+          </p>
+        {:else if renderer.kind === 'graduated' && renderer.method === 'manual'}
+          <p class="inline-note"><Icon name="info" size={14} />Fixed classes (Manual): choose a method to recompute them.</p>
+        {/if}
         {#each resolved.notes as note (note)}
           <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
         {/each}
@@ -432,46 +476,13 @@
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
   }
-  .classes-head {
-    color: var(--se-text-secondary);
-    font-size: 0.92em;
-  }
-  .classes {
-    display: grid;
-    gap: 1px;
-    max-height: 220px;
-    margin: 0;
+  .link {
     padding: 0;
-    overflow-y: auto;
-    list-style: none;
-  }
-  .classes li {
-    display: grid;
-    grid-template-columns: 16px 1fr auto;
-    align-items: center;
-    gap: 8px;
-    min-height: 22px;
-    padding: 0 4px;
-  }
-  .classes li.hidden {
-    opacity: 0.45;
-  }
-  .swatch {
-    width: 14px;
-    height: 14px;
-    border: 1px solid var(--se-swatch-border);
-    border-radius: 2px;
-  }
-  .class-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .count {
-    font-family: var(--se-font-mono);
-    font-size: 0.9em;
-    font-variant-numeric: tabular-nums;
-    color: var(--se-text-secondary);
+    border: 0;
+    background: transparent;
+    color: var(--se-link, var(--se-accent));
+    font: inherit;
+    cursor: pointer;
   }
   .inline-note {
     display: flex;

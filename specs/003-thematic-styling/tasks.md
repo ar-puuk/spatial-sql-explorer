@@ -280,33 +280,38 @@ value or break, add and delete, and visibility, with the switch to Manual
 
 **Independent Test**: quickstart Scenario 3.
 
-- [ ] T029 [P] [US3] Write `tests/core/style-edit.test.ts` for every transition in `data-model.md`:
+- [X] T029 [P] [US3] Write `tests/core/style-edit.test.ts` for every transition in `data-model.md`:
   - color, label and visible edits keep the method and manual flag;
   - a bound or value edit, add, or delete sets Manual and stores the full class list;
   - a manual edit that breaks the order or contiguity is rejected;
   - choosing a method again keeps only the overrides that still match;
   - manual classes recount on new features (FR-009 last line).
-- [ ] T030 [P] [US3] Extend `tests/web/specs/style-thematic.spec.ts` (ramps and edits):
+  - *Done*: style-edit.test.ts, 12 tests covering every data-model transition: color and label overrides (empty label resets), method re-choice keeps index overrides and drops bounds, class count resets Manual, bound edit with contiguous neighbour, validation of crossing bounds, manual ranges recount on new data, add (split last) and delete (merge), categorized value/add/delete then Auto restoring frequency order with overrides.
+- [X] T030 [P] [US3] Extend `tests/web/specs/style-thematic.spec.ts` (ramps and edits):
   - keyboard-open the ramp picker, use arrows and Enter to pick `RdBu`, then Reverse: the legend's first swatch color changes accordingly;
   - change one class's color via its swatch input;
   - rename a label with F2 / Enter;
   - hide a class with the legend swatch: the rendered feature count (`data-rendered-features`) drops by that class's count;
   - edit a break: the Method shows Manual;
   - run a filtering query: the breaks are unchanged and the counts update.
-- [ ] T031 [US3] Implement `packages/core/src/style/edit.ts` per `contracts/style-core.md`. Replace T020's `setClassVisible` stub. Make T029 pass.
-- [ ] T032 [US3] Create `packages/ui/src/RampPicker.svelte`:
+  - *Done*: style-thematic.spec US3: keyboard ramp picker (Enter, End, Up, Enter) to Red–blue then Reverse (legend swatch #ca0020 then #0571b0); class color via its input; legend hide drops rendered points 100 to 80; a bound edit gives Manual, '0 – 100' survives a filtering query with count 11; inline rename to 'Lowest'. Passes.
+- [X] T031 [US3] Implement `packages/core/src/style/edit.ts` per `contracts/style-core.md`. Replace T020's `setClassVisible` stub. Make T029 pass.
+  - *Done*: edit.ts: setClassColor, setClassLabel, setRamp, setMethod, setClassCount, setCategorizedAuto, setClassBound, setCategoryValue, addClass, deleteClass, plus the earlier setClassVisible and startStyle. Deviation from contracts/style-core.md: the Manual edits take the current ResolvedStyle, since fixing classes needs the classes as resolved. Core 210/210.
+- [X] T032 [US3] Create `packages/ui/src/RampPicker.svelte`:
   - a button showing the current strip;
   - a listbox of strips grouped by kind, with arrows, Enter and Esc, and accessible names like "Viridis, sequential";
   - a Reverse toggle (`aria-pressed`).
 
   Use it in `LayerStylePanel.svelte`.
-- [ ] T033 [US3] Create `packages/ui/src/ClassList.svelte`:
+  - *Done*: RampPicker.svelte: strip button; listbox grouped by kind with aria-activedescendant, arrows, Home/End, Enter, Esc and Tab; options named 'Name, kind'; Reverse is an aria-pressed toggle. Strips use hard stops. The list widens to 280 px, right-aligned, because names were truncated (found in a screenshot).
+- [X] T033 [US3] Create `packages/ui/src/ClassList.svelte`:
   - editable rows: visibility toggle, color input, label (F2 / ✎ to edit inline), value or bound number fields, count, delete;
   - an Add button;
   - arrow-key row navigation;
   - a one-time hint when Manual starts.
 
   It replaces the read-only list in `LayerStylePanel.svelte`. Repeated palette colors show the panel notice (research §6). Make T030 pass. Commit.
+  - *Done*: ClassList.svelte: eye toggle, color input, label (Rename button / F2, Enter commits, Esc cancels), count, delete; 'Edit values/bounds' mode with value or bound inputs; Add class; arrow rows. Panel: apply() validates through validateStyle and shows the first error inline; Manual notes, with 'Back to automatic' for categorized. Repeat-colors note shown via resolved.notes. Screenshots reviewed light and dark.
 
 **Checkpoint**: users can fully tune a thematic style.
 

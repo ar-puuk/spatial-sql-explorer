@@ -1,5 +1,6 @@
 // Spec 003 (thematic styling), browser tests in the real web build.
 // T016: Categorized (US1; quickstart Scenario 1). T024: Graduated (US2; Scenario 2).
+// T030: Ramps and class edits (US3; Scenario 3).
 import { test, expect, type Page } from '@playwright/test'
 import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares } from './helpers'
 
@@ -122,5 +123,65 @@ test.describe('graduated (US2)', () => {
     await expect(graduated).toHaveAttribute('title', 'Graduated styling needs a numeric column.')
     await graduated.click({ force: true }) // aria-disabled: Playwright would wait for it to enable
     await expect(page.getByRole('radio', { name: 'Single' })).toHaveAttribute('aria-checked', 'true')
+  })
+})
+
+const swatchColor = (page: Page, i: number) => legendRows(page).nth(i).locator('.swatch').evaluate((el) => getComputedStyle(el).getPropertyValue('--swatch').trim())
+const rendered = async (page: Page) => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
+
+test.describe('ramps and class edits (US3)', () => {
+  test('ramp picker by keyboard, reverse, color, hide, rename, and a bound edit that switches to Manual', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeSquares())
+    await openStylePanel(page)
+    await page.getByRole('radio', { name: 'Graduated' }).click()
+    expect(await swatchColor(page, 0)).toBe('#440154') // viridis
+
+    // Ramp picker, keyboard only: Enter opens, End + 4×Up reaches Red–blue, Enter applies.
+    const colors = page.getByRole('button', { name: /^Colors: Viridis/ })
+    await colors.focus()
+    await page.keyboard.press('Enter')
+    const listbox = page.getByRole('listbox', { name: 'Color ramps' })
+    await expect(listbox).toBeFocused()
+    await page.keyboard.press('End')
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp')
+    await expect(page.getByRole('option', { name: 'Red–blue, diverging' })).toHaveClass(/active/)
+    await page.keyboard.press('Enter')
+    await expect(listbox).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Colors: Red–blue/ })).toBeFocused()
+    await expect.poll(() => swatchColor(page, 0)).toBe('#ca0020')
+    await page.getByRole('button', { name: 'Reverse colors' }).click()
+    await expect.poll(() => swatchColor(page, 0)).toBe('#0571b0')
+
+    // One class's color; the method stays Quantile.
+    await page.getByLabel('Color of 6,273 – 9,801').fill('#ff00ff')
+    await expect.poll(() => swatchColor(page, 4)).toBe('#ff00ff')
+    await expect(page.getByLabel('Method')).toHaveValue('quantile')
+
+    // Hide a class from the legend: 20 fewer points on the map.
+    await expect.poll(() => rendered(page), { timeout: 10000 }).toBe(100)
+    await legend(page).getByRole('button', { name: 'Hide class 0 – 392' }).click()
+    await expect.poll(() => rendered(page), { timeout: 10000 }).toBe(80)
+
+    // A bound edit switches to Manual; the bounds then survive a new query result.
+    await page.getByRole('button', { name: 'Edit bounds' }).click()
+    const upper = page.getByLabel('Upper bound of 0 – 392')
+    await upper.fill('100')
+    await upper.press('Tab')
+    await expect(page.getByLabel('Method')).toHaveValue('manual')
+    await expect(legend(page)).toContainText('value · Manual, 5 classes')
+    await expect(legendRows(page).first()).toContainText('0 – 100')
+    await openQueryPanel(page)
+    await runQuery(page, 'SELECT * FROM layer WHERE value < 5000')
+    await expect(legendRows(page).first()).toContainText('0 – 100')
+    expect((await legendCounts(page))[0]).toBe(11) // 0², 1², …, 10²
+
+    // Rename with F2-style inline editing (Enter commits).
+    await page.getByRole('button', { name: 'Done' }).click()
+    await page.getByRole('button', { name: 'Rename 0 – 100' }).click()
+    await page.keyboard.press('Control+A')
+    await page.keyboard.type('Lowest')
+    await page.keyboard.press('Enter')
+    await expect(legendRows(page).first()).toContainText('Lowest')
   })
 })
