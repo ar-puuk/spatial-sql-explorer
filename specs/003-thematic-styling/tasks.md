@@ -424,12 +424,13 @@ missing, recover automatically, and Reset restores the sidecar style.
   - `apps/vscode-ext/README.md` (the style feature bullet: categorized, graduated, legend, QGIS-compatible);
   - `specs/003-thematic-styling/research.md` (outcomes and deviations).
   - *Done*: CHANGELOG (thematic styling plus the focus fix, and performance lines), extension README (thematic maps bullet), research.md Outcomes (8 deviations, each with its reason).
-- [ ] T048 Run the final full verification:
+- [X] T048 Run the final full verification:
   - `npm run lint` and all typechecks;
   - `npm run test:core`, `npm run test:web` and `npm run test:vscode-ext`;
   - `npm run package --workspace=apps/vscode-ext`, then install the VSIX into a clean profile.
 
   Record the results in `tasks.md`.
+  - *Done*: 2026-10-10. Lint 0. Typechecks: core tsc 0, ui and web svelte-check 0/0, extension tsc 0. test:core 234/234 (15 files). test:web 45/45 including performance (style categorize 141 ms, Jenks-10 102 ms, 50k Jenks 191 ms with no long tasks). test:vscode-ext 41/41. The VSIX is 13 files, 8.22 MB, installs into a clean profile, and the installed copy ships the Color data notice, the changelog entry and the thematic code.
 
 ---
 
