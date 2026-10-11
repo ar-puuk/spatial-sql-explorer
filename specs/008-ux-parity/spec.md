@@ -8,6 +8,17 @@
 
 **Input**: User description: "UX polish and legacy parity (spec 008). Make Spatial Explorer feature complete and clearly better than the legacy single-page app (tag legacy-v1), in both the web app and the VS Code extension unless noted. Requested by the user: (1) a light/dark theme toggle in the web app, which follows the OS until the user picks one and remembers the choice (VS Code keeps following its own theme); (2) a column chooser drop-down in the attribute table so users pick which columns to show instead of scrolling sideways; the choice persists per file; (3) a much better style panel UI/UX: clearer layout and flow for single, categorized and graduated styles, ramp previews, live legend, an opacity control, and less clutter; (4) style save as ONE split button: the main action saves QML (the sidecar), and a drop-down on the same button offers SLD and Mapbox GL style JSON; (5) a Mercator/Globe projection toggle on the map (globe only, no terrain); (6) 3D polygon extrusion as a style option, with height taken from a numeric column (optionally scaled), with a tilted view; (7) legacy parity and beyond, from the legacy-v1 inventory: per-column filters in the attribute table, row selection, export the map as a PNG image with its legend, a place search (geocoder), sample/demo data to try the app without a file, a legend range filter for graduated styles, resizable panels, and anything else in legacy-v1 that the new app lacks. Out of scope: editing, terrain, 3D tiles, other 3D beyond polygon extrusion and the globe, raster data, multi-file sessions (spec 006). Large-file behavior from spec 007 must keep working (viewport loading, PMTiles view-only)."
 
+## Clarifications
+
+### Session 2026-10-11
+
+- Q: The constitution excluded the globe and limited network use to basemaps;
+  how is that resolved? → A: Amended first (constitution v1.1.0): globe toggle
+  and polygon extrusion allowed, place search allowed as disclosed, opt-out
+  network use.
+- Q: Is place search included, and where? → A: Both shells, with a notice
+  before first use and a VS Code setting to turn it off.
+
 ## Context
 
 Specs 001–007 rebuilt the four pillars (look, query, style, export) and made
@@ -650,12 +661,9 @@ run the sample query, and search for a place.
 
 ## Assumptions
 
-- The user's approval on 2026-10-11 (recorded in CLAUDE.md) allows the globe
-  toggle and polygon extrusion, and nothing else 3D. The constitution still
-  lists "globe" as out of scope (Principle I) and limits network use to
-  basemaps (Principle IV); a constitution amendment covering the globe,
-  extrusion, and the place-search service MUST be ratified before planning
-  completes.
+- The user's approval on 2026-10-11 allows the globe toggle and polygon
+  extrusion, and nothing else 3D, and the place search in both shells.
+  Constitution v1.1.0 (2026-10-11) records both.
 - "Exceeds the legacy app" means: every legacy feature is delivered or
   consciously not carried over (Context), plus the column chooser, the
   redesigned style panel, the split save button, extrusion, filters that

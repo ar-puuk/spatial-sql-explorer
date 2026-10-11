@@ -1,15 +1,18 @@
 <!--
 Sync Impact Report
-Version change: (none) → 1.0.0
-Modified principles: n/a (initial ratification)
-Added sections:
-  - Core Principles I–X (Scope Discipline, Host-Agnostic Core, Native VS Code Feel,
-    Local-First & Private, Bounded Resources, Verified Claims, Accessibility & Keyboard,
-    Clean-Room References, Testing, Simplicity)
-  - Technology & Platform Constraints
-  - Development Workflow
-  - Governance
-Removed sections: n/a (initial ratification)
+Version change: 1.0.0 → 1.1.0
+Modified principles:
+  - I. Scope Discipline: "globe" removed from the out-of-scope list; a Mercator/Globe
+    projection toggle and polygon extrusion are allowed (user decision 2026-10-11,
+    spec 008). Terrain, 3D tiles, planets and other 3D stay out.
+  - IV. Local-First and Private: one more allowed network use, the opt-out place search
+    (typed text only, disclosed before first use).
+  - V. Bounded Resources: memory ceiling updated to the measured 3.1 GiB
+    (specs/007-viewport-loading/research.md §1).
+Added sections: none
+Removed sections: none
+Templates: plan/spec/tasks templates need no change (they reference the constitution
+generically).
 Follow-up TODOs: none
 -->
 
@@ -20,8 +23,10 @@ Follow-up TODOs: none
 ### I. Scope Discipline
 The product does LOOK, QUERY, STYLE and EXPORT only — nothing else. Feature editing,
 georeferencing, the processing toolbox, print layouts, notebook/ipynb integration, a
-plugin system, 3D tiles/globe/planets, raster analysis, and stacked basemaps are
-explicitly out of scope. Any proposal to add scope beyond LOOK/QUERY/STYLE/EXPORT MUST
+plugin system, 3D tiles/terrain/planets, raster analysis, and stacked basemaps are
+explicitly out of scope. Two 3D-adjacent map options are in scope as part of LOOK
+and STYLE: a Mercator/Globe projection toggle (no terrain) and polygon extrusion
+by a column. No other 3D. Any proposal to add scope beyond LOOK/QUERY/STYLE/EXPORT MUST
 be rejected at review time and raised as a constitution amendment instead of being
 absorbed silently into a feature.
 **Rationale**: the product's value is being the fast "never open QGIS" tool; unbounded
@@ -50,15 +55,17 @@ first-party VS Code feature, not a web page embedded in a webview.
 
 ### IV. Local-First and Private
 User data never leaves the machine. No telemetry is collected without explicit
-opt-in. The network is used only for basemap tiles/styles and, if required, fetching
-the DuckDB spatial extension — never for user data egress.
+opt-in. The network is used only for basemap tiles/styles, fetching the DuckDB spatial
+extension if required, and the place search, which sends only the text the user
+types, is disclosed before first use, and can be turned off — never for user data
+egress (no file contents, file names or paths).
 **Rationale**: the target user opens sensitive or proprietary geospatial files; trust
 requires a hard guarantee, not a policy statement.
 
 ### V. Bounded Resources
 DuckDB runs as the single-threaded DuckDB-WASM bundle inside each webview (no
 SharedArrayBuffer, no native host-side DuckDB), with a known memory ceiling
-(observed ~512 MB OOM in omx-viewer). The system MUST NOT load a whole large file
+(3.1 GiB, measured in both shells in spec 007). The system MUST NOT load a whole large file
 into memory when avoidable, MUST query by viewport bbox with a feature cap in the
 MVP, and MUST fail with a clear, actionable message rather than crash or hang when a
 resource limit is hit.
@@ -159,4 +166,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-09
+**Version**: 1.1.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-11

@@ -45,8 +45,13 @@
 - New export formats and File Geodatabase reading depend on spikes in plan
   Phase 0 (spec 005 found GDAL writers fail in this runtime); the spec only
   promises verified formats (constitution VI).
-- Blocking dependency for /speckit-plan: the constitution (Principle I lists
-  "globe" as out of scope; Principle IV limits network use to basemaps) needs
+- Constitution dependency resolved: v1.1.0 (2026-10-11) allows the globe,
+  extrusion and the place search (user decision).
+- New export formats and File Geodatabase reading depend on spikes in plan
+  Phase 0 (spec 005 found GDAL writers fail in this runtime); the spec only
+  promises verified formats (constitution VI).
+- Constitution dependency resolved: v1.1.0 (2026-10-11) allows the globe,
+  extrusion and the place search (user decision).
   an amendment covering the globe, extrusion and the place-search service.
   CLAUDE.md already records the user's approval of the globe and extrusion.
   The place search is new and needs the user's approval.
