@@ -25,6 +25,8 @@ export interface ViewTarget {
   srid: number | null
   /** Visible attribute columns (names, unquoted). */
   attrs: string[]
+  /** Spec 008: the temporal ones among them, as text in the inspector's record (recordByIdSql). */
+  textAttrs?: string[]
   /** FlatGeobuf only: the registered path. */
   path?: string
   /** FlatGeobuf only: the feature id expression (`"OGC_FID"` when GDAL exposes it, else a geometry hash). */
@@ -186,9 +188,22 @@ export function viewTiles(box: Bbox, k = 6): Bbox[] {
   return tiles
 }
 
+/** Attributes as selected for display: temporal ones as DuckDB's text. */
+const recordAttrs = (t: ViewTarget, asText: boolean): string[] =>
+  t.attrs.map((a) => (asText && t.textAttrs?.includes(a) ? `CAST(${quoteIdent(a)} AS VARCHAR) AS ${quoteIdent(a)}` : quoteIdent(a)))
+
+/**
+ * Spec 008: one feature's full record, for the inspector: every attribute,
+ * dates and times as text.
+ */
+export function recordByIdSql(t: ViewTarget, id: number): string {
+  if (t.index === 'fgb') return fgbByIdSql(t, id, true)
+  return `SELECT ${[...recordAttrs(t, true), '__se_rowid', `ST_AsGeoJSON(${reprojectToWgs84Sql(t.geom, t.srid)}) AS __se_geojson`].join(', ')} FROM ${t.relation} WHERE __se_rowid = ${Math.floor(id)} AND ${validGeometry(t.geom, t.allValid)}`
+}
+
 /** One FlatGeobuf feature by its id (selection outside the drawn set). */
-export function fgbByIdSql(t: ViewTarget, id: number): string {
+export function fgbByIdSql(t: ViewTarget, id: number, asText = false): string {
   if (t.index !== 'fgb' || !t.path) throw new Error('fgbByIdSql needs a FlatGeobuf target')
   const rowid = t.rowidExpr ?? '"OGC_FID"'
-  return `SELECT ${[...t.attrs.map(quoteIdent), `${rowid} AS __se_rowid`, `ST_AsGeoJSON(${reprojectToWgs84Sql(t.geom, t.srid)}) AS __se_geojson`].join(', ')} FROM ST_Read(${literal(t.path)}) WHERE ${rowid} = ${Math.floor(id)}`
+  return `SELECT ${[...recordAttrs(t, asText), `${rowid} AS __se_rowid`, `ST_AsGeoJSON(${reprojectToWgs84Sql(t.geom, t.srid)}) AS __se_geojson`].join(', ')} FROM ST_Read(${literal(t.path)}) WHERE ${rowid} = ${Math.floor(id)}`
 }

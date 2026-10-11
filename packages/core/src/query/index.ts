@@ -1,6 +1,6 @@
 export * from './session.js'
 export * from './run.js'
-export { QueryCancelledError, quoteIdent, quoteLiteral } from './util.js'
+export { isTemporalType, QueryCancelledError, quoteIdent, quoteLiteral } from './util.js'
 export * from './resultCrs.js'
 export * from './catalog.js'
 export * from './history.js'

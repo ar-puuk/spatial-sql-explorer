@@ -36,14 +36,14 @@ import { rendererOf, type LayerStyle, type ResolvedStyle } from '../style/model.
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
-import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
+import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import {
   clampWgs84,
-  fgbByIdSql,
+  recordByIdSql,
   fgbTileSql,
   featuresByIdsSql,
   thinnedIdsSql,
@@ -736,7 +736,8 @@ export class QuerySession {
       const lv = this.layerView
       if (!lv) return null
       const narrow = lv.index !== 'fgb' && !!this.restriction()
-      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
+      const textAttrs = this.table.columns.filter((c) => isTemporalType(c.type) && lv.attrs.includes(c.name)).map((c) => c.name)
+      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
     }
     const g = facts.geometryColumn
     if (!g || !facts.exportable) return null
@@ -749,6 +750,7 @@ export class QuerySession {
       geom: q,
       srid: facts.resultCrs?.srid ?? null,
       attrs: facts.attrs,
+      textAttrs: facts.columns.filter((c) => isTemporalType(c.type)).map((c) => c.name),
     }
   }
 
@@ -871,8 +873,8 @@ export class QuerySession {
       const target = this.viewTarget()
       if (!target) return null
       const rows: Record<string, unknown>[] = []
-      const sql = target.index === 'fgb' ? fgbByIdSql(target, id) : featuresByIdsSql(target, String(Math.floor(id)))
-      await streamRows(this.conn, sql, isCancelled, (batch) => {
+      // Spec 008: the inspector's full record, dates and times as text.
+      await streamRows(this.conn, recordByIdSql(target, id), isCancelled, (batch) => {
         rows.push(...batch)
       })
       return rows[0] ? toViewFeature(rows[0]) : null
@@ -924,7 +926,8 @@ export class QuerySession {
     }
     const rowid = facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'
     const g = facts.geometryColumn ? quoteIdent(facts.geometryColumn) : null
-    const columns = [...facts.attrs.map((name) => ({ name, type: 'VARCHAR' })), ...facts.otherGeometryColumns.map((name) => ({ name, type: 'GEOMETRY' }))]
+    const typeOf = (name: string) => facts.columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
+    const columns = [...facts.attrs.map((name) => ({ name, type: typeOf(name) })), ...facts.otherGeometryColumns.map((name) => ({ name, type: 'GEOMETRY' }))]
     return { relation: `(SELECT *, ${rowid} AS __se_rowid FROM ${RESULT_TABLE})`, columns, geom: g }
   }
 

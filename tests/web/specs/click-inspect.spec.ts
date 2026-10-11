@@ -40,3 +40,38 @@ test('clicking a map feature selects its row and shows its attributes', async ({
   await expect(page.locator('.inspector')).toHaveCount(0)
   await expect(page.locator('.attribute-table tbody tr.selected')).toHaveCount(1)
 })
+
+// Spec 008 (user request): wide data in the inspector scrolls at a readable
+// size and can be filtered; dates show as dates in the inspector and table.
+test('the inspector with 50 attributes: readable rows that scroll, a filter, and dates as dates', async ({ page }) => {
+  const { fixture, openFile } = await import('./helpers')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('wide-50.parquet'), '?e2e=1')
+  // The table: DATE columns as YYYY-MM-DD, not epoch milliseconds.
+  await expect(page.getByRole('grid').first()).toContainText('2020-01-01')
+  await expect(page.getByRole('grid').first()).not.toContainText('1577836800000')
+
+  await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }).__spatialExplorerE2E.jumpTo(-111.9, 40.7, 16))
+  await page.waitForTimeout(1500)
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  const inspector = page.getByRole('region', { name: 'Feature attributes' })
+  await expect(inspector).toContainText('#1')
+  // Every row keeps a readable height; the list scrolls instead.
+  await expect.poll(() => inspector.locator('dt').count()).toBeGreaterThan(40)
+  const heights = await inspector.locator('dt').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+  expect(heights.length).toBeGreaterThan(40)
+  expect(Math.min(...heights)).toBeGreaterThanOrEqual(16)
+  const scrolls = await inspector.locator('dl').evaluate((dl) => dl.scrollHeight > dl.clientHeight + 10)
+  expect(scrolls).toBe(true)
+  await expect(inspector.locator('dd').filter({ hasText: /^2020-01-01$/ }).first()).toBeVisible()
+  // The filter narrows the list by name or value.
+  const filter = inspector.getByLabel('Filter attributes')
+  await filter.fill('date')
+  await expect(inspector.getByRole('status')).toHaveText(/^\d+ of \d+$/)
+  const keys = await inspector.locator('dt').allTextContents()
+  expect(keys.length).toBeGreaterThan(0)
+  expect(keys.every((k) => k.includes('date'))).toBe(true)
+  await filter.fill('zzz-no-such')
+  await expect(inspector).toContainText('No attribute matches')
+})

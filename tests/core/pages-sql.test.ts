@@ -1,6 +1,6 @@
 // T032 (spec 007 research §10, FR-011): the attribute table's pages.
 import { describe, expect, it } from 'vitest'
-import { PAGE_SIZE, PageCache, pageSql, type PageTarget, type TablePage, type TablePageRequest } from '@spatial-explorer/core'
+import { isTemporalType, PAGE_SIZE, PageCache, pageSql, recordByIdSql, type PageTarget, type TablePage, type TablePageRequest } from '@spatial-explorer/core'
 
 const target: PageTarget = {
   relation: '__se_layer',
@@ -60,5 +60,30 @@ describe('page cache', () => {
     c.set(req(), page(0))
     c.clear()
     expect(c.size).toBe(0)
+  })
+})
+
+// Spec 008: dates and times are shown as DuckDB's text (Arrow hands JS bare numbers).
+describe('temporal columns', () => {
+  it('pages and the inspector record select them as text', () => {
+    const t: PageTarget = {
+      relation: '__se_layer',
+      columns: [
+        { name: 'd', type: 'DATE' },
+        { name: 'ts', type: 'TIMESTAMP WITH TIME ZONE' },
+        { name: 'n', type: 'INTEGER' },
+      ],
+      geom: '"geom"',
+    }
+    const sql = pageSql(t, { offset: 0, limit: 10, sort: null })
+    expect(sql).toContain('CAST("d" AS VARCHAR) AS "d"')
+    expect(sql).toContain('CAST("ts" AS VARCHAR) AS "ts"')
+    expect(sql).toMatch(/SELECT CAST\("d".*, "n", __se_rowid/)
+    expect(isTemporalType('TIMESTAMP_NS')).toBe(true)
+    expect(isTemporalType('INTERVAL')).toBe(true)
+    expect(isTemporalType('VARCHAR')).toBe(false)
+    const rec = recordByIdSql({ relation: '__se_layer', index: 'columns', geom: '"geom"', srid: null, attrs: ['d', 'n'], textAttrs: ['d'] }, 7)
+    expect(rec).toContain('CAST("d" AS VARCHAR) AS "d", "n", __se_rowid')
+    expect(rec).toContain('WHERE __se_rowid = 7')
   })
 })

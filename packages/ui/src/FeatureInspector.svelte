@@ -16,6 +16,14 @@
   let { feature, onZoom, onClose }: Props = $props()
 
   let entries = $derived(Object.entries(feature.attributes))
+  // Spec 008 (user request): wide data scrolls, and many attributes get a filter.
+  const FILTER_FROM = 12
+  let filter = $state('')
+  const shown = $derived.by(() => {
+    const q = filter.trim().toLowerCase()
+    if (!q) return entries
+    return entries.filter(([k, v]) => k.toLowerCase().includes(q) || display(v).toLowerCase().includes(q))
+  })
 
   function display(v: unknown): string {
     if (v === null || v === undefined) return 'NULL'
@@ -53,8 +61,18 @@
   {#if entries.length === 0}
     <p class="empty">This feature has no attributes.</p>
   {:else}
+    {#if entries.length > FILTER_FROM}
+      <div class="filter">
+        <Icon name="search" size={14} />
+        <input type="text" bind:value={filter} aria-label="Filter attributes" placeholder="Filter {entries.length} attributes" autocomplete="off" spellcheck="false" />
+        {#if filter.trim()}<span class="count" role="status">{shown.length} of {entries.length}</span>{/if}
+      </div>
+    {/if}
+    {#if shown.length === 0}
+      <p class="empty">No attribute matches “{filter.trim()}”.</p>
+    {/if}
     <dl>
-      {#each entries as [key, value] (key)}
+      {#each shown as [key, value] (key)}
         <dt title={key}>{key}</dt>
         <dd class:null={value === null || value === undefined} class:num={typeof value === 'number'}>{display(value)}</dd>
       {/each}
@@ -66,8 +84,9 @@
   .inspector {
     display: flex;
     flex-direction: column;
-    width: 300px;
-    max-height: min(420px, calc(100% - 20px));
+    width: 320px;
+    max-width: calc(100% - 20px);
+    max-height: min(480px, calc(100% - 20px));
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -104,9 +123,46 @@
   dl {
     display: grid;
     grid-template-columns: minmax(72px, auto) 1fr;
+    /* Rows keep their height and the list scrolls (cells clip, so auto rows could shrink to nothing). */
+    grid-auto-rows: max-content;
+    align-content: start;
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 0;
     padding: 6px 0;
     overflow: auto;
+  }
+  .filter {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 8px 0;
+    padding: 0 6px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-text-secondary);
+  }
+  .filter:focus-within {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .filter input {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+  }
+  .filter .count {
+    flex: none;
+    font-size: 0.9em;
+    font-variant-numeric: tabular-nums;
   }
   dt,
   dd {

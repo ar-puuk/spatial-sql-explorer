@@ -36,6 +36,7 @@ import {
   type QuerySession,
   type RunOutcome,
   planExport,
+  isTemporalType,
   exportErrorMessage,
   QueryCancelledError,
   type ExportPlan,
@@ -1531,8 +1532,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     selectFeature(id) {
       session.selectedFeatureId = id
       // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
+      // So do dates and times (spec 008): the record has them as text, the drawn row as numbers.
       const drawn = viewFeatures?.features.find((f) => f.id === id)
-      if (drawn?.partialAttributes && typeof id === 'number' && querySession) {
+      const temporal = querySession?.lastResult?.columns.some((c) => isTemporalType(c.type)) ?? false
+      if ((drawn?.partialAttributes || (drawn && temporal)) && typeof id === 'number' && querySession) {
         const qs = querySession
         void retryWhenBusy(qs, () => qs.featureById(id))
           .then((f) => {

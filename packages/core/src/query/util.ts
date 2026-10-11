@@ -112,3 +112,14 @@ export async function singleRow<T>(conn: AsyncDuckDBConnection, sql: string, isC
   })
   return (row ?? {}) as T
 }
+
+/**
+ * DATE, TIME, TIMESTAMP (any precision or zone) and INTERVAL: Arrow hands
+ * these to JS as bare numbers (epoch milliseconds, microseconds) or worse
+ * (INTERVAL), so wherever they are shown DuckDB formats them as text.
+ */
+export const isTemporalType = (type: string): boolean => /^(DATE|TIME|TIMESTAMP|INTERVAL)/i.test(type.trim())
+
+/** A column for display: temporal ones as DuckDB's own text. */
+export const displayColumnSql = (name: string, type: string | undefined): string =>
+  type && isTemporalType(type) ? `CAST(${quoteIdent(name)} AS VARCHAR) AS ${quoteIdent(name)}` : quoteIdent(name)
