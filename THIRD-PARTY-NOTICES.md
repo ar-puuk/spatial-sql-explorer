@@ -2973,6 +2973,19 @@ units (Connecticut planning regions, Puerto Rico).
 
 ---
 
+## Web landing page: world population map
+
+`apps/web/public/landing/world-population.svg` is built by
+`scripts/landing-world.mjs` from Natural Earth data, which is in the public
+domain (https://www.naturalearthdata.com/about/terms-of-use/):
+- Admin 0 countries, 1:50m (country population estimates);
+- Populated places (simple), 1:10m (metro area populations).
+
+Population per hexagon is an estimate: each place's metro population, plus
+the rest of its country's population spread evenly over the country's land.
+
+---
+
 ## Color data (thematic styling ramps)
 
 The color ramps in `packages/core/src/style/ramps.ts` are data, not code.

@@ -182,6 +182,11 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
   return sharedDb
 }
 
+/** The shared engine's start, if one is under way or done; never starts one (the web landing page's status). */
+export function peekDuckDb(): Promise<duckdb.AsyncDuckDB> | null {
+  return sharedDb
+}
+
 /**
  * Ends the shared engine and its worker (spec 007 T050: a cancelled whole-file
  * parse that doesn't stop in time). Everything it held is gone; the next

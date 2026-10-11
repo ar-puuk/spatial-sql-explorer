@@ -4,9 +4,10 @@
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
-  import { decodeShareState, encodeShareState, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
+  import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
   import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
   import ThemeMenu from './ThemeMenu.svelte'
+  import Landing from './Landing.svelte'
 
   // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
   const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
@@ -36,7 +37,16 @@
     if ('requestIdleCallback' in window) window.requestIdleCallback(cb, { timeout: 2000 })
     else setTimeout(cb, 300)
   }
-  idle(() => store.prewarm())
+  // The landing page shows when the engine is ready: it watches the start
+  // prewarm began, and never starts one itself.
+  let engine = $state<'warming' | 'ready' | 'failed'>('warming')
+  idle(() => {
+    store.prewarm()
+    peekDuckDb()?.then(
+      () => (engine = 'ready'),
+      () => (engine = 'failed')
+    )
+  })
 
   // Test-only escape hatch (spec 002 T036), enabled by ?e2e=1: runs SQL with
   // NO statement policy, so browser tests can prove the ENGINE lockdown on its
@@ -199,8 +209,6 @@
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }
   }
-
-  const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML', 'PMTiles']
 
   let isDragOver = $state(false)
   let fileName = $state<string | null>(null)
@@ -403,27 +411,14 @@
     {#if idleState}
       <!-- Empty state (no file loaded yet) — distinct from a loaded zero-feature
            file, which reaches 'ready' and is rendered by ViewerLayout instead. -->
-      <div class="empty">
-        {#if pendingShare?.state.source?.kind === 'file'}
-          <p class="share-banner" role="status">
-            <Icon name="link" size={14} />
-            <span>This link shows a view of <strong>{pendingShare.state.source.name}</strong>. Choose that file to see it.</span>
-          </p>
-        {/if}
-        <div class="drop-zone" class:drag-over={isDragOver} role="region" aria-label="Drop a geospatial file here">
-          <div class="drop-icon" aria-hidden="true"><Icon name="file" size={28} /></div>
-          <p class="title">Drag a geospatial file here</p>
-          <p class="or">or</p>
-          <button type="button" class="primary" bind:this={chooseButton} onclick={() => input.click()}>Choose a file</button>
-          <ul class="formats" aria-label="Supported formats">
-            {#each FORMATS as f (f)}<li>{f}</li>{/each}
-          </ul>
-          <p class="footnote">
-            Shapefiles: select the .shp together with its .shx, .dbf and .prj. Add a same-name .qml to load its QGIS style.<br />
-            Files are read in your browser and never uploaded.
-          </p>
-        </div>
-      </div>
+      <Landing
+        {isDragOver}
+        {engine}
+        sharedFileName={pendingShare?.state.source?.kind === 'file' ? pendingShare.state.source.name : null}
+        onChoose={() => input.click()}
+        onSample={() => void openSample()}
+        bind:chooseButton
+      />
     {:else}
       <ViewerLayout {store} {fileName}>
         {#snippet mapOverlay()}
@@ -547,19 +542,6 @@
     color: inherit;
     cursor: pointer;
   }
-  .share-banner {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    max-width: 520px;
-    margin: 0 0 12px;
-    padding: 8px 12px;
-    border: 1px solid var(--se-info);
-    border-radius: var(--se-radius);
-    background: color-mix(in srgb, var(--se-info) 10%, var(--se-bg-base));
-    color: var(--se-text-primary);
-    font-size: 13px;
-  }
   .open:hover {
     background: var(--se-button-secondary-hover);
     color: var(--se-text-primary);
@@ -573,92 +555,6 @@
     position: relative;
     flex: 1;
     min-height: 0;
-  }
-  .empty {
-    display: grid;
-    place-items: center;
-    height: 100%;
-    padding: 24px;
-    box-sizing: border-box;
-  }
-  .drop-zone {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: min(560px, 100%);
-    padding: 48px 32px 32px;
-    box-sizing: border-box;
-    border: 2px dashed var(--se-dropzone-border);
-    border-radius: 12px;
-    background: var(--se-bg-elevated);
-    text-align: center;
-    transition:
-      background-color 0.15s,
-      border-color 0.15s;
-  }
-  .drop-zone.drag-over {
-    background: var(--se-dropzone-active-bg);
-    border-color: var(--se-accent);
-    border-style: solid;
-  }
-  .drop-icon {
-    display: grid;
-    place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: var(--se-control-active-bg);
-    color: var(--se-accent);
-  }
-  .title {
-    margin: 6px 0 0;
-    font: 600 15px var(--se-font-ui);
-    color: var(--se-text-primary);
-  }
-  .or {
-    margin: 0;
-    font: 500 10px var(--se-font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--se-text-muted);
-  }
-  .primary {
-    height: 34px;
-    padding: 0 18px;
-    border: 0;
-    border-radius: var(--se-radius);
-    background: var(--se-button-bg);
-    color: var(--se-button-fg);
-    font: 600 13px var(--se-font-ui);
-    box-shadow: var(--se-shadow-card);
-    cursor: pointer;
-  }
-  .primary:hover {
-    background: var(--se-button-hover);
-  }
-  .formats {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px;
-    margin: 14px 0 0;
-    padding: 0;
-    list-style: none;
-  }
-  .formats li {
-    padding: 2px 8px;
-    border: 1px solid var(--se-border);
-    border-radius: 999px;
-    background: var(--se-bg-base);
-    color: var(--se-text-secondary);
-    font: 500 10.5px var(--se-font-mono);
-  }
-  .footnote {
-    margin: 8px 0 0;
-    color: var(--se-text-muted);
-    font-size: 11px;
-    line-height: 1.6;
   }
   .drop-overlay {
     position: absolute;
