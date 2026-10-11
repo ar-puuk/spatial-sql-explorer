@@ -8,6 +8,10 @@
   import {
     STYLE_FORMATS,
     eligibleColumns,
+    METHOD_NAMES,
+    MIN_CLASS_COUNT,
+    MAX_CLASS_COUNT,
+    type GraduatedMethod,
     rendererOf,
     startStyle,
     type GeometryType,
@@ -69,8 +73,8 @@
   /** Why a renderer can't be chosen, or null. */
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
-    if (kind === 'graduated') return 'Coming in this build.' // enabled by US2
-    return columnsFor(kind).length ? null : 'This result has no attribute columns.'
+    if (columnsFor(kind).length) return null
+    return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
   let symbolOpen = $state(false)
   const nf = new Intl.NumberFormat('en-US')
@@ -91,6 +95,20 @@
     chooseRenderer(next.kind)
     const group = (e.currentTarget as HTMLElement).closest('[role="radiogroup"]')
     queueMicrotask(() => group?.querySelector<HTMLElement>(`[data-kind="${next.kind}"]`)?.focus())
+  }
+
+  const METHODS: GraduatedMethod[] = ['equal', 'quantile', 'jenks']
+  const CLASS_COUNTS = Array.from({ length: MAX_CLASS_COUNT - MIN_CLASS_COUNT + 1 }, (_, i) => MIN_CLASS_COUNT + i)
+
+  function chooseMethod(method: GraduatedMethod): void {
+    if (renderer.kind !== 'graduated' || method === renderer.method) return
+    // A method recomputes the classes; overrides by index are kept (data-model Transitions).
+    onChange({ renderer: { ...renderer, method, classes: renderer.classes.map(({ lower: _l, upper: _u, ...o }) => o) } })
+  }
+
+  function chooseClassCount(classCount: number): void {
+    if (renderer.kind !== 'graduated') return
+    onChange({ renderer: { ...renderer, classCount, method: renderer.method === 'manual' ? 'quantile' : renderer.method, classes: [] } })
   }
 
   function chooseColumn(column: string): void {
@@ -154,13 +172,35 @@
         </select>
       </div>
 
+      {#if renderer.kind === 'graduated'}
+        <div class="row field">
+          <label class="label" for="style-method">Method</label>
+          <select id="style-method" value={renderer.method} onchange={(e) => chooseMethod(e.currentTarget.value as GraduatedMethod)}>
+            {#each METHODS as m (m)}
+              <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
+            {/each}
+            {#if renderer.method === 'manual'}
+              <option value="manual">Manual</option>
+            {/if}
+          </select>
+        </div>
+        <div class="row field">
+          <label class="label" for="style-classes">Classes</label>
+          <select id="style-classes" class="narrow" value={renderer.classCount} onchange={(e) => chooseClassCount(Number(e.currentTarget.value))}>
+            {#each CLASS_COUNTS as n (n)}
+              <option value={n}>{n}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
       {#if resolved.status === 'fallback'}
         <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
       {:else}
         <div class="classes-head">
           <span>{resolved.caption}</span>
         </div>
-        <ul class="classes" aria-label="Classes">
+        <ul class="classes" aria-label="Class list">
           {#each resolved.classes as c (c.key)}
             <li class:hidden={!c.visible}>
               <span class="swatch" style:background={c.color} aria-hidden="true"></span>
@@ -377,6 +417,10 @@
   }
   .row.field {
     grid-template-columns: 72px 1fr;
+  }
+  select.narrow {
+    justify-self: start;
+    width: 64px;
   }
   select {
     min-width: 0;

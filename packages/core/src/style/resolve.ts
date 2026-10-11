@@ -3,8 +3,8 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Layer } from '../models.js'
-import { NO_VALUE_COLOR, OTHER_COLOR, rendererOf, type CategorizedRenderer, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
-import { compareCategories, toCategory } from './classify.js'
+import { NO_VALUE_COLOR, OTHER_COLOR, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
+import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 
 export type ResolveInput = Pick<Layer, 'features' | 'columns'>
@@ -44,8 +44,8 @@ export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): Res
       return single(style, layer)
     case 'categorized':
       return categorized(style, r, layer)
-    default:
-      return single(style, layer) // graduated (US2)
+    case 'graduated':
+      return graduated(style, r, layer)
   }
 }
 
@@ -122,4 +122,102 @@ function categorized(style: LayerStyle, r: CategorizedRenderer, layer: ResolveIn
   if (max !== undefined && ordered.length > max) notes.push(`${rampById(r.ramp.id)?.name} has ${max} colors; colors repeat after ${max} classes.`)
   const n = ordered.length
   return { status: 'ok', caption: `${r.column} · ${nf.format(n)} ${n === 1 ? 'category' : 'categories'}`, classes, notes }
+}
+
+export const METHOD_NAMES: Record<GraduatedMethod, string> = {
+  equal: 'Equal interval',
+  quantile: 'Quantile',
+  jenks: 'Natural breaks',
+  manual: 'Manual',
+}
+
+/** Decimals that show the class width with about two significant digits. */
+function labelFormat(min: number, max: number, k: number): Intl.NumberFormat {
+  const step = (max - min) / Math.max(k, 1)
+  const decimals = step > 0 && Number.isFinite(step) ? Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(step)))) : 2
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: decimals })
+}
+
+/** Ranges from inner breaks: [min, b1], (b1, b2], ... (bk, max]; equal and out-of-range breaks collapse. */
+function rangesFrom(sorted: number[], breaks: number[]): Array<{ lower: number; upper: number }> {
+  const min = sorted[0]
+  const max = sorted[sorted.length - 1]
+  const inner = [...new Set(breaks.filter((b) => b >= min && b < max))].sort((a, b) => a - b)
+  const bounds = [min, ...inner, max]
+  if (bounds.length === 2 && min === max) return [{ lower: min, upper: max }]
+  const ranges: Array<{ lower: number; upper: number }> = []
+  for (let i = 0; i < bounds.length - 1; i++) if (bounds[i] < bounds[i + 1] || ranges.length === 0) ranges.push({ lower: bounds[i], upper: bounds[i + 1] })
+  return ranges
+}
+
+/**
+ * Graduated (FR-004): a numeric column split into classes by a method (or
+ * manual ranges); upper-inclusive classes (research §2); nulls and
+ * non-numbers are "No value"; values outside manual ranges are "Other".
+ */
+function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput | null): ResolvedStyle {
+  const missing = missingColumn(style, layer, r.column)
+  if (missing || !layer) return missing ?? single(style, layer)
+  const type = layer.columns.find((c) => c.name === r.column)?.type ?? ''
+  if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
+
+  const numbers: Array<number | null> = layer.features.map((f) => toNumber(f.attributes[r.column]))
+  const sorted = numbers.filter((v): v is number => v !== null).sort((a, b) => a - b)
+  const notes: string[] = []
+  let estimated = false
+  // Fewer distinct values than classes: one class per value, labeled by it.
+  let perValue = false
+
+  let ranges: Array<{ lower: number; upper: number }> = []
+  if (r.method === 'manual') {
+    ranges = [...r.classes]
+      .filter((c) => c.lower !== undefined && c.upper !== undefined)
+      .sort((a, b) => a.index - b.index)
+      .map((c) => ({ lower: c.lower as number, upper: c.upper as number }))
+  } else if (sorted.length) {
+    const distinct = [...new Set(sorted)]
+    if (distinct.length === 1) {
+      ranges = [{ lower: distinct[0], upper: distinct[0] }]
+      notes.push(`Every value is ${distinct[0]}: the range can't be divided.`)
+    } else if (distinct.length < r.classCount) {
+      perValue = true
+      ranges = distinct.map((v, i) => ({ lower: i === 0 ? v : distinct[i - 1], upper: v }))
+      notes.push(`Only ${distinct.length} distinct values: ${distinct.length} classes.`)
+    } else {
+      const breaks = r.method === 'equal' ? equalIntervalBreaks(sorted, r.classCount) : r.method === 'quantile' ? quantileBreaks(sorted, r.classCount) : jenksBreaks(sorted, r.classCount)
+      estimated = r.method === 'jenks' && sorted.length > JENKS_EXACT_LIMIT
+      ranges = rangesFrom(sorted, breaks)
+      if (ranges.length < r.classCount) notes.push(`${r.classCount - ranges.length} of ${r.classCount} classes merged: many values are identical.`)
+    }
+  } else {
+    notes.push(`Column "${r.column}" has no numeric values in this result.`)
+  }
+
+  const counts = ranges.map(() => 0)
+  let nulls = 0
+  let outside = 0
+  for (const v of numbers) {
+    if (v === null) nulls++
+    else {
+      const i = classOf(v, ranges)
+      if (i === -1) outside++
+      else counts[i]++
+    }
+  }
+
+  const fmt = labelFormat(ranges[0]?.lower ?? 0, ranges[ranges.length - 1]?.upper ?? 0, ranges.length)
+  const colors = rampColors(r.ramp, ranges.length)
+  const overrides = new Map(r.classes.map((c) => [c.index, c]))
+  const classes: ResolvedClass[] = ranges.map((range, i) => {
+    const o = overrides.get(i)
+    const label = perValue || range.lower === range.upper ? fmt.format(range.upper) : `${fmt.format(range.lower)} – ${fmt.format(range.upper)}`
+    return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? label, color: o?.color ?? colors[i], visible: o?.visible !== false, count: counts[i] }
+  })
+  if (outside > 0) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: outside })
+  if (nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: nulls })
+
+  const n = ranges.length
+  let caption = `${r.column} · ${METHOD_NAMES[r.method]}, ${n} ${n === 1 ? 'class' : 'classes'}`
+  if (estimated) caption += ` (estimated from ${nf.format(JENKS_EXACT_LIMIT)} values)`
+  return { status: 'ok', caption, classes, notes }
 }

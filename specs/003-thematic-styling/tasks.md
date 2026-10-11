@@ -225,7 +225,7 @@ classes, upper-inclusive classes, and "No value".
 **Independent Test**: graduate `value` with 5 classes, switch methods and
 counts, and see the map and legend change together (quickstart Scenario 2).
 
-- [ ] T022 [P] [US2] Extend `tests/core/style-classify.test.ts` (graduated):
+- [X] T022 [P] [US2] Extend `tests/core/style-classify.test.ts` (graduated):
   - on `fixtures/style/values.json`, `equalIntervalBreaks` and `quantileBreaks` equal `qgis-breaks.json` to 1e-6;
   - `jenksBreaks` equals QGIS on breaks 1, 3 and 4, and on break 2 has a **lower** within-class sum of squares than QGIS's (research §3);
   - brute force on random sets (n ≤ 12, k = 2..4) confirms Jenks is optimal;
@@ -234,32 +234,39 @@ counts, and see the map and legend change together (quickstart Scenario 2).
   - `classOf` is upper-inclusive, and the first class includes its lower bound;
   - `toNumber` gives "12.50" → 12.5 and "", null, "abc" and booleans → null;
   - Jenks above 200,000 values is estimated, with a note.
-- [ ] T023 [P] [US2] Extend `tests/core/style-expressions.test.ts` (graduated):
+  - *Done*: style-classify.test.ts graduated part: equal and quantile equal QGIS 4.2.3 to 1e-6; Jenks matches QGIS on breaks 1, 3, 4 and has lower SSQ on break 2; 30 random brute-force trials prove optimality; boundaries, toNumber, ties and collapse, all-equal, per-value, labels, manual plus Other, non-numeric fallback, estimated above 200k.
+- [X] T023 [P] [US2] Extend `tests/core/style-expressions.test.ts` (graduated):
   - a fixture with values exactly on breaks, nulls, `''`, numeric strings and `'abc'`;
   - per feature, the expression's color equals the resolved class color. This proves upper-inclusiveness and the null guard on the map.
-- [ ] T024 [P] [US2] Extend `tests/web/specs/style-thematic.spec.ts` (graduated):
+  - *Done*: Expression parity for equal, quantile and jenks on values sitting on every break plus null, '', '12.50', 'abc', booleans and 'Infinity': per-feature colors equal the legend counts. Manual: outside values go to Other, hidden ranges are filtered.
+- [X] T024 [P] [US2] Extend `tests/web/specs/style-thematic.spec.ts` (graduated):
   - Graduated on `value` with Quantile 5: the legend caption is `value · Quantile, 5 classes` and the counts are within ±1% of 200 each;
   - switch to Equal interval, Natural breaks, 3 and 10 classes: the legend updates each time;
   - on `world-boundaries`, which has only text columns, Graduated is disabled with its reason.
-- [ ] T025 [P] [US2] Extend `tests/vscode-ext/src/suite/style.test.ts` (graduated): on `usa-utm12n.gpkg` or a generated numeric fixture, quantile classes and counts from `_getStyleState` equal the expected values (FR-020).
-- [ ] T026 [US2] Implement in `packages/core/src/style/classify.ts`:
+  - *Done*: style-thematic.spec graduated (3): Quantile 5 on 22k parcels gives ~200 each, then equal, jenks, 3 and 10 classes update the legend; squares parity labels; disabled with reason on text-only data (needs force-click: Playwright waits on aria-disabled). The class list was renamed 'Class list' because it collided with the 'Classes' select label (an a11y ambiguity).
+- [X] T025 [P] [US2] Extend `tests/vscode-ext/src/suite/style.test.ts` (graduated): on `usa-utm12n.gpkg` or a generated numeric fixture, quantile classes and counts from `_getStyleState` equal the expected values (FR-020).
+  - *Done*: style.test.ts US2: squares.geojson (i²) Quantile 5 gives the same labels and counts [20x5] as the web build, first color #440154. VS Code 40/40.
+- [X] T026 [US2] Implement in `packages/core/src/style/classify.ts`:
   - `equalIntervalBreaks`;
   - `quantileBreaks` (QGIS interpolation);
   - `jenksBreaks`: an exact DP with divide-and-conquer, estimated above 200,000 values on evenly spaced order statistics;
   - `classOf`.
 
   Make T022 pass.
-- [ ] T027 [US2] Implement the graduated branch:
+  - *Done*: classify.ts: equalIntervalBreaks, quantileBreaks (QGIS interpolation), jenksBreaks (exact DP plus divide and conquer; estimated above JENKS_EXACT_LIMIT=200,000), classOf (upper-inclusive).
+- [X] T027 [US2] Implement the graduated branch:
   - in `resolve.ts`: collect values with `toNumber`, compute breaks, ranges, counts, default labels (formatted with `Intl.NumberFormat`, as the table does), overrides by index, "No value", and the caption `col · Method, k classes`, plus ` (estimated from 200,000 values)` when estimated;
   - in `expressions.ts`: a `case` chain with a null / `''` / non-number guard first, then `<=` tests per class (upper-inclusive), then the "Other" fallback for values outside manual ranges.
 
   Make T023 pass.
-- [ ] T028 [US2] In `packages/ui/src/LayerStylePanel.svelte`:
+  - *Done*: Graduated branch of resolve.ts: ranges with collapse, per-value mode when distinct < k, labels sized to the class width, Other for manual outliers, captions with the method. graduatedIndex in expressions.ts: null, boolean and '' guard; a to-number sentinel plus abs >= MAX_VALUE guard; upper-inclusive case chain. Core 202/202.
+- [X] T028 [US2] In `packages/ui/src/LayerStylePanel.svelte`:
   - enable Graduated: Method select (Equal interval, Quantile, Natural breaks (Jenks)) and a Classes select (2–10);
   - show the classes as ranges in the read-only list;
   - show a thin progress bar while a recompute takes longer than 150 ms, keeping the previous style on the map (FR-016).
 
   Make T024 and T025 pass. Commit.
+  - *Done*: Graduated enabled; Method and Classes selects on separate rows ('Natural breaks' was truncated in one row, found in a screenshot). Deviation: no progress bar. Classification is synchronous (about 50 ms at 50k, about 230 ms at 200k), so a bar could never paint, and the previous style stays until the new one is ready by construction. SC-007's long-task test (T044) guards it. Web style 6/6.
 
 **Checkpoint**: US1 and US2 together give both core thematic map types.
 

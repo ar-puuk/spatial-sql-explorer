@@ -6,7 +6,7 @@
 // the class color AND the hidden-class filter both read. The map and the
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
-import { parseColor, rendererOf, type CategorizedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
+import { parseColor, rendererOf, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
 
 export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
@@ -35,9 +35,46 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
       return null
     case 'categorized':
       return categorizedIndex(r, resolved)
-    default:
-      return null // graduated (US2)
+    case 'graduated':
+      return graduatedIndex(r, resolved)
   }
+}
+
+/** `to-number` fallback for text: far outside any real value, caught with the non-finite guard. */
+const NOT_A_NUMBER = -Number.MAX_VALUE
+
+/**
+ * Mirrors resolve.ts's graduated branch with `toNumber()`'s rules. MapLibre's
+ * `to-number` turns null and "" into 0, so those are caught first (research
+ * §4); booleans have no value; text and non-finite numbers land on the
+ * sentinel. Then upper-inclusive `<=` tests per class (research §2), the
+ * first class also including its lower bound; anything else is "Other".
+ */
+function graduatedIndex(r: GraduatedRenderer, resolved: ResolvedStyle): unknown {
+  const noValue = indexOf(resolved, '__null')
+  const other = indexOf(resolved, '__other')
+  const v = ['var', 'v']
+  const n = ['var', 'n']
+  const ranges = resolved.classes.flatMap((c, i) => (c.kind === 'range' && c.lower !== undefined && c.upper !== undefined ? [{ i, lower: c.lower, upper: c.upper }] : []))
+  const tests: unknown[] = []
+  if (ranges.length) tests.push(['<', n, ranges[0].lower], other)
+  for (const range of ranges) tests.push(['<=', n, range.upper], range.i)
+  const byRange = tests.length ? ['case', ...tests, other] : other
+  return [
+    'let',
+    'v',
+    ['get', r.column],
+    [
+      'case',
+      ['==', v, null],
+      noValue,
+      ['==', ['typeof', v], 'boolean'],
+      noValue,
+      ['==', ['to-string', v], ''],
+      noValue,
+      ['let', 'n', ['to-number', v, NOT_A_NUMBER], ['case', ['>=', ['abs', n], Number.MAX_VALUE], noValue, byRange]],
+    ],
+  ]
 }
 
 /** Position of the class with this key, or -1 (drawn in the fallback color). */

@@ -82,3 +82,11 @@ export function writePoints(count: number): string {
   fs.writeFileSync(file, `{"type":"FeatureCollection","features":[\n${features.join(',\n')}\n]}`)
   return file
 }
+
+/** 100 points with value = i² (spec 003 graduated parity fixture; the VS Code suite writes the same file). */
+export function writeSquares(): string {
+  const features = Array.from({ length: 100 }, (_, i) => `{"type":"Feature","properties":{"value":${i * i}},"geometry":{"type":"Point","coordinates":[${(-112 + i * 0.01).toFixed(2)},40.5]}}`)
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-sq-')), 'squares.geojson')
+  fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${features.join(',')}]}`)
+  return file
+}

@@ -97,3 +97,59 @@ describe('categorized: the map picks the class the legend counted (SC-006)', () 
     expect(shown).toBe(features.length - hiddenCount)
   })
 })
+
+describe('graduated: the map picks the class the legend counted (SC-006)', () => {
+  // Values on every break, nulls, '', numeric strings, text, booleans, extremes.
+  const raw: unknown[] = []
+  for (let i = 0; i <= 100; i++) raw.push(i)
+  raw.push(null, '', '12.50', '50', 'abc', true, false, 'Infinity', 0.5, 99.999)
+  const features = raw.map((v, id) => ({ id, geometry: null, attributes: { v: v as never } }))
+  const layer = { features, columns: [{ name: 'v', type: 'DECIMAL(9,2)' }] }
+
+  for (const method of ['equal', 'quantile', 'jenks'] as const) {
+    it(`${method}: every feature's color is its class color`, () => {
+      const style: LayerStyle = {
+        ...DEFAULT_LAYER_STYLE,
+        renderer: { kind: 'graduated', column: 'v', method, classCount: 5, ramp: { id: 'brewer-ylorrd', reversed: false }, classes: [], noValue: {} },
+      }
+      const resolved = resolveStyle(style, layer)
+      const classExpr = (paintFor(style, resolved, '#0078d4').fill['fill-color'] as unknown[])[3]
+      const counts = new Map<string, number>()
+      for (const f of features) {
+        const hex = evaluate(classExpr, f.attributes) as string
+        counts.set(hex, (counts.get(hex) ?? 0) + 1)
+      }
+      const expected = new Map<string, number>()
+      for (const c of resolved.classes) expected.set(c.color, (expected.get(c.color) ?? 0) + c.count)
+      expect(counts).toEqual(expected)
+    })
+  }
+
+  it('manual: values outside the ranges draw as Other, and hidden ranges are filtered', () => {
+    const style: LayerStyle = {
+      ...DEFAULT_LAYER_STYLE,
+      renderer: {
+        kind: 'graduated',
+        column: 'v',
+        method: 'manual',
+        classCount: 2,
+        ramp: { id: 'viridis', reversed: false },
+        classes: [
+          { index: 0, lower: 10, upper: 40 },
+          { index: 1, lower: 40, upper: 60, visible: false },
+        ],
+        noValue: {},
+      },
+    }
+    const resolved = resolveStyle(style, layer)
+    const classExpr = (paintFor(style, resolved, '#0078d4').fill['fill-color'] as unknown[])[3]
+    const other = resolved.classes.find((c) => c.kind === 'other')
+    expect(other).toBeDefined()
+    expect(evaluate(classExpr, { v: 5 })).toBe(other?.color)
+    expect(evaluate(classExpr, { v: 10 })).toBe(resolved.classes[0].color)
+    expect(evaluate(classExpr, { v: 40 })).toBe(resolved.classes[0].color)
+    const filter = visibilityFilter(style, resolved)
+    expect(evaluate(filter, { v: 50 }, 'layers[0].filter')).toBe(false)
+    expect(evaluate(filter, { v: 30 }, 'layers[0].filter')).toBe(true)
+  })
+})

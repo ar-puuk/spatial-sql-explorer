@@ -1,7 +1,7 @@
 // Spec 003 (thematic styling), browser tests in the real web build.
-// T016: Categorized (US1; quickstart Scenario 1).
+// T016: Categorized (US1; quickstart Scenario 1). T024: Graduated (US2; Scenario 2).
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels } from './helpers'
+import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
@@ -75,5 +75,52 @@ test.describe('categorized (US1)', () => {
     await legend(page).getByRole('button', { name: 'Hide class Other (168 values)' }).click()
     await expect(legend(page).getByRole('button', { name: 'Show class Other (168 values)' })).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(rendered, { timeout: 10000 }).toBeLessThan(before)
+  })
+})
+
+/** Expected for writeSquares() with Quantile, 5 classes; the VS Code suite asserts the same (FR-020). */
+export const SQUARES_QUANTILE_LABELS = ['0 – 392', '392 – 1,568', '1,568 – 3,529', '3,529 – 6,273', '6,273 – 9,801']
+
+test.describe('graduated (US2)', () => {
+  test('quantile, then other methods and class counts: the legend follows each change', async ({ page }) => {
+    test.setTimeout(180000)
+    await openFile(page, writeParcels(22_000))
+    await openStylePanel(page)
+    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await page.getByLabel('Column').selectOption('value')
+    await expect(legend(page)).toContainText('value · Quantile, 5 classes')
+    const counts = await legendCounts(page)
+    expect(counts).toHaveLength(5)
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(1000)
+    for (const n of counts) expect(Math.abs(n - 200)).toBeLessThanOrEqual(2)
+
+    await page.getByLabel('Method').selectOption('equal')
+    await expect(legend(page)).toContainText('value · Equal interval, 5 classes')
+    await page.getByLabel('Method').selectOption('jenks')
+    await expect(legend(page)).toContainText('value · Natural breaks, 5 classes')
+    await page.getByLabel('Classes').selectOption('3')
+    await expect(legendRows(page)).toHaveCount(3)
+    await page.getByLabel('Classes').selectOption('10')
+    await expect(legendRows(page)).toHaveCount(10)
+    expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(1000)
+  })
+
+  test('the same classes as the VS Code build (FR-020)', async ({ page }) => {
+    await openFile(page, writeSquares())
+    await openStylePanel(page)
+    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await expect(page.getByLabel('Column')).toHaveValue('value')
+    expect(await legendRows(page).locator('.label').allTextContents()).toEqual(SQUARES_QUANTILE_LABELS)
+    expect(await legendCounts(page)).toEqual([20, 20, 20, 20, 20])
+  })
+
+  test('is unavailable without a numeric column, and says why', async ({ page }) => {
+    await openFile(page, fixture('world-boundaries.geojson'))
+    await openStylePanel(page)
+    const graduated = page.getByRole('radio', { name: 'Graduated' })
+    await expect(graduated).toHaveAttribute('aria-disabled', 'true')
+    await expect(graduated).toHaveAttribute('title', 'Graduated styling needs a numeric column.')
+    await graduated.click({ force: true }) // aria-disabled: Playwright would wait for it to enable
+    await expect(page.getByRole('radio', { name: 'Single' })).toHaveAttribute('aria-checked', 'true')
   })
 })
