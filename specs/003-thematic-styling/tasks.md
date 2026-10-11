@@ -402,7 +402,7 @@ missing, recover automatically, and Reset restores the sidecar style.
 
   Record the numbers.
   - *Done*: performance.spec: SC-001 (003) on the 10.41 MB file with all 22,000 features: categorize 123 ms, Jenks with 10 classes 102 ms (target < 1 s). SC-007: graduated Jenks on 50,000 polygons took 191 ms end to end, and the longtask observer recorded no task of 50 ms or more (target: none >= 1 s). The new heavy specs made the parallel suite flaky (a different heavy test timed out each run while ~10 software-WebGL workers competed), so playwright.config sets workers: 6 and expect.timeout 10 s. The full suite plus performance is 45/45 in 2.3 min (previously 2.9 min with failures).
-- [ ] T045 [P] Extend `scripts/screenshots.mjs` with style scenes in both shells:
+- [X] T045 [P] Extend `scripts/screenshots.mjs` with style scenes in both shells:
   - categorized with the legend;
   - graduated with the panel open;
   - the ramp picker open;
@@ -410,6 +410,7 @@ missing, recover automatically, and Reset restores the sidecar style.
   - the fallback notice.
 
   Review every default ramp on the Positron and Dark basemaps in all three VS Code themes and web light and dark, including selection visibility on Blues (FR-019).
+  - *Done*: styleScenes() in scripts/screenshots.mjs: categorized with legend, graduated natural breaks on an area column computed in SQL, ramp picker, hidden class, fallback. Captured for the three VS Code themes plus web light and dark, and reviewed. Found and fixed a bug: T043's focus-return also fired when Esc was pressed in the SQL editor (it closed the popover and stole the caret). closePanel() now refocuses only if focus was in the popover, with a regression test in accessibility.spec. The script now waits for its own query's status, not the previous run's ✓.
 - [ ] T046 Record the results in `specs/003-thematic-styling/quickstart.md`, in a new "Results" section:
   - SC-001 and SC-007 timings;
   - SC-002 (classification tests);

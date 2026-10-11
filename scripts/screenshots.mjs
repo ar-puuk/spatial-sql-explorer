@@ -151,6 +151,7 @@ async function captureVsCode() {
         await win.keyboard.press('Control+Shift+Q')
       })
       await queryScenes(view, win, name)
+      await styleScenes(view, win, name)
       await step('native status bar while hovering', async () => {
         const box = await win.locator('iframe.webview').boundingBox()
         await win.mouse.move(box.x + box.width / 2 - 20, box.y + box.height * 0.3)
@@ -223,6 +224,66 @@ async function queryScenes(ui, win, prefix) {
   })
 }
 
+/**
+ * Spec 003 scenes (T045): categorized with its legend, graduated (natural
+ * breaks) on an area column computed in SQL, the ramp picker, a hidden
+ * class, and the fallback when the styled column leaves the result.
+ */
+async function styleScenes(ui, win, prefix) {
+  const editor = ui.getByRole('textbox', { name: 'SQL query' })
+  const run = async (sql) => {
+    await editor.click()
+    await win.keyboard.press('Control+A')
+    await win.waitForTimeout(250)
+    await win.keyboard.press('Delete')
+    await win.keyboard.insertText(sql)
+    await win.keyboard.press('Escape')
+    // Wait for THIS run's status: the previous run's "✓" is still showing.
+    const status = ui.locator('.query-status')
+    const before = await status.textContent()
+    await win.keyboard.press('Control+Enter')
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline) {
+      const now = (await status.textContent()) ?? ''
+      if (now !== before && now.includes('✓')) return
+      await win.waitForTimeout(100)
+    }
+    throw new Error(`query did not finish: ${sql}`)
+  }
+  await step('style: categorized with legend', async () => {
+    await run('SELECT *, round(ST_Area(geom), 1) AS area FROM layer')
+    await ui.getByRole('button', { name: 'Layer style' }).click()
+    await ui.getByRole('radio', { name: 'Categorized' }).click()
+    await ui.getByLabel('Column').selectOption('name')
+    await win.waitForTimeout(1200)
+    await shot(win, `${prefix}-style-categorized`)
+  })
+  await step('style: graduated, natural breaks', async () => {
+    await ui.getByRole('radio', { name: 'Graduated' }).click()
+    await ui.getByLabel('Column').selectOption('area')
+    await ui.getByLabel('Method').selectOption('jenks')
+    await win.waitForTimeout(1200)
+    await shot(win, `${prefix}-style-graduated`)
+  })
+  await step('style: ramp picker', async () => {
+    await ui.getByRole('button', { name: /^Colors:/ }).click()
+    await win.waitForTimeout(400)
+    await shot(win, `${prefix}-style-ramps`)
+    await win.keyboard.press('Escape')
+  })
+  await step('style: a hidden class', async () => {
+    await ui.getByRole('region', { name: 'Legend' }).getByRole('button', { name: /^Hide class/ }).last().click()
+    await win.waitForTimeout(1000)
+    await shot(win, `${prefix}-style-hidden`)
+  })
+  await step('style: fallback notice', async () => {
+    await run('SELECT name, geom FROM layer')
+    await win.waitForTimeout(1000)
+    await shot(win, `${prefix}-style-fallback`)
+    await win.keyboard.press('Escape')
+  })
+}
+
 // --- Web -------------------------------------------------------------------
 
 async function waitForServer(url, timeoutMs) {
@@ -281,6 +342,7 @@ async function captureWeb() {
         await page.keyboard.press('Control+Shift+Q')
       })
       await queryScenes(page, page, `web-${scheme}`)
+      await styleScenes(page, page, `web-${scheme}`)
       await page.close()
     }
   } finally {

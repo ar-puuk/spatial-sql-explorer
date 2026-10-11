@@ -277,4 +277,13 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
   await expect(styleButton).toBeFocused()
+
+  // Esc while typing in the SQL editor closes the popover but leaves the caret there.
+  await styleButton.click()
+  await page.keyboard.press('Control+Shift+Q')
+  const editor = page.getByRole('textbox', { name: 'SQL query' })
+  await expect(editor).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
+  await expect(editor).toBeFocused()
 })

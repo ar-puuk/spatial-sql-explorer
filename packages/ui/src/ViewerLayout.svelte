@@ -131,8 +131,13 @@
    */
   function closePanel(): void {
     const which = openPanel
+    // Only take focus back if it was in the popover (or nowhere): Esc pressed
+    // while typing in the SQL editor closes the popover but must leave the
+    // caret where it is.
+    const active = document.activeElement
+    const inPopover = !active || active === document.body || !!active.closest('.style-popover')
     openPanel = null
-    if (!which) return
+    if (!which || !inPopover) return
     const label = which === 'style' ? 'Layer style' : 'Basemap'
     void tick().then(() => panes?.querySelector<HTMLButtonElement>(`.map-pane button[aria-label="${label}"]`)?.focus())
   }
