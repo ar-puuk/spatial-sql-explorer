@@ -115,13 +115,13 @@ function probe(info: FileSourceInfo): Promise<string | null> {
 }
 
 /** The whole file over the loopback server: one main-thread request each, no base64. */
-async function fetchWhole(info: FileSourceInfo): Promise<FileSource> {
+async function fetchWhole(info: FileSourceInfo, url: string): Promise<FileSource> {
   const get = async (url: string): Promise<Uint8Array> => {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return new Uint8Array(await res.arrayBuffer())
   }
-  const bytes = await get(info.url!)
+  const bytes = await get(url)
   const sidecars = await Promise.all(info.sidecars.map(async (s) => ({ name: s.name, bytes: await get(s.url) })))
   return { kind: 'bytes', name: info.name, size: bytes.byteLength, bytes, sidecars, styleSidecar: info.styleSidecar }
 }
@@ -280,9 +280,9 @@ export function createVsCodeHostAdapter(): HostAdapter {
     async getFileSource(_ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource> {
       const info = await infoPromise
       if (options?.whole) {
-        if ((await probe(info)) === null) {
+        if ((await probe(info)) === null && info.url) {
           try {
-            return await fetchWhole(info)
+            return await fetchWhole(info, info.url)
           } catch {
             // Fall through to the chunked transfer.
           }
@@ -291,7 +291,7 @@ export function createVsCodeHostAdapter(): HostAdapter {
       }
       // Spec 007 research §3: the engine reads the loopback URL in parts.
       const failure = await probe(info)
-      if (failure === null) return { kind: 'url', name: info.name, size: info.size, url: info.url!, sidecars: info.sidecars, styleSidecar: info.styleSidecar }
+      if (failure === null && info.url) return { kind: 'url', name: info.name, size: info.size, url: info.url, sidecars: info.sidecars, styleSidecar: info.styleSidecar }
       // FR-015: no partial reads in this window; read the whole file instead, and say why.
       const whole = await requestWholeTransfer(failure)
       return whole.kind === 'bytes' ? { ...whole, styleSidecar: info.styleSidecar, fallbackReason: `Partial reads aren't available in this window (${failure}).` } : whole
