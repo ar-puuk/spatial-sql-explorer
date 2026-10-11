@@ -36,6 +36,7 @@ type WebviewToHostMessage =
   | { type: 'reloadSource' }
   | { type: 'requestBytes'; reason: string }
   | { type: 'openState'; state: unknown }
+  | { type: 'mapViewState'; state: unknown }
   | { type: 'queryState'; state: unknown }
   | { type: 'styleState'; state: unknown }
   | { type: 'exportState'; state: unknown }
@@ -89,6 +90,9 @@ let lastSelection: string | number | null = null
 let lastQueryState: unknown = null
 let lastStyleState: unknown = null
 let lastOpenState: unknown = null
+let lastMapViewState: unknown = null
+/** Spec 007 test hook: thresholds sent to the next viewers (see readModes TestOverrides). */
+let testOverrides: Record<string, unknown> = {}
 /** Spec 007 test hook: the next viewers are told partial reads failed. */
 let forceBytesFallback = false
 let lastExportState: unknown = null
@@ -131,6 +135,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   async resolveCustomEditor(document: SpatialExplorerDocument, panel: vscode.WebviewPanel): Promise<void> {
     lastLoadState = null
     lastOpenState = null
+    lastMapViewState = null
     this.panels.add(panel)
     // Spec edge case: a file changed on disk must not be silently presented
     // as current. The webview shows a "changed on disk, Reload" banner.
@@ -221,6 +226,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         void this.sendWholeFile(panel)
       } else if (msg.type === 'openState') {
         lastOpenState = msg.state
+      } else if (msg.type === 'mapViewState') {
+        lastMapViewState = msg.state
       } else if (msg.type === 'reloadSource') {
         log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
         lastLoadState = null
@@ -446,6 +453,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         resourceUri: panel.webview.asWebviewUri(documentUri).toString(),
         forceFallback: forceBytesFallback,
         serverError,
+        testOverrides,
       })
     } catch (err) {
       await panel.webview.postMessage({
@@ -635,6 +643,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       forceBytesFallback = on
     }),
     vscode.commands.registerCommand('spatialExplorer._getOpenState', () => lastOpenState),
+    // Spec 007 test hooks: thresholds for the next viewers (cap…), the drawn map view, the camera.
+    vscode.commands.registerCommand('spatialExplorer._setTestOverrides', (o: Record<string, unknown> | null) => {
+      testOverrides = o ?? {}
+    }),
+    vscode.commands.registerCommand('spatialExplorer._getMapView', () => lastMapViewState),
+    vscode.commands.registerCommand('spatialExplorer._jumpTo', (lon: number, lat: number, zoom: number) => provider.postToActive({ type: 'testJumpTo', lon, lat, zoom })),
 
     // Spec 005 test hook: write the next data export to this path (no dialog).
     vscode.commands.registerCommand('spatialExplorer._saveNextExportTo', (fsPath: string) => {

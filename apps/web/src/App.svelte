@@ -75,6 +75,56 @@
             facts: store.session.layer?.facts ?? store.openFacts,
           })
         ),
+      /** Spec 007 T026: the drawn map view. */
+      viewState: () => {
+        const v = store.viewFeatures
+        return v ? { generation: v.generation, drawn: v.features.length, inView: v.inView, thinned: v.thinned, ms: v.ms } : null
+      },
+      jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
+      zoomToFeature: (id: number) => store.zoomToFeature(id),
+      /** The first point of the drawn feature closest to the view center: a click target. */
+      drawnCenter: () => {
+        const v = store.lastViewBbox
+        const cx = v ? (v[0] + v[2]) / 2 : 0
+        const cy = v ? (v[1] + v[3]) / 2 : 0
+        let best: [number, number] = [cx, cy]
+        let bestD = Infinity
+        for (const f of store.viewFeatures?.features ?? []) {
+          if (f.geometry?.type !== 'Polygon') continue
+          const ring = f.geometry.coordinates[0]
+          const x = ring.reduce((s, c) => s + c[0], 0) / ring.length
+          const y = ring.reduce((s, c) => s + c[1], 0) / ring.length
+          const d = (x - cx) ** 2 + (y - cy) ** 2
+          if (d < bestD) {
+            bestD = d
+            best = [x, y]
+          }
+        }
+        return best
+      },
+      outsideFeatureId: () => store.outsideFeature?.id ?? null,
+      drawnIds: () => [...(store.viewFeatures?.features.map((f) => f.id) ?? []), ...(store.outsideFeature ? [store.outsideFeature.id] : [])],
+      /** Every drawn feature's bbox meets the last requested view (no stale view drawn). */
+      drawnInsideView: () => {
+        const v = store.lastViewBbox
+        const features = store.viewFeatures?.features ?? []
+        if (!v) return false
+        const within = (c: unknown): boolean => {
+          if (Array.isArray(c) && typeof c[0] === 'number') return true
+          return false
+        }
+        return features.every((f) => {
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+          const visit = (c: unknown): void => {
+            if (within(c)) {
+              const [x, y] = c as number[]
+              x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y)
+            } else if (Array.isArray(c)) c.forEach(visit)
+          }
+          if (f.geometry && 'coordinates' in f.geometry) visit(f.geometry.coordinates)
+          return x0 <= v[2] && x1 >= v[0] && y0 <= v[3] && y1 >= v[1]
+        })
+      },
       /** Spec 003 T006: the displayed result's attribute columns and types. */
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }

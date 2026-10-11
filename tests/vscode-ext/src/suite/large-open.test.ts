@@ -77,3 +77,43 @@ suite('Spec 007 US1: large files open in VS Code', () => {
     }
   })
 })
+
+interface ViewState {
+  generation: number
+  drawn: number
+  inView: number
+  thinned: boolean
+}
+
+async function viewAfter(generation: number): Promise<ViewState> {
+  const deadline = Date.now() + 30000
+  for (;;) {
+    const v = (await vscode.commands.executeCommand('spatialExplorer._getMapView')) as ViewState | null
+    if (v && v.generation > generation) return v
+    assert.ok(Date.now() < deadline, `no view after generation ${generation}: ${JSON.stringify(v)}`)
+    await sleep(150)
+  }
+}
+
+// T031 (spec 007 US2): the same map views in the VS Code webview.
+suite('Spec 007 US2: map views in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', null)
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('the full extent is a capped, thinned subset; a city view draws everything in it', async function () {
+    this.timeout(120000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { cap: 1000 })
+    await openReady('parcels-10k.parquet')
+    const overview = await viewAfter(0)
+    assert.strictEqual(overview.thinned, true)
+    assert.ok(overview.drawn <= 1000 && overview.drawn > 900, `drawn ${overview.drawn}`)
+    assert.strictEqual(overview.inView, 10000)
+    await vscode.commands.executeCommand('spatialExplorer._jumpTo', -112.6, 37.4, 13)
+    const city = await viewAfter(overview.generation)
+    assert.strictEqual(city.thinned, false)
+    assert.strictEqual(city.drawn, city.inView)
+    assert.ok(city.drawn > 0)
+  })
+})

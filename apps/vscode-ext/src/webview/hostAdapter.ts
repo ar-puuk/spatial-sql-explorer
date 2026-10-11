@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind, SaveOptions } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -67,6 +67,8 @@ interface FileSourceInfo {
   /** Test hook: behave as if partial reads failed. */
   forceFallback: boolean
   serverError: string | null
+  /** Test-only thresholds (spec 007 TestOverrides), applied before the file opens. */
+  testOverrides?: Record<string, unknown>
 }
 
 let infoResolve: ((info: FileSourceInfo) => void) | null = null
@@ -238,7 +240,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       primaryFileNameResolve?.(msg.primaryFileName)
     }
   } else if (msg.type === 'fileSource') {
-    infoResolve?.(event.data as FileSourceInfo)
+    const info = event.data as FileSourceInfo
+    if (info.testOverrides && Object.keys(info.testOverrides).length) setTestOverrides(info.testOverrides as TestOverrides)
+    infoResolve?.(info)
   } else if (msg.type === 'initFileStart' && msg.fileName) {
     pendingFiles ??= new Map()
     pendingFiles.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
@@ -405,6 +409,11 @@ export function reportQueryState(state: unknown): void {
 }
 
 /** Export state for the extension's test hook (spec 005). */
+/** Spec 007 T031: the drawn map view, for spatialExplorer._getMapView. */
+export function reportMapViewState(state: unknown): void {
+  post({ type: 'mapViewState', state })
+}
+
 /** Spec 007 T019: the open's phase and whole-file facts, for spatialExplorer._getOpenState. */
 export function reportOpenState(state: unknown): void {
   post({ type: 'openState', state })

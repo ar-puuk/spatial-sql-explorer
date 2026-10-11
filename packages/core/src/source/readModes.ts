@@ -129,6 +129,11 @@ export function parseTestOverrides(search: string): TestOverrides {
   return out
 }
 
+/** The display cap for a layer's read mode, unless a test overrides it. */
+export function viewCapFor(readMode: ReadModeKind): number {
+  return overrides.cap ?? (readMode === 'partial-view' ? PARTIAL_VIEW_CAP : VIEW_CAP)
+}
+
 /** The materialize cap in effect (MATERIALIZE_CAP unless overridden in a test). */
 export function materializeCap(): number {
   return overrides.materializeCap ?? MATERIALIZE_CAP

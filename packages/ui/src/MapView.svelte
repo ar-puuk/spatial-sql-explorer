@@ -18,14 +18,28 @@
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
+    type Feature,
     type Layer,
     type LayerStyle,
     type ResolvedStyle,
+    type ViewFeatures,
+    DOT_PROP,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import ProgressBar from './ProgressBar.svelte'
 
   interface Props {
     layer: Layer | null
+    /** Spec 007: the result's features in the current view (research §6); the map draws these, not the whole result. */
+    viewFeatures: ViewFeatures | null
+    /** A selected feature outside the drawn set (FR-008), drawn so it can be highlighted and zoomed to. */
+    extraFeature?: Feature | null
+    /** A view takes longer than 300 ms: a thin bar on the map's top edge. */
+    viewLoading?: boolean
+    /** Moves the camera once per new request (test hooks). */
+    cameraRequest?: { center: [number, number]; zoom: number; seq: number } | null
+    /** The map settled on a new view (WGS84 bbox, zoom), debounced. */
+    onViewChange: (bbox: [number, number, number, number], zoom: number, widthPx: number) => void
     selectedFeatureId: string | number | null
     style: LayerStyle
     /** The style resolved against the displayed result (spec 003): drives paint and filters. */
@@ -48,6 +62,11 @@
   }
   let {
     layer,
+    viewFeatures,
+    extraFeature = null,
+    viewLoading = false,
+    cameraRequest = null,
+    onViewChange,
     selectedFeatureId,
     style,
     resolved,
@@ -100,7 +119,9 @@
     { id: 'circle', type: 'circle', filter: POINT },
   ]
 
-  function toFeatureCollection(l: Layer): GeoJSON.FeatureCollection {
+  function toFeatureCollection(features: Feature[]): GeoJSON.FeatureCollection {
+    // A Point standing in for a polygon or line (under ~2 px, spec 007) is drawn as a small dot.
+    const dots = layer?.geometryType !== 'Point'
     // Svelte 5's $state wraps Layer (and its nested features/geometry) in
     // reactive Proxy objects (structuredClone refuses to clone them
     // directly: "could not be cloned", confirmed via Playwright). Passing a
@@ -114,11 +135,11 @@
     return JSON.parse(
       JSON.stringify({
         type: 'FeatureCollection',
-        features: l.features
+        features: features
           .filter((f) => f.geometry !== null)
           .map((f) => ({
             type: 'Feature',
-            properties: { ...f.attributes, [ID_PROP]: f.id },
+            properties: { ...f.attributes, [ID_PROP]: f.id, ...(dots && f.geometry?.type === 'Point' ? { [DOT_PROP]: true } : {}) },
             geometry: f.geometry as GeoJSON.Geometry,
           })),
       })
@@ -201,6 +222,8 @@
       m.on('mouseleave', id, () => setHover(null))
     }
     m.on('mousemove', (e: MapMouseEvent) => onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat }))
+    // Spec 007 FR-007: load the new view once the map settles.
+    m.on('moveend', scheduleViewChange)
     m.on('mouseout', () => onCursorMove(null))
 
     // Tile/sprite/glyph failures after the style document itself loaded
@@ -219,9 +242,9 @@
     // webview). Refreshed on every idle, since a basemap switch rebuilds
     // the style. Read by the VS Code test hook and the browser tests.
     m.on('idle', () => {
-      // Only meaningful once a layer is loaded: an idle before the data
-      // arrives must not publish a premature "0".
-      if (!layer) return
+      // Only meaningful once this layer's first view is drawn: an idle before
+      // the data arrives must not publish a premature "0".
+      if (!layer || !dataLoaded) return
       container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
     })
     m.on('sourcedata', (e: { sourceId?: string; tile?: unknown }) => {
@@ -294,7 +317,7 @@
   }
 
   function zoomToFeature(id: string | number): void {
-    const feature = layer?.features.find((f) => f.id === id)
+    const feature = viewFeatures?.features.find((f) => f.id === id) ?? (extraFeature?.id === id ? extraFeature : undefined) ?? layer?.features.find((f) => f.id === id)
     if (!map || !feature?.geometry) return
     const b = geometryBounds(feature.geometry)
     if (!b) return
@@ -355,21 +378,60 @@
   })
 
   onDestroy(() => {
+    if (viewTimer) clearTimeout(viewTimer)
     resizeObserver?.disconnect()
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
     map?.remove()
     map = null
   })
 
-  // The only place source.setData() is called: the layer may arrive before
-  // or after the map's style has loaded, so this waits for both.
+  // Spec 007: views. A new layer (file or result) fits its extent, which
+  // ends in a moveend and so a view request; the previous features stay
+  // drawn until the new view arrives (FR-007).
+  let viewTimer: ReturnType<typeof setTimeout> | null = null
+  function emitViewChange(): void {
+    if (!map || !layer) return
+    const b = map.getBounds()
+    onViewChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map.getZoom(), container.clientWidth)
+  }
+  function scheduleViewChange(): void {
+    if (viewTimer) clearTimeout(viewTimer)
+    viewTimer = setTimeout(() => {
+      viewTimer = null
+      emitViewChange()
+    }, 150)
+  }
+
+  let dataLoaded = false
+  let shownLayer: Layer | null = null
   $effect(() => {
     const current = layer
     if (!mapReady || !map) return
-    currentData = current ? toFeatureCollection(current) : { type: 'FeatureCollection', features: [] }
+    if (current === shownLayer) return
+    const firstOfFile = !shownLayer || !current || shownLayer.id !== current.id
+    shownLayer = current
+    if (!current) {
+      dataLoaded = false
+      currentData = { type: 'FeatureCollection', features: [] }
+      ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
+      return
+    }
+    if (firstOfFile) dataLoaded = false
+    untrack(() => fitExtent(false))
+    // fitBounds without animation still ends in a moveend; ask explicitly too, in case the camera didn't move.
+    scheduleViewChange()
+  })
+
+  // The only place source.setData() is called.
+  $effect(() => {
+    const features = viewFeatures?.features ?? null
+    const extra = extraFeature
+    if (!mapReady || !map || features === null) return
+    const all = extra && !features.some((f) => f.id === extra.id) ? [...features, extra] : features
+    currentData = toFeatureCollection(all)
     ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
     hoveredId = null
-    fitExtent(false)
+    dataLoaded = true
     // Marks the rendered-feature count stale until the next idle (above).
     delete container.dataset.renderedFeatures
   })
@@ -413,6 +475,14 @@
     if (req && mapReady) untrack(() => zoomToFeature(req.id))
   })
 
+  let appliedCamera = 0
+  $effect(() => {
+    const req = cameraRequest
+    if (!req || !mapReady || !map || req.seq === appliedCamera) return
+    appliedCamera = req.seq
+    map.jumpTo({ center: req.center, zoom: req.zoom })
+  })
+
   $effect(() => {
     // Splitter drag ended: catch up with one resize.
     if (!resizing) scheduleResize()
@@ -421,6 +491,9 @@
 
 <div class="map-view" style:background={blankColor ?? undefined}>
   <div class="canvas-host" class:dimmed bind:this={container}></div>
+  {#if viewLoading}
+    <ProgressBar label="Loading the features in view" />
+  {/if}
   <div class="controls" role="toolbar" aria-label="Map controls">
     <div class="group">
       <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>

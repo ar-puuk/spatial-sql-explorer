@@ -19,7 +19,7 @@ import { FGB_PREFIX_BYTES, fgbHeaderSize, parseFgbHeader } from './source/fgbHea
 import { internalLayerViewSql, publicLayerViewSql, visibleColumns } from './source/layerSql.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
-import { QuerySession, SOURCE_TABLE } from './query/session.js'
+import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
 
 export interface OpenFileDeps {
@@ -340,6 +340,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps, hooks: Op
 
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
+    session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -389,6 +390,8 @@ interface ModeContext {
 
 interface OpenedTable {
   table: QueryableTable
+  /** How map views reach `__se_layer` (spec 007 research §6). */
+  view: LayerViewInfo
   spatialIndex: SpatialIndexKind
   /** Rows with missing or invalid geometry, when known (null: not scanned). */
   invalid: number | null
@@ -494,7 +497,7 @@ async function openParquetInParts(ctx: ModeContext): Promise<OpenedTable> {
     sourceExtent,
     geometryType: pf.geometryTypes.length ? geometryTypeOf(pf.geometryTypes) : 'Polygon',
   }
-  return { table, spatialIndex, invalid }
+  return { table, spatialIndex, invalid, view: { index: pf.covering ? 'columns' : 'bbox-table', geom: quoteIdent(geomName), attrs: attrs.filter((a) => !isGeometryColumn(table, a)) } }
 }
 
 /** Rows of `layer` whose geometry is missing or invalid (one full scan). */
@@ -520,7 +523,10 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
   const names = ff.columns.map((c) => c.name)
   const geomName = geomNameFor(names, geometry.name)
   const attrs = names.filter((c) => c !== geometry.name && c !== 'OGC_FID')
-  const src = { kind: 'st_read' as const, path: ctx.path, attrs, geomExpr: quoteIdent(geometry.name), geomName, rowidExpr: names.includes('OGC_FID') ? '"OGC_FID"' : '0' }
+  // GDAL's OGC_FID when exposed; DuckDB-WASM 1.4.3's ST_Read doesn't, so the
+  // feature id is a hash of its geometry (stable, within the JS safe-integer range).
+  const rowidExpr = names.includes('OGC_FID') ? '"OGC_FID"' : `(hash(ST_AsWKB(${quoteIdent(geometry.name)})) % 9007199254740991)::BIGINT`
+  const src = { kind: 'st_read' as const, path: ctx.path, attrs, geomExpr: quoteIdent(geometry.name), geomName, rowidExpr }
   await conn.query(internalLayerViewSql(src))
   await conn.query(publicLayerViewSql(src))
   const alias = await createAlias(conn, ctx.name)
@@ -540,7 +546,7 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
     sourceExtent: header.envelope,
     geometryType: geometryTypeOf([ff.geometryType]),
   }
-  return { table, spatialIndex: header.indexNodeSize > 0 ? 'file' : 'none', invalid: null }
+  return { table, spatialIndex: header.indexNodeSize > 0 ? 'file' : 'none', invalid: null, view: { index: 'fgb', path: ctx.path, geom: quoteIdent(geometry.name), attrs, rowidExpr, extent: header.envelope } }
 }
 
 /**
@@ -608,5 +614,10 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy, materialize: 
     sourceExtent: box(stats.sx0, stats.sy0, stats.sx1, stats.sy1),
     geometryType: geometryTypeOf(stats.gtypes),
   }
-  return { table, spatialIndex: 'none', invalid: rows - features }
+  return { table, spatialIndex: 'none', invalid: rows - features, view: { index: 'columns', geom: quoteIdent(geomName), attrs: attrs.filter((a) => !isGeometryColumn(table, a)) } }
+}
+
+/** Other geometry columns stay out of map attributes (they're shown as text in the table). */
+function isGeometryColumn(table: QueryableTable, name: string): boolean {
+  return table.columns.some((c) => c.name === name && c.type.toUpperCase().startsWith('GEOMETRY'))
 }

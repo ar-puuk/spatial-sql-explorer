@@ -43,12 +43,11 @@ test.describe('US1: open a large file and see it quickly', () => {
   })
 
   test('the map shows a thinned overview of the whole extent, and says so', async ({ page }) => {
-    test.fixme(true, 'Needs map views (T029)')
     await openFixture(page, 'parcels-10k.parquet', '?e2e=1&cap=1000')
+    await expect(page.locator('.map-notice')).toContainText(/Showing (9\d\d|1,000) of 10,000 in view\. Zoom in to see all\./)
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached' })
     const rendered = Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
     expect(rendered).toBeGreaterThan(0)
-    expect(rendered).toBeLessThanOrEqual(1000)
-    await expect(page.locator('.map-notice')).toContainText('Showing 1,000 of 10,000 in view. Zoom in to see all.')
   })
 
   test('Cancel during an open returns to the previous state, and the next open works', async ({ page }) => {

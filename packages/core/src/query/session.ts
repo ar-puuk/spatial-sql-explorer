@@ -5,7 +5,7 @@
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportHooks, type ExportResult } from '../export/run.js'
 import type { ExportPlan } from '../export/plan.js'
-import { DEFAULT_QUERY, LARGE_RESULT_THRESHOLD, type Layer, type QueryableTable } from '../models.js'
+import { DEFAULT_QUERY, LARGE_RESULT_THRESHOLD, type Bbox, type Feature, type Layer, type QueryableTable, type ViewFeatures, type ViewRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
@@ -14,6 +14,22 @@ import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
 import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
+import { INTERNAL_LAYER } from '../source/layerSql.js'
+import { testOverrides } from '../source/readModes.js'
+import {
+  clampWgs84,
+  fgbByIdSql,
+  fgbTileSql,
+  featuresByIdsSql,
+  thinnedIdsSql,
+  thinnedRowsSql,
+  viewBoxSql,
+  viewCountSql,
+  viewFeaturesSql,
+  viewTiles,
+  tileMeetsExtent,
+  type ViewTarget,
+} from '../view/viewport.js'
 
 /** contracts/query-service.md */
 export interface RunRequest {
@@ -96,6 +112,8 @@ export interface ResultFacts {
   truncatedTo: number | null
   /** The untouched initial view (the default query, spec 002). */
   defaultView: boolean
+  /** Visible non-geometry columns (spec 007: map views carry them for styling). */
+  attrs: string[]
 }
 
 export function resultFacts(built: BuiltResult, table: QueryableTable, defaultView: boolean): ResultFacts {
@@ -109,6 +127,36 @@ export function resultFacts(built: BuiltResult, table: QueryableTable, defaultVi
     totalRows: defaultView ? table.totals.rows : built.totalRows,
     truncatedTo: built.truncatedTo,
     defaultView,
+    attrs: built.layer.columns.map((c) => c.name),
+  }
+}
+
+/** How map views reach `layer` (set by openFile; spec 007 research §6). */
+export interface LayerViewInfo {
+  index: ViewTarget['index']
+  /** FlatGeobuf read in parts: the registered path. */
+  path?: string
+  /** FlatGeobuf read in parts: the feature id expression. */
+  rowidExpr?: string
+  /** FlatGeobuf read in parts: the file's envelope, in the layer CRS. */
+  extent?: Bbox | null
+  /** The open counted no invalid geometry: views skip ST_IsValid. */
+  allValid?: boolean
+  /** Quoted geometry column of `__se_layer`. */
+  geom: string
+  attrs: string[]
+}
+
+/** A view request that couldn't run because a query or export holds the engine; the map asks again after. */
+export class ViewSkippedError extends Error {}
+
+/** A view row (attributes, `__se_rowid`, `__se_geojson`) as a map Feature. */
+function toViewFeature(row: Record<string, unknown>): Feature {
+  const { __se_geojson, __se_rowid, ...attributes } = row
+  return {
+    id: Number(__se_rowid),
+    geometry: __se_geojson ? (JSON.parse(String(__se_geojson)) as GeoJSON.Geometry) : null,
+    attributes: sanitizeAttributes(attributes),
   }
 }
 
@@ -118,6 +166,9 @@ export const SOURCE_TABLE = '__se_source'
 export class QuerySession {
   readonly defaultQuery = DEFAULT_QUERY
   private inFlight: Promise<unknown> | null = null
+  /** What holds the engine: a map view (preemptible) or user work. */
+  private inFlightKind: 'view' | 'work' | null = null
+  private layerView: LayerViewInfo | null = null
   private cancelRequested = false
   private disposed = false
   private catalogCache: CatalogSnapshot | null = null
@@ -263,18 +314,162 @@ export class QuerySession {
   }
 
   /** @internal Runs `work` single-flight with cancellation plumbing. */
-  async exclusive<T>(work: (isCancelled: () => boolean) => Promise<T>): Promise<T> {
+  async exclusive<T>(work: (isCancelled: () => boolean) => Promise<T>, kind: 'view' | 'work' = 'work'): Promise<T> {
     if (this.disposed) throw new Error('This viewer was closed.')
-    if (this.inFlight) throw new Error('A query is already running.')
+    // A map view never blocks user work, or a newer view: it is interrupted (spec 007 FR-007).
+    while (this.inFlight && this.inFlightKind === 'view') await this.cancel()
+    if (this.inFlight) {
+      if (kind === 'view') throw new ViewSkippedError()
+      throw new Error('A query is already running.')
+    }
     this.cancelRequested = false
     const isCancelled = (): boolean => this.cancelRequested
     const promise = work(isCancelled)
     this.inFlight = promise
+    this.inFlightKind = kind
     try {
       return await promise
     } finally {
       this.inFlight = null
+      this.inFlightKind = null
     }
+  }
+
+  /** Resolves when nothing holds the engine (a skipped view waits for this, then asks again). */
+  async whenIdle(): Promise<void> {
+    while (this.inFlight) await this.inFlight.catch(() => {})
+  }
+
+  /** Called once by openFile: how views reach `layer`. */
+  setLayerView(info: LayerViewInfo): void {
+    this.layerView = info
+  }
+
+  /** The relation the map draws: `layer`, or the last query's result with hidden columns added. */
+  private viewTarget(): ViewTarget | null {
+    const facts = this.facts
+    if (!facts || facts.defaultView) {
+      const lv = this.layerView
+      return lv ? { relation: INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid } : null
+    }
+    const g = facts.geometryColumn
+    if (!g || !facts.exportable) return null
+    const q = quoteIdent(g)
+    return {
+      // `rowid` (the temp table's pseudo-column) is free; a row_number() window over a big result is not.
+      relation: `(SELECT *, rowid AS __se_rowid, ST_XMin(${q}) AS __se_xmin, ST_YMin(${q}) AS __se_ymin, ST_XMax(${q}) AS __se_xmax, ST_YMax(${q}) AS __se_ymax FROM ${RESULT_TABLE})`,
+      index: 'columns',
+      geom: q,
+      srid: facts.resultCrs?.srid ?? null,
+      attrs: facts.attrs,
+    }
+  }
+
+  /**
+   * The features of the displayed result in a map view (spec 007 FR-005):
+   * all of them up to the cap, else one per grid cell, spread across the
+   * view. A newer view or any user work interrupts it (FR-007).
+   */
+  async view(req: ViewRequest): Promise<ViewFeatures> {
+    const started = performance.now()
+    return this.exclusive(async (isCancelled) => {
+      const delay = testOverrides().slowViewMs
+      if (delay) await new Promise((r) => setTimeout(r, delay))
+      const target = this.viewTarget()
+      if (!target) return { generation: req.generation, features: [], inView: 0, thinned: false, ms: 0 }
+      let box = clampWgs84(req.bbox)
+      const boxSql = viewBoxSql(box, target.srid)
+      if (boxSql) {
+        const b = await singleRow<{ x0: number; y0: number; x1: number; y1: number }>(this.conn, boxSql, isCancelled)
+        box = [b.x0, b.y0, b.x1, b.y1]
+      }
+      const rows: Record<string, unknown>[] = []
+      const collect = (batch: Record<string, unknown>[]): void => {
+        rows.push(...batch)
+      }
+      // ~2 px in layer units: smaller features travel and draw as points.
+      const minSize = req.widthPx && req.widthPx > 0 ? ((box[2] - box[0]) / req.widthPx) * 2 : undefined
+      let inView: number
+      let thinned = false
+      if (target.index === 'fgb') {
+        // FlatGeobuf in parts: tiles, each capped (research §4: ~0.74 ms per feature).
+        const tiles = viewTiles(box)
+        const per = Math.max(1, Math.ceil(req.cap / tiles.length))
+        for (const tile of tiles) {
+          if (!tileMeetsExtent(tile, target.extent)) continue
+          const before = rows.length
+          try {
+            await streamRows(this.conn, fgbTileSql(target, tile, per + 1, minSize), isCancelled, collect)
+          } catch (err) {
+            // The engine's empty-filter bug (fgbTileSql): stale rows that don't parse. No features here.
+            if (err instanceof QueryCancelledError || !/Could not parse WKB/i.test(String(err))) throw err
+            rows.length = before
+            continue
+          }
+          if (rows.length - before > per) {
+            rows.length = before + per
+            thinned = true
+          }
+        }
+        inView = rows.length
+      } else {
+        // A result that fits under the cap needs no count: everything in view is fetched, so it IS the count.
+        const resultRows = this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
+        if (resultRows <= req.cap) {
+          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
+          inView = rows.length
+        } else {
+          const n = await singleRow<{ n: bigint | number }>(this.conn, viewCountSql(target, box), isCancelled)
+          inView = Number(n.n)
+          thinned = inView > req.cap
+        }
+        if (thinned === false && resultRows <= req.cap) {
+          // Fetched above.
+        } else if (!thinned) {
+          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
+        } else if (target.index === 'columns') {
+          // Overview: dots from bbox columns; geometry only for features large enough to see.
+          await streamRows(this.conn, thinnedRowsSql(target, box, req.cap, inView), isCancelled, collect)
+          const large: number[] = []
+          for (const r of rows) {
+            const small = minSize !== undefined && Number(r.__se_xmax) - Number(r.__se_xmin) < minSize && Number(r.__se_ymax) - Number(r.__se_ymin) < minSize
+            if (small || r.__se_xmin === null) r.__se_geojson = r.__se_dotjson
+            else large.push(Number(r.__se_rowid))
+            delete r.__se_dotjson
+            delete r.__se_xmin
+            delete r.__se_ymin
+            delete r.__se_xmax
+            delete r.__se_ymax
+          }
+          if (large.length) {
+            const shapes = new Map<number, unknown>()
+            await streamRows(this.conn, featuresByIdsSql(target, large.join(', '), minSize), isCancelled, (batch) => {
+              for (const s of batch) shapes.set(Number(s.__se_rowid), s.__se_geojson)
+            })
+            for (const r of rows) if (r.__se_geojson === undefined) r.__se_geojson = shapes.get(Number(r.__se_rowid)) ?? null
+          }
+        } else {
+          await streamRows(this.conn, featuresByIdsSql(target, thinnedIdsSql(target, box, req.cap, inView), minSize), isCancelled, collect)
+        }
+      }
+      const features = rows.filter((r) => r.__se_geojson !== null && r.__se_geojson !== undefined).map(toViewFeature)
+      const atLeast = target.index === 'fgb' && thinned
+      return { generation: req.generation, features, inView, thinned, ms: Math.round(performance.now() - started), ...(atLeast ? { inViewAtLeast: true } : {}) }
+    }, 'view')
+  }
+
+  /** One feature by its stable id, wherever it is (selection outside the drawn set, FR-008). */
+  async featureById(id: number): Promise<Feature | null> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.viewTarget()
+      if (!target) return null
+      const rows: Record<string, unknown>[] = []
+      const sql = target.index === 'fgb' ? fgbByIdSql(target, id) : featuresByIdsSql(target, String(Math.floor(id)))
+      await streamRows(this.conn, sql, isCancelled, (batch) => {
+        rows.push(...batch)
+      })
+      return rows[0] ? toViewFeature(rows[0]) : null
+    })
   }
 
   /** @internal Build context with the given CRS resolution and size policy. */

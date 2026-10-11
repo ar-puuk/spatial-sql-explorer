@@ -45,6 +45,10 @@ import {
   type ViewerSession,
   type DatasetFacts,
   type OpenPhase,
+  type Feature,
+  type ViewFeatures,
+  viewCapFor,
+  ViewSkippedError,
 } from '@spatial-explorer/core'
 
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
@@ -169,6 +173,20 @@ export interface ViewerStore {
   readonly openStartedAt: number | null
   readonly openFacts: DatasetFacts | null
   cancelOpen(): Promise<void>
+  /** Spec 007: the features drawn for the current map view (FR-005), and what the map should say about them (FR-006, FR-016). */
+  readonly viewFeatures: ViewFeatures | null
+  readonly viewLoading: boolean
+  readonly viewNotice: { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null
+  /** A selected feature outside the drawn set, fetched by id and drawn highlighted (FR-008). */
+  readonly outsideFeature: Feature | null
+  /** The map moved (debounced): load the result's features for this WGS84 view. */
+  requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void>
+  dismissViewNotice(): void
+  /** The last view the map asked for (WGS84). */
+  readonly lastViewBbox: [number, number, number, number] | null
+  /** Moves the camera (test hooks); MapView applies each new request once. */
+  readonly cameraRequest: { center: [number, number]; zoom: number; seq: number } | null
+  jumpTo(center: [number, number], zoom: number): void
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
   setCursor(coords: { lon: number; lat: number } | null): void
@@ -394,6 +412,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         }
         if (previous) setLayer(layerFromResult(displayedLayer ?? previous, built))
         session.selectedFeatureId = null
+        outsideFeature = null
         resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
         resultGeometryColumn = built.geometryColumn
         queryPhase = 'succeeded'
@@ -430,6 +449,79 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
+  // Spec 007: map views (research §6). Each request gets a generation; an
+  // older one's features never replace a newer one's, and the previous
+  // features stay drawn until replaced (FR-007).
+  let viewFeatures = $state.raw<ViewFeatures | null>(null)
+  let viewLoading = $state(false)
+  let outsideFeature = $state.raw<Feature | null>(null)
+  let viewGeneration = 0
+  /** The layer whose first view already had its preview (see requestView). */
+  let previewedLayer: Layer | null = null
+  /** Features in the quick first view of a new file or result. */
+  const PREVIEW_CAP = 2_000
+  let fallbackDismissed = $state(false)
+  let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
+  let cameraRequest = $state<{ center: [number, number]; zoom: number; seq: number } | null>(null)
+  const viewNf = new Intl.NumberFormat()
+
+  async function requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void> {
+    const qs = querySession
+    const layer = session.layer
+    // A table-only result keeps the previous features, dimmed (spec 002 FR-006).
+    if (!qs || !layer || mapDimmed) return
+    lastViewBbox = bbox
+    const generation = ++viewGeneration
+    const current = (): boolean => generation === viewGeneration && querySession === qs
+    const slow = setTimeout(() => {
+      if (generation === viewGeneration) viewLoading = true
+    }, 300)
+    const cap = viewCapFor(layer.facts?.readMode ?? 'whole')
+    // The first view of a new file or result is drawn in two steps: a quick
+    // spread-out preview, then the full view, which replaces it without a
+    // blank map (FR-007). The preview shows no subset notice (it's replaced at once).
+    let preview = previewedLayer !== layer && cap > PREVIEW_CAP
+    previewedLayer = layer
+    try {
+      // A view never blocks user work (a query, export, autocomplete): it is
+      // skipped or interrupted, then asked again once the engine is free,
+      // unless a newer view came meanwhile.
+      for (let attempt = 0; attempt < 5 && current(); attempt++) {
+        try {
+          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx })
+          if (!current()) return
+          if (preview) {
+            viewFeatures = { ...v, thinned: false, preview: true }
+            preview = false
+            attempt = -1
+            continue
+          }
+          viewFeatures = v
+          return
+        } catch (err) {
+          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError)) throw err
+          await qs.whenIdle()
+        }
+      }
+    } catch (err) {
+      console.warn('Spatial Explorer: map view failed', err)
+    } finally {
+      clearTimeout(slow)
+      if (generation === viewGeneration) viewLoading = false
+    }
+  }
+
+  const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
+    const facts = session.layer?.facts
+    if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
+    const v = viewFeatures
+    if (v?.thinned) {
+      const of = v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
+      return { text: `Showing ${viewNf.format(v.features.length)} of ${of} in view. Zoom in to see all.`, kind: 'info', dismissible: false }
+    }
+    return null
+  })
+
   // Spec 007: the open in progress.
   let openPhase = $state<OpenPhase | null>(null)
   let openStartedAt = $state<number | null>(null)
@@ -443,6 +535,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     session.selectedFeatureId = null
     openCancelled = false
     openFacts = null
+    viewFeatures = null
+    outsideFeature = null
+    fallbackDismissed = false
     openPhase = null
     openStartedAt = null
     try {
@@ -846,7 +941,45 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     zoomToFeature(id) {
       session.selectedFeatureId = id
-      zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+      // FR-008: a feature outside the drawn set is fetched by its stable id, drawn highlighted, then zoomed to.
+      const drawn = viewFeatures?.features.some((f) => f.id === id) || outsideFeature?.id === id
+      if (drawn || typeof id !== 'number' || !querySession) {
+        zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+        return
+      }
+      void querySession
+        .featureById(id)
+        .then((f) => {
+          if (session.selectedFeatureId !== id) return
+          outsideFeature = f
+          zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+        })
+        .catch(() => {})
+    },
+    get viewFeatures() {
+      return viewFeatures
+    },
+    get viewLoading() {
+      return viewLoading
+    },
+    get viewNotice() {
+      return viewNotice
+    },
+    get outsideFeature() {
+      return outsideFeature
+    },
+    requestView,
+    get lastViewBbox() {
+      return lastViewBbox
+    },
+    get cameraRequest() {
+      return cameraRequest
+    },
+    jumpTo(center, zoom) {
+      cameraRequest = { center, zoom, seq: (cameraRequest?.seq ?? 0) + 1 }
+    },
+    dismissViewNotice() {
+      fallbackDismissed = true
     },
     setCursor(coords) {
       session.cursorCoordinates = coords

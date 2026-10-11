@@ -233,21 +233,26 @@ The loopback server removes all four steps.
 
 ## 6. The map: queries per view, capped and thinned
 
-**Decision**:
+**Decision** (revised during implementation; see "Implementation outcomes"):
 - On `moveend` (debounced 150 ms), the store queries the result for the
   view's bbox: exact count first (16 ms on the 4M file, through the bbox
-  columns), then the features.
+  columns), then the features. A result that fits under the cap skips the
+  count: fetching everything in view gives it.
 - **At or below the cap**, every feature in view is drawn.
-- **Above the cap**, the drawn subset is **thinned on a grid**: one feature
-  per cell of a `√cap × √cap` grid over the view (`DISTINCT ON (cell)` over
-  the bbox columns).
-  - This is deterministic, so panning doesn't shuffle features.
-  - It is spread across the view.
-  - At low zoom it is the whole dataset's distribution.
-  - Measured: 286 ms for 40,116 cells over all 4M rows.
+- **Above the cap**, the drawn subset is a **proportional, deterministic
+  sample**: each row in view is kept with probability ~cap / inView, decided
+  by `hash(row id)`.
+  - Density stays visible: dense areas stay dense, sparse areas sparse. This
+    is what "an overview of the whole dataset's distribution" means.
+  - A feature is in or out by its id, so panning doesn't shuffle features.
+  - The final `LIMIT` cuts in hash order, not file order, so the subset is
+    spread across the view.
+- **At overview zoom, no geometry is read.** A sampled feature under ~2 px is
+  drawn as a dot at its bbox center, taken from the bbox columns. Only the
+  few larger features have their geometry fetched.
 - **Stale views**: an older view's query is cancelled (`cancelSent`), and its
   result is dropped by generation number.
-- **Notice**: "Showing 25,000 of 310,412 in view; zoom in to see all".
+- **Notice**: "Showing 25,000 of 310,412 in view. Zoom in to see all."
 
 **Display cap**: the design doesn't depend on its value, so it is set by
 measurement in implementation (MapLibre `setData`, polygons, in both
@@ -257,6 +262,10 @@ shells).
 - FlatGeobuf in parts uses about 2,500 (§4).
 
 **Alternatives**:
+- **One feature per grid cell** (`DISTINCT ON (cell)`, the first design):
+  rejected after screenshots of the 4M-parcel file. It equalized density, so
+  20 dense "cities" vanished into uniform countryside, and it left many cells
+  empty on clustered data (807 of a 1,000 cap).
 - `USING SAMPLE … (system)`: 8 ms, but it picks whole vectors, which are
   spatial clumps on Hilbert-sorted files.
 - Row-number modulo: even only when the file happens to be spatially sorted.
@@ -364,6 +373,64 @@ deterministic sample, and the legend says "breaks from a 50,000-value sample"
 - **Spec 005**: the "All N rows / Only the M shown" choice no longer arises.
   `displayLimited` is removed, and export always writes the complete result.
   The writers are unchanged; they already stream from `__se_result`.
+
+## Implementation outcomes (US1–US2, 2026-10-11)
+
+What changed from the plan while building, with the measurement behind each.
+
+- **The overview reads no geometry.** Fetching the geometry of 25,000
+  sampled features spread over the 762 MB file touched nearly every row
+  group: **19.6 s**. Dots built from the bbox columns, plus geometry only for
+  features of 2 px or more: **4.0 s** to a drawn overview, including engine
+  start-up and facts. A 155,000-feature region view: 0.9 s; a city of
+  5,865 parcels, all drawn: 0.9 s.
+- **Features under ~2 px are drawn as dots** (`__se_dot`, radius 1.75 px).
+  MapLibre doesn't rasterize sub-pixel polygons, so an overview of parcels
+  was an empty map (0 features rendered). It also cuts the data sent at low
+  zoom.
+- **The proportional sample replaces grid thinning** (§6).
+- **The first view of a new file or result is progressive.** A 2,000-feature
+  preview is drawn first, and the full view replaces it at once. Drawing all
+  22,000 features of spec 001's 10 MB file took warm open from 1,594 ms
+  (1,000 rows drawn) to 2,309 ms. With the preview it takes **1,644 ms**
+  (SC-009), and the full view follows.
+- **Views skip `ST_IsValid` when the open counted no invalid geometry**
+  (view query 300 → 196 ms on 22,000 polygons).
+- **Views yield to user work.** A query, export or autocomplete load
+  interrupts or skips a view, and the store asks again once the engine is
+  free. Without this, a 1,000,000-row export failed with "A query is already
+  running", and the map kept the pre-query features.
+- **Hidden columns**: `__se_layer` (internal) carries `__se_rowid` and the
+  bbox columns. The public `layer` reads the same source directly, so user
+  queries never pay for a row-number window or lose filter pushdown. Query
+  results get the temp table's free `rowid` pseudo-column.
+- **Engine bug, FlatGeobuf (DuckDB-WASM 1.4.3):** an `ST_Read` with a
+  `spatial_filter_box` that matches **no** feature returns one full batch
+  (2,048 rows) of stale data instead of none; parsing it fails with "Could
+  not parse WKB input". The native 1.5.5 CLI has dropped the parameter, so
+  this can't be compared there. The guards:
+  - tiles outside the header envelope are skipped;
+  - rows are re-checked against the tile bbox;
+  - a WKB parse error in a tile counts as an empty tile.
+- **No `OGC_FID` in DuckDB-WASM 1.4.3's `ST_Read`** (the native 1.5.5
+  exposes it). FlatGeobuf features read in parts are identified by a hash of
+  their geometry, reduced to the JS safe-integer range.
+- **FlatGeobuf extent from the header bytes.** `ST_Read_Meta` gives the count
+  and CRS but no extent. A small FlatBuffers reader
+  (`source/fgbHeader.ts`, from the FlatGeobuf specification) reads the
+  envelope from the first ~1 KB through `HostAdapter.readRange`.
+- **Small whole-read files stay in memory.** Reading a 10 MB GeoJSON through
+  a `File` handle, in many small reads, was slower than one buffer (2,106 vs
+  1,616 ms warm). Whole-read files up to 64 MB, and FlatGeobuf files up to
+  the whole-read threshold, are fetched as bytes. Memory is no concern at
+  that size.
+- **Invalid geometry is counted only when cheap.** Files read in parts up to
+  64 MB get an exact feature count. Larger ones report rows: the status bar
+  says "4,000,000 rows", never claiming "features" it hasn't checked
+  (FR-016).
+- **The VS Code webview registers its test-message listener before
+  opening.** It used to register it after the open and the first render, so
+  a hook message sent at "ready" was lost.
 
 ## Residual risks
 

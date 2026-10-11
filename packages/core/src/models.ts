@@ -108,6 +108,8 @@ export interface ViewRequest {
   bbox: Bbox
   zoom: number
   cap: number
+  /** The map canvas width in CSS pixels: features under ~2 px are sent as points so they stay visible. */
+  widthPx?: number
 }
 
 export interface ViewFeatures {
@@ -118,6 +120,10 @@ export interface ViewFeatures {
   inView: number
   /** inView > cap: one feature per grid cell was drawn. */
   thinned: boolean
+  /** FlatGeobuf read in parts: `inView` is a floor ("more than"), not an exact count. */
+  inViewAtLeast?: boolean
+  /** A quick first view, replaced by the full one at once (no subset notice). */
+  preview?: boolean
   ms: number
 }
 

@@ -114,9 +114,13 @@
     else return
     e.preventDefault()
   }
-  let inspected = $derived(
-    inspectorOpen && layer && session.selectedFeatureId !== null ? (layer.features.find((f) => f.id === session.selectedFeatureId) ?? null) : null
-  )
+  // The inspector shows the selected feature from wherever it is: the table's
+  // rows, the drawn view (spec 007), or one fetched outside the view (FR-008).
+  let inspected = $derived.by(() => {
+    const id = session.selectedFeatureId
+    if (!inspectorOpen || !layer || id === null) return null
+    return layer.features.find((f) => f.id === id) ?? store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
+  })
 
   // Popovers that need a layer close when it goes away (new file, error).
   $effect(() => {
@@ -238,6 +242,11 @@
     <div class="map-pane">
       <MapView
         layer={store.mapLayer ?? layer}
+        viewFeatures={store.viewFeatures}
+        extraFeature={store.outsideFeature}
+        viewLoading={store.viewLoading}
+        cameraRequest={store.cameraRequest}
+        onViewChange={(bbox, zoom, widthPx) => void store.requestView(bbox, zoom, widthPx)}
         dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}
         style={store.style}
@@ -276,6 +285,14 @@
         <div class="map-notice no-geometry" role="status">
           <Icon name="info" size={14} />
           <span>This result has no geometry to map. The previous layer is shown dimmed.</span>
+        </div>
+      {:else if store.viewNotice}
+        <div class="map-notice" class:info={store.viewNotice.kind === 'info'} role="status">
+          <Icon name={store.viewNotice.kind === 'info' ? 'info' : 'warning'} size={14} />
+          <span>{store.viewNotice.text}</span>
+          {#if store.viewNotice.dismissible}
+            <button type="button" aria-label="Dismiss" onclick={() => store.dismissViewNotice()}><Icon name="close" size={14} /></button>
+          {/if}
         </div>
       {:else if store.basemapNotice && openPanel !== 'basemap'}
         <div class="map-notice" role="status">
@@ -477,6 +494,12 @@
   }
   .map-notice > :global(.icon) {
     color: var(--se-warning);
+  }
+  .map-notice.info {
+    border-left-color: var(--se-info);
+  }
+  .map-notice.info > :global(.icon) {
+    color: var(--se-info);
   }
   .map-notice button,
   .changed-banner button {

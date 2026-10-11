@@ -304,7 +304,7 @@ they skip with a message, never pass silently.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T025 [P] [US2] Write `tests/core/viewport-sql.test.ts` for `view/viewport.ts`:
+- [X] T025 [P] [US2] Write `tests/core/viewport-sql.test.ts` for `view/viewport.ts`:
   - the bbox predicate per `spatialIndex`: `covering`/hidden columns, `built` (join `__se_bbox` on `rn`), `rtree` (`ST_Intersects(geom, ST_MakeEnvelope(…))`), FlatGeobuf (`spatial_filter_box`);
   - the WGS84 view bbox is transformed to the layer CRS (an EPSG:26912 example) and the features are not;
   - the count query;
@@ -312,20 +312,24 @@ they skip with a message, never pass silently.
   - `LIMIT cap`;
   - geometry output as `ST_AsGeoJSON(ST_Transform(…, 'EPSG:4326'))`, or no transform for 4326;
   - invalid geometry excluded.
-- [ ] T026 [P] [US2] Write `tests/web/specs/viewport.spec.ts`, using the Independent Test above, plus:
+  - *Done*: tests/core/viewport-sql.test.ts: 13 tests (view bbox transform/clamp, constant bbox predicates, bbox-table, features + validity, tiny-feature centroids, proportional deterministic sample, bbox-only overview, FGB tiles + stale-row guard + envelope skip)
+- [X] T026 [P] [US2] Write `tests/web/specs/viewport.spec.ts`, using the Independent Test above, plus:
   - the map never shows zero features between views (sample `data-rendered-features` during pans: never 0 after the first draw);
   - the loading cue appears only for loads over 300 ms (a slow view forced by the e2e hook `slowViewMs`);
   - FlatGeobuf `parcels-10k.fgb` in parts (`?e2e=1&wholeThreshold=1`): a region view is capped at the `partial-view` cap with the notice.
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Implement `packages/core/src/view/viewport.ts` (the SQL builders; T025 passes) and `packages/core/src/view/index.ts`.
-- [ ] T028 [US2] In `packages/core/src/query/session.ts`, add:
+  - *Done*: tests/web/specs/viewport.spec.ts: 6 tests (overview subset + notice, city draws all, rapid pans never empty + last view only, inspector on a drawn feature, selection outside view fetched + drawn, slow-view cue, FGB in parts capped with 'more than')
+- [X] T027 [US2] Implement `packages/core/src/view/viewport.ts` (the SQL builders; T025 passes) and `packages/core/src/view/index.ts`.
+  - *Done*: view/viewport.ts builders; design revised by measurement (research 'Implementation outcomes'): proportional hash sample instead of grid thinning, bbox-only overview dots (19.6 s -> 4.0 s on 762 MB), sub-2 px features as dots
+- [X] T028 [US2] In `packages/core/src/query/session.ts`, add:
   - `view(req)`: count, then features; cancels an in-flight view (`cancelSent`); drops results from older generations; returns `ViewFeatures`;
   - `featureById(id)` by `__se_rowid`.
 
   Both run on the exclusive connection, and views yield to user queries (a user query cancels a pending view).
-- [ ] T029 [US2] In `packages/ui/src/MapView.svelte` and `packages/ui/src/viewerStore.svelte.ts`:
+  - *Done*: QuerySession.view/featureById/whenIdle/setLayerView; views preemptible (exclusive kind), skipped/interrupted views retried after idle; FGB tiles with the empty-filter engine-bug guards and geometry-hash ids (no OGC_FID in WASM 1.4.3); result views use rowid
+- [X] T029 [US2] In `packages/ui/src/MapView.svelte` and `packages/ui/src/viewerStore.svelte.ts`:
   - render `ViewFeatures` instead of `layer.features`;
   - request a view on `moveend` (debounced 150 ms) and after every new result;
   - keep the previous features until replaced;
@@ -334,14 +338,17 @@ they skip with a message, never pass silently.
   - the cap from `READ_MODES`, or the e2e `cap` override.
 
   Un-fixme T018's cap assertions.
-- [ ] T030 [US2] Selection outside the view (FR-008), in `packages/ui/src/viewerStore.svelte.ts`, `MapView.svelte` and `ViewerLayout.svelte`:
+  - *Done*: MapView renders ViewFeatures (moveend debounce, keep previous, loading bar >300 ms, camera hook, __se_dot radius via paintFor), store view state/notice/progressive 2,000-feature first view (10 MB warm open 1,644 ms, SC-009)
+- [X] T030 [US2] Selection outside the view (FR-008), in `packages/ui/src/viewerStore.svelte.ts`, `MapView.svelte` and `ViewerLayout.svelte`:
   - table selection or zoom-to calls `featureById`;
   - a highlight overlay source draws the selected feature even when it isn't in the view set;
   - zoom-to fits it;
   - the inspector reads the feature from `featureById`.
 
   T026 passes.
-- [ ] T031 [US2] VS Code parity: add a `_getViewState` hook (`generation`, `inView`, `drawn`, `thinned`) in `apps/vscode-ext/src/webview/main.ts` and `extension.ts`. Extend `large-open.test.ts`: after open, `thinned` is true at the full extent with `cap=1000` (cap passed via the `_setTestOverrides` hook), and `drawn ≤ 1000`.
+  - *Done*: zoomToFeature fetches by id outside the drawn set, draws it as extraFeature, zooms; inspector reads table rows, drawn view or the fetched feature
+- [X] T031 [US2] VS Code parity: add a `_getViewState` hook (`generation`, `inView`, `drawn`, `thinned`) in `apps/vscode-ext/src/webview/main.ts` and `extension.ts`. Extend `large-open.test.ts`: after open, `thinned` is true at the full extent with `cap=1000` (cap passed via the `_setTestOverrides` hook), and `drawn ≤ 1000`.
+  - *Done*: VS Code: _setTestOverrides (sent with fileSource), _getMapView, _jumpTo; webview listener registered before the open; large-open.test.ts US2 passes. Full: lint 0, core 295, web 69, vscode 61
 
 **Checkpoint**: US1 and US2 together are the MVP. Large GeoParquet and FlatGeobuf files are browsable in both shells.
 
