@@ -234,7 +234,7 @@
         <button type="button" class="secondary" onclick={() => void store.cancelExport()}>Cancel export</button>
       {:else}
         <span class="spacer"></span>
-        <button type="button" class="secondary" onclick={close}>{outcome?.kind === 'saved' ? 'Close' : 'Cancel'}</button>
+        <button type="button" class="secondary" onclick={close}>{outcome?.kind === 'saved' ? 'Done' : 'Cancel'}</button>
         <button
           type="button"
           class="primary"

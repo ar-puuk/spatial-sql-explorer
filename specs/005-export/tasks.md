@@ -236,17 +236,20 @@ results save as Parquet (FR-004, FR-008).
 
 **Independent Test**: quickstart Scenario 5.
 
-- [ ] T023 [P] [US4] Extend `tests/web/specs/export.spec.ts` (US4), using 100,000 parcels (`writeParcels(100_000)`):
+- [X] T023 [P] [US4] Extend `tests/web/specs/export.spec.ts` (US4), using 100,000 parcels (`writeParcels(100_000)`):
   - GeoJSON export shows "rows written" progress and finishes;
   - another export cancelled after the progress appears gives the `cancelled` phase within 3 s, no download event, and a following `SELECT 1` query succeeds;
   - after a cancel, the e2e hook confirms no `/se-source/__se_export-*` file remains (glob).
-- [ ] T024 [P] [US4] Write a unit test in `tests/core/export-plan.test.ts` for the OOM message mapping: an engine error matching `/out of memory|Out of Memory|memory limit/i` or a `RangeError` (array buffer allocation) maps to "The export ran out of memory. Filter the result or choose GeoParquet (smallest)."
-- [ ] T025 [US4] Implement progress in the store and dialog:
+  - *Done*: export.spec US4: 100,000 polygons to GeoJSON shows 'rows written' progress then downloads. A 1,000,000-row result (first 50,000 shown, 'All 1,000,000 rows' the default) cancels in under 3 s: 'Nothing was saved', no download event, exportFiles() empty, and SELECT 42 then works. The footer 'Close' was renamed 'Done' (two buttons shared the name 'Close').
+- [X] T024 [P] [US4] Write a unit test in `tests/core/export-plan.test.ts` for the OOM message mapping: an engine error matching `/out of memory|Out of Memory|memory limit/i` or a `RangeError` (array buffer allocation) maps to "The export ran out of memory. Filter the result or choose GeoParquet (smallest)."
+  - *Done*: Already covered by T009's runner tests in export-plan.test.ts: Out of Memory and RangeError map to 'The export ran out of memory. Filter the result or choose GeoParquet (smallest).'; other errors keep their first line.
+- [X] T025 [US4] Implement progress in the store and dialog:
   - rows written for GeoJSON; an indeterminate bar plus elapsed time after 1 s for COPY formats;
   - `cancelExport()` → `querySession.cancel()`; the OOM mapping;
   - make sure `dropFile` runs on every outcome.
 
   Make T023 and T024 pass. Commit.
+  - *Done*: No new code beyond the Done rename: the progress UI (rows written or an indeterminate bar, plus elapsed time after 1 s), cancelExport → querySession.cancel, and the OOM mapping were built with T010/T016, and dropFile always runs in run.ts's finally. Verified by T023.
 
 ---
 
