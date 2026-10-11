@@ -124,6 +124,19 @@
     }
   })
 
+  /**
+   * Closes a map popover from the keyboard or its close button and puts focus
+   * back on the map control that opened it (Constitution VII: keyboard users
+   * keep their place). A map click closes popovers without moving focus.
+   */
+  function closePanel(): void {
+    const which = openPanel
+    openPanel = null
+    if (!which) return
+    const label = which === 'style' ? 'Layer style' : 'Basemap'
+    void tick().then(() => panes?.querySelector<HTMLButtonElement>(`.map-pane button[aria-label="${label}"]`)?.focus())
+  }
+
   function handleMapSelect(id: string | number | null): void {
     store.selectFeature(id)
     inspectorOpen = id !== null
@@ -139,7 +152,7 @@
     }
     // Escape closes the open popover from anywhere, not only from inside it.
     if (e.key === 'Escape' && openPanel !== null) {
-      openPanel = null
+      closePanel()
       e.preventDefault()
     }
   }
@@ -248,7 +261,7 @@
             notice={store.basemapNotice}
             onChoose={(choice) => store.setBasemap(choice)}
             onBlankColor={(color) => store.setBlankColor(color)}
-            onClose={() => (openPanel = null)}
+            onClose={closePanel}
           />
         </div>
       {/if}
@@ -292,7 +305,7 @@
             onImport={() => void store.importStyle()}
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
-            onClose={() => (openPanel = null)}
+            onClose={closePanel}
           />
         </div>
       {/if}

@@ -3,9 +3,12 @@
 // dark, plus keyboard reachability of the table, map controls, basemap
 // picker, style panel and inspector. T048 (spec 002, FR-017) adds the query
 // panel: open, with an error, with the large-result dialog and with the
-// history popover, and Tab through its controls.
+// history popover, and Tab through its controls. T043 (spec 003, FR-018)
+// adds the thematic style panel, ramp picker, class list and legend.
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -194,4 +197,84 @@ test('keyboard: every query control is reachable, and Tab leaves the editor', as
   await expect(cancel).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.locator('.query-status')).toContainText('Cancelled', { timeout: 10000 })
+})
+
+const squares = (): string => {
+  const features = Array.from({ length: 100 }, (_, i) => `{"type":"Feature","properties":{"value":${i * i},"zone":"Z${i % 4}"},"geometry":{"type":"Point","coordinates":[${(-112 + i * 0.01).toFixed(2)},40.5]}}`)
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-a11y-')), 'squares.geojson')
+  fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${features.join(',')}]}`)
+  return file
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the thematic style states (${scheme})`, async ({ page }) => {
+    test.setTimeout(120000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/')
+    await page.locator('input[type="file"]').setInputFiles(squares())
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await page.getByRole('button', { name: 'Layer style' }).click()
+    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await audit(page, 'categorized panel + legend')
+
+    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await page.getByRole('button', { name: /^Colors:/ }).click()
+    await expect(page.getByRole('listbox', { name: 'Color ramps' })).toBeVisible()
+    await audit(page, 'ramp listbox open')
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Edit bounds' }).click()
+    await page.getByRole('button', { name: /^Rename / }).first().click()
+    await audit(page, 'class list editing')
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('region', { name: 'Legend' }).getByRole('button', { expanded: true }).click()
+    await audit(page, 'legend collapsed')
+  })
+}
+
+test('keyboard: every style control is reachable, and Esc returns to the Layer style button', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
+    route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
+  )
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles(squares())
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  const styleButton = page.getByRole('button', { name: 'Layer style' })
+  await styleButton.click()
+
+  // Radio group: arrows move and apply.
+  await page.getByRole('radio', { name: 'Single' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('radio', { name: 'Categorized' })).toBeFocused()
+  await expect(page.getByRole('radio', { name: 'Categorized' })).toHaveAttribute('aria-checked', 'true')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('radio', { name: 'Graduated' })).toHaveAttribute('aria-checked', 'true')
+
+  // Tab through the panel and record what receives focus.
+  // The legend comes before the panel in tab order, so go all the way around.
+  const reached: string[] = []
+  for (let i = 0; i < 70; i++) {
+    await page.keyboard.press('Tab')
+    reached.push(
+      await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null
+        if (!el) return ''
+        const id = el.getAttribute('id')
+        const label = id ? document.querySelector(`label[for="${id}"]`)?.textContent : null
+        return (el.getAttribute('aria-label') ?? label ?? el.textContent ?? '').trim()
+      })
+    )
+  }
+  for (const name of ['Column', 'Method', 'Classes', 'Colors:', 'Reverse colors', 'Hide 0', 'Color of 0', 'Rename 0', 'Delete 0', 'Hide class 0']) {
+    expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
+  }
+
+  // Esc closes the panel and returns focus to its button.
+  await page.getByLabel('Method').focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
+  await expect(styleButton).toBeFocused()
 })

@@ -390,11 +390,12 @@ missing, recover automatically, and Reset restores the sidecar style.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T043 [P] Extend `tests/web/specs/accessibility.spec.ts`:
+- [X] T043 [P] Extend `tests/web/specs/accessibility.spec.ts`:
   - axe in light and dark with the style panel on Categorized, with the ramp listbox open, with the class list in edit mode, and with the legend expanded and collapsed;
   - a keyboard test where Tab reaches the renderer radios, Column, Method, Classes, Ramp, Reverse, every class-row control and the legend toggles, and Esc returns focus to "Layer style".
 
   Fix any violations.
+  - *Done*: accessibility.spec: axe in light and dark on the categorized panel with legend, the ramp listbox open, the class list editing, and the legend collapsed (0 violations). Keyboard: radio arrows apply; Tab reaches Column, Method, Classes, Colors, Reverse, each row's Hide/Color/Rename/Delete and the legend toggles. It found a real bug: Esc or Close on a map popover (style or basemap) dropped focus. closePanel() in ViewerLayout now returns focus to the opening control. a11y + basemap specs 13/13.
 - [ ] T044 [P] Extend `tests/web/specs/performance.spec.ts`:
   - **SC-001**: categorize, then graduate (Jenks, 10 classes), on the 22,000-feature file, timed from change to legend update plus `data-rendered-features` settled, < 1 s each;
   - **SC-007**: Show all on a 50,000-polygon file, then graduated Jenks: no long task over 1 s (`PerformanceObserver` `longtask`), and the previous style stays until the new legend appears.
