@@ -1,0 +1,17 @@
+{
+  "_comment": "Spec 005 T001: one column per DuckDB type family the export plan must handle (planExport tests).",
+  "columns": [
+    { "name": "name", "type": "VARCHAR" },
+    { "name": "big", "type": "BIGINT" },
+    { "name": "huge", "type": "HUGEINT" },
+    { "name": "area", "type": "DOUBLE" },
+    { "name": "price", "type": "DECIMAL(18,2)" },
+    { "name": "open", "type": "BOOLEAN" },
+    { "name": "since", "type": "DATE" },
+    { "name": "updated", "type": "TIMESTAMP" },
+    { "name": "tags", "type": "VARCHAR[]" },
+    { "name": "info", "type": "STRUCT(a INTEGER, b VARCHAR)" },
+    { "name": "payload", "type": "BLOB" },
+    { "name": "centroid", "type": "GEOMETRY" }
+  ]
+}

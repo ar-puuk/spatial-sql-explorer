@@ -54,8 +54,10 @@ implementation.
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Add test fixtures: `tests/core/fixtures/export/` with a small table description (columns of every DuckDB type family: VARCHAR, BIGINT beyond 2^53, DOUBLE, DECIMAL, BOOLEAN, DATE, TIMESTAMP, VARCHAR[], STRUCT, BLOB, a second GEOMETRY), as JSON used by the plan tests. Copy `specs/005-export/spikes/geoparquet-utm12n.parquet` to `tests/core/fixtures/export/` as the reference shape QGIS reads (README noting its provenance).
-- [ ] T002 [P] Add the `export` icon variant if the existing `export` icon doesn't fit a data download. Otherwise confirm reuse, in `packages/ui/src/Icon.svelte`.
+- [X] T001 Add test fixtures: `tests/core/fixtures/export/` with a small table description (columns of every DuckDB type family: VARCHAR, BIGINT beyond 2^53, DOUBLE, DECIMAL, BOOLEAN, DATE, TIMESTAMP, VARCHAR[], STRUCT, BLOB, a second GEOMETRY), as JSON used by the plan tests. Copy `specs/005-export/spikes/geoparquet-utm12n.parquet` to `tests/core/fixtures/export/` as the reference shape QGIS reads (README noting its provenance).
+  - *Done*: tests/core/fixtures/export/ holds columns.json (12 type families), the QGIS-verified geoparquet-utm12n.parquet, and a README.
+- [X] T002 [P] Add the `export` icon variant if the existing `export` icon doesn't fit a data download. Otherwise confirm reuse, in `packages/ui/src/Icon.svelte`.
+  - *Done*: The existing 'export' icon (an arrow out of a tray) fits a data export, so it is reused with no new icon.
 
 ---
 
