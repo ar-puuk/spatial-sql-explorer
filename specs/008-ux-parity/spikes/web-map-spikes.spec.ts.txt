@@ -1,0 +1,23 @@
+// SPIKE (spec 008 plan, temporary; deleted after research.md is written).
+import { test } from '@playwright/test'
+
+const cases: Array<[string, string]> = [
+  ['globe+extrusion', '?proj=globe'],
+  ['mercator+extrusion', '?proj=mercator'],
+  ['globe+esri imagery', '?proj=globe&raster=' + encodeURIComponent('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}')],
+  ['opentopomap', '?proj=mercator&raster=' + encodeURIComponent('https://a.tile.opentopomap.org/{z}/{x}/{y}.png')],
+  ['globe fill query', '?proj=globe&fill=1'],
+  ['globe hidden fill query', '?proj=globe&fill=1&hidden=1'],
+  ['mercator fill query', '?proj=mercator&fill=1'],
+  ['osm', '?proj=mercator&raster=' + encodeURIComponent('https://tile.openstreetmap.org/{z}/{x}/{y}.png')],
+]
+for (const [name, q] of cases) {
+  test(`map spike: ${name}`, async ({ page }) => {
+    test.setTimeout(120000)
+    page.on('console', (m) => m.type() === 'error' && console.log(name, 'console:', m.text().slice(0, 200))); page.on('pageerror', (e) => console.log(name, 'pageerror', String(e).slice(0, 200)))
+    await page.goto('/spike008/index.html' + q)
+    await page.waitForFunction(() => (window as unknown as { __spike?: { done?: boolean } }).__spike?.done, null, { timeout: 30000 }).catch(() => console.log(name, 'TIMEOUT'))
+    await page.waitForTimeout(1500)
+    console.log(name, JSON.stringify(await page.evaluate(() => (window as unknown as { __spike: unknown }).__spike)))
+  })
+}

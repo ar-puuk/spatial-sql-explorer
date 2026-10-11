@@ -16,6 +16,7 @@ import {
   reportLoadState,
   reportQueryState,
   reportStyleState,
+  reportTableState,
   reportExportState,
   reportOpenState,
   reportMapViewState,
@@ -26,6 +27,7 @@ import {
 import { watchViewState } from './viewState.svelte.js'
 import { watchQueryState } from './queryState.svelte.js'
 import { watchStyleState } from './styleState.svelte.js'
+import { watchTableState } from './tableState.svelte.js'
 import { watchExportState } from './exportState.svelte.js'
 import { watchOpenState } from './openState.svelte.js'
 import { watchMapViewState } from './mapViewState.svelte.js'
@@ -63,6 +65,7 @@ async function main(): Promise<void> {
   watchViewState(store, reportViewState)
   watchQueryState(store, reportQueryState)
   watchStyleState(store, reportStyleState)
+  watchTableState(store, reportTableState)
   watchExportState(store, reportExportState)
   watchOpenState(store, reportOpenState)
   watchMapViewState(store, reportMapViewState)
@@ -75,7 +78,7 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown> }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string; column?: string; filter?: unknown; hidden?: unknown }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
       // with the whole text selected. (Spec 007 removed the large-result prompt.)
@@ -96,8 +99,18 @@ async function main(): Promise<void> {
       store.openExport()
       if (msg.request) store.setExportRequest(msg.request as Parameters<typeof store.setExportRequest>[0])
       void store.runExport()
+    } else if (msg.type === 'testSetFilter' && typeof msg.column === 'string') {
+      store.setFilter(msg.column, (msg.filter ?? null) as Parameters<typeof store.setFilter>[1])
+    } else if (msg.type === 'testSwitchLayer' && typeof msg.column === 'string') {
+      void store.switchLayer(msg.column)
+    } else if (msg.type === 'testSetHiddenColumns' && Array.isArray(msg.hidden)) {
+      store.setHiddenColumns(msg.hidden as string[])
     } else if (msg.type === 'testSaveStyle') {
       void store.saveStyle()
+    } else if (msg.type === 'testSaveStyleAs' && (msg.format === 'qml' || msg.format === 'sld' || msg.format === 'mapbox')) {
+      void store.saveStyleAs(msg.format)
+    } else if (msg.type === 'testExportMapImage') {
+      void store.exportMapImage({ scale: msg.scale === 2 ? 2 : 1, legend: null })
     } else if (msg.type === 'testCancelOpen') {
       void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {

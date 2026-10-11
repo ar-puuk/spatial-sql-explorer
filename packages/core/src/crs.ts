@@ -27,6 +27,16 @@ export function reprojectToWgs84Sql(geometryColumn: string, sourceSrid: number |
 }
 
 /**
+ * Spec 008: the geometry in another EPSG CRS (export to a CRS the user
+ * chose). The source is the result's CRS (null: WGS84, assumed or real).
+ */
+export function reprojectSql(geometryColumn: string, sourceSrid: number | null, targetSrid: number): string {
+  const from = sourceSrid ?? 4326
+  if (from === targetSrid) return geometryColumn
+  return `ST_Transform(${geometryColumn}, 'EPSG:${from}', 'EPSG:${targetSrid}', always_xy := true)`
+}
+
+/**
  * Resolves the CrsInfo to report to the user for a given detected source
  * SRID. A `null` srid means the file had no CRS information — WGS84 is
  * assumed, but `crsAssumed: true` must be surfaced by the caller (FR-015)

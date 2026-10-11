@@ -3,7 +3,7 @@
 // message, never an exception, so the data layer is never affected (FR-016).
 // Selection follows the host theme in 'auto' (FR-009/FR-017).
 import { describe, expect, it } from 'vitest'
-import { BASEMAP_CATALOG, BasemapHealth, loadBasemapStyle, resolveBasemap, getDefaultBasemap } from '@spatial-explorer/core'
+import { BASEMAP_CATALOG, BasemapHealth, loadBasemapStyle, rasterStyle, resolveBasemap, getDefaultBasemap } from '@spatial-explorer/core'
 
 const positron = BASEMAP_CATALOG.find((e) => e.id === 'openfreemap-positron')!
 const blank = BASEMAP_CATALOG.find((e) => e.id === 'blank')!
@@ -85,5 +85,50 @@ describe('BasemapHealth', () => {
     h.recordSuccess()
     expect(h.recordFailure()).toBe(false)
     expect(h.recordFailure()).toBe(false)
+  })
+})
+
+// T007 (spec 008, research §7): keyless raster basemaps.
+describe('raster basemaps', () => {
+  const raster = BASEMAP_CATALOG.filter((e) => e.type === 'raster')
+
+  it('the catalog has satellite, topographic and OSM rows, keyless, with attribution, never a default', () => {
+    expect(raster.map((e) => e.id).sort()).toEqual(['esri-imagery', 'opentopomap', 'osm'])
+    for (const e of raster) {
+      expect(e.requiresKey).toBe(false)
+      expect(e.defaultFor).toBeUndefined()
+      expect(e.maxzoom).toBeGreaterThan(0)
+    }
+    expect(raster.find((e) => e.id === 'esri-imagery')!.attribution).toMatch(/Esri/)
+    expect(raster.find((e) => e.id === 'opentopomap')!.attribution).toMatch(/OpenTopoMap.*CC-BY-SA/)
+    expect(raster.find((e) => e.id === 'osm')!.attribution).toMatch(/OpenStreetMap contributors/)
+  })
+
+  it('loads without fetching a style document', async () => {
+    const entry = raster[0]
+    const result = await loadBasemapStyle(entry, (() => {
+      throw new Error('should not fetch')
+    }) as typeof fetch)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.style?.layers[0]).toMatchObject({ type: 'raster', source: 'basemap-raster' })
+  })
+
+  it('expands {s} into one URL per subdomain', () => {
+    const style = rasterStyle(BASEMAP_CATALOG.find((e) => e.id === 'opentopomap')!)
+    const src = style.sources['basemap-raster'] as { tiles: string[]; maxzoom: number; attribution: string }
+    expect(src.tiles).toEqual(['https://a.tile.opentopomap.org/{z}/{x}/{y}.png', 'https://b.tile.opentopomap.org/{z}/{x}/{y}.png', 'https://c.tile.opentopomap.org/{z}/{x}/{y}.png'])
+    expect(src.maxzoom).toBe(17)
+    expect(src.attribution).toMatch(/OpenTopoMap/)
+  })
+})
+
+describe('BasemapHealth (spec 008)', () => {
+  it('a settled map with failed tiles and none loaded gives up, even under the threshold', () => {
+    const h = new BasemapHealth(4)
+    expect(h.settledWithoutTiles()).toBe(false)
+    expect(h.recordFailure()).toBe(false)
+    expect(h.settledWithoutTiles()).toBe(true)
+    h.recordSuccess()
+    expect(h.settledWithoutTiles()).toBe(false)
   })
 })

@@ -8,6 +8,7 @@
 // Sizes are written in `Pixel` units so they mean exactly what MapLibre
 // renders; on import, QGIS's default millimetre and point units are
 // converted at 96 DPI.
+import { extrusionFromQgis, extrusionToQgis } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
   escapeXml,
@@ -163,6 +164,62 @@ ${method}    <rotation/>
   }
 }
 
+function renderer3dXml(style: LayerStyle): string {
+  const e = style.extrusion
+  if (!e) return ''
+  const { constant, expression } = extrusionToQgis(e)
+  const c = parseColor(style.fillColor) ?? { r: 128, g: 128, b: 128 }
+  const ddp = expression
+    ? `          <Option name="properties" type="Map">
+            <Option name="extrusionHeight" type="Map">
+              <Option name="active" type="bool" value="true"/>
+              <Option name="expression" type="QString" value="${escapeXml(expression)}"/>
+              <Option name="type" type="int" value="3"/>
+            </Option>
+          </Option>`
+    : `          <Option name="properties"/>`
+  return `  <renderer-3d layer="" type="vector">
+    <vector-layer-3d-tiling max-chunk-features="1000" show-bounding-boxes="0" zoom-levels-count="3"/>
+    <symbol material_type="phong" type="polygon">
+      <data add-back-faces="0" alt-binding="centroid" alt-clamping="absolute" culling-mode="no-culling" extrusion-height="${round(constant)}" invert-normals="0" offset="0" rendered-facade="Walls|Roof"/>
+      <material ambient="${c.r},${c.g},${c.b},255" diffuse="${c.r},${c.g},${c.b},255" shininess="0" specular="255,255,255,255" opacity="${round(style.layerOpacity ?? 1)}" type="phong"/>
+      <data-defined-properties>
+        <Option type="Map">
+          <Option name="name" type="QString" value=""/>
+${ddp}
+          <Option name="type" type="QString" value="collection"/>
+        </Option>
+      </data-defined-properties>
+      <edges color="0,0,0,255" enabled="0" width="1"/>
+    </symbol>
+  </renderer-3d>
+`
+}
+
+/** Reads `<renderer-3d>`'s polygon extrusion; a height expression we don't write imports as off. */
+function readRenderer3d(doc: Document, notes: string[]): LayerStyle['extrusion'] | undefined {
+  const r3d = doc.getElementsByTagName('renderer-3d')[0]
+  if (!r3d) return undefined
+  const symbol = Array.from(r3d.getElementsByTagName('symbol')).find((s) => s.getAttribute('type') === 'polygon')
+  if (!symbol) return undefined
+  const data = Array.from(symbol.children).find((c) => c.tagName === 'data')
+  const constant = Number(data?.getAttribute('extrusion-height') ?? '0')
+  let expression: string | null = null
+  for (const o of Array.from(symbol.getElementsByTagName('Option'))) {
+    if (o.getAttribute('name') !== 'extrusionHeight') continue
+    const opts = Array.from(o.getElementsByTagName('Option'))
+    const active = opts.find((x) => x.getAttribute('name') === 'active')?.getAttribute('value') === 'true'
+    const expr = opts.find((x) => x.getAttribute('name') === 'expression')?.getAttribute('value') ?? null
+    if (active && expr) expression = expr
+  }
+  const parsed = extrusionFromQgis(expression, Number.isFinite(constant) ? constant : 0)
+  if (!parsed) {
+    if (expression) notes.push(`The 3D height expression ${expression} is not supported (a column, optionally times a number, or a constant): extrusion is off.`)
+    return undefined
+  }
+  return { enabled: true, ...parsed }
+}
+
 export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?: ResolvedStyle, columnType?: string): StyleExport {
   const style = sanitizeStyle(input)
   const notes: string[] = []
@@ -186,10 +243,15 @@ ${symbolXml(kind, style)}
   </renderer-v2>`
   let props: Record<string, string> = {}
   if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType))
+  // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
+  const renderer3d = style.extrusion?.enabled && geom === 'Polygon' ? renderer3dXml(style) : ''
+  // Spec 008: QGIS loads only the categories listed: layer opacity is in
+  // Rendering, and polygon extrusion in Symbology3D (checked with QGIS 4.2.3).
   const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology|CustomProperties">
+<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|Rendering|CustomProperties">
 ${renderer}
-${customProperties(props)}  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
+${renderer3d}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
+  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
 </qgis>
 `
   return { text, notes }
@@ -382,5 +444,10 @@ export function qmlToStyle(text: string): StyleImportResult {
     }
   }
 
+  // Spec 008: QGIS's layer opacity.
+  const extrusion = readRenderer3d(doc, notes)
+  if (extrusion) style.extrusion = extrusion
+  const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
+  if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
   return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }
 }

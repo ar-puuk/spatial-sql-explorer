@@ -20,6 +20,7 @@ apps/vscode-ext/THIRD-PARTY-NOTICES.md
 # (copied from node_modules by apps/web/scripts/copy-wasm-assets.js)
 apps/web/public/duckdb/
 apps/web/public/maplibre/
+apps/web/public/sqljs/
 
 # Playwright test output + scripts/screenshots.mjs output
 screenshots/
@@ -42,3 +43,4 @@ Thumbs.db
 
 # Spec 007: generated multi-GB test files (scripts/large-data.sql)
 tests/.large-data/
+scripts/.crs-candidates.json

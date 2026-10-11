@@ -1,0 +1,105 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Salt Lake City",
+    "kind": "city",
+    "population": 200133
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -111.891,
+     40.761
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Provo",
+    "kind": "city",
+    "population": 115162
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -111.659,
+     40.234
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Downtown",
+    "kind": "district",
+    "population": 9000
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -111.9,
+       40.75
+      ],
+      [
+       -111.88000000000001,
+       40.75
+      ],
+      [
+       -111.88000000000001,
+       40.77
+      ],
+      [
+       -111.9,
+       40.77
+      ],
+      [
+       -111.9,
+       40.75
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Sugar House",
+    "kind": "district",
+    "population": 33000
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -111.87,
+       40.71
+      ],
+      [
+       -111.84,
+       40.71
+      ],
+      [
+       -111.84,
+       40.74
+      ],
+      [
+       -111.87,
+       40.74
+      ],
+      [
+       -111.87,
+       40.71
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

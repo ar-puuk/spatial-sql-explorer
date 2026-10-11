@@ -25,14 +25,19 @@ table, without opening a desktop GIS.
   Dark, Fiord) or a blank background in a color you choose. If the network
   is unavailable, the map falls back to blank and your data still shows.
 - **Thematic maps that QGIS understands.**
-  - Color features by category, or by numeric classes (equal interval,
-    quantile, natural breaks), with ramp previews and a legend with counts.
+  - Pick a style type and a column, and the map is styled at once: color
+    by category, or by numeric classes (equal interval, quantile, natural
+    breaks). A chart of the column's values shows where the class breaks
+    fall.
+  - Browse color ramps and see each one on the map before you pick it.
+    Opacity, outline and point size apply live, to the map and the legend.
   - Edit any class's color, label or bounds, or hide it from the map with
     its legend swatch.
-  - **Save** writes `<file>.qml` next to the data, which QGIS loads
-    automatically, and it's applied when you reopen the file. Categorized and
-    graduated styles open in QGIS with the same classes.
-  - Export or import QGIS QML, OGC SLD, or Mapbox GL style JSON.
+  - **Save style (QML)** writes `<file>.qml` next to the data, which QGIS
+    loads automatically, and it's applied when you reopen the file.
+    Categorized and graduated styles open in QGIS with the same classes.
+    The arrow next to it saves OGC SLD or Mapbox GL style JSON instead.
+  - Import QGIS QML, OGC SLD, or Mapbox GL style JSON.
   - Styles follow your queries: classes are recomputed for each result.
 - **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to
   open the query panel, and query the file as the table `layer` with DuckDB

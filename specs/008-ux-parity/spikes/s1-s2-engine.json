@@ -1,0 +1,656 @@
+{
+ "S1": [
+  {
+   "sql": "SELECT * FROM ST_Read_Meta('/in/three.gpkg')",
+   "ms": 52,
+   "n": 1,
+   "rows": [
+    {
+     "file_name": "/in/three.gpkg",
+     "driver_short_name": "GPKG",
+     "driver_long_name": "GeoPackage",
+     "layers": [
+      {
+       "name": "countries",
+       "feature_count": 180,
+       "geometry_fields": [
+        {
+         "name": "geom",
+         "type": "Unknown (any)",
+         "nullable": true,
+         "crs": {
+          "name": "WGS 84",
+          "auth_name": "EPSG",
+          "auth_code": "4326",
+          "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]",
+          "proj4": "+proj=longlat +datum=WGS84 +no_defs",
+          "projjson": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"GeographicCRS\",\n  \"name\": \"WGS 84\",\n  \"datum_ensemble\": {\n    \"name\": \"World Geodetic System 1984 ensemble\",\n    \"members\": [\n      {\n        \"name\": \"World Geodetic System 1984 (Transit)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1166\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G730)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1152\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G873)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1153\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1150)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1154\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1674)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1155\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1762)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1156\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G2139)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1309\n        }\n      }\n    ],\n    \"ellipsoid\": {\n      \"name\": \"WGS 84\",\n      \"semi_major_axis\": 6378137,\n      \"inverse_flattening\": 298.257223563\n    },\n    \"accuracy\": \"2.0\",\n    \"id\": {\n      \"authority\": \"EPSG\",\n      \"code\": 6326\n    }\n  },\n  \"coordinate_system\": {\n    \"subtype\": \"ellipsoidal\",\n    \"axis\": [\n      {\n        \"name\": \"Geodetic latitude\",\n        \"abbreviation\": \"Lat\",\n        \"direction\": \"north\",\n        \"unit\": \"degree\"\n      },\n      {\n        \"name\": \"Geodetic longitude\",\n        \"abbreviation\": \"Lon\",\n        \"direction\": \"east\",\n        \"unit\": \"degree\"\n      }\n    ]\n  },\n  \"scope\": \"Horizontal component of 3D system.\",\n  \"area\": \"World.\",\n  \"bbox\": {\n    \"south_latitude\": -90,\n    \"west_longitude\": -180,\n    \"north_latitude\": 90,\n    \"east_longitude\": 180\n  },\n  \"id\": {\n    \"authority\": \"EPSG\",\n    \"code\": 4326\n  }\n}"
+         }
+        }
+       ],
+       "fields": [
+        {
+         "name": "id",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        },
+        {
+         "name": "name",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        }
+       ]
+      },
+      {
+       "name": "city points",
+       "feature_count": 3,
+       "geometry_fields": [
+        {
+         "name": "geom",
+         "type": "Point",
+         "nullable": true,
+         "crs": {
+          "name": "WGS 84",
+          "auth_name": "EPSG",
+          "auth_code": "4326",
+          "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]",
+          "proj4": "+proj=longlat +datum=WGS84 +no_defs",
+          "projjson": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"GeographicCRS\",\n  \"name\": \"WGS 84\",\n  \"datum_ensemble\": {\n    \"name\": \"World Geodetic System 1984 ensemble\",\n    \"members\": [\n      {\n        \"name\": \"World Geodetic System 1984 (Transit)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1166\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G730)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1152\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G873)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1153\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1150)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1154\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1674)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1155\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1762)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1156\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G2139)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1309\n        }\n      }\n    ],\n    \"ellipsoid\": {\n      \"name\": \"WGS 84\",\n      \"semi_major_axis\": 6378137,\n      \"inverse_flattening\": 298.257223563\n    },\n    \"accuracy\": \"2.0\",\n    \"id\": {\n      \"authority\": \"EPSG\",\n      \"code\": 6326\n    }\n  },\n  \"coordinate_system\": {\n    \"subtype\": \"ellipsoidal\",\n    \"axis\": [\n      {\n        \"name\": \"Geodetic latitude\",\n        \"abbreviation\": \"Lat\",\n        \"direction\": \"north\",\n        \"unit\": \"degree\"\n      },\n      {\n        \"name\": \"Geodetic longitude\",\n        \"abbreviation\": \"Lon\",\n        \"direction\": \"east\",\n        \"unit\": \"degree\"\n      }\n    ]\n  },\n  \"scope\": \"Horizontal component of 3D system.\",\n  \"area\": \"World.\",\n  \"bbox\": {\n    \"south_latitude\": -90,\n    \"west_longitude\": -180,\n    \"north_latitude\": 90,\n    \"east_longitude\": 180\n  },\n  \"id\": {\n    \"authority\": \"EPSG\",\n    \"code\": 4326\n  }\n}"
+         }
+        }
+       ],
+       "fields": [
+        {
+         "name": "name",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        },
+        {
+         "name": "lon",
+         "type": "Real",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        },
+        {
+         "name": "lat",
+         "type": "Real",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        }
+       ]
+      },
+      {
+       "name": "lookup_table",
+       "feature_count": 3,
+       "geometry_fields": [],
+       "fields": [
+        {
+         "name": "name",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        },
+        {
+         "name": "lon",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        },
+        {
+         "name": "lat",
+         "type": "String",
+         "subtype": "None",
+         "nullable": true,
+         "unique": false,
+         "width": 0,
+         "precision": 0
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "sql": "SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/in/three.gpkg')",
+   "ms": 19,
+   "n": 3,
+   "rows": [
+    {
+     "name": "countries",
+     "feature_count": 180,
+     "geometry_fields": [
+      {
+       "name": "geom",
+       "type": "Unknown (any)",
+       "nullable": true,
+       "crs": {
+        "name": "WGS 84",
+        "auth_name": "EPSG",
+        "auth_code": "4326",
+        "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]",
+        "proj4": "+proj=longlat +datum=WGS84 +no_defs",
+        "projjson": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"GeographicCRS\",\n  \"name\": \"WGS 84\",\n  \"datum_ensemble\": {\n    \"name\": \"World Geodetic System 1984 ensemble\",\n    \"members\": [\n      {\n        \"name\": \"World Geodetic System 1984 (Transit)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1166\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G730)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1152\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G873)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1153\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1150)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1154\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1674)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1155\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1762)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1156\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G2139)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1309\n        }\n      }\n    ],\n    \"ellipsoid\": {\n      \"name\": \"WGS 84\",\n      \"semi_major_axis\": 6378137,\n      \"inverse_flattening\": 298.257223563\n    },\n    \"accuracy\": \"2.0\",\n    \"id\": {\n      \"authority\": \"EPSG\",\n      \"code\": 6326\n    }\n  },\n  \"coordinate_system\": {\n    \"subtype\": \"ellipsoidal\",\n    \"axis\": [\n      {\n        \"name\": \"Geodetic latitude\",\n        \"abbreviation\": \"Lat\",\n        \"direction\": \"north\",\n        \"unit\": \"degree\"\n      },\n      {\n        \"name\": \"Geodetic longitude\",\n        \"abbreviation\": \"Lon\",\n        \"direction\": \"east\",\n        \"unit\": \"degree\"\n      }\n    ]\n  },\n  \"scope\": \"Horizontal component of 3D system.\",\n  \"area\": \"World.\",\n  \"bbox\": {\n    \"south_latitude\": -90,\n    \"west_longitude\": -180,\n    \"north_latitude\": 90,\n    \"east_longitude\": 180\n  },\n  \"id\": {\n    \"authority\": \"EPSG\",\n    \"code\": 4326\n  }\n}"
+       }
+      }
+     ],
+     "fields": [
+      {
+       "name": "id",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      },
+      {
+       "name": "name",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      }
+     ]
+    },
+    {
+     "name": "city points",
+     "feature_count": 3,
+     "geometry_fields": [
+      {
+       "name": "geom",
+       "type": "Point",
+       "nullable": true,
+       "crs": {
+        "name": "WGS 84",
+        "auth_name": "EPSG",
+        "auth_code": "4326",
+        "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST],AUTHORITY[\"EPSG\",\"4326\"]]",
+        "proj4": "+proj=longlat +datum=WGS84 +no_defs",
+        "projjson": "{\n  \"$schema\": \"https://proj.org/schemas/v0.5/projjson.schema.json\",\n  \"type\": \"GeographicCRS\",\n  \"name\": \"WGS 84\",\n  \"datum_ensemble\": {\n    \"name\": \"World Geodetic System 1984 ensemble\",\n    \"members\": [\n      {\n        \"name\": \"World Geodetic System 1984 (Transit)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1166\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G730)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1152\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G873)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1153\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1150)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1154\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1674)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1155\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G1762)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1156\n        }\n      },\n      {\n        \"name\": \"World Geodetic System 1984 (G2139)\",\n        \"id\": {\n          \"authority\": \"EPSG\",\n          \"code\": 1309\n        }\n      }\n    ],\n    \"ellipsoid\": {\n      \"name\": \"WGS 84\",\n      \"semi_major_axis\": 6378137,\n      \"inverse_flattening\": 298.257223563\n    },\n    \"accuracy\": \"2.0\",\n    \"id\": {\n      \"authority\": \"EPSG\",\n      \"code\": 6326\n    }\n  },\n  \"coordinate_system\": {\n    \"subtype\": \"ellipsoidal\",\n    \"axis\": [\n      {\n        \"name\": \"Geodetic latitude\",\n        \"abbreviation\": \"Lat\",\n        \"direction\": \"north\",\n        \"unit\": \"degree\"\n      },\n      {\n        \"name\": \"Geodetic longitude\",\n        \"abbreviation\": \"Lon\",\n        \"direction\": \"east\",\n        \"unit\": \"degree\"\n      }\n    ]\n  },\n  \"scope\": \"Horizontal component of 3D system.\",\n  \"area\": \"World.\",\n  \"bbox\": {\n    \"south_latitude\": -90,\n    \"west_longitude\": -180,\n    \"north_latitude\": 90,\n    \"east_longitude\": 180\n  },\n  \"id\": {\n    \"authority\": \"EPSG\",\n    \"code\": 4326\n  }\n}"
+       }
+      }
+     ],
+     "fields": [
+      {
+       "name": "name",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      },
+      {
+       "name": "lon",
+       "type": "Real",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      },
+      {
+       "name": "lat",
+       "type": "Real",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      }
+     ]
+    },
+    {
+     "name": "lookup_table",
+     "feature_count": 3,
+     "geometry_fields": [],
+     "fields": [
+      {
+       "name": "name",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      },
+      {
+       "name": "lon",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      },
+      {
+       "name": "lat",
+       "type": "String",
+       "subtype": "None",
+       "nullable": true,
+       "unique": false,
+       "width": 0,
+       "precision": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "sql": "SELECT count(*) FROM ST_Read('/in/three.gpkg', layer='city points')",
+   "ms": 32,
+   "n": 1,
+   "rows": [
+    {
+     "count_star()": 3
+    }
+   ]
+  },
+  {
+   "sql": "SELECT count(*) FROM ST_Read('/in/three.gpkg', layer='lookup_table')",
+   "ms": 17,
+   "n": 1,
+   "rows": [
+    {
+     "count_star()": 3
+    }
+   ]
+  },
+  {
+   "sql": "SELECT * FROM ST_Read('/in/three.gpkg', layer='lookup_table') LIMIT 2",
+   "ms": 20,
+   "n": 2,
+   "rows": [
+    {
+     "name": "Salt Lake City",
+     "lon": "-111.891047",
+     "lat": "40.760779"
+    },
+    {
+     "name": "Provo",
+     "lon": "-111.658531",
+     "lat": "40.233844"
+    }
+   ]
+  },
+  {
+   "sql": "SELECT table_name, data_type, srs_id FROM ST_Read('/in/three.gpkg', layer='gpkg_contents')",
+   "error": "Binder Error: Layer 'gpkg_contents' could not be found in dataset\n\nLINE 1: SELECT table_name, data_type, srs_id FROM ST_Read('/in/three.gpkg', layer='gpkg_contents')\n                                                  ^"
+  },
+  {
+   "sql": "SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/in/two.gdb')",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "SELECT count(*) FROM ST_Read('/in/two.gdb', layer='parcels')",
+   "error": "IO Error: GDAL Error (4): `/in/two.gdb' not recognized as a supported file format.\n\nLINE 1: SELECT count(*) FROM ST_Read('/in/two.gdb', layer='parcels')\n                             ^"
+  },
+  {
+   "sql": "SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/vsizip//in/two.gdb.zip/two.gdb')",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "SELECT count(*) FROM ST_Read('/vsizip//in/two.gdb.zip/two.gdb', layer='countries')",
+   "error": "IO Error: GDAL Error (4): `/vsizip//in/two.gdb.zip/two.gdb' does not exist in the file system, and is not recognized as a supported dataset name.\n\nLINE 1: SELECT count(*) FROM ST_Read('/vsizip//in/two.gdb.zip/two.gdb', layer='countries...\n                             ^"
+  },
+  {
+   "sql": "SELECT unnest(layers, recursive := true) FROM ST_Read_Meta('/vsizip//in/two.gdb.zip')",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "SELECT short_name FROM ST_Drivers() WHERE short_name IN ('OpenFileGDB','GPKG','FlatGeobuf','ESRI Shapefile','KML','LIBKML','GeoJSONSeq','XLSX','SQLite','CSV') O",
+   "ms": 16,
+   "n": 8,
+   "rows": [
+    {
+     "short_name": "CSV"
+    },
+    {
+     "short_name": "ESRI Shapefile"
+    },
+    {
+     "short_name": "FlatGeobuf"
+    },
+    {
+     "short_name": "GPKG"
+    },
+    {
+     "short_name": "GeoJSONSeq"
+    },
+    {
+     "short_name": "KML"
+    },
+    {
+     "short_name": "SQLite"
+    },
+    {
+     "short_name": "XLSX"
+    }
+   ]
+  },
+  {
+   "sql": "SELECT short_name, can_create FROM ST_Drivers() WHERE can_create ORDER BY 1",
+   "ms": 2,
+   "n": 30,
+   "rows": [
+    {
+     "short_name": "CSV",
+     "can_create": true
+    },
+    {
+     "short_name": "DGN",
+     "can_create": true
+    },
+    {
+     "short_name": "DXF",
+     "can_create": true
+    },
+    {
+     "short_name": "ESRI Shapefile",
+     "can_create": true
+    },
+    {
+     "short_name": "FlatGeobuf",
+     "can_create": true
+    },
+    {
+     "short_name": "GML",
+     "can_create": true
+    },
+    {
+     "short_name": "GPKG",
+     "can_create": true
+    },
+    {
+     "short_name": "GPSBabel",
+     "can_create": true
+    },
+    {
+     "short_name": "GPX",
+     "can_create": true
+    },
+    {
+     "short_name": "GeoJSON",
+     "can_create": true
+    },
+    {
+     "short_name": "GeoJSONSeq",
+     "can_create": true
+    },
+    {
+     "short_name": "GeoRSS",
+     "can_create": true
+    },
+    {
+     "short_name": "Geoconcept",
+     "can_create": true
+    },
+    {
+     "short_name": "JML",
+     "can_create": true
+    },
+    {
+     "short_name": "JSONFG",
+     "can_create": true
+    },
+    {
+     "short_name": "KML",
+     "can_create": true
+    },
+    {
+     "short_name": "MVT",
+     "can_create": true
+    },
+    {
+     "short_name": "MapInfo File",
+     "can_create": true
+    },
+    {
+     "short_name": "MapML",
+     "can_create": true
+    },
+    {
+     "short_name": "Memory",
+     "can_create": true
+    },
+    {
+     "short_name": "ODS",
+     "can_create": true
+    },
+    {
+     "short_name": "OGR_GMT",
+     "can_create": true
+    },
+    {
+     "short_name": "PGDUMP",
+     "can_create": true
+    },
+    {
+     "short_name": "PMTiles",
+     "can_create": true
+    },
+    {
+     "short_name": "S57",
+     "can_create": true
+    },
+    {
+     "short_name": "SQLite",
+     "can_create": true
+    },
+    {
+     "short_name": "Selafin",
+     "can_create": true
+    },
+    {
+     "short_name": "VDV",
+     "can_create": true
+    },
+    {
+     "short_name": "WAsP",
+     "can_create": true
+    },
+    {
+     "short_name": "XLSX",
+     "can_create": true
+    }
+   ]
+  }
+ ],
+ "S2": [
+  {
+   "sql": "CREATE TABLE t AS (SELECT * EXCLUDE (geom), geom FROM ST_Read('/in/world.geojson') LIMIT 50)",
+   "ms": 61,
+   "n": 1,
+   "rows": [
+    {
+     "Count": 50
+    }
+   ]
+  },
+  {
+   "sql": "COPY t TO '/out/a.gpkg' (FORMAT GDAL, DRIVER 'GPKG')",
+   "error": "IO Error: GDAL Error (1): sqlite3_exec(PRAGMA synchronous = OFF) failed: file is not a database"
+  },
+  {
+   "sql": "COPY t TO '/out/a.fgb' (FORMAT GDAL, DRIVER 'FlatGeobuf')",
+   "error": "Maximum call stack size exceeded"
+  },
+  {
+   "sql": "COPY t TO '/out/a.shp' (FORMAT GDAL, DRIVER 'ESRI Shapefile')",
+   "error": "TransactionContext Error: cannot start a transaction within a transaction"
+  },
+  {
+   "sql": "COPY t TO '/out/a.kml' (FORMAT GDAL, DRIVER 'KML')",
+   "ms": 18,
+   "n": 1,
+   "rows": [
+    {
+     "Count": 50
+    }
+   ]
+  },
+  {
+   "sql": "COPY t TO '/out/a.geojsonl' (FORMAT GDAL, DRIVER 'GeoJSONSeq')",
+   "error": "IO Error: GDAL Error (3): Cannot write feature"
+  },
+  {
+   "sql": "COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.json' (FORMAT json, ARRAY true)",
+   "ms": 249,
+   "n": 1,
+   "rows": [
+    {
+     "Count": 50
+    }
+   ]
+  },
+  {
+   "sql": "COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.ndjson' (FORMAT json)",
+   "ms": 1,
+   "n": 1,
+   "rows": [
+    {
+     "Count": 50
+    }
+   ]
+  },
+  {
+   "sql": "INSTALL excel",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "LOAD excel",
+   "ms": 480,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "COPY (SELECT * EXCLUDE geom FROM t) TO '/out/a.xlsx' (FORMAT xlsx, HEADER true)",
+   "ms": 5,
+   "n": 1,
+   "rows": [
+    {
+     "Count": 50
+    }
+   ]
+  },
+  {
+   "sql": "INSTALL sqlite",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "LOAD sqlite",
+   "ms": 422,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "ATTACH '/out/a.sqlite' AS lite (TYPE sqlite)",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "CREATE TABLE lite.t AS SELECT * EXCLUDE geom, ST_AsWKB(geom) AS geom FROM t",
+   "error": "Invalid Error: Unable to open database \"/out/a.sqlite\": unable to open database file"
+  },
+  {
+   "sql": "DETACH lite",
+   "ms": 1,
+   "n": 0,
+   "rows": []
+  },
+  {
+   "sql": "SELECT function_name FROM duckdb_functions() WHERE function_name ILIKE 'st_as%' GROUP BY 1 ORDER BY 1",
+   "ms": 39,
+   "n": 7,
+   "rows": [
+    {
+     "function_name": "ST_AsGeoJSON"
+    },
+    {
+     "function_name": "ST_AsHEXWKB"
+    },
+    {
+     "function_name": "ST_AsMVT"
+    },
+    {
+     "function_name": "ST_AsMVTGeom"
+    },
+    {
+     "function_name": "ST_AsSVG"
+    },
+    {
+     "function_name": "ST_AsText"
+    },
+    {
+     "function_name": "ST_AsWKB"
+    }
+   ]
+  },
+  {
+   "sql": "SELECT file FROM glob('/out/*')",
+   "ms": 1,
+   "n": 7,
+   "rows": [
+    {
+     "file": "/out/a.fgb"
+    },
+    {
+     "file": "/out/a.geojsonl"
+    },
+    {
+     "file": "/out/a.gpkg"
+    },
+    {
+     "file": "/out/a.json"
+    },
+    {
+     "file": "/out/a.kml"
+    },
+    {
+     "file": "/out/a.ndjson"
+    },
+    {
+     "file": "/out/a.xlsx"
+    }
+   ]
+  }
+ ]
+}

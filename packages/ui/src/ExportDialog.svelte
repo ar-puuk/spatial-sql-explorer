@@ -5,8 +5,9 @@
   // format, CRS, CSV geometry, and every change a format forces, before
   // anything runs.
   import { onDestroy, onMount, tick } from 'svelte'
-  import { EXPORT_FORMATS, type ExportFormatId } from '@spatial-explorer/core'
+  import { EXPORT_FORMATS, type ExportFormatId, type ExportScope } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import CrsPicker from './CrsPicker.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -22,6 +23,7 @@
   const outcome = $derived(store.exportOutcome)
   const available = $derived(EXPORT_FORMATS.filter((f) => plan?.formats.find((x) => x.id === f.id)?.available))
   const hasGeometry = $derived(plan?.geometryColumn !== null && plan?.geometryColumn !== undefined)
+  /** Spec 008 FR-019: the chosen format doesn't fit the geometry choice: the plan took another one. */
 
   let dialog = $state<HTMLDivElement>()
   let now = $state(performance.now())
@@ -45,6 +47,16 @@
     return p.rows === null ? `Writing ${plan?.rowCount !== undefined ? nf.format(plan.rowCount) + ' rows' : ''}…${elapsed}` : `${nf.format(p.rows)} rows written${elapsed}`
   })
 
+  // Spec 008 (user request): the output CRS, from the picker.
+  const crsValue = $derived<'result' | number>(request.crs === 'wgs84' ? 4326 : request.crs === 'custom' && request.crsCode ? request.crsCode : 'result')
+  function chooseCrs(choice: 'result' | number): void {
+    if (choice === 'result') store.setExportRequest({ crs: 'result' })
+    else if (choice === 4326) store.setExportRequest({ crs: 'wgs84' })
+    else store.setExportRequest({ crs: 'custom', crsCode: choice })
+  }
+  const check = $derived(store.exportCrsCheck)
+  const extension = $derived(plan ? (EXPORT_FORMATS.find((f) => f.id === plan.format)?.extension ?? '') : '')
+
   const size = (bytes: number): string =>
     bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} bytes`
 
@@ -65,7 +77,7 @@
       else close()
       return
     }
-    if (e.key === 'Enter' && !running && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement)) {
+    if (e.key === 'Enter' && !running && !store.exportDisabled && !store.exportCrsProblem && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement)) {
       e.preventDefault()
       void store.runExport()
       return
@@ -98,7 +110,7 @@
   }
 
   onMount(() => {
-    void tick().then(() => dialog?.querySelector<HTMLElement>('[aria-checked="true"], button.primary')?.focus())
+    void tick().then(() => dialog?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"], .body select, button.primary')?.focus())
   })
 </script>
 
@@ -113,52 +125,88 @@
       <p class="blocked" role="status">{plan?.blocked ?? store.exportDisabled ?? 'Nothing to export yet.'}</p>
     {:else}
       <div class="body">
-        <div class="field">
-          <span class="label" id="export-format">Format</span>
-          <div class="options" role="radiogroup" aria-labelledby="export-format">
-            {#each available as f (f.id)}
-              <button
-                type="button"
-                role="radio"
-                data-value={f.id}
-                aria-checked={plan.format === f.id}
-                tabindex={plan.format === f.id ? 0 : -1}
-                disabled={running}
-                onclick={() => chooseFormat(f.id)}
-                onkeydown={(e) =>
-                  radioKeys(
-                    e,
-                    available.map((x) => x.id),
-                    plan.format,
-                    (v) => chooseFormat(v as ExportFormatId)
-                  )}>{f.label}</button
-              >
-            {/each}
+        {#if plan.scopes.length > 1}
+          <!-- Spec 008 FR-014: all rows, the filtered rows, or the selected rows. -->
+          <div class="field">
+            <span class="label" id="export-rows">Rows</span>
+            <div class="options" role="radiogroup" aria-labelledby="export-rows">
+              {#each plan.scopes as sc (sc.id)}
+                {@const label = `${sc.id === 'all' ? 'All' : sc.id === 'filtered' ? 'Filtered' : 'Selected'} (${sc.rows.toLocaleString('en-US')})`}
+                <button
+                  type="button"
+                  role="radio"
+                  data-value={sc.id}
+                  aria-checked={plan.scope === sc.id}
+                  tabindex={plan.scope === sc.id ? 0 : -1}
+                  disabled={running}
+                  onclick={() => store.setExportRequest({ scope: sc.id })}
+                  onkeydown={(e) =>
+                    radioKeys(
+                      e,
+                      plan.scopes.map((x) => x.id),
+                      plan.scope,
+                      (v) => store.setExportRequest({ scope: v as ExportScope })
+                    )}>{label}</button
+                >
+              {/each}
+            </div>
           </div>
+        {/if}
+        <!-- Spec 008 FR-019: with geometry, the spatial formats; without, the attribute formats. -->
+        <div class="field">
+          <span class="label" id="export-geometry-switch">Geometry</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            aria-label="Include geometry"
+            aria-checked={plan.includeGeometry}
+            disabled={running || !hasGeometry}
+            title={hasGeometry ? undefined : 'This result has no geometry column.'}
+            onclick={() => store.setExportRequest({ includeGeometry: !plan.includeGeometry })}
+          >
+            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+            <span class="state">{!hasGeometry ? 'None in this result' : plan.includeGeometry ? 'Included' : 'Left out'}</span>
+          </button>
+        </div>
+        <div class="field">
+          <label class="label" for="export-format">Format</label>
+          <!-- Spec 008 (user request): a dropdown of the formats that fit the geometry choice. -->
+          <select id="export-format" value={plan.format} disabled={running} onchange={(e) => chooseFormat(e.currentTarget.value as ExportFormatId)}>
+            {#each available as f (f.id)}
+              <option value={f.id}>{f.label}</option>
+            {/each}
+          </select>
         </div>
 
-        {#if hasGeometry && plan.format !== 'parquet'}
+        {#if plan.includeGeometry}
+          <!-- Spec 008 (user request): any CRS the engine knows, searchable, the usual ones pinned. -->
           <div class="field">
             <label class="label" for="export-crs">CRS</label>
-            <select
+            <CrsPicker
               id="export-crs"
-              value={plan.crs.forced ? 'wgs84' : request.crs}
+              value={crsValue}
+              resultLabel={plan.crs.resultLabel}
+              resultSrid={plan.crs.resultSrid}
+              extent={store.exportExtent}
               disabled={running || plan.crs.forced}
-              title={plan.crs.reason}
-              onchange={(e) => store.setExportRequest({ crs: e.currentTarget.value as 'result' | 'wgs84' })}
-            >
-              {#if plan.crs.forced}
-                <option value="wgs84">EPSG:4326 (WGS84), required by GeoJSON</option>
-              {:else}
-                <option value="result">{plan.crs.output === 'result' ? plan.crs.label : 'Result CRS'} (result)</option>
-                <option value="wgs84">EPSG:4326 (WGS84)</option>
-              {/if}
-            </select>
+              disabledLabel={plan.crs.forced ? `EPSG:4326 · WGS 84, required by ${EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? 'this format'}` : undefined}
+              describedBy="export-crs-status"
+              invalid={check?.state === 'invalid'}
+              valueName={check?.state === 'ok' ? check.name : null}
+              onChoose={chooseCrs}
+            />
           </div>
-          {#if plan.crs.forced}<p class="hint">{plan.crs.reason}</p>{/if}
+          {#if plan.crs.forced}
+            <p class="hint" id="export-crs-status">{plan.crs.reason}</p>
+          {:else if request.crs === 'custom' && check}
+            <p class="hint" id="export-crs-status" class:invalid={check.state === 'invalid'} role="status">
+              {check.state === 'checking' ? 'Checking the CRS…' : check.state === 'ok' ? `Coordinates are reprojected to EPSG:${check.code}.` : check.reason}
+            </p>
+          {/if}
         {/if}
 
-        {#if plan.format === 'csv' && hasGeometry}
+        {#if plan.format === 'csv' && plan.includeGeometry}
           <div class="field">
             <span class="label" id="export-geometry">Geometry</span>
             <div class="options" role="radiogroup" aria-labelledby="export-geometry">
@@ -179,6 +227,27 @@
             </div>
           </div>
         {/if}
+
+        <!-- Spec 008 (user request): the output file name; the extension follows the format. -->
+        <div class="field">
+          <label class="label" for="export-name">File name</label>
+          <div class="name-input">
+            <input
+              id="export-name"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              disabled={running}
+              value={request.fileName ?? plan.fileBase}
+              aria-describedby="export-name-ext"
+              oninput={(e) => store.setExportRequest({ fileName: e.currentTarget.value })}
+              onblur={(e) => {
+                if (!e.currentTarget.value.trim()) store.setExportRequest({ fileName: undefined })
+              }}
+            />
+            <span class="ext" id="export-name-ext">{extension}</span>
+          </div>
+        </div>
 
         {#if outcome?.kind === 'saved'}
           <p class="result ok" role="status">
@@ -216,8 +285,8 @@
         <button
           type="button"
           class="primary"
-          disabled={!plan || !!plan.blocked || !!store.exportDisabled}
-          title={store.exportDisabled ?? undefined}
+          disabled={!plan || !!plan.blocked || !!store.exportDisabled || !!store.exportCrsProblem}
+          title={store.exportDisabled ?? store.exportCrsProblem ?? undefined}
           onclick={() => void store.runExport()}
         >
           <Icon name="export" size={14} />Export…
@@ -318,6 +387,7 @@
     cursor: default;
   }
   select {
+    justify-self: stretch;
     min-width: 0;
     height: 24px;
     padding: 0 4px;
@@ -331,6 +401,39 @@
     margin: -4px 0 0 80px;
     color: var(--se-text-secondary);
     font-size: 0.9em;
+  }
+  .hint.invalid {
+    color: var(--se-error-fg, var(--se-error));
+  }
+  .name-input {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 24px;
+    box-sizing: border-box;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+  }
+  .name-input:focus-within {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .name-input input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 6px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--se-input-fg, var(--se-text-primary));
+    font: inherit;
+  }
+  .name-input .ext {
+    flex: none;
+    padding: 0 6px;
+    color: var(--se-text-secondary);
   }
   .notices {
     display: grid;
@@ -469,6 +572,77 @@
       animation: none;
       width: 100%;
       opacity: 0.5;
+    }
+  }
+  /* A VS Code-style toggle: a clear off state in every theme, the accent when on. */
+  .switch {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    padding: 0 4px 0 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+    font-weight: normal;
+    cursor: pointer;
+  }
+  .switch:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .switch .track {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--se-input-border);
+    background: color-mix(in srgb, var(--se-text-secondary) 22%, var(--se-input-bg));
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-primary);
+    opacity: 0.75;
+    transition:
+      transform 0.15s,
+      opacity 0.15s;
+  }
+  .switch:not(:disabled):hover .track {
+    border-color: var(--se-text-secondary);
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    transform: translateX(14px);
+    background: var(--se-button-fg);
+    opacity: 1;
+  }
+  .switch .state {
+    color: var(--se-text-secondary);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch .track,
+    .switch .thumb {
+      transition: none;
     }
   }
 </style>

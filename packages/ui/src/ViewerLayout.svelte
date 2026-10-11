@@ -17,9 +17,14 @@
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import MapImageDialog from './MapImageDialog.svelte'
+  import type { LegendSpec } from './mapImage.js'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
+  import ColumnChooser from './ColumnChooser.svelte'
+  import SelectionBar from './SelectionBar.svelte'
+  import LayerList from './LayerList.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -40,9 +45,20 @@
   const legendRenderer = $derived(rendererOf(store.style))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
-      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
+      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
+  // Spec 008 US7: the legend as the map shows it, for the map image.
+  const legendSpec = $derived.by((): LegendSpec | null => {
+    if (!layer || !showLegend) return null
+    const r = store.resolvedStyle
+    return {
+      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
+      shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
+      alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+      rows: r.classes.filter((c) => c.visible).map((c) => ({ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined })),
+    }
+  })
   const loading = $derived(session.loadState === 'loading')
 
   const MIN_FRACTION = 0.15
@@ -151,11 +167,15 @@
     void tick().then(() => panes?.querySelector<HTMLButtonElement>(`.map-pane button[aria-label="${label}"]`)?.focus())
   }
 
-  function handleMapSelect(id: string | number | null): void {
+  function handleMapSelect(id: string | number | null, additive = false): void {
     store.selectFeature(id)
+    // Spec 008 FR-012: a click selects that row; Ctrl/Cmd-click adds it to (or removes it from) the selection.
+    if (typeof id === 'number' || id === null) store.selectOnMap(id, additive)
     inspectorOpen = id !== null
     openPanel = null // a click on the map dismisses popovers, as in any map app
   }
+
+  let columnsOpen = $state(false)
 
   function handleWindowKeydown(e: KeyboardEvent): void {
     // Ctrl/Cmd+Shift+Q opens the query panel and focuses the editor (spec 002).
@@ -269,6 +289,11 @@
         {openPanel}
         onTogglePanel={(panel) => (openPanel = openPanel === panel ? null : panel)}
         onSelectFeature={handleMapSelect}
+        tickedIds={store.selection.kind === 'all-matching' ? 'all' : store.selection.ids}
+        fitRequest={store.fitRequest}
+        projection={store.projection}
+        onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
+        onCameraChange={(c) => store.setMapCamera(c)}
         onCursorMove={(c) => store.setCursor(c)}
         tiles={store.tiles}
         onInspectTileFeature={(f) => {
@@ -277,10 +302,19 @@
           openPanel = null
         }}
         styleUnavailable={store.tilesOnlyReason}
+        extruded={store.extruded}
+        onCaptureReady={(capture) => store.setMapCapture(capture)}
+        onExportImage={() => store.openMapImage()}
       />
-      {#if inspected}
+      {#if inspected || store.fileLayers.length > 1}
         <div class="inspector-slot">
-          <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
+          {#if store.fileLayers.length > 1}
+            <!-- Spec 008 US3: the file's layers, with the inspector under them. -->
+            <LayerList layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+          {/if}
+          {#if inspected}
+            <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
+          {/if}
         </div>
       {/if}
       {#if openPanel === 'basemap'}
@@ -325,6 +359,7 @@
           collapsed={store.legendCollapsed}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
+          fillOpacity={store.style.fillOpacity * (store.style.layerOpacity ?? 1)}
         />
       {/if}
       {#if openPanel === 'style' && layer}
@@ -340,14 +375,18 @@
             canSaveSidecar={store.canSaveSidecar}
             notice={store.styleNotice}
             onChange={(patch) => store.setStyle(patch)}
+            onPreview={(next) => store.previewStyle(next)}
+            histogram={store.styleHistogram}
             onSave={() => void store.saveStyle()}
-            onExport={(format) => void store.exportStyle(format)}
+            onExport={(format) => void store.saveStyleAs(format)}
             onImport={() => void store.importStyle()}
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
             onClose={closePanel}
             needsLoad={store.needsLoad}
             classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
+            extrusionFlat={store.extrusionFlat}
+            onSuggestScale={(column) => store.suggestExtrusionScale(column)}
             onLoad={() => {
               closePanel()
               void store.loadWhole()
@@ -402,7 +441,42 @@
             <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
             <span class="title">Attributes</span>
           </button>
-          <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
+          <span class="count" class:truncated={layer?.truncated}>{store.filterCounts ? `${nf.format(store.filterCounts.matching)} of ${nf.format(store.filterCounts.total)} rows` : store.filtering ? 'Filtering…' : countLabel}</span>
+          {#if layer && !collapsed && !store.needsLoad && !store.tilesOnlyReason && layer.columns.length > 0}
+            <div class="columns-anchor">
+              <button
+                type="button"
+                class="tool"
+                data-column-chooser-toggle
+                aria-haspopup="dialog"
+                aria-expanded={columnsOpen}
+                onclick={() => (columnsOpen = !columnsOpen)}
+                title="Choose which columns the table shows"
+              >
+                <Icon name="columns" size={14} /><span>{store.hiddenColumns.size ? `Columns (${store.hiddenColumns.size} hidden)` : 'Columns'}</span>
+              </button>
+              {#if columnsOpen}
+                <ColumnChooser
+                  columns={layer.columns}
+                  hidden={store.hiddenColumns}
+                  onChange={(hidden) => store.setHiddenColumns(hidden)}
+                  onClose={() => (columnsOpen = false)}
+                />
+              {/if}
+            </div>
+            {#if store.filters.length}
+              <button type="button" class="tool" onclick={() => store.clearFilters()}><Icon name="close" size={14} /><span>Clear filters</span></button>
+            {/if}
+            {#if store.selectedCount > 0}
+              <SelectionBar
+                count={store.selectedCount}
+                showSelectedOnly={store.showSelectedOnly}
+                onZoom={() => void store.zoomToSelection()}
+                onShowSelectedOnly={(on) => store.setShowSelectedOnly(on)}
+                onClear={() => store.clearSelection()}
+              />
+            {/if}
+          {/if}
           <span class="spacer"></span>
           {#if layer && layer.rowCount > 0 && !collapsed && !store.needsLoad && !store.tilesOnlyReason}
             <span class="hint">Double-click a row to zoom</span>
@@ -438,12 +512,28 @@
             selectedFeatureId={session.selectedFeatureId}
             onSelectFeature={(id) => store.selectFeature(id)}
             onZoomToFeature={(id) => store.zoomToFeature(id)}
+            hiddenColumns={store.hiddenColumns}
+            filters={store.filters}
+            onFilter={(column, f) => store.setFilter(column, f)}
+            selection={store.selection}
+            onToggleSelect={(id, on) => store.toggleSelected(id, on)}
+            onSelectAll={(on) => (on ? store.selectAllMatching() : store.clearSelection())}
           />
           {/if}
         </div>
       </div>
     </div>
   </div>
+  {#if store.mapImageOpen}
+    <MapImageDialog
+      {store}
+      legend={legendSpec}
+      onClose={() => {
+        store.closeMapImage()
+        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Export map image…"]')?.focus())
+      }}
+    />
+  {/if}
   {#if store.exportOpen}
     <ExportDialog
       {store}
@@ -498,7 +588,9 @@
     bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
     z-index: 6;
     display: flex;
+    flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
     pointer-events: none;
   }
   .inspector-slot > :global(*) {
@@ -694,7 +786,35 @@
     background: var(--se-bg-panel);
     border-bottom: 1px solid var(--se-border);
     white-space: nowrap;
-    overflow: hidden;
+    /* The column chooser opens below the header: let it overflow the header. */
+    overflow: visible;
+    position: relative;
+    z-index: 3;
+  }
+  .columns-anchor {
+    position: relative;
+  }
+  .tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    font: inherit;
+    cursor: pointer;
+  }
+  .tool:hover,
+  .tool[aria-expanded='true'] {
+    background: var(--se-control-hover);
+    color: var(--se-text-primary);
+  }
+  .tool:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
   }
   .collapse {
     display: inline-flex;

@@ -1,0 +1,47 @@
+// SPIKE (spec 008, GDAL writers via COPY ... (FORMAT GDAL)), temporary.
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+
+type Hook = { spike(f: unknown[], s: string[], empty?: string[]): Promise<unknown[]>; spikeFile(p: string): Promise<string> }
+const h = (page: Page) => ({
+  run: (sqls: string[], empty: string[] = []) => page.evaluate(([s, e, d]) => (window as unknown as { __spatialExplorerE2E: Hook & { spike(f: unknown[], s: string[], e: string[], d: string): Promise<unknown[]> } }).__spatialExplorerE2E.spike([], s, e, d), [sqls, empty, process.env.SPIKE_DUCKDB ?? '/duckdb'] as const),
+  size: (p: string) => page.evaluate((x) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spikeFile(x).then((b) => atob(b).length).catch((e) => String(e).slice(0, 120)), p),
+})
+
+const drivers: Array<[string, string, string]> = [
+  ['GPKG', 'gpkg', "SPATIAL_INDEX=NO"],
+  ['FlatGeobuf', 'fgb', 'SPATIAL_INDEX=NO'],
+  ['ESRI Shapefile', 'shp', 'ENCODING=UTF-8'],
+  ['KML', 'kml', ''],
+  ['GeoJSONSeq', 'geojsonl', ''],
+  ['GeoJSON', 'geojson', ''],
+  ['CSV', 'csv', 'GEOMETRY=AS_WKT'],
+]
+
+test('GDAL writers: variants', async ({ page }) => {
+  test.setTimeout(600000)
+  page.on('console', (m) => m.type() === 'error' && console.log('console:', m.text().slice(0, 200)))
+  await page.goto('/?e2e=1')
+  const s = h(page)
+  const report: Record<string, unknown> = {}
+  console.log(JSON.stringify(await s.run([
+    `CREATE OR REPLACE TABLE t AS SELECT i AS id, 'name ' || i AS name, (i * 1.5)::DOUBLE AS v, ST_Buffer(ST_Point(-111.9 + i * 0.01, 40.7), 0.004) AS geom FROM range(20) r(i)`,
+    `SELECT version() AS v`,
+  ])))
+  let n = 0
+  for (const [driver, ext, lco] of drivers) {
+    for (const variant of ['plain', 'registered', 'options', 'vsimem']) {
+      const target = variant === 'vsimem' ? `/vsimem/v${++n}.${ext}` : `/out/v${++n}.${ext}`
+      const opts = [`FORMAT GDAL`, `DRIVER '${driver}'`, ...(variant === 'options' && lco ? [`LAYER_CREATION_OPTIONS '${lco}'`] : []), `SRS 'EPSG:4326'`]
+      const r = (await s.run([`COPY t TO '${target}' (${opts.join(', ')})`], variant === 'registered' ? [target] : [])) as Array<{ error?: string }>
+      const size = await s.size(target)
+      let back: unknown = null
+      if (!r[0].error) back = ((await s.run([`SELECT count(*) AS n FROM ST_Read('${target}')`])) as Array<{ rows?: Array<{ n: number }>; error?: string }>)[0]
+      const key = `${driver} / ${variant}`
+      report[key] = { error: r[0].error, size, back }
+      console.log(key, JSON.stringify(report[key]))
+    }
+  }
+  fs.writeFileSync(path.join(process.env.SPIKE_OUT ?? '.', `gdal-writers${(process.env.SPIKE_DUCKDB ?? '').replace(/\W/g, '')}.json`), JSON.stringify(report, null, 1))
+})

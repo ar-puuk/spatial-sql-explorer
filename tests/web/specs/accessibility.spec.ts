@@ -41,7 +41,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: 'Layer style' }).click()
     await audit(page, 'style panel')
-    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    await page.getByRole('button', { name: 'More style formats' }).click()
     await audit(page, 'export menu')
     await page.keyboard.press('Escape')
 
@@ -334,7 +334,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Export data…' }).click()
     await expect(exportDialog(page)).toBeVisible()
     await audit(page, 'export: geometry result')
-    await exportDialog(page).getByRole('radio', { name: 'CSV', exact: true }).click()
+    await exportDialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'CSV' })
     await audit(page, 'export: CSV geometry options')
     await page.keyboard.press('Escape')
 
@@ -348,7 +348,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await runSql(page, 'SELECT a.* FROM layer a, range(10) b')
     await expect(page.locator('.query-status')).toContainText('200,000 rows', { timeout: 120000 })
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await exportDialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await exportDialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     await exportDialog(page).getByRole('button', { name: 'Export…' }).click()
     await expect(exportDialog(page).getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
     await audit(page, 'export: running')
@@ -369,14 +369,13 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(exportDialog(page)).toBeVisible()
-  // Focus starts on the first checked choice, inside the dialog.
-  await expect(exportDialog(page).getByRole('radio', { name: 'GeoParquet' })).toBeFocused()
+  // Focus starts on the format list, inside the dialog.
+  const format = exportDialog(page).getByLabel('Format', { exact: true })
+  await expect(format).toBeFocused()
 
-  // Format: arrows move and choose; choosing CSV adds the geometry group.
-  await exportDialog(page).getByRole('radio', { name: 'GeoParquet' }).focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('ArrowRight')
-  await expect(exportDialog(page).getByRole('radio', { name: 'CSV', exact: true })).toHaveAttribute('aria-checked', 'true')
+  // Format: a native list; choosing CSV adds the geometry choice.
+  await format.selectOption({ label: 'CSV' })
+  await format.focus()
 
   const reached: string[] = []
   for (let i = 0; i < 16; i++) {
@@ -392,7 +391,7 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
     )
     expect(await exportDialog(page).evaluate((d) => d.contains(document.activeElement)), 'focus stays in the dialog').toBe(true)
   }
-  for (const name of ['Close', 'CSV', 'CRS', 'WKT text', 'Cancel', 'Export…']) {
+  for (const name of ['Close', 'Include geometry', 'Format', 'CRS', 'WKT text', 'File name', 'Cancel', 'Export…']) {
     expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
   }
 

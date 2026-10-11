@@ -112,6 +112,10 @@
 
 <style>
   .panel {
+    /* Spec 008: nine entries with the raster basemaps; the list scrolls within the popover. */
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
     width: 248px;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
@@ -139,6 +143,8 @@
   .options {
     display: grid;
     padding: 4px;
+    min-height: 0;
+    overflow-y: auto;
   }
   .row {
     position: relative;

@@ -3,7 +3,7 @@
 // CRS. Covers the formats T014/T034 don't already: Shapefile (+ sidecars),
 // GML, GeoPackage, GeoParquet (DuckDB-decoded GEOMETRY column, with and
 // without a non-WGS84 CRS), plain Parquet with a WKB BLOB column, and the
-// multi-layer edge case (only the first layer opens).
+// multi-layer edge case (spec 008: both layers listed, the first opens).
 import * as assert from 'assert'
 import * as path from 'path'
 import * as vscode from 'vscode'
@@ -41,7 +41,7 @@ const CASES: Array<{ file: string; viewType: string; features: number; crs: stri
   { file: 'sample.parquet', viewType: 'spatialExplorer.editorOption', features: 179, crs: 'EPSG:4326 (WGS84)', note: 'GeoParquet 1.0 (decoded to GEOMETRY)' },
   { file: 'usa-utm12n.parquet', viewType: 'spatialExplorer.editorOption', features: 1, crs: 'EPSG:26912', note: 'GeoParquet with a non-WGS84 CRS from its metadata' },
   { file: 'sample-wkb.parquet', viewType: 'spatialExplorer.editorOption', features: 179, crs: 'EPSG:4326 (WGS84)', assumed: true, note: 'plain Parquet, WKB BLOB, no CRS' },
-  { file: 'multi-layer.gpkg', viewType: 'spatialExplorer.editor', features: 179, crs: 'EPSG:4326 (WGS84)', note: 'two layers: only the first (countries) opens' },
+  { file: 'multi-layer.gpkg', viewType: 'spatialExplorer.editor', features: 179, crs: 'EPSG:4326 (WGS84)', note: 'two layers listed (spec 008 US3); the first (countries) opens' },
 ]
 
 suite('SC-002: every supported format opens', () => {

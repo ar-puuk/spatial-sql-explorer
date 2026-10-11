@@ -2,8 +2,10 @@
 // owns a dedicated query connection, separate from the one that opened the
 // file, so a cancel can never touch file loading. Temp tables are
 // per-connection in DuckDB, so user temp objects and __se_result live here.
+import { extrusionHighSql, flatCountSql, type Extrusion } from '../style/extrusion.js'
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
-import { exportErrorMessage, runExport, type ExportHooks, type ExportResult } from '../export/run.js'
+import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
+import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
 import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest, type ViewFeatures, type ViewRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
@@ -21,6 +23,10 @@ import {
   columnValuesSql,
   evenPositions,
   numberTotalsSql,
+  HISTOGRAM_BINS,
+  histogramSql,
+  histogramFrom,
+  type ValueHistogram,
   orderStatisticsSql,
   quantilePositions,
   STYLE_VALUES_CAP,
@@ -31,12 +37,14 @@ import { rendererOf, type LayerStyle, type ResolvedStyle } from '../style/model.
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
-import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
+import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
+import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
+import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import {
   clampWgs84,
-  fgbByIdSql,
+  recordByIdSql,
   fgbTileSql,
   featuresByIdsSql,
   thinnedIdsSql,
@@ -229,6 +237,34 @@ export class QuerySession {
   private catalogCache: CatalogSnapshot | null = null
   private facts: ResultFacts | null = null
   private defaultFacts: ResultFacts | null = null
+  /** Spec 008 FR-010/FR-011: the table filters over the displayed result, and their WHERE body. */
+  private filters: ColumnFilter[] = []
+  private filterWhere: string | null = null
+  /** Rows matching the filters, once counted (null: not counted, or no filters). */
+  private matchingRows: number | null = null
+  /**
+   * Spec 008: checks an EPSG code against the engine's PROJ database (for
+   * exporting to a CRS the user types), and returns its name.
+   */
+  async describeCrs(srid: number): Promise<{ ok: true; name: string } | { ok: false; reason: string }> {
+    if (!Number.isInteger(srid) || srid <= 0) return { ok: false, reason: 'Enter an EPSG code, e.g. 26912.' }
+    return this.exclusive(async (isCancelled) => {
+      try {
+        const p = (await projjsonFor(this.db, this.conn, srid, isCancelled)) as { name?: string }
+        return { ok: true as const, name: p.name ?? `EPSG:${srid}` }
+      } catch {
+        return { ok: false as const, reason: `EPSG:${srid} is not a known CRS.` }
+      }
+    }, 'background')
+  }
+
+  /** Spec 008: assets JS export writers need (sql.js's wasm). */
+  private exportAssets: ExportAssets = {}
+  setExportAssets(assets: ExportAssets): void {
+    this.exportAssets = assets
+  }
+  /** Spec 008 FR-013 "Show selected only": the selection's predicate, or null. */
+  private selectedOnlyWhere: string | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -417,6 +453,118 @@ export class QuerySession {
     }
   }
 
+  // --- Spec 008: table filters (FR-010/FR-011, research §9) ------------------
+
+  /**
+   * Narrows the displayed result to rows matching `filters` (AND). Pages,
+   * map views, style statistics, counts and export all read the narrowed
+   * rows. Returns each filter as parsed (invalid ones aren't applied).
+   * Filters clear with a new result. Not for files read in parts
+   * (`needsLoad`), whose table is unavailable until loaded.
+   */
+  setFilters(filters: readonly ColumnFilter[]): ColumnFilter[] {
+    const columns = this.facts?.columns ?? []
+    const types = new Map(columns.map((c) => [c.name, c.type]))
+    const parsed = filters.map((f) => parseFilter(f, types.get(f.column) ?? ''))
+    const where = this.needsLoad || this.utilityRows ? null : filtersToSql(parsed, columns)
+    this.filters = parsed
+    if (where !== this.filterWhere) {
+      this.filterWhere = where
+      this.matchingRows = null
+      this.pages.clear()
+    }
+    return parsed
+  }
+
+  get activeFilters(): readonly ColumnFilter[] {
+    return this.filters
+  }
+
+  /** The WHERE body narrowing the displayed result, or null. */
+  private restriction(): string | null {
+    const parts = [this.filterWhere, this.selectedOnlyWhere].filter((p): p is string => !!p)
+    return parts.length ? parts.map((p) => `(${p})`).join(' AND ') : null
+  }
+
+  /**
+   * "Show selected only" (FR-013): narrows the displayed rows to `selection`
+   * (on top of the filters), or shows every matching row again with null.
+   * Large id selections go through a temporary table.
+   */
+  async setShowSelectedOnly(selection: Selection | null): Promise<void> {
+    if (selection) {
+      const fill = selectionTableSql(selection)
+      if (fill) {
+        await this.exclusive(async () => {
+          for (const sql of fill) await this.conn.query(sql)
+        })
+      }
+    }
+    const where = selection ? selectionPredicate(selection) : null
+    if (where !== this.selectedOnlyWhere) {
+      this.selectedOnlyWhere = where
+      this.matchingRows = null
+      this.pages.clear()
+    }
+  }
+
+  /**
+   * The WGS84 extent of the selected rows among those displayed (FR-013
+   * "Zoom to selection"), or null when none has geometry.
+   */
+  async selectionExtent(selection: Selection): Promise<[number, number, number, number] | null> {
+    const fill = selectionTableSql(selection)
+    return this.exclusive(async (isCancelled) => {
+      if (fill) for (const sql of fill) await this.conn.query(sql)
+      const target = this.pageTarget()
+      if (!target?.geom) return null
+      const where = selectionPredicate(selection)
+      const rel = this.narrowed(target.relation)
+      const relation = where ? `(SELECT * FROM ${rel} WHERE ${where})` : rel
+      const srid = this.facts?.defaultView ? this.table.srid : (this.facts?.resultCrs?.srid ?? null)
+      const b = await singleRow<{ x0: number | null; y0: number | null; x1: number | null; y1: number | null }>(this.conn, selectionExtentSqlFor(relation, target.geom, srid), isCancelled)
+      return b.x0 === null || b.y0 === null || b.x1 === null || b.y1 === null ? null : [Number(b.x0), Number(b.y0), Number(b.x1), Number(b.y1)]
+    }, 'background')
+  }
+
+  /** `rel` narrowed by the active filters (rel must carry the columns the filters use). */
+  private narrowed(rel: string): string {
+    const where = this.restriction()
+    return where ? `(SELECT * FROM ${rel} WHERE ${where})` : rel
+  }
+
+  /** The relation style statistics read: the result itself, or its narrowed rows. */
+  private statsRelation(): string {
+    const facts = this.facts
+    const plain = facts?.defaultView ? 'layer' : RESULT_TABLE
+    if (!this.restriction()) return plain
+    const target = this.pageTarget()
+    return target ? this.narrowed(target.relation) : plain
+  }
+
+  /** Rows of the displayed result, narrowed by the filters when known. */
+  private displayedRows(): number {
+    return this.restriction() ? (this.matchingRows ?? Number.POSITIVE_INFINITY) : (this.facts?.totalRows ?? 0)
+  }
+
+  /**
+   * Counts the rows matching the filters (FR-011 "N of M"), as background
+   * work. `matching` equals `total` when no filter applies.
+   */
+  async filterCounts(): Promise<{ total: number; matching: number }> {
+    const total = this.facts?.totalRows ?? 0
+    const where = this.restriction()
+    if (!where) return { total, matching: total }
+    if (this.matchingRows !== null) return { total, matching: this.matchingRows }
+    return this.exclusive(async (isCancelled) => {
+      const target = this.pageTarget()
+      if (!target) return { total, matching: 0 }
+      const row = await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${this.narrowed(target.relation)}`, isCancelled)
+      if (this.restriction() === where) this.matchingRows = Number(row.n)
+      return { total, matching: Number(row.n) }
+    }, 'background')
+  }
+
   /**
    * A style resolved against the whole displayed result (spec 007 FR-012):
    * small results classify their fetched values exactly as spec 003 did; big
@@ -430,10 +578,10 @@ export class QuerySession {
     if (!facts || r.kind === 'single' || !r.column || !base.columns.some((c) => c.name === r.column) || this.utilityRows || this.needsLoad) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
-    const relation = facts.defaultView ? 'layer' : RESULT_TABLE
+    const relation = this.statsRelation()
     const column = r.column
     return this.exclusive(async (isCancelled) => {
-      const n = facts.totalRows
+      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
       const cap = jenksSample()
       if (n <= cap) {
         const values: Array<Feature['attributes'][string]> = []
@@ -486,6 +634,64 @@ export class QuerySession {
   }
 
   /**
+   * The value distribution of a numeric column of the displayed result
+   * (spec 008 FR-003): exact, in two aggregation passes over the whole
+   * result, as background work. Null when the column has no numbers, or the
+   * result can't be read in full yet (spec 007 needsLoad).
+   */
+  /** Spec 008 US6: rows drawn flat by the extrusion (missing, zero or negative height). */
+  async extrusionFlatCount(e: Extrusion): Promise<number | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || e.source.kind !== 'column') return null
+    const column = e.source.column
+    if (!facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) return this.utilityRows.filter((f) => !(Number(f.attributes[column]) * e.scale > 0)).length
+    const sql = flatCountSql(this.statsRelation(), e)
+    if (!sql) return null
+    return this.exclusive(async (isCancelled) => Number((await singleRow<{ n: bigint | number }>(this.conn, sql, isCancelled)).n), 'background')
+  }
+
+  /** Spec 008 US6: the height column's typical high value (95th percentile of positives), for the auto scale. */
+  async extrusionHigh(column: string): Promise<number | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) {
+      const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => v > 0).sort((a, b) => a - b)
+      return values.length ? values[Math.min(values.length - 1, Math.floor(values.length * 0.95))] : null
+    }
+    return this.exclusive(async (isCancelled) => {
+      const v = (await singleRow<{ v: number | null }>(this.conn, extrusionHighSql(this.statsRelation(), column), isCancelled)).v
+      return v === null ? null : Number(v)
+    }, 'background')
+  }
+
+  async valueHistogram(column: string): Promise<ValueHistogram | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) {
+      const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => Number.isFinite(v))
+      if (!values.length) return null
+      const min = Math.min(...values)
+      const max = Math.max(...values)
+      const n = max > min ? HISTOGRAM_BINS : 1
+      const rows = values.map((v) => ({ b: Math.min(n - 1, Math.floor(((v - min) / (max - min || 1)) * n)), n: 1 }))
+      return histogramFrom(min, max, rows)
+    }
+    const relation = this.statsRelation()
+    return this.exclusive(async (isCancelled) => {
+      const totals = await singleRow<{ n: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, column), isCancelled)
+      if (!Number(totals.n) || totals.min === null || totals.max === null) return null
+      const min = Number(totals.min)
+      const max = Number(totals.max)
+      const rows: Array<{ b: number; n: number }> = []
+      await streamRows(this.conn, histogramSql(relation, column, min, max), isCancelled, (batch) => {
+        for (const row of batch) rows.push({ b: Number(row.b), n: Number(row.n) })
+      })
+      return histogramFrom(min, max, rows)
+    }, 'background')
+  }
+
+  /**
    * Distinct non-empty values per text column of the displayed result, for
    * the categorized renderer's column suggestion (spec 003). Exact up to
    * STYLE_VALUES_CAP rows; above, counted on the first that many.
@@ -494,7 +700,7 @@ export class QuerySession {
     const facts = this.facts
     const textual = (facts?.columns ?? []).filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i.test(c.type))
     if (!facts || !textual.length || this.utilityRows || this.needsLoad) return {}
-    const relation = facts.defaultView ? 'layer' : RESULT_TABLE
+    const relation = this.statsRelation()
     const select = textual.map((c, i) => `count(DISTINCT nullif(CAST(${quoteIdent(c.name)} AS VARCHAR), '')) AS d${i}`).join(', ')
     return this.exclusive(async (isCancelled) => {
       const row = await singleRow<Record<string, bigint | number>>(this.conn, `SELECT ${select} FROM (SELECT * FROM ${relation} LIMIT ${STYLE_VALUES_CAP})`, isCancelled)
@@ -555,18 +761,23 @@ export class QuerySession {
     const facts = this.facts
     if (!facts || facts.defaultView) {
       const lv = this.layerView
-      return lv ? { relation: INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid } : null
+      if (!lv) return null
+      const narrow = lv.index !== 'fgb' && !!this.restriction()
+      const textAttrs = this.table.columns.filter((c) => isTemporalType(c.type) && lv.attrs.includes(c.name)).map((c) => c.name)
+      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
     }
     const g = facts.geometryColumn
     if (!g || !facts.exportable) return null
     const q = quoteIdent(g)
     return {
       // `rowid` (the temp table's pseudo-column) is free; a big result is a view, which has none.
-      relation: `(SELECT *, ${facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'} AS __se_rowid, ST_XMin(${q}) AS __se_xmin, ST_YMin(${q}) AS __se_ymin, ST_XMax(${q}) AS __se_xmax, ST_YMax(${q}) AS __se_ymax FROM ${RESULT_TABLE})`,
+      relation: this.narrowed(`(SELECT *, ${facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'} AS __se_rowid, ST_XMin(${q}) AS __se_xmin, ST_YMin(${q}) AS __se_ymin, ST_XMax(${q}) AS __se_xmax, ST_YMax(${q}) AS __se_ymax FROM ${RESULT_TABLE})`),
+      narrowed: !!this.restriction(),
       index: 'columns',
       geom: q,
       srid: facts.resultCrs?.srid ?? null,
       attrs: facts.attrs,
+      textAttrs: facts.columns.filter((c) => isTemporalType(c.type)).map((c) => c.name),
     }
   }
 
@@ -637,7 +848,7 @@ export class QuerySession {
         inView = rows.length
       } else {
         // A result that fits under the cap needs no count: everything in view is fetched, so it IS the count.
-        const resultRows = this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
+        const resultRows = this.restriction() ? this.displayedRows() : this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
         if (resultRows <= req.cap) {
           await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
           inView = rows.length
@@ -689,8 +900,8 @@ export class QuerySession {
       const target = this.viewTarget()
       if (!target) return null
       const rows: Record<string, unknown>[] = []
-      const sql = target.index === 'fgb' ? fgbByIdSql(target, id) : featuresByIdsSql(target, String(Math.floor(id)))
-      await streamRows(this.conn, sql, isCancelled, (batch) => {
+      // Spec 008: the inspector's full record, dates and times as text.
+      await streamRows(this.conn, recordByIdSql(target, id), isCancelled, (batch) => {
         rows.push(...batch)
       })
       return rows[0] ? toViewFeature(rows[0]) : null
@@ -725,6 +936,10 @@ export class QuerySession {
   /** A new result: cached pages belong to the old one. */
   private resultChanged(): void {
     this.pages.clear()
+    this.filters = []
+    this.filterWhere = null
+    this.matchingRows = null
+    this.selectedOnlyWhere = null
     if (this.facts?.exportable !== false) this.utilityRows = null
   }
 
@@ -738,7 +953,8 @@ export class QuerySession {
     }
     const rowid = facts.kind === 'view' ? 'row_number() OVER () - 1' : 'rowid'
     const g = facts.geometryColumn ? quoteIdent(facts.geometryColumn) : null
-    const columns = [...facts.attrs.map((name) => ({ name, type: 'VARCHAR' })), ...facts.otherGeometryColumns.map((name) => ({ name, type: 'GEOMETRY' }))]
+    const typeOf = (name: string) => facts.columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
+    const columns = [...facts.attrs.map((name) => ({ name, type: typeOf(name) })), ...facts.otherGeometryColumns.map((name) => ({ name, type: 'GEOMETRY' }))]
     return { relation: `(SELECT *, ${rowid} AS __se_rowid FROM ${RESULT_TABLE})`, columns, geom: g }
   }
 
@@ -755,8 +971,9 @@ export class QuerySession {
       return { offset: req.offset, rows }
     }
     const result = await this.exclusive(async (isCancelled) => {
-      const target = this.pageTarget()
-      if (!target) return { offset: req.offset, rows: [] }
+      const plain = this.pageTarget()
+      if (!plain) return { offset: req.offset, rows: [] }
+      const target = { ...plain, relation: this.narrowed(plain.relation) }
       const rows: TablePage['rows'] = []
       await streamRows(this.conn, pageSql(target, req), isCancelled, (batch) => {
         for (const r of batch) {
@@ -785,17 +1002,37 @@ export class QuerySession {
    * the exclusive connection like a query, so cancel() stops it the same way
    * and a query never interleaves with it. Never touches __se_result.
    */
-  async exportData(plan: ExportPlan, hooks: ExportHooks = {}): Promise<ExportResult> {
+  async exportData(plan: ExportPlan, hooks: ExportHooks = {}, selection?: Selection): Promise<ExportResult> {
     if (this.needsLoad) throw new Error('Load the whole file to export it.')
     const started = performance.now()
     try {
-      const result = await this.exclusive((isCancelled) => runExport(this.db, this.conn, plan, isCancelled, hooks))
+      const fill = plan.scope === 'selected' && selection ? selectionTableSql(selection) : null
+      const result = await this.exclusive(async (isCancelled) => {
+        if (fill) for (const sql of fill) await this.conn.query(sql)
+        return runExport(this.db, this.conn, this.scopedExport(plan, selection), isCancelled, hooks, this.exportAssets)
+      })
       this.log?.(`[export] ${plan.format}: ${nf.format(result.rows)} rows, ${nf.format(result.bytes.length)} bytes · ${Math.round(performance.now() - started)} ms`)
       return result
     } catch (err) {
       this.log?.(`[export] ${plan.format}: ${err instanceof QueryCancelledError ? 'cancelled' : exportErrorMessage(err)}`)
       throw err
     }
+  }
+
+  /**
+   * Spec 008 FR-014: the plan run over its scope's rows. 'all' is the plan
+   * as built (every row of the result, whatever the table shows); 'filtered'
+   * and 'selected' read the result with row ids, narrowed by the filters
+   * (and the selection), with the same columns.
+   */
+  private scopedExport(plan: ExportPlan, selection?: Selection): ExportPlan {
+    if (plan.scope === 'all') return plan
+    const target = this.pageTarget()
+    if (!target) return plan
+    const parts = [this.filterWhere, plan.scope === 'selected' && selection ? selectionPredicate(selection) : null].filter((p): p is string => !!p)
+    const rel = parts.length ? `(SELECT * FROM ${target.relation} WHERE ${parts.map((p) => `(${p})`).join(' AND ')})` : target.relation
+    const select = plan.select === '*' ? "COLUMNS(c -> NOT starts_with(c, '__se_'))" : plan.select
+    return { ...plan, sql: `SELECT ${select} FROM ${rel}` }
   }
 
   /** Facts about the displayed result, for export (spec 005); null before the first result. */

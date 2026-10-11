@@ -119,12 +119,30 @@ export function largeData(name: string): string {
 // Spec 005 export helpers (shared by export.spec and paging.spec).
 export const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
 
+/**
+ * Spec 008: picks the output CRS in the export dialog's CRS picker: the
+ * result's own, or an EPSG code (searched, then the first match).
+ */
+export async function chooseCrs(page: Page, crs: 'result' | 'wgs84' | number): Promise<void> {
+  await exportDialog(page).getByLabel('CRS', { exact: true }).click()
+  const search = page.getByRole('combobox', { name: 'Search coordinate reference systems' })
+  await expect(search).toBeFocused()
+  if (crs === 'result') {
+    await page.getByRole('treeitem', { name: /as the result/ }).click()
+  } else {
+    await search.fill(String(crs === 'wgs84' ? 4326 : crs))
+    await search.press('Enter')
+  }
+  await expect(search).toHaveCount(0)
+}
+
 /** Opens the dialog, sets choices, exports, and returns the downloaded bytes. */
-export async function exportVia(page: Page, choices: { format: string; crs?: 'result' | 'wgs84'; geometry?: string }): Promise<{ name: string; bytes: Buffer }> {
+export async function exportVia(page: Page, choices: { format: string; crs?: 'result' | 'wgs84' | number; geometry?: string; fileName?: string }): Promise<{ name: string; bytes: Buffer }> {
   if (!(await exportDialog(page).isVisible())) await page.getByRole('button', { name: 'Export data…' }).click()
   await expect(exportDialog(page)).toBeVisible()
-  await exportDialog(page).getByRole('radio', { name: choices.format, exact: true }).click()
-  if (choices.crs) await exportDialog(page).getByLabel('CRS').selectOption(choices.crs)
+  await exportDialog(page).getByLabel('Format', { exact: true }).selectOption({ label: choices.format })
+  if (choices.crs !== undefined) await chooseCrs(page, choices.crs)
+  if (choices.fileName !== undefined) await exportDialog(page).getByLabel('File name').fill(choices.fileName)
   if (choices.geometry) await exportDialog(page).getByRole('radio', { name: choices.geometry }).click()
   const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), exportDialog(page).getByRole('button', { name: 'Export…' }).click()])
   const file = await download.path()

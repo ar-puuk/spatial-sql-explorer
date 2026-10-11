@@ -2,7 +2,7 @@
 // contracts/core-data-access.md QuerySession.page). Pure builders and the
 // page LRU; tests in tests/core/pages-sql.test.ts.
 import type { TablePage, TablePageRequest } from '../models.js'
-import { quoteIdent } from '../query/util.js'
+import { displayColumnSql, quoteIdent } from '../query/util.js'
 
 /** Rows per page: small enough to arrive at once, big enough for a screenful. */
 export const PAGE_SIZE = 200
@@ -26,7 +26,8 @@ const isGeometryType = (type: string): boolean => type.toUpperCase().startsWith(
 export function pageSql(t: PageTarget, req: TablePageRequest): string {
   const select = t.columns.map((c) => {
     const id = quoteIdent(c.name)
-    return isGeometryType(c.type) ? `left(ST_AsText(${id}), ${OTHER_GEOMETRY_TEXT_MAX}) AS ${id}` : id
+    // Spec 008: dates and times as text (Arrow gives bare numbers).
+    return isGeometryType(c.type) ? `left(ST_AsText(${id}), ${OTHER_GEOMETRY_TEXT_MAX}) AS ${id}` : displayColumnSql(c.name, c.type)
   })
   select.push('__se_rowid')
   const g = t.geom

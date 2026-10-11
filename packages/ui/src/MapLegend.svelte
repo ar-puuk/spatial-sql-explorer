@@ -16,15 +16,17 @@
     collapsed: boolean
     onToggleCollapsed: () => void
     onToggleClass: (key: string, visible: boolean) => void
+    /** Spec 008 FR-005: the fill opacity, so swatches look like the map (lines stay opaque). */
+    fillOpacity?: number
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, fillOpacity = 1 }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
   const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
 </script>
 
-<section class="legend" aria-label="Legend">
+<section class="legend" aria-label="Legend" style:--swatch-alpha="{Math.round((shape === 'line' ? 1 : fillOpacity) * 100)}%">
   <button type="button" class="head" aria-expanded={!collapsed} onclick={onToggleCollapsed} title={heading}>
     <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={12} />
     <span class="caption">{heading}</span>
@@ -122,7 +124,7 @@
     justify-self: center;
     padding: 0;
     border: 1px solid var(--se-swatch-border);
-    background: var(--swatch);
+    background: color-mix(in srgb, var(--swatch) var(--swatch-alpha, 100%), transparent);
   }
   button.swatch {
     cursor: pointer;

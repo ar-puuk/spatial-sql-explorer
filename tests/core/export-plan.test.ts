@@ -2,7 +2,7 @@
 // do, decided before anything runs: rows, formats, CRS, notices, SQL, name.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { planExport, type ExportPlanContext, type ExportRequest } from '@spatial-explorer/core'
+import { exportFileBase, planExport, type ExportPlanContext, type ExportRequest } from '@spatial-explorer/core'
 
 const ALL_TYPES = (JSON.parse(readFileSync(`${import.meta.dirname}/fixtures/export/columns.json`, 'utf8')) as { columns: Array<{ name: string; type: string }> }).columns
 
@@ -42,17 +42,38 @@ describe('which rows (FR-002; spec 007 FR-009: nothing is display-limited)', () 
 })
 
 describe('formats offered (FR-004, FR-008)', () => {
-  it('a geometry result offers GeoParquet, GeoJSON and CSV, not Parquet', () => {
+  it('a geometry result offers the spatial formats (spec 008), not the attribute ones', () => {
     const f = planExport(request(), ctx()).formats
-    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'geojson', 'geoparquet'])
-    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/without geometry/)
+    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geojsonseq', 'geopackage', 'geoparquet', 'kml', 'shapefile'])
+    expect(f.find((x) => x.id === 'parquet')?.reason).toMatch(/listed under "Attributes only"/)
   })
 
-  it('a table result offers CSV and Parquet only, with a reason for the others', () => {
+  it('an attribute-only format asked for without a geometry choice leaves the geometry out', () => {
+    const p = planExport(request({ format: 'xlsx' }), ctx())
+    expect(p.format).toBe('xlsx')
+    expect(p.includeGeometry).toBe(false)
+  })
+
+  it('"Include geometry" off offers the attribute formats, and the SQL has no geometry (spec 008 FR-019)', () => {
+    const p = planExport(request({ format: 'xlsx', includeGeometry: false }), ctx())
+    expect(p.includeGeometry).toBe(false)
+    expect(p.formats.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'json', 'parquet', 'xlsx'])
+    expect(p.format).toBe('xlsx')
+    expect(p.sql).not.toMatch(/geom/)
+    expect(p.notices.join()).toMatch(/geometry is left out/)
+  })
+
+  it('a format that does not fit the geometry choice is replaced by the first that does', () => {
+    expect(planExport(request({ format: 'shapefile', includeGeometry: false }), ctx()).format).toBe('csv')
+    expect(planExport(request({ format: 'xlsx', includeGeometry: true }), ctx()).format).toBe('geoparquet')
+  })
+
+  it('a table result offers the attribute formats only, with a reason for the others', () => {
     const c = ctx({ facts: { ...ctx().facts, geometryColumn: null, resultCrs: null, defaultView: false, totalRows: 5 }, layer: { ...ctx().layer, rowCount: 5 } })
-    const f = planExport(request({ format: 'csv' }), c).formats
-    expect(f.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'parquet'])
-    expect(f.find((x) => x.id === 'geojson')?.reason).toMatch(/geometry/)
+    const p = planExport(request({ format: 'csv' }), c)
+    expect(p.includeGeometry).toBe(false)
+    expect(p.formats.filter((x) => x.available).map((x) => x.id).sort()).toEqual(['csv', 'json', 'parquet', 'xlsx'])
+    expect(p.formats.find((x) => x.id === 'geojson')?.reason).toMatch(/geometry/)
   })
 
   it('a DESCRIBE / SHOW result can not be exported, with the reason', () => {
@@ -189,5 +210,70 @@ describe('hidden columns (spec 007)', () => {
       const sql = planExport(request({ format }), c).sql
       expect(sql, format).not.toMatch(/__se_(rowid|xmin)/)
     }
+  })
+})
+
+// T030 (spec 008 FR-014): all rows, the filtered rows, or the selected rows.
+describe('export scope', () => {
+  const base = () => ctx({ layer: { ...ctx().layer, rowCount: 22000 } })
+
+  it('offers only the scopes that apply, with their row counts', () => {
+    expect(planExport(request(), base()).scopes).toEqual([{ id: 'all', rows: 22000 }])
+    const p = planExport(request(), { ...base(), scopes: { filtered: 1204, selected: 3 } })
+    expect(p.scopes).toEqual([
+      { id: 'all', rows: 22000 },
+      { id: 'filtered', rows: 1204 },
+      { id: 'selected', rows: 3 },
+    ])
+  })
+
+  it('a chosen scope sets the row count; the select list is kept for the session to narrow', () => {
+    const p = planExport(request({ scope: 'selected' }), { ...base(), scopes: { filtered: 1204, selected: 3 } })
+    expect(p.scope).toBe('selected')
+    expect(p.rowCount).toBe(3)
+    expect(p.sql).toBe(`SELECT ${p.select} FROM "layer"`)
+  })
+
+  it('a scope that does not apply falls back to all rows', () => {
+    const p = planExport(request({ scope: 'filtered' }), base())
+    expect(p.scope).toBe('all')
+    expect(p.rowCount).toBe(22000)
+  })
+})
+
+// Spec 008 (user request): export to an EPSG code the user chooses.
+describe('custom CRS', () => {
+  it('reprojects from the result CRS to the chosen code, and says so', () => {
+    const p = planExport(request({ crs: 'custom', crsCode: 3857 }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
+    expect(p.crs).toMatchObject({ output: 'custom', srid: 3857, label: 'EPSG:3857', forced: false })
+    expect(p.sql).toContain(`ST_Transform("geom", 'EPSG:26912', 'EPSG:3857', always_xy := true)`)
+    expect(p.notices.join()).toMatch(/reprojected from EPSG:26912 to EPSG:3857/)
+  })
+  it('a WGS84-only format still wins, and a missing code falls back to the result CRS', () => {
+    expect(planExport(request({ format: 'geojson', crs: 'custom', crsCode: 3857 }), ctx()).crs.output).toBe('wgs84')
+    expect(planExport(request({ crs: 'custom' }), ctx()).crs.output).toBe('result')
+  })
+  it('the same code as the result needs no transform', () => {
+    const p = planExport(request({ crs: 'custom', crsCode: 26912 }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
+    expect(p.sql).not.toContain('ST_Transform')
+  })
+})
+
+// Spec 008 (user request): the output file name.
+describe('output file name', () => {
+  it('defaults to <source>-export, takes a typed name, and keeps the dataset name inside', () => {
+    expect(planExport(request(), ctx())).toMatchObject({ fileBase: expect.stringMatching(/-export$/) })
+    const p = planExport(request({ format: 'shapefile', fileName: 'Utah parcels 2026' }), ctx())
+    expect(p.fileName).toBe('Utah parcels 2026.shp.zip')
+    expect(p.layerName).not.toBe('Utah parcels 2026')
+  })
+  it('is made safe: no folders, no reserved characters, the extension added once', () => {
+    expect(exportFileBase('a/b\\c.parquet', '.parquet')).toBe('c')
+    expect(exportFileBase('x.shp.zip', '.shp.zip')).toBe('x')
+    expect(exportFileBase('x.zip', '.shp.zip')).toBe('x')
+    expect(exportFileBase('what? <now>: "yes"|*', '.csv')).toBe('what_ _now__ _yes___')
+    expect(exportFileBase('  trailing. ', '.csv')).toBe('trailing')
+    expect(exportFileBase('   ', '.csv')).toBe('')
+    expect(planExport(request({ fileName: '  ' }), ctx()).fileBase).toMatch(/-export$/)
   })
 })

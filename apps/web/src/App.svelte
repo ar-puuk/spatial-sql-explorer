@@ -4,11 +4,31 @@
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
-  import { createWebHostAdapter, provideFiles, rangeReads } from './hostAdapter.js'
+  import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
+  import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import ThemeMenu from './ThemeMenu.svelte'
+  import Landing from './Landing.svelte'
 
   // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
-  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm' }
+  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
   const hostAdapter = createWebHostAdapter()
+
+  // Spec 008 FR-022: the theme choice (System follows the OS), remembered.
+  let themePreference = $state<ThemePreference>('system')
+  void hostAdapter
+    .loadState<ThemePreference>('theme')
+    .then((saved) => {
+      if (saved === 'light' || saved === 'dark' || saved === 'system') {
+        themePreference = saved
+        setThemePreference(saved)
+      }
+    })
+    .catch(() => {})
+  function chooseTheme(value: ThemePreference): void {
+    themePreference = value
+    setThemePreference(value)
+    void hostAdapter.saveState('theme', value).catch(() => {})
+  }
   const store = createViewerStore(hostAdapter, duckdbAssets)
 
   // Warm DuckDB up while the user is still choosing a file (design-plan.md
@@ -17,7 +37,16 @@
     if ('requestIdleCallback' in window) window.requestIdleCallback(cb, { timeout: 2000 })
     else setTimeout(cb, 300)
   }
-  idle(() => store.prewarm())
+  // The landing page shows when the engine is ready: it watches the start
+  // prewarm began, and never starts one itself.
+  let engine = $state<'warming' | 'ready' | 'failed'>('warming')
+  idle(() => {
+    store.prewarm()
+    peekDuckDb()?.then(
+      () => (engine = 'ready'),
+      () => (engine = 'failed')
+    )
+  })
 
   // Test-only escape hatch (spec 002 T036), enabled by ?e2e=1: runs SQL with
   // NO statement policy, so browser tests can prove the ENGINE lockdown on its
@@ -59,6 +88,44 @@
           await db.dropFile(path)
         }
       },
+      /** Spec 008 T024: the table filters and the narrowed row count. */
+      filterState: () =>
+        JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.viewFeatures?.inView ?? null })),
+      /** Spec 008 T025: the ticked rows. */
+      selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
+      /** Spec 008 T064: the map's projection and camera. */
+      mapState: () => ({ projection: store.projection, extrusion: store.extruded, ...(store.mapCamera ?? {}) }),
+      /** Spec 008 T025: the map's current bounds (zoom to selection). */
+      mapBounds: () => store.lastViewBbox,
+      /**
+       * Spec 008 T049: reads exported files back in the real engine with GDAL
+       * (ST_Read): row count, geometry types, CRS code. `files` are the
+       * format's files (a Shapefile's parts unzipped by the test); the first
+       * is the one read. Dropped afterwards.
+       */
+      inspectExport: async (files: Array<{ name: string; base64: string }>) => {
+        const { getDuckDb } = await import('@spatial-explorer/core')
+        const db = await getDuckDb(duckdbAssets)
+        const dir = `/se-source/__se_check-${Date.now()}-${Math.random().toString(36).slice(2)}/`
+        for (const f of files) await db.registerFileBuffer(dir + f.name, Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0)))
+        const conn = await db.connect()
+        const path = dir + files[0].name
+        try {
+          const n = await conn.query(`SELECT count(*)::INTEGER AS n, list(DISTINCT ST_GeometryType(geom)::VARCHAR) AS types FROM ST_Read('${path}')`)
+          const meta = await conn.query(`SELECT layers[1].geometry_fields[1].crs.auth_code AS code FROM ST_Read_Meta('${path}')`)
+          const cols = await conn.query(`SELECT column_name FROM (DESCRIBE SELECT * FROM ST_Read('${path}'))`)
+          const row = n.toArray()[0].toJSON() as { n: number; types: { toArray(): unknown[] } | null }
+          return {
+            rows: Number(row.n),
+            types: (row.types?.toArray() ?? []).map(String).sort(),
+            crs: (meta.toArray()[0]?.toJSON() as { code: string | null } | undefined)?.code ?? null,
+            columns: cols.toArray().map((r) => String(r.toJSON().column_name)),
+          }
+        } finally {
+          await conn.close()
+          for (const f of files) await db.dropFile(dir + f.name).catch(() => {})
+        }
+      },
       /** Spec 005 T023: export files still in the engine's memory (should be none). */
       exportFiles: () => {
         const qs = store.querySession
@@ -83,6 +150,17 @@
         return v ? { generation: v.generation, drawn: v.features.length, inView: v.inView, thinned: v.thinned, ms: v.ms } : null
       },
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
+      /** Spec 008 US7: the link Copy link would copy. */
+      shareLink: () => shareUrl(),
+      /** Spec 008 US7: the map as a PNG (base64), without saving. */
+      captureMap: async (scale: 1 | 2, legend = false) => {
+        const legendSpec = legend ? { title: 'Legend', shape: 'area' as const, alpha: 1, rows: [{ color: '#ff0000', label: 'Test' }] } : null
+        const r = await store.captureMapImage({ scale, legend: legendSpec })
+        if (!r) return null
+        let bin = ''
+        for (let i = 0; i < r.bytes.length; i += 0x8000) bin += String.fromCharCode(...r.bytes.subarray(i, i + 0x8000))
+        return { width: r.width, height: r.height, notes: r.notes, base64: btoa(bin) }
+      },
       zoomToFeature: (id: number) => store.zoomToFeature(id),
       /** The first point of the drawn feature closest to the view center: a click target. */
       drawnCenter: () => {
@@ -132,14 +210,13 @@
     }
   }
 
-  const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML', 'PMTiles']
-
   let isDragOver = $state(false)
   let fileName = $state<string | null>(null)
   let input: HTMLInputElement
 
-  function handleFiles(fileList: FileList): void {
+  function handleFiles(fileList: FileList | File[]): void {
     const files = Array.from(fileList)
+    isSample = files.length === 1 && files[0] === sampleFile
     if (files.length === 0) return
     // Order matters: store.load() must run first so its internal
     // hostAdapter.openFiles() call registers its pending-resolve callback
@@ -171,6 +248,121 @@
     input.value = ''
   }
 
+  // --- Spec 008 US7 (FR-031): the share link -----------------------------
+  // `#v1=…` holds the query, style, basemap, projection and view, and the
+  // file's name and size; never data or paths. Opening one asks for that
+  // file (or opens the sample), then applies what it holds.
+  const SAMPLE_URL = '/sample/us-counties.parquet'
+  let sampleFile: File | null = null
+  let isSample = false
+  let pendingShare = $state.raw<{ state: Partial<ShareState>; dropped: string[] } | null>(null)
+  let shareNotice = $state<{ kind: 'info' | 'warning'; text: string } | null>(null)
+  let copyStatus = $state<string | null>(null)
+  let longQuery = $state<string | null>(null)
+  let applying = false
+
+  async function openSample(): Promise<void> {
+    try {
+      const res = await fetch(SAMPLE_URL)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      sampleFile = new File([await res.blob()], 'us-counties.parquet')
+      handleFiles([sampleFile])
+    } catch (err) {
+      shareNotice = { kind: 'warning', text: `The sample data could not be loaded: ${err instanceof Error ? err.message : String(err)}` }
+    }
+  }
+
+  if (location.hash.startsWith('#v1=')) {
+    const parsed = decodeShareState(location.hash)
+    if (!parsed) shareNotice = { kind: 'warning', text: 'This link could not be read: it may be cut short or from a newer version.' }
+    else {
+      pendingShare = parsed
+      if (parsed.state.source?.kind === 'sample') void openSample()
+    }
+  }
+
+  /** What a link made now would hold. */
+  function currentShare(): ShareState | null {
+    if (!fileName || store.session.loadState !== 'ready') return null
+    const cam = store.mapCamera
+    return {
+      v: 1,
+      source: isSample ? { kind: 'sample' } : { kind: 'file', name: fileName, size: store.openedSize ?? 0 },
+      ...(store.activeLayer ? { layer: store.activeLayer } : {}),
+      query: store.lastRunText ?? '',
+      style: JSON.parse(JSON.stringify(store.style)),
+      basemap: store.basemap.id,
+      projection: store.projection,
+      view: cam ? { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing } : { center: [0, 0], zoom: 1, pitch: 0, bearing: 0 },
+    }
+  }
+  function shareUrl(): string | null {
+    const s = currentShare()
+    return s ? `${location.origin}${location.pathname}#${encodeShareState(s)}` : null
+  }
+
+  async function copyText(text: string, done: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text)
+      copyStatus = done
+    } catch {
+      copyStatus = 'The clipboard is not available here.'
+    }
+    setTimeout(() => (copyStatus = null), 2500)
+  }
+  async function copyLink(): Promise<void> {
+    const url = shareUrl()
+    if (!url) return
+    longQuery = null
+    if (url.length > SHARE_MAX_LENGTH) {
+      // Spec edge case: an over-long link (a long query) is refused; the query can still be copied.
+      longQuery = store.lastRunText
+      shareNotice = { kind: 'warning', text: `A link would be ${url.length.toLocaleString('en-US')} characters long (the limit is ${SHARE_MAX_LENGTH.toLocaleString('en-US')}), because of the query.` }
+      return
+    }
+    await copyText(url, 'Link copied')
+  }
+
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  /** After the file opened: layer, query, style, basemap, projection, view, in that order (contracts/host-and-shells.md). */
+  async function applyShare(share: { state: Partial<ShareState>; dropped: string[] }): Promise<void> {
+    const { state } = share
+    const failed = share.dropped.map((d) => (d === 'file' ? 'the file name' : `the ${d}`))
+    const notes: string[] = []
+    if (state.source?.kind === 'file' && !isSample && (state.source.name !== fileName || (store.openedSize !== null && state.source.size && store.openedSize !== state.source.size))) {
+      notes.push(`The link was made with ${state.source.name}; you opened ${fileName}, which may differ.`)
+    }
+    if (state.layer && state.layer !== store.activeLayer) {
+      if (store.fileLayers.some((l) => l.name === state.layer)) await store.switchLayer(state.layer).catch(() => failed.push('the layer'))
+      else failed.push(`the layer "${state.layer}"`)
+    }
+    if (state.query?.trim()) {
+      store.setQueryText(state.query)
+      await store.runQuery({ from: 0, to: state.query.length })
+      if (store.queryError) failed.push(`the query (${store.queryError.message})`)
+    }
+    if (state.style) store.setStyle(state.style)
+    if (state.basemap) store.setBasemap(state.basemap)
+    if (state.projection) store.setProjection(state.projection)
+    if (state.view) {
+      // After the new result's fit to its extent, which would move the map again.
+      await wait(400)
+      store.jumpTo(state.view.center, state.view.zoom, state.view.pitch, state.view.bearing)
+    }
+    const parts = [...notes]
+    if (failed.length) parts.push(`Not applied: ${failed.join(', ')}.`)
+    shareNotice = parts.length ? { kind: 'warning', text: parts.join(' ') } : { kind: 'info', text: 'The shared view was applied.' }
+    // Applied once: a reload doesn't ask again.
+    history.replaceState(null, '', location.pathname + location.search)
+  }
+  $effect(() => {
+    const share = pendingShare
+    if (!share || applying || store.session.loadState !== 'ready' || !fileName) return
+    applying = true
+    pendingShare = null
+    void applyShare(share).finally(() => (applying = false))
+  })
+
   let idleState = $derived(store.session.loadState === 'idle')
   // A cancelled open (spec 007 FR-002/FR-004) returns to the empty state: put
   // focus back on its "Choose a file" button rather than leaving it nowhere.
@@ -192,30 +384,41 @@
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
     <span class="spacer"></span>
+    {#if copyStatus}<span class="copy-status" role="status">{copyStatus}</span>{/if}
+    {#if !idleState}
+      <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
+        ><Icon name="link" size={14} />Copy link</button
+      >
+    {/if}
+    <ThemeMenu value={themePreference} onChange={chooseTheme} />
     {#if !idleState}
       <button type="button" class="open" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
     {/if}
   </header>
 
+  {#if shareNotice}
+    <div class="share-notice {shareNotice.kind}" role={shareNotice.kind === 'warning' ? 'alert' : 'status'}>
+      <Icon name={shareNotice.kind === 'warning' ? 'warning' : 'info'} size={14} />
+      <span>{shareNotice.text}</span>
+      {#if longQuery}
+        <button type="button" class="open" onclick={() => void copyText(longQuery ?? '', 'Query copied')}>Copy query</button>
+      {/if}
+      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => ((shareNotice = null), (longQuery = null))}><Icon name="close" size={14} /></button>
+    </div>
+  {/if}
+
   <main class="content">
     {#if idleState}
       <!-- Empty state (no file loaded yet) — distinct from a loaded zero-feature
            file, which reaches 'ready' and is rendered by ViewerLayout instead. -->
-      <div class="empty">
-        <div class="drop-zone" class:drag-over={isDragOver} role="region" aria-label="Drop a geospatial file here">
-          <div class="drop-icon" aria-hidden="true"><Icon name="file" size={28} /></div>
-          <p class="title">Drag a geospatial file here</p>
-          <p class="or">or</p>
-          <button type="button" class="primary" bind:this={chooseButton} onclick={() => input.click()}>Choose a file</button>
-          <ul class="formats" aria-label="Supported formats">
-            {#each FORMATS as f (f)}<li>{f}</li>{/each}
-          </ul>
-          <p class="footnote">
-            Shapefiles: select the .shp together with its .shx, .dbf and .prj. Add a same-name .qml to load its QGIS style.<br />
-            Files are read in your browser and never uploaded.
-          </p>
-        </div>
-      </div>
+      <Landing
+        {isDragOver}
+        {engine}
+        sharedFileName={pendingShare?.state.source?.kind === 'file' ? pendingShare.state.source.name : null}
+        onChoose={() => input.click()}
+        onSample={() => void openSample()}
+        bind:chooseButton
+      />
     {:else}
       <ViewerLayout {store} {fileName}>
         {#snippet mapOverlay()}
@@ -301,6 +504,44 @@
     font: 500 12px var(--se-font-ui);
     cursor: pointer;
   }
+  .open:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .copy-status {
+    color: var(--se-text-secondary);
+    font-size: 12px;
+  }
+  .share-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--se-border);
+    font-size: 12px;
+  }
+  .share-notice.info {
+    background: color-mix(in srgb, var(--se-info) 10%, var(--se-bg-base));
+  }
+  .share-notice.warning {
+    background: var(--se-warning-bg);
+    color: var(--se-warning-fg, var(--se-text-primary));
+  }
+  .share-notice span {
+    flex: 1;
+  }
+  .share-notice .dismiss {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
   .open:hover {
     background: var(--se-button-secondary-hover);
     color: var(--se-text-primary);
@@ -314,92 +555,6 @@
     position: relative;
     flex: 1;
     min-height: 0;
-  }
-  .empty {
-    display: grid;
-    place-items: center;
-    height: 100%;
-    padding: 24px;
-    box-sizing: border-box;
-  }
-  .drop-zone {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: min(560px, 100%);
-    padding: 48px 32px 32px;
-    box-sizing: border-box;
-    border: 2px dashed var(--se-dropzone-border);
-    border-radius: 12px;
-    background: var(--se-bg-elevated);
-    text-align: center;
-    transition:
-      background-color 0.15s,
-      border-color 0.15s;
-  }
-  .drop-zone.drag-over {
-    background: var(--se-dropzone-active-bg);
-    border-color: var(--se-accent);
-    border-style: solid;
-  }
-  .drop-icon {
-    display: grid;
-    place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: var(--se-control-active-bg);
-    color: var(--se-accent);
-  }
-  .title {
-    margin: 6px 0 0;
-    font: 600 15px var(--se-font-ui);
-    color: var(--se-text-primary);
-  }
-  .or {
-    margin: 0;
-    font: 500 10px var(--se-font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--se-text-muted);
-  }
-  .primary {
-    height: 34px;
-    padding: 0 18px;
-    border: 0;
-    border-radius: var(--se-radius);
-    background: var(--se-button-bg);
-    color: var(--se-button-fg);
-    font: 600 13px var(--se-font-ui);
-    box-shadow: var(--se-shadow-card);
-    cursor: pointer;
-  }
-  .primary:hover {
-    background: var(--se-button-hover);
-  }
-  .formats {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px;
-    margin: 14px 0 0;
-    padding: 0;
-    list-style: none;
-  }
-  .formats li {
-    padding: 2px 8px;
-    border: 1px solid var(--se-border);
-    border-radius: 999px;
-    background: var(--se-bg-base);
-    color: var(--se-text-secondary);
-    font: 500 10.5px var(--se-font-mono);
-  }
-  .footnote {
-    margin: 8px 0 0;
-    color: var(--se-text-muted);
-    font-size: 11px;
-    line-height: 1.6;
   }
   .drop-overlay {
     position: absolute;

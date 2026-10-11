@@ -9,7 +9,7 @@
     type StyleSpecification,
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { onMount, onDestroy, untrack } from 'svelte'
+  import { onMount, onDestroy, tick, untrack } from 'svelte'
   import {
     BasemapHealth,
     loadBasemapStyle,
@@ -23,9 +23,12 @@
     type ResolvedStyle,
     type ViewFeatures,
     DOT_PROP,
+    EXTRUSION_PITCH,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
+  import { drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
+  import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
 
   interface Props {
@@ -37,7 +40,7 @@
     /** A view takes longer than 300 ms: a thin bar on the map's top edge. */
     viewLoading?: boolean
     /** Moves the camera once per new request (test hooks). */
-    cameraRequest?: { center: [number, number]; zoom: number; seq: number } | null
+    cameraRequest?: { center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null
     /** The map drew the latest view data (idle after setData). */
     onPainted?: () => void
     /** The map settled on a new view (WGS84 bbox, zoom), debounced. */
@@ -59,7 +62,17 @@
     onBasemapFailure: (message: string) => void
     openPanel: 'style' | 'basemap' | null
     onTogglePanel: (panel: 'style' | 'basemap') => void
-    onSelectFeature: (id: string | number | null) => void
+    /** `additive`: Ctrl/Cmd was held (spec 008 FR-012: add to the selection). */
+    onSelectFeature: (id: string | number | null, additive?: boolean) => void
+    /** Spec 008 FR-012: the ticked rows, highlighted like the selected feature ('all': every drawn feature). */
+    tickedIds?: ReadonlySet<number> | 'all'
+    /** Spec 008 FR-013: fits the map to a WGS84 box once per new request. */
+    fitRequest?: { bbox: [number, number, number, number]; seq: number } | null
+    /** Spec 008 FR-023: flat (Web Mercator) or globe. */
+    projection?: 'mercator' | 'globe'
+    onToggleProjection?: () => void
+    /** Spec 008: the camera after each move (center, zoom, pitch, bearing). */
+    onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
@@ -67,6 +80,12 @@
     onInspectTileFeature?: (feature: Feature | null) => void
     /** Why the Layer style button is unavailable (PMTiles), or null. */
     styleUnavailable?: string | null
+    /** Spec 008 US6: polygons are raised (the style's extrusion applies to this layer). */
+    extruded?: boolean
+    /** Spec 008 US7: hands the store the map's PNG capture once the map is ready. */
+    onCaptureReady?: (capture: MapCapture) => void
+    /** Spec 008 US7: opens the map image dialog. */
+    onExportImage?: () => void
   }
   let {
     layer,
@@ -89,10 +108,18 @@
     openPanel,
     onTogglePanel,
     onSelectFeature,
+    tickedIds = new Set<number>(),
+    fitRequest = null,
+    projection = 'mercator',
+    onToggleProjection = () => {},
+    onCameraChange = () => {},
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
     styleUnavailable = null,
+    extruded = false,
+    onCaptureReady,
+    onExportImage,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -122,14 +149,34 @@
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle'; filter: unknown; layout?: Record<string, unknown> }> = [
+  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
     // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'circle', type: 'circle', filter: POINT },
+    // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
+    { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
   ]
+
+  /**
+   * Spec 008 US6 (research §4): while extruded, the fill-extrusion layer
+   * draws the polygons; the fill stays beneath at opacity 0 so clicks and
+   * `data-rendered-features` still find them (fill-extrusion can't be
+   * queried without a point on the globe); outlines and halo would float
+   * at ground level, so they hide.
+   */
+  function layerPaint(id: string, p: ReturnType<typeof paintFor>): Record<string, unknown> {
+    const paint = p[id as keyof typeof p] ?? {}
+    if (extruded && id === 'fill') return { ...paint, 'fill-opacity': 0 }
+    return paint
+  }
+  function layerVisibility(id: string): 'visible' | 'none' {
+    if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
+    if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
+    return 'visible'
+  }
 
   /**
    * The map layers drawn now: LAYER_DEFS once over the view features, or (PMTiles,
@@ -180,15 +227,27 @@
     return hidden ? ['all', def.filter, hidden] : def.filter
   }
 
+  /**
+   * Spec 008: a Blank basemap paints the globe too. On the flat map the
+   * container's color shows through; the globe needs a background layer,
+   * or its sphere is MapLibre's default gray in every theme.
+   */
+  const BLANK_BG = 'blank-background'
+  function blankBackground(): string {
+    return blankColor ?? (getComputedStyle(container).getPropertyValue('--se-map-bg').trim() || '#e5e5e5')
+  }
+
   function applyPaint(): void {
     if (!map || !mapReady) return
+    if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
     const p = paintFor(style, resolved, selectionColor())
     for (const l of layerInstances()) {
       if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
-      for (const [prop, value] of Object.entries(p[l.def.id as keyof typeof p] ?? {})) {
+      for (const [prop, value] of Object.entries(layerPaint(l.def.id, p))) {
         map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
+      map.setLayoutProperty(l.id, 'visibility', layerVisibility(l.def.id))
     }
   }
 
@@ -230,11 +289,16 @@
     // and switching basemaps keeps wherever the user is.
     const camera = doc as unknown as Record<string, unknown>
     for (const key of ['center', 'zoom', 'bearing', 'pitch', 'roll']) delete camera[key]
+    // Spec 008: the projection belongs to the viewer too, not to the basemap style.
+    camera.projection = { type: untrack(() => projection) }
+    // Spec 008 (user request): the globe's atmosphere glow; space is drawn behind the map (globeSky.ts).
+    if (untrack(() => projection) === 'globe') camera.sky = GLOBE_SKY
     // Always show the catalog's attribution (CLAUDE.md "Basemaps").
     if (base && entry.attribution) {
       const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
       if (first && !first.attribution) first.attribution = entry.attribution
     }
+    if (!base) doc.layers.unshift({ id: BLANK_BG, type: 'background', paint: { 'background-color': blankBackground() } } as never)
     styledTiles = tiles
     doc.sources[SOURCE_ID] = styledTiles ? { type: 'vector', url: styledTiles.url } : { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paintFor(style, resolved, selectionColor())
@@ -245,17 +309,34 @@
         source: SOURCE_ID,
         ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
         filter: layerFilter(l.def),
-        layout: l.def.layout ?? {},
-        paint: p[l.def.id as keyof typeof p],
+        layout: { ...(l.def.layout ?? {}), visibility: layerVisibility(l.def.id) },
+        paint: layerPaint(l.def.id, p),
       } as never)
     }
     return doc
+  }
+
+  /**
+   * Spec 008 (user report): on the globe, a point in space is not on the map,
+   * but a query there can still return a feature near the far limb. A point
+   * on the sphere survives screen -> lng/lat -> screen; one in space is
+   * clamped to the horizon and comes back elsewhere (public API only).
+   */
+  function onSurface(p: { x: number; y: number }): boolean {
+    if (untrack(() => projection) !== 'globe' || !map) return true
+    const back = map.project(map.unproject([p.x, p.y]))
+    return Math.hypot(back.x - p.x, back.y - p.y) < 2
   }
 
   function registerHandlers(): void {
     if (!map) return
     const m = map
     m.on('click', (e: MapMouseEvent) => {
+      if (!onSurface(e.point)) {
+        if (styledTiles) onInspectTileFeature?.(null)
+        else onSelectFeature(null)
+        return
+      }
       if (styledTiles) {
         // PMTiles: the tile feature itself is what the inspector shows. Tile
         // features are often a pixel or two wide, so a click allows 4 px.
@@ -271,17 +352,27 @@
         return
       }
       const hit = m.queryRenderedFeatures(e.point, { layers: interactiveLayers() })[0]
-      onSelectFeature(featureId(hit))
+      onSelectFeature(featureId(hit), e.originalEvent.ctrlKey || e.originalEvent.metaKey)
     })
     m.on('mousemove', (e: MapMouseEvent) => {
       onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
       const layers = interactiveLayers()
-      const hit = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      const hit = layers.length && onSurface(e.point) ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
       else setHover(featureId(hit))
     })
     // Spec 007 FR-007: load the new view once the map settles.
     m.on('moveend', scheduleViewChange)
+    m.on('moveend', () => {
+      const c = m.getCenter()
+      onCameraChange({ center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() })
+    })
+    m.on('move', scheduleSky)
+    // Spec 008 FR-026: "Reset view" shows while the map is tilted or rotated.
+    m.on('move', () => {
+      const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
+      if (t !== tilted) tilted = t
+    })
     m.on('mouseout', () => onCursorMove(null))
 
     // Tile/sprite/glyph failures after the style document itself loaded
@@ -300,6 +391,9 @@
     // webview). Refreshed on every idle, since a basemap switch rebuilds
     // the style. Read by the VS Code test hook and the browser tests.
     m.on('idle', () => {
+      if (activeBasemap && activeBasemap.type !== 'blank' && health.settledWithoutTiles()) {
+        onBasemapFailure(`${activeBasemap.name} basemap unavailable (tiles could not be loaded). Showing a blank background.`)
+      }
       // Only meaningful once this layer's first view is drawn: an idle before
       // the data arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
@@ -334,7 +428,8 @@
     }
     activeBasemap = entry
     activeBaseStyle = result.style
-    basemapHost = entry.url ? new URL(entry.url).host : ''
+    // Raster templates hold `{s}` in the host (spec 008): match on the part after it.
+    basemapHost = entry.url ? (/^https?:\/\/([^/]+)/.exec(entry.url)?.[1] ?? '').replace(/^\{s\}\./, '') : ''
     health = new BasemapHealth()
     const m = map
     m.setStyle(buildStyle(result.style, entry), { diff: false })
@@ -343,6 +438,8 @@
       hoveredId = null
       if (selectedFeatureId !== null && selectedFeatureId !== undefined) m.setFeatureState({ source: SOURCE_ID, id: selectedFeatureId }, { selected: true })
       previousSelected = selectedFeatureId ?? null
+      tickedApplied = new Set()
+      applyTicked()
     })
   }
 
@@ -412,7 +509,94 @@
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = 0
       map?.resize()
+      scheduleSky()
     })
+  }
+
+  // Spec 008 (user request): the night sky behind the globe, redrawn as the view moves.
+  let skyCanvas = $state<HTMLCanvasElement>()
+  let skyFrame = 0
+  function scheduleSky(): void {
+    if (skyFrame || !map || untrack(() => projection) !== 'globe') return
+    skyFrame = requestAnimationFrame(() => {
+      skyFrame = 0
+      if (!map || !skyCanvas || untrack(() => projection) !== 'globe') return
+      const m = map
+      const c = m.getCenter()
+      drawSky(skyCanvas, c, m.getBearing(), globeCircle(c, (p) => m.project(p)))
+    })
+  }
+
+  // --- Spec 008 US7 (research §6): the view as a PNG ------------------------
+  /** The frame, read inside a render (no preserveDrawingBuffer needed). */
+  function grabFrame(m: MapLibreMap): Promise<HTMLCanvasElement> {
+    return new Promise((resolve) => {
+      m.once('render', () => {
+        const src = m.getCanvas()
+        const c = document.createElement('canvas')
+        c.width = src.width
+        c.height = src.height
+        c.getContext('2d')?.drawImage(src, 0, 0)
+        resolve(c)
+      })
+      m.triggerRepaint()
+    })
+  }
+  function idle(m: MapLibreMap, timeoutMs = 8000): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, timeoutMs)
+      m.once('idle', () => {
+        clearTimeout(t)
+        resolve()
+      })
+      m.triggerRepaint()
+    })
+  }
+  const captureMap: MapCapture = async ({ scale, legend }) => {
+    const m = map
+    if (!m) throw new Error('The map is not ready.')
+    const notes: string[] = []
+    const cssW = container.clientWidth
+    const cssH = container.clientHeight
+    const gl = (m.getCanvas().getContext('webgl2') ?? m.getCanvas().getContext('webgl')) as WebGLRenderingContext | null
+    const max = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number) : 4096
+    let ratio: number = scale
+    if (Math.max(cssW, cssH) * ratio > max) {
+      ratio = 1
+      notes.push(`2× would be larger than this device can draw (${max} px): saved at 1×.`)
+    }
+    const previous = m.getPixelRatio()
+    const background = blankBackground()
+    const attribution = activeBasemap?.attribution ? plainAttribution(activeBasemap.attribution) : ''
+    const sky = untrack(() => projection) === 'globe' ? (skyCanvas ?? null) : null
+    try {
+      if (ratio !== previous) {
+        m.setPixelRatio(ratio)
+        await idle(m)
+      }
+      const compose = (frame: HTMLCanvasElement, withAttribution: boolean) =>
+        composeMapImage({ map: frame, under: sky, background, ratio, legend, attribution: withAttribution ? attribution : '' })
+      try {
+        const out = compose(await grabFrame(m), true)
+        return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'SecurityError')) throw err
+        // A basemap whose server doesn't allow reading its tiles taints the
+        // canvas: export without it, and say so (FR-030).
+        const ours = new Set([...layerInstances().map((l) => l.id), BLANK_BG])
+        const hidden = (m.getStyle().layers ?? []).filter((l) => !ours.has(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none').map((l) => l.id)
+        for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'none')
+        try {
+          const out = compose(await grabFrame(m), false)
+          notes.push(`The ${activeBasemap?.name ?? ''} basemap could not be captured (its server doesn't allow it) and was left out.`.replace('The  basemap', 'The basemap'))
+          return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+        } finally {
+          for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'visible')
+        }
+      }
+    } finally {
+      if (m.getPixelRatio() !== previous) m.setPixelRatio(previous)
+    }
   }
 
   let resizeObserver: ResizeObserver | null = null
@@ -430,8 +614,9 @@
       // side at low zoom reads as duplicated data.
       renderWorldCopies: false,
       trackResize: false,
+      // Rotation and tilt are on while polygons are extruded (spec 008 US6).
       dragRotate: false,
-      pitchWithRotate: false,
+      pitchWithRotate: true,
       touchPitch: false,
     })
     map.touchZoomRotate.disableRotation()
@@ -440,6 +625,7 @@
     map.on('load', () => {
       registerHandlers()
       mapReady = true
+      onCaptureReady?.(captureMap)
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
@@ -449,6 +635,7 @@
     if (viewTimer) clearTimeout(viewTimer)
     resizeObserver?.disconnect()
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
+    if (skyFrame) cancelAnimationFrame(skyFrame)
     map?.remove()
     map = null
   })
@@ -525,8 +712,11 @@
     void style.strokeOpacity
     void style.strokeWidth
     void style.pointRadius
+    void style.layerOpacity
+    void style.extrusion
     void resolved
     void themeRevision
+    void blankColor
     applyPaint()
   })
 
@@ -538,6 +728,74 @@
     if (previousSelected !== null) map.setFeatureState({ source: SOURCE_ID, id: previousSelected }, { selected: false })
     if (id !== null && id !== undefined) map.setFeatureState({ source: SOURCE_ID, id }, { selected: true })
     previousSelected = id ?? null
+  })
+
+  // Spec 008 FR-012: ticked rows share the selection highlight (feature-state
+  // `ticked`), set on the drawn features only: a selection can be far larger
+  // than what is drawn.
+  let tickedApplied = new Set<string | number>()
+  function applyTicked(): void {
+    if (!map || !mapReady || styledTiles) return
+    const ids = tickedIds
+    const drawn = [...(viewFeatures?.features ?? []), ...(extraFeature ? [extraFeature] : [])].map((f) => f.id)
+    const next = new Set(ids === 'all' ? drawn : drawn.filter((id) => typeof id === 'number' && ids.has(id)))
+    for (const id of tickedApplied) if (!next.has(id)) map.setFeatureState({ source: SOURCE_ID, id }, { ticked: false })
+    for (const id of next) if (!tickedApplied.has(id)) map.setFeatureState({ source: SOURCE_ID, id }, { ticked: true })
+    tickedApplied = next
+  }
+  $effect(() => {
+    void tickedIds
+    void viewFeatures
+    void extraFeature
+    untrack(() => applyTicked())
+  })
+
+  // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show,
+  // and lets the mouse tilt and rotate (right-drag; Shift+arrows by keyboard).
+  let tilted = $state(false)
+  let wasExtruded = false
+  $effect(() => {
+    const on = extruded
+    if (!map || !mapReady) return
+    untrack(() => applyPaint())
+    if (on) {
+      map.dragRotate.enable()
+      map.touchZoomRotate.enableRotation()
+      if (!wasExtruded && map.getPitch() < 1) map.easeTo({ pitch: EXTRUSION_PITCH, duration: 600 })
+    } else {
+      map.dragRotate.disable()
+      map.touchZoomRotate.disableRotation()
+    }
+    wasExtruded = on
+  })
+  function resetView(): void {
+    map?.easeTo({ pitch: 0, bearing: 0, duration: 500 })
+  }
+
+  // Spec 008 FR-023: switching keeps the camera (center and zoom).
+  $effect(() => {
+    const type = projection
+    if (!map || !mapReady) return
+    if (map.getProjection()?.type !== type) map.setProjection({ type })
+    map.setSky(type === 'globe' ? GLOBE_SKY : FLAT_SKY)
+    if (type === 'globe') void tick().then(scheduleSky)
+  })
+
+  let appliedFit = 0
+  $effect(() => {
+    const req = fitRequest
+    if (!req || !mapReady || !map || req.seq === appliedFit) return
+    appliedFit = req.seq
+    const [x0, y0, x1, y1] = req.bbox
+    if (x0 === x1 && y0 === y1) map.easeTo({ center: [x0, y0], zoom: Math.max(map.getZoom(), 14), duration: 500 })
+    else
+      map.fitBounds(
+        [
+          [x0, y0],
+          [x1, y1],
+        ],
+        { padding: 48, maxZoom: 17, duration: 500 }
+      )
   })
 
   // Basemap choice, theme default and failure fallback all arrive here.
@@ -562,7 +820,7 @@
     const req = cameraRequest
     if (!req || !mapReady || !map || req.seq === appliedCamera) return
     appliedCamera = req.seq
-    map.jumpTo({ center: req.center, zoom: req.zoom })
+    map.jumpTo({ center: req.center, zoom: req.zoom, ...(req.pitch !== undefined ? { pitch: req.pitch } : {}), ...(req.bearing !== undefined ? { bearing: req.bearing } : {}) })
   })
 
   $effect(() => {
@@ -571,7 +829,10 @@
   })
 </script>
 
-<div class="map-view" style:background={blankColor ?? undefined}>
+<div class="map-view" class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
+  {#if projection === 'globe'}
+    <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
+  {/if}
   <div class="canvas-host" class:dimmed bind:this={container}></div>
   {#if viewLoading}
     <ProgressBar label="Loading the features in view" />
@@ -581,6 +842,21 @@
       <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
       <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
       <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
+      <button
+        type="button"
+        title={projection === 'globe' ? 'Flat map' : 'Globe view'}
+        aria-label="Globe view"
+        aria-pressed={projection === 'globe'}
+        class:active={projection === 'globe'}
+        onclick={onToggleProjection}
+      >
+        <Icon name="globe" />
+      </button>
+      <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
+      {#if tilted}
+        <!-- Spec 008 FR-026: back to flat and north-up. -->
+        <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
+      {/if}
     </div>
     <div class="group">
       <button
@@ -622,6 +898,17 @@
     position: absolute;
     inset: 0;
     transition: opacity 0.15s;
+  }
+  /* Spec 008: deep space around the globe (fixed colors, like data colors). */
+  .map-view.space {
+    background: #020610;
+  }
+  .sky {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
   .canvas-host.dimmed {
     opacity: 0.35;
@@ -683,7 +970,8 @@
   .map-view :global(.maplibregl-ctrl-attrib) {
     background: var(--se-control-bg);
     color: var(--se-text-secondary);
-    font: 10px/1.5 var(--se-font-ui);
+    /* MapLibre's standard size (user request: 10 px read as unnatural). */
+    font: 12px/18px var(--se-font-ui);
     backdrop-filter: var(--se-overlay-blur);
   }
   .map-view :global(.maplibregl-ctrl-attrib a) {
@@ -692,12 +980,39 @@
   .map-view :global(.maplibregl-ctrl-attrib.maplibregl-compact) {
     border: 1px solid var(--se-control-border);
   }
+  /* Spec 008 FR-035: MapLibre draws the compact attribution's "i" as a black
+     background image, invisible on dark themes. The same glyph is painted
+     here as a mask filled with the text token, so it follows light, dark and
+     high contrast. */
+  .map-view :global(.maplibregl-ctrl-attrib-button) {
+    background-image: none;
+    background-color: transparent;
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button)::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: var(--se-text-secondary);
+    -webkit-mask: var(--se-attrib-icon) center / 24px 24px no-repeat;
+    mask: var(--se-attrib-icon) center / 24px 24px no-repeat;
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button:hover)::before {
+    background-color: var(--se-text);
+  }
+  .map-view :global(.maplibregl-ctrl-attrib-button:focus-visible) {
+    box-shadow: none;
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
+  }
+  .map-view {
+    --se-attrib-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20fill-rule%3D%22evenodd%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M4%2010a6%206%200%201%200%2012%200%206%206%200%201%200-12%200m5-3a1%201%200%201%200%202%200%201%201%200%201%200-2%200m0%203a1%201%200%201%201%202%200v3a1%201%200%201%201-2%200%22%2F%3E%3C%2Fsvg%3E");
+  }
   .map-view :global(.maplibregl-ctrl-scale) {
     background: var(--se-control-bg);
     border: 1px solid var(--se-text-secondary);
     border-top: 0;
     color: var(--se-text-secondary);
-    font: 10px/1.6 var(--se-font-mono);
+    font: 11px/1.6 var(--se-font-mono);
     font-variant-numeric: tabular-nums;
     padding: 0 4px;
     backdrop-filter: var(--se-overlay-blur);

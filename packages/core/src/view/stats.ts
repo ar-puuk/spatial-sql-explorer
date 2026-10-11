@@ -89,3 +89,36 @@ export function classCountsSql(relation: string, column: string, ranges: Readonl
   const cls = ranges.length ? `CASE WHEN v IS NULL THEN -2 WHEN v < ${lower} THEN -1 ${whens} ELSE -1 END` : 'CASE WHEN v IS NULL THEN -2 ELSE -1 END'
   return `SELECT cls, count(*) AS n FROM (SELECT ${cls} AS cls FROM (SELECT ${numberSql(column)} AS v FROM ${relation})) GROUP BY cls`
 }
+
+// --- Value distribution (spec 008 FR-003, research §10) ----------------------
+
+/** Bars in the style panel's value distribution chart. */
+export const HISTOGRAM_BINS = 40
+
+/** The style panel's chart: equal-width bins from min to max, with counts. */
+export interface ValueHistogram {
+  /** bins + 1 edges, min first, max last. */
+  edges: number[]
+  counts: number[]
+  /** Non-null numeric values counted. */
+  total: number
+}
+
+/**
+ * Counts per equal-width bin of the column's numeric values in one pass. The
+ * maximum falls in the last bin; a column with one distinct value is one bin.
+ */
+export function histogramSql(relation: string, column: string, min: number, max: number, bins: number = HISTOGRAM_BINS): string {
+  const n = max > min ? bins : 1
+  const width = max > min ? (max - min) / n : 1
+  return `SELECT least(${n - 1}, CAST(floor((v - (${min})) / ${width}) AS INTEGER)) AS b, count(*) AS n FROM (SELECT ${numberSql(column)} AS v FROM ${relation}) WHERE v IS NOT NULL GROUP BY b`
+}
+
+/** Assembles the chart from `histogramSql` rows. */
+export function histogramFrom(min: number, max: number, rows: ReadonlyArray<{ b: number; n: number }>, bins: number = HISTOGRAM_BINS): ValueHistogram {
+  const n = max > min ? bins : 1
+  const counts = new Array<number>(n).fill(0)
+  for (const r of rows) if (r.b >= 0 && r.b < n) counts[r.b] += r.n
+  const edges = Array.from({ length: n + 1 }, (_, i) => (i === n ? max : min + ((max - min) * i) / n))
+  return { edges, counts, total: counts.reduce((a, b) => a + b, 0) }
+}

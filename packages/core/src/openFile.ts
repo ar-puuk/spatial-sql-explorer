@@ -23,6 +23,7 @@ import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
+import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -143,13 +144,14 @@ async function readerSource(conn: AsyncDuckDBConnection, reader: string, materia
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
-async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string, materialize: boolean): Promise<FromExpr> {
+async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string, materialize: boolean, layer: string | null = null): Promise<FromExpr> {
   switch (strategy) {
     case 'st_read': {
       // ST_Read keeps the source's geometry field name: `geom` for most
       // drivers, but e.g. GML exposes `geometryProperty` (a hard-coded `geom`
       // broke every GML file; research.md §9). Use the GEOMETRY-typed column.
-      const fromExpr = await readerSource(conn, `ST_Read('${vfsPath}')`, materialize)
+      // Spec 008 US3: one named layer of a file holding several.
+      const fromExpr = await readerSource(conn, layer === null ? `ST_Read('${vfsPath}')` : readLayerSql(vfsPath, layer), materialize)
       const columns = await describeColumns(conn, fromExpr)
       const geometry = columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY'))
       if (!geometry) throw new Error('This file has no geometry column.')
@@ -250,6 +252,12 @@ export interface OpenOptions {
    * ("Load"), so the whole-read confirmation is skipped.
    */
   loadWhole?: boolean
+  /**
+   * Spec 008 US3: the layer of a multi-layer file to open as `layer`.
+   * Default: the first layer with geometry. A layer without geometry can't be
+   * `layer`; query it by name instead.
+   */
+  layer?: string
 }
 
 /** Progress and cancellation for an open (spec 007 FR-002, contracts/core-data-access.md). */
@@ -325,8 +333,11 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (hooks.isCancelled?.()) throw new QueryCancelledError()
   }
   hooks.onPhase?.('registering')
+  // Spec 008 FR-018: File Geodatabase has no reader in this runtime (research §2).
+  if (isFileGeodatabase(ref.displayName)) throw new UnsupportedFormatError(GDB_UNSUPPORTED)
   let source = await hostAdapter.getFileSource(ref)
   checkCancelled()
+  if (isFileGeodatabase(source.name)) throw new UnsupportedFormatError(GDB_UNSUPPORTED)
   const strategy = detectStrategy(source.name)
   const format = formatFromFileName(source.name)
   if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
@@ -376,14 +387,20 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     checkCancelled()
     registered = await registerSource(db, source, () => hostAdapter.getFileSource(ref, { whole: true }))
     await testDelay(checkCancelled)
-    const ctx: ModeContext = { conn, path: registered.primaryPath, name: source.name, hostAdapter, ref, hooks, detail, checkCancelled, isCancelled: () => hooks.isCancelled?.() ?? false }
+    // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
+    const layers = strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    const multi = layers.length > 1
+    const active = multi ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
+    const ctx: ModeContext = { conn, path: registered.primaryPath, name: source.name, hostAdapter, ref, hooks, detail, checkCancelled, isCancelled: () => hooks.isCancelled?.() ?? false, layer: active }
 
     let opened: OpenedTable
     if (mode.mode === 'partial') opened = await openParquetInParts(ctx)
     else if (mode.mode === 'partial-view') opened = await openFlatGeobufInParts(ctx)
     else {
       opened = await openWhole(ctx, strategy)
-      keepRegistered = false
+      // A multi-layer file stays registered: its other layers are views over it (FR-017).
+      keepRegistered = multi
     }
     timings.prepare = lap()
     checkCancelled()
@@ -394,7 +411,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
+    session.setExportAssets({ sqlWasmUrl: duckdbAssets.sqlWasmUrl })
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
+    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null)
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -414,7 +433,10 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       source: table.totals,
       styleSidecar,
       loadTimings: timings,
-      facts: factsOf(table, opened, mode.mode, fallback),
+      facts: {
+        ...factsOf(table, opened, mode.mode, fallback),
+        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount })), activeLayer: active.name } : {}),
+      },
     }
     hooks.onPhase?.('ready', detail)
     return { layer, session }
@@ -451,6 +473,23 @@ interface ModeContext {
   detail: { readMode: ReadModeKind; sizeBytes: number; format: string }
   checkCancelled: () => void
   isCancelled: () => boolean
+  /** Spec 008 US3: the layer of a multi-layer file being opened, or null (the file's only layer). */
+  layer?: FileLayer | null
+}
+
+/**
+ * Spec 008 FR-017: every other layer of the file as a view named after it,
+ * read only when a query uses it. Names that would shadow `layer`, the
+ * file's alias or an internal name are skipped (and logged by nobody: the
+ * layer list still shows them).
+ */
+async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layers: readonly FileLayer[], active: FileLayer | null, alias: string | null): Promise<void> {
+  const taken = new Set<string>(alias ? [alias.toLowerCase()] : [])
+  for (const l of layers) {
+    if (l === active || layerViewSkipped(l.name, taken)) continue
+    taken.add(l.name.toLowerCase())
+    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT * FROM ${readLayerSql(path, l.name)}`)
+  }
 }
 
 interface OpenedTable {
@@ -632,8 +671,9 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
 async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<OpenedTable> {
   const { conn } = ctx
   ctx.hooks.onPhase?.('reading', ctx.detail)
-  const read = await buildFromExpr(conn, strategy, ctx.path, true)
-  const srid = read.srid !== undefined ? read.srid : await detectSourceSrid(conn, ctx.path, strategy)
+  const read = await buildFromExpr(conn, strategy, ctx.path, true, ctx.layer?.name ?? null)
+  // A listed layer knows its CRS already (ST_Read_Meta); otherwise ask for the first layer's.
+  const srid = read.srid !== undefined ? read.srid : ctx.layer ? ctx.layer.srid : await detectSourceSrid(conn, ctx.path, strategy)
   const crs = resolveCrsInfo(srid)
   ctx.checkCancelled()
 

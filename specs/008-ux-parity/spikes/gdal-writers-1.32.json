@@ -1,0 +1,177 @@
+{
+ "GPKG / plain": {
+  "error": "IO Error: GDAL Error (1): sqlite3_exec(PRAGMA synchronous = OFF) failed: file is not a database",
+  "size": 1,
+  "back": null
+ },
+ "GPKG / registered": {
+  "error": "IO Error: GDAL Error (1): sqlite3_exec(PRAGMA synchronous = OFF) failed: file is not a database",
+  "size": 1,
+  "back": null
+ },
+ "GPKG / options": {
+  "error": "IO Error: GDAL Error (1): sqlite3_exec(PRAGMA synchronous = OFF) failed: file is not a database",
+  "size": 1,
+  "back": null
+ },
+ "GPKG / vsimem": {
+  "size": 1,
+  "back": {
+   "sql": "SELECT count(*) AS n FROM ST_Read('/vsimem/v4.gpkg')",
+   "ms": 13,
+   "rows": [
+    {
+     "n": 20
+    }
+   ]
+  }
+ },
+ "FlatGeobuf / plain": {
+  "error": "Maximum call stack size exceeded",
+  "size": 1,
+  "back": null
+ },
+ "FlatGeobuf / registered": {
+  "error": "Maximum call stack size exceeded",
+  "size": 1,
+  "back": null
+ },
+ "FlatGeobuf / options": {
+  "error": "IO Error: GDAL Error (1): Unexpected I/O failure: writing feature",
+  "size": 1,
+  "back": null
+ },
+ "FlatGeobuf / vsimem": {
+  "size": 1,
+  "back": {
+   "sql": "SELECT count(*) AS n FROM ST_Read('/vsimem/v8.fgb')",
+   "ms": 3,
+   "rows": [
+    {
+     "n": 20
+    }
+   ]
+  }
+ },
+ "ESRI Shapefile / plain": {
+  "error": "IO Error: GDAL Error (1): Failed to write .shp header: No such file or directory",
+  "size": 1,
+  "back": null
+ },
+ "ESRI Shapefile / registered": {
+  "error": "IO Error: GDAL Error (1): Failed to write .shp header: No such file or directory",
+  "size": 1,
+  "back": null
+ },
+ "ESRI Shapefile / options": {
+  "error": "IO Error: GDAL Error (1): Failed to write .shp header: No such file or directory",
+  "size": 1,
+  "back": null
+ },
+ "ESRI Shapefile / vsimem": {
+  "size": 1,
+  "back": {
+   "sql": "SELECT count(*) AS n FROM ST_Read('/vsimem/v12.shp')",
+   "ms": 9,
+   "rows": [
+    {
+     "n": 20
+    }
+   ]
+  }
+ },
+ "KML / plain": {
+  "error": "IO Error: GDAL Error (1): Latitude -111.896000 is invalid. Valid range is [-90,90]. This warning will not be issued any more",
+  "size": 1,
+  "back": null
+ },
+ "KML / registered": {
+  "error": "IO Error: GDAL Error (1): Latitude -111.896000 is invalid. Valid range is [-90,90]. This warning will not be issued any more",
+  "size": 1,
+  "back": null
+ },
+ "KML / options": {
+  "error": "IO Error: GDAL Error (1): Latitude -111.896000 is invalid. Valid range is [-90,90]. This warning will not be issued any more",
+  "size": 1,
+  "back": null
+ },
+ "KML / vsimem": {
+  "error": "IO Error: GDAL Error (1): Latitude -111.896000 is invalid. Valid range is [-90,90]. This warning will not be issued any more",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSONSeq / plain": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSONSeq / registered": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSONSeq / options": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSONSeq / vsimem": {
+  "size": 1,
+  "back": {
+   "sql": "SELECT count(*) AS n FROM ST_Read('/vsimem/v20.geojsonl')",
+   "ms": 5,
+   "rows": [
+    {
+     "n": 20
+    }
+   ]
+  }
+ },
+ "GeoJSON / plain": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSON / registered": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSON / options": {
+  "error": "IO Error: GDAL Error (3): Cannot write feature",
+  "size": 1,
+  "back": null
+ },
+ "GeoJSON / vsimem": {
+  "size": 1,
+  "back": {
+   "sql": "SELECT count(*) AS n FROM ST_Read('/vsimem/v24.geojson')",
+   "ms": 5,
+   "rows": [
+    {
+     "n": 20
+    }
+   ]
+  }
+ },
+ "CSV / plain": {
+  "error": "IO Error: GDAL Error (1): It seems no file system object called '/out/v25.csv' exists.",
+  "size": 1,
+  "back": null
+ },
+ "CSV / registered": {
+  "error": "IO Error: GDAL Error (1): It seems no file system object called '/out/v26.csv' exists.",
+  "size": 1,
+  "back": null
+ },
+ "CSV / options": {
+  "error": "IO Error: GDAL Error (1): It seems no file system object called '/out/v27.csv' exists.",
+  "size": 1,
+  "back": null
+ },
+ "CSV / vsimem": {
+  "error": "IO Error: Could not set geometry",
+  "size": 1,
+  "back": null
+ }
+}

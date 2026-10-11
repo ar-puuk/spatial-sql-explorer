@@ -6,6 +6,15 @@ export function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`
 }
 
+/**
+ * A SQL string literal (spec 008): every value that comes from the user or a
+ * file (filter values, layer names) reaches SQL through here, never raw.
+ * DuckDB strings don't treat backslashes as escapes, so only `'` is doubled.
+ */
+export function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
 /** Normalizes a DuckDB spatial geometry-type string to this project's GeometryType. */
 export function normalizeGeometryType(raw: string): Exclude<GeometryType, 'Mixed'> | null {
   const upper = raw.toUpperCase()
@@ -103,3 +112,14 @@ export async function singleRow<T>(conn: AsyncDuckDBConnection, sql: string, isC
   })
   return (row ?? {}) as T
 }
+
+/**
+ * DATE, TIME, TIMESTAMP (any precision or zone) and INTERVAL: Arrow hands
+ * these to JS as bare numbers (epoch milliseconds, microseconds) or worse
+ * (INTERVAL), so wherever they are shown DuckDB formats them as text.
+ */
+export const isTemporalType = (type: string): boolean => /^(DATE|TIME|TIMESTAMP|INTERVAL)/i.test(type.trim())
+
+/** A column for display: temporal ones as DuckDB's own text. */
+export const displayColumnSql = (name: string, type: string | undefined): string =>
+  type && isTemporalType(type) ? `CAST(${quoteIdent(name)} AS VARCHAR) AS ${quoteIdent(name)}` : quoteIdent(name)

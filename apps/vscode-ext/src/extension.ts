@@ -39,6 +39,7 @@ type WebviewToHostMessage =
   | { type: 'mapViewState'; state: unknown }
   | { type: 'queryState'; state: unknown }
   | { type: 'styleState'; state: unknown }
+  | { type: 'tableState'; state: unknown }
   | { type: 'exportState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
@@ -46,7 +47,7 @@ type WebviewToHostMessage =
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
   | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
   | { type: 'saveFileChunk'; transferId: number; index: number; count: number; bytesBase64: string }
-  | { type: 'saveFileEnd'; requestId: number; transferId: number; name: string; kind: 'style' | 'data'; totalBytes: number }
+  | { type: 'saveFileEnd'; requestId: number; transferId: number; name: string; kind: 'style' | 'data' | 'image'; totalBytes: number }
 
 const CHUNK_BYTES = 32 * 1024 * 1024
 
@@ -60,6 +61,37 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
   '.geojson': { GeoJSON: ['geojson', 'json'] },
   '.parquet': { Parquet: ['parquet'] },
   '.csv': { CSV: ['csv'] },
+  // Spec 008 (US4, US7).
+  '.geojsonl': { 'GeoJSON (newline-delimited)': ['geojsonl', 'geojsons', 'ndjson'] },
+  '.fgb': { FlatGeobuf: ['fgb'] },
+  '.gpkg': { GeoPackage: ['gpkg'] },
+  '.zip': { 'Zipped Shapefile': ['zip'] },
+  '.kml': { KML: ['kml'] },
+  '.xlsx': { 'Excel workbook': ['xlsx'] },
+  '.json': { JSON: ['json'] },
+  '.png': { 'PNG image': ['png'] },
+}
+
+/**
+ * Spec 008 (research §7–§8): hosts of the keyless raster basemaps in
+ * packages/core/src/basemapCatalog.ts (MapLibre fetches tiles, then decodes
+ * them as images, so both connect-src and img-src), plus the opt-out place
+ * search. Keep in sync with the catalog.
+ */
+const RASTER_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
+
+/**
+ * Spec 008 FR-018: the same text as GDB_UNSUPPORTED in
+ * packages/core/src/source/layers.ts (the extension host doesn't import core).
+ */
+const GDB_UNSUPPORTED =
+  "File Geodatabase (.gdb) isn't supported yet: this build has no reader for it. Convert it to GeoPackage, for example: ogr2ogr -f GPKG out.gpkg in.gdb"
+/** Test hook: the last File Geodatabase message shown. */
+let lastGdbMessage: string | null = null
+
+/** Spec 008: the setting the webview needs (contracts/host-and-shells.md). */
+function placeSearchEnabled(): boolean {
+  return vscode.workspace.getConfiguration('spatialExplorer').get<boolean>('placeSearch.enabled', true)
 }
 
 /**
@@ -89,6 +121,7 @@ let lastSelection: string | number | null = null
 /** Latest query state, same rationale (spec 002 test hooks). */
 let lastQueryState: unknown = null
 let lastStyleState: unknown = null
+let lastTableState: unknown = null
 let lastOpenState: unknown = null
 let lastMapViewState: unknown = null
 /** Spec 007 test hook: thresholds sent to the next viewers (see readModes TestOverrides). */
@@ -218,6 +251,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         lastQueryState = msg.state
       } else if (msg.type === 'styleState') {
         lastStyleState = msg.state
+      } else if (msg.type === 'tableState') {
+        lastTableState = msg.state
       } else if (msg.type === 'exportState') {
         lastExportState = msg.state
       } else if (msg.type === 'requestBytes') {
@@ -304,7 +339,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         : lower.endsWith('.sld')
           ? { 'OGC SLD': ['sld'] }
           : { 'Mapbox GL style': ['json'] }
-      const uri = await vscode.window.showSaveDialog({ title: 'Export layer style', defaultUri: vscode.Uri.joinPath(dir, msg.name), filters })
+      let uri: vscode.Uri | undefined
+      if (nextExportPath) {
+        // Test hook (spec 008 T012): no dialog.
+        uri = vscode.Uri.file(nextExportPath)
+        nextExportPath = null
+      } else uri = await vscode.window.showSaveDialog({ title: 'Save layer style', defaultUri: vscode.Uri.joinPath(dir, msg.name), filters })
       if (!uri) return void reply({ saved: false })
       await vscode.workspace.fs.writeFile(uri, content)
       return void reply({ saved: true, location: path.posix.basename(uri.path) })
@@ -337,7 +377,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else {
         const ext = path.posix.extname(msg.name).toLowerCase()
         target = await vscode.window.showSaveDialog({
-          title: 'Export data',
+          title: msg.kind === 'image' ? 'Export map image' : 'Export data',
           defaultUri: vscode.Uri.joinPath(documentUri, '..', msg.name),
           filters: DATA_FILTERS[ext] ?? { 'All files': ['*'] },
         })
@@ -388,12 +428,15 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     const workerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js'))
     const wasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm'))
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
+    const sqlWasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'sqljs', 'sql-wasm.wasm'))
     const primaryName = path.basename(documentUri.fsPath)
     await panel.webview.postMessage({
       type: 'assets',
       duckdbWorkerUrl: workerUri.toString(),
       duckdbWasmUrl: wasmUri.toString(),
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
+      sqlWasmUrl: sqlWasmUri.toString(),
+      placeSearchEnabled: placeSearchEnabled(),
       primaryFileName: primaryName,
       // Stable per-file key for persisted webview state (spec 002 history).
       primaryFileUri: documentUri.toString(),
@@ -494,6 +537,17 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     }
   }
 
+  /** Test hook (spec 008 T066): the CSP of the active viewer's page. */
+  activeCsp(): string | null {
+    const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
+    return panel ? (/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(panel.webview.html)?.[1] ?? null) : null
+  }
+
+  /** Spec 008: tells every open viewer about a changed setting. */
+  postPreferences(): void {
+    for (const panel of this.panels) void panel.webview.postMessage({ type: 'preferences', placeSearchEnabled: placeSearchEnabled() })
+  }
+
   /** Test hook (spec 007): the active viewer's bytes served, and whether a whole transfer was sent. */
   sourceStats(): { bytes: number; requests: number; size: number; chunksSent: boolean } | null {
     const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
@@ -533,7 +587,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>
@@ -604,6 +658,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   output = vscode.window.createOutputChannel('Spatial Explorer')
   context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('spatialExplorer.placeSearch.enabled')) provider.postPreferences()
+    })
+  )
   void reopenBinaryTabsFromStartup().catch((err) => log(`Could not reopen startup tabs: ${String(err)}`))
 
   context.subscriptions.push(
@@ -620,10 +679,22 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri
       if (!target) return
       const ext = path.posix.extname(target.path).toLowerCase()
+      if (ext === '.gdb') {
+        // Spec 008 FR-018 (research §2): no File Geodatabase reader in this runtime. Say so, with a way forward.
+        const command = `ogr2ogr -f GPKG "${path.basename(target.fsPath, '.gdb')}.gpkg" "${target.fsPath}"`
+        lastGdbMessage = GDB_UNSUPPORTED
+        void vscode.window.showInformationMessage(GDB_UNSUPPORTED, 'Copy command').then(async (choice) => {
+          if (choice === 'Copy command') await vscode.env.clipboard.writeText(command)
+        })
+        return
+      }
       const viewType = DEFAULT_EDITOR_EXTENSIONS.has(ext) ? 'spatialExplorer.editor' : 'spatialExplorer.editorOption'
       await vscode.commands.executeCommand('vscode.openWith', target, viewType)
     }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
+    vscode.commands.registerCommand('spatialExplorer._getGdbMessage', () => lastGdbMessage),
+    // Spec 008 T066: the active viewer's Content-Security-Policy.
+    vscode.commands.registerCommand('spatialExplorer._getCsp', () => provider.activeCsp()),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
     // Spec 002 test hooks: drive and observe queries in the active viewer.
     vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string) =>
@@ -635,6 +706,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
     // Spec 003 test hooks: read the resolved style, apply a style, save it.
     vscode.commands.registerCommand('spatialExplorer._getStyleState', () => lastStyleState),
+    // Spec 008 T026: table columns, filters and selection.
+    vscode.commands.registerCommand('spatialExplorer._getTableState', () => lastTableState),
+    vscode.commands.registerCommand('spatialExplorer._setFilter', (column: string, filter: unknown) => provider.postToActive({ type: 'testSetFilter', column, filter })),
+    vscode.commands.registerCommand('spatialExplorer._switchLayer', (name: string) => provider.postToActive({ type: 'testSwitchLayer', column: name })),
+    vscode.commands.registerCommand('spatialExplorer._setHiddenColumns', (hidden: string[]) => provider.postToActive({ type: 'testSetHiddenColumns', hidden })),
     // Spec 005 test hooks: run an export, read its state.
     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
     vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),
@@ -657,6 +733,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('spatialExplorer._setStyle', (style: unknown) => provider.postToActive({ type: 'testSetStyle', style })),
     vscode.commands.registerCommand('spatialExplorer._saveStyle', () => provider.postToActive({ type: 'testSaveStyle' })),
+    // Spec 008 T012: the Save button's menu (pair with _saveNextExportTo for formats other than the sidecar).
+    vscode.commands.registerCommand('spatialExplorer._saveStyleAs', (format: string) => provider.postToActive({ type: 'testSaveStyleAs', format })),
+    // Spec 008 US7 T081: export the map image (pair with _saveNextExportTo).
+    vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number) => provider.postToActive({ type: 'testExportMapImage', scale })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null

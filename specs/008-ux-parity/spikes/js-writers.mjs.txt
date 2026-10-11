@@ -1,0 +1,80 @@
+// SPIKE (spec 008 plan): JS writers (FlatGeobuf, GeoPackage) and a JS FileGDB reader.
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import { geojson as fgb } from 'flatgeobuf'
+import initSqlJs from 'sql.js'
+const require = createRequire(import.meta.url)
+
+const world = JSON.parse(fs.readFileSync('D:/GitHub/spatial-sql-explorer/tests/vscode-ext/fixtures/world-boundaries.geojson', 'utf8'))
+const fc = { type: 'FeatureCollection', features: world.features.slice(0, 50) }
+
+// 1. FlatGeobuf via the flatgeobuf library.
+let t = performance.now()
+const fgbBytes = fgb.serialize(fc, 4326)
+fs.writeFileSync('js-out.fgb', fgbBytes)
+console.log('fgb', fgbBytes.length, 'bytes', Math.round(performance.now() - t), 'ms')
+
+// 2. GeoPackage via sql.js: the minimum tables OGC 12-128r18 requires.
+function wkb(g) {
+  const parts = []
+  const u8 = (v) => parts.push(Uint8Array.of(v))
+  const u32 = (v) => { const b = new DataView(new ArrayBuffer(4)); b.setUint32(0, v, true); parts.push(new Uint8Array(b.buffer)) }
+  const f64 = (v) => { const b = new DataView(new ArrayBuffer(8)); b.setFloat64(0, v, true); parts.push(new Uint8Array(b.buffer)) }
+  const ring = (r) => { u32(r.length); for (const [x, y] of r) { f64(x); f64(y) } }
+  const poly = (p) => { u8(1); u32(3); u32(p.length); p.forEach(ring) }
+  if (g.type === 'Polygon') poly(g.coordinates)
+  else if (g.type === 'MultiPolygon') { u8(1); u32(6); u32(g.coordinates.length); g.coordinates.forEach(poly) }
+  else if (g.type === 'Point') { u8(1); u32(1); f64(g.coordinates[0]); f64(g.coordinates[1]) }
+  const n = parts.reduce((s, p) => s + p.length, 0)
+  const out = new Uint8Array(n); let o = 0
+  for (const p of parts) { out.set(p, o); o += p.length }
+  return out
+}
+function bbox(g) {
+  const xs = [], ys = []
+  const walk = (c) => (typeof c[0] === 'number' ? (xs.push(c[0]), ys.push(c[1])) : c.forEach(walk))
+  walk(g.coordinates)
+  return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+}
+function gpkgBlob(g, srs) {
+  const body = wkb(g)
+  const head = new DataView(new ArrayBuffer(8 + 32))
+  head.setUint8(0, 0x47); head.setUint8(1, 0x50); head.setUint8(2, 0); head.setUint8(3, 0b0000_0011) // little endian, xy envelope
+  head.setInt32(4, srs, true)
+  bbox(g).forEach((v, i) => head.setFloat64(8 + i * 8, v, true))
+  const out = new Uint8Array(40 + body.length); out.set(new Uint8Array(head.buffer)); out.set(body, 40)
+  return out
+}
+t = performance.now()
+const SQL = await initSqlJs()
+const db = new SQL.Database()
+db.run(`PRAGMA application_id = 1196444487; PRAGMA user_version = 10400;
+CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT);
+INSERT INTO gpkg_spatial_ref_sys VALUES ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', NULL), ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', NULL);
+CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, identifier TEXT UNIQUE, description TEXT DEFAULT '', last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER);
+CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL, geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL, CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name));`)
+db.run(`INSERT INTO gpkg_spatial_ref_sys VALUES ('WGS 84', 4326, 'EPSG', 4326, ?, NULL)`, [
+  'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]',
+])
+db.run(`CREATE TABLE "world" (fid INTEGER PRIMARY KEY AUTOINCREMENT, geom GEOMETRY, "id" TEXT, "name" TEXT)`)
+db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, min_x, min_y, max_x, max_y, srs_id) VALUES ('world', 'features', 'world', -180, -90, 180, 90, 4326)`)
+db.run(`INSERT INTO gpkg_geometry_columns VALUES ('world', 'geom', 'GEOMETRY', 4326, 0, 0)`)
+const ins = db.prepare(`INSERT INTO "world" (geom, "id", "name") VALUES (?, ?, ?)`)
+db.run('BEGIN')
+for (const f of fc.features) ins.run([gpkgBlob(f.geometry, 4326), f.id ?? f.properties.id ?? null, f.properties.name ?? null])
+db.run('COMMIT')
+ins.free()
+const gpkg = db.export()
+fs.writeFileSync('js-out.gpkg', gpkg)
+console.log('gpkg', gpkg.length, 'bytes', Math.round(performance.now() - t), 'ms')
+
+// 3. FileGDB via the fgdb package (zip input).
+t = performance.now()
+try {
+  const fgdb = require('fgdb')
+  const layers = await fgdb(fs.readFileSync('two.gdb.zip'))
+  for (const [name, layer] of Object.entries(layers)) console.log('fgdb layer', name, layer.features?.length, layer.features?.[0]?.geometry?.type, JSON.stringify(layer.features?.[0]?.properties).slice(0, 120))
+} catch (e) {
+  console.log('fgdb error', String(e).slice(0, 300))
+}
+console.log('fgdb ms', Math.round(performance.now() - t))

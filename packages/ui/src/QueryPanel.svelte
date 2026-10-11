@@ -55,7 +55,11 @@
   const busy = $derived(store.queryPhase === 'running')
   // A live "Running… 1.2 s" while a query runs (contract: status line).
   $effect(() => {
-    if (busy && !timer) timer = setInterval(() => (now = performance.now()), 100)
+    if (busy && !timer) {
+      // Start from now: a stale clock read as a negative time until the first tick.
+      now = performance.now()
+      timer = setInterval(() => (now = performance.now()), 100)
+    }
     if (!busy && timer) {
       clearInterval(timer)
       timer = null
@@ -67,7 +71,7 @@
 
   const statusText = $derived.by(() => {
     if (store.queryPhase === 'running') {
-      const s = store.runStartedAt === null ? 0 : (now - store.runStartedAt) / 1000
+      const s = store.runStartedAt === null ? 0 : Math.max(0, now - store.runStartedAt) / 1000
       return `Running… ${s.toFixed(1)} s`
     }
     return store.queryStatus

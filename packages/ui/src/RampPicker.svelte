@@ -2,6 +2,8 @@
   // Color ramp picker (spec 003 FR-007, contracts/ui-style-panel.md): a
   // button showing the current ramp strip, a listbox of strips grouped by
   // kind (arrows move, Enter applies, Esc closes), and a Reverse toggle.
+  // Spec 008 FR-004: while the list is open, the focused ramp previews on the
+  // map (`onPreview`); closing without a choice restores the previous one.
   import { onMount } from 'svelte'
   import { rampColors, rampsFor, type RampRef } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
@@ -12,8 +14,10 @@
     /** Classes shown in the previews: the ramp as it will be applied. */
     classCount: number
     onChange: (ramp: RampRef) => void
+    /** The ramp to show on the map while browsing, or null to restore (FR-004). */
+    onPreview?: (ramp: RampRef | null) => void
   }
-  let { value, renderer, classCount, onChange }: Props = $props()
+  let { value, renderer, classCount, onChange, onPreview = () => {} }: Props = $props()
 
   const ramps = $derived(rampsFor(renderer))
   const kinds = $derived([...new Set(ramps.map((r) => r.kind))])
@@ -40,15 +44,32 @@
     queueMicrotask(() => list?.focus())
   }
 
+  /** The ramp shown on the map while the list is open (null: none yet). */
+  let previewing: string | null = null
+
   function close(refocus = true): void {
     open = false
+    if (previewing !== null) {
+      previewing = null
+      onPreview(null)
+    }
     if (refocus) button?.focus()
   }
 
   function choose(i: number): void {
+    previewing = null
     onChange({ id: ramps[i].id, reversed: value.reversed })
     close()
   }
+
+  // Preview the focused ramp (keyboard or pointer) while the list is open.
+  $effect(() => {
+    if (!open) return
+    const r = ramps[active]
+    if (!r || r.id === (previewing ?? value.id)) return
+    previewing = r.id
+    onPreview({ id: r.id, reversed: value.reversed })
+  })
 
   function onKeydown(e: KeyboardEvent): void {
     const n = ramps.length

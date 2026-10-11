@@ -7,7 +7,8 @@
  * file must be added to both.
  *
  * Light/dark follows the OS (`prefers-color-scheme`), with `data-theme` on
- * <html> as an explicit override.
+ * <html> as an explicit override (spec 008: the header's Theme menu sets it;
+ * the dark token set is repeated for `[data-theme='dark']`).
  */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
@@ -232,6 +233,104 @@
     --se-sql-error: #f87171;
   }
 }
+
+/* Spec 008 FR-022: Dark chosen in the theme menu, whatever the OS says. */
+:root[data-theme='dark'] {
+    color-scheme: dark;
+
+    --se-bg-base: #0e171e;
+    --se-bg-panel: #131e28;
+    --se-bg-elevated: #192430;
+    --se-bg-hover: #2d1c04;
+    --se-border: #1e2e3c;
+
+    --se-text-primary: #f0ebe0;
+    --se-text-secondary: #8a98a8;
+    --se-text-muted: #7f90a3;
+    --se-accent: #fbbf24;
+    --se-focus: #fbbf24;
+    --se-info: #60a5fa;
+    --se-section-title-fg: #8a98a8;
+
+    --se-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --se-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+
+    --se-progress: #fbbf24;
+    --se-sash-hover: #fbbf24;
+
+    --se-map-bg: #101820;
+    --se-map-selection: #fbbf24;
+
+    --se-control-bg: rgba(19, 30, 40, 0.88);
+    --se-control-border: #253545;
+    --se-control-fg: #8a98a8;
+    --se-control-hover: #1e2e3c;
+    --se-control-active-bg: #2d1c04;
+    --se-control-active-fg: #fcd34d;
+
+    --se-table-bg: #0e171e;
+    --se-table-header-bg: #131e28;
+    --se-table-header-fg: #8a98a8;
+    --se-table-header-border: 2px solid #2f4258;
+    --se-table-stripe: #101820;
+    --se-table-row-border: #192430;
+    --se-table-number-fg: #e8c87a;
+
+    --se-selected-bg: #3a2606;
+    --se-selected-fg: #fcd34d;
+    --se-selected-inactive-bg: #2d1c04;
+    --se-selected-inactive-fg: #fcd34d;
+    --se-selected-indicator: #fbbf24;
+
+    --se-input-bg: #192430;
+    --se-input-border: #253545;
+    --se-button-bg: #fbbf24;
+    --se-button-fg: #1c1208;
+    --se-button-hover: #f59e0b;
+    --se-button-secondary-fg: #8a98a8;
+    --se-button-secondary-hover: #1e2e3c;
+    --se-menu-bg: #1f2d3a;
+    --se-menu-border: #2f4258;
+    --se-menu-fg: #f0ebe0;
+    --se-menu-hover-bg: #2d1c04;
+    --se-menu-hover-fg: #fcd34d;
+
+    --se-warning: #f59e0b;
+    --se-warning-fg: #fcd34d;
+    --se-warning-bg: #2d1c04;
+    --se-warning-border: #4a3008;
+    --se-error: #ef4444;
+    --se-error-fg: #fca5a5;
+    --se-error-bg: #2a1215;
+    --se-error-border: #5c1d22;
+
+    --se-statusbar-bg: rgba(14, 23, 30, 0.82);
+    --se-statusbar-fg: #8a98a8;
+    --se-statusbar-border: #253545;
+
+    --se-brand-text: #fbbf24;
+    --se-header-bg: #131e28;
+    --se-header-border: #253545;
+    --se-dropzone-border: #2f4258;
+    --se-dropzone-active-bg: #2d1c04;
+
+    --se-sql-bg: #0e171e;
+    --se-sql-fg: #f0ebe0;
+    --se-sql-selection: #3a2606;
+    --se-sql-cursor: #fbbf24;
+    --se-sql-gutter-fg: #7f90a3;
+    --se-sql-gutter-active-fg: #f0ebe0;
+    --se-sql-gutter-bg: #131e28;
+    --se-sql-active-line: #131e28;
+    --se-sql-keyword: #fbbf24;
+    --se-sql-string: #6ee7b7;
+    --se-sql-number: #c4b5fd;
+    --se-sql-function: #93c5fd;
+    --se-sql-operator: #a9b6c4;
+    --se-sql-comment: #7f90a3;
+    --se-sql-error: #f87171;
+  }
+
 
 html,
 body {

@@ -24,7 +24,11 @@ function post(msg: unknown): void {
 export interface DuckDbAssets {
   workerUrl: string
   wasmUrl: string
+  sqlWasmUrl?: string
 }
+
+/** Spec 008: the `spatialExplorer.placeSearch.enabled` setting, as the host last sent it. */
+let placeSearchEnabled: boolean | undefined
 
 let maplibreWorkerUrlResolve: ((url: string) => void) | null = null
 const maplibreWorkerUrlPromise = new Promise<string>((resolve) => {
@@ -212,6 +216,8 @@ window.addEventListener('message', (event: MessageEvent) => {
     duckdbWorkerUrl?: string
     duckdbWasmUrl?: string
     maplibreWorkerUrl?: string
+    sqlWasmUrl?: string
+    placeSearchEnabled?: boolean
     primaryFileName?: string
     primaryFileUri?: string
     fileName?: string
@@ -232,7 +238,8 @@ window.addEventListener('message', (event: MessageEvent) => {
   }
 
   if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
-    assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl })
+    assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl, sqlWasmUrl: msg.sqlWasmUrl })
+    if (msg.placeSearchEnabled !== undefined) placeSearchEnabled = msg.placeSearchEnabled
     if (msg.maplibreWorkerUrl) maplibreWorkerUrlResolve?.(msg.maplibreWorkerUrl)
     if (msg.primaryFileUri) primaryFileUri = msg.primaryFileUri
     if (msg.primaryFileName && !primaryFileNameFromAssets) {
@@ -253,6 +260,8 @@ window.addEventListener('message', (event: MessageEvent) => {
     if (pendingFiles && wholeResolve) {
       wholeResolve(bytesSource([...pendingFiles.values()].map((f) => ({ name: f.name, isPrimary: f.isPrimary, bytes: new Uint8Array(base64ToArrayBuffer(f.chunks.join(''))) }))))
     }
+  } else if (msg.type === 'preferences') {
+    placeSearchEnabled = msg.placeSearchEnabled
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
@@ -271,6 +280,9 @@ export function createVsCodeHostAdapter(): HostAdapter {
   return {
     getTheme(): ThemeKind {
       return detectTheme()
+    },
+    getPreference(key: 'placeSearch.enabled'): boolean | undefined {
+      return key === 'placeSearch.enabled' ? placeSearchEnabled : undefined
     },
     onThemeChange(cb: (theme: ThemeKind) => void): () => void {
       themeListeners.add(cb)
@@ -426,6 +438,11 @@ export function reportExportState(state: unknown): void {
 /** Resolved style for the extension's test hook (spec 003). */
 export function reportStyleState(state: unknown): void {
   post({ type: 'styleState', state })
+}
+
+/** Spec 008 T026: the table's columns, filters and selection, for tests. */
+export function reportTableState(state: unknown): void {
+  post({ type: 'tableState', state })
 }
 
 /** One line in the "Spatial Explorer" output channel. */

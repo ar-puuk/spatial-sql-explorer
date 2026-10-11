@@ -34,6 +34,16 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "configuration": {
+      "title": "Spatial Explorer",
+      "properties": {
+        "spatialExplorer.placeSearch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the place search on the map. Searches send only the typed text to OpenStreetMap Nominatim."
+        }
+      }
+    },
     "customEditors": [
       {
         "viewType": "spatialExplorer.editor",
@@ -102,6 +112,11 @@
         {
           "command": "spatialExplorer.openInViewer",
           "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml)$/i && !explorerResourceIsFolder",
+          "group": "navigation@20"
+        },
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "explorerResourceIsFolder && resourceExtname == .gdb",
           "group": "navigation@20"
         }
       ],

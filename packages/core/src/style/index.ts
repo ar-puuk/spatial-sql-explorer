@@ -5,11 +5,12 @@ export * from './edit.js'
 export { previewExportNotice, thematicForExport } from './interchange.js'
 export * from './resolve.js'
 export * from './expressions.js'
+export * from './extrusion.js'
 export { styleToQml, qmlToStyle, type StyleExport } from './qml.js'
 export { styleToSld, sldToStyle } from './sld.js'
 export { styleToMapbox, mapboxToStyle } from './mapbox.js'
 
-import type { LayerStyle, ResolvedStyle, StyleFormat, StyleGeometry, StyleImportResult } from './model.js'
+import { withLayerOpacity, type LayerStyle, type ResolvedStyle, type StyleFormat, type StyleGeometry, type StyleImportResult } from './model.js'
 import { qmlToStyle, styleToQml, type StyleExport } from './qml.js'
 import { sldToStyle, styleToSld } from './sld.js'
 import { mapboxToStyle, styleToMapbox } from './mapbox.js'
@@ -58,10 +59,11 @@ export function exportStyle(
       const column = r && r.kind !== 'single' ? r.column : ''
       return styleToQml(style, geometry, resolved, columns?.find((c) => c.name === column)?.type)
     }
+    // Neither has a layer-level opacity: it is folded into the symbol opacities.
     case 'sld':
-      return styleToSld(style, geometry, layerName, resolved)
+      return styleToSld(withLayerOpacity(style), geometry, layerName, resolved)
     case 'mapbox':
-      return styleToMapbox(style, geometry, layerName, dataFileName, resolved)
+      return styleToMapbox(withLayerOpacity(style), geometry, layerName, dataFileName, resolved)
   }
 }
 

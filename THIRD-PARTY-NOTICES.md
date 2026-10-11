@@ -2874,7 +2874,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## fflate 0.8.3
 
-Used by PMTiles to decompress gzip-compressed directories and tiles.
+Used by PMTiles to decompress gzip-compressed directories and tiles, and by
+Spatial Explorer to zip Shapefile and Excel exports and compress share links.
 Source: https://github.com/101arrowz/fflate
 
 ```
@@ -2900,6 +2901,88 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## sql.js 1.14.2 (includes SQLite)
+
+Writes GeoPackage exports. Loaded only when a GeoPackage is exported.
+Source: https://github.com/sql-js/sql.js. SQLite itself is in the public
+domain (https://sqlite.org/copyright.html).
+
+```
+MIT license
+===========
+
+Copyright (c) 2017 sql.js authors (see AUTHORS)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+
+# Some portions of the Makefile taken from:
+Copyright 2017 Ryusei Yamaguchi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+---
+
+## Sample data: US counties
+
+`sample/us-counties.parquet` is built by `scripts/sample-data.mjs` from US
+Census Bureau data, which is in the public domain:
+- 2023 cartographic boundary file, counties, 1:20,000,000
+  (https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_county_20m.zip);
+- Vintage 2023 county population estimates
+  (https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/counties/totals/co-est2023-alldata.csv).
+
+Geometry is simplified. Population is missing where the estimates use other
+units (Connecticut planning regions, Puerto Rico).
+
+---
+
+## Web landing page: world population map
+
+`apps/web/public/landing/world-population.svg` is built by
+`scripts/landing-world.mjs` from Natural Earth data, which is in the public
+domain (https://www.naturalearthdata.com/about/terms-of-use/):
+- Admin 0 countries, 1:50m (country population estimates);
+- Populated places (simple), 1:10m (metro area populations).
+
+Population per hexagon is an estimate: each place's metro population, plus
+the rest of its country's population spread evenly over the country's land.
 
 ---
 
@@ -2931,6 +3014,13 @@ They are listed for transparency and attribution.
   (https://openfreemap.org), built from OpenMapTiles (© OpenMapTiles, BSD-3 /
   CC-BY) on OpenStreetMap data (© OpenStreetMap contributors, ODbL 1.0,
   https://www.openstreetmap.org/copyright). Attribution is shown on the map.
+- **Raster basemaps** (optional, picked by the user): Esri World Imagery (©
+  Esri, Maxar, Earthstar Geographics, and the GIS User Community), OpenTopoMap
+  (© OpenStreetMap contributors, SRTM; map style © OpenTopoMap, CC-BY-SA) and
+  the OpenStreetMap standard tiles (© OpenStreetMap contributors, used under
+  the OSMF tile usage policy). Attribution is shown on the map.
+- **Place search**: OpenStreetMap Nominatim (data © OpenStreetMap
+  contributors, ODbL 1.0), queried only with the text the user types.
 - **Fonts, web app only:** Inter and JetBrains Mono (SIL Open Font License
   1.1), served by Google Fonts. The VS Code extension uses the editor's own
   fonts.

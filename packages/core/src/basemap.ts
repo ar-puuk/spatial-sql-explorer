@@ -42,6 +42,7 @@ export async function loadBasemapStyle(
   timeoutMs: number = BASEMAP_TIMEOUT_MS
 ): Promise<BasemapLoadResult> {
   if (entry.type === 'blank') return { ok: true, entry, style: null }
+  if (entry.type === 'raster') return { ok: true, entry, style: rasterStyle(entry) }
   if (entry.type !== 'vector') return { ok: false, entry, message: basemapFailureMessage(entry, 'unsupported basemap type') }
 
   const controller = new AbortController()
@@ -71,6 +72,24 @@ export async function loadBasemapStyle(
 }
 
 /**
+ * A raster row's style, built here: there is no style document to fetch.
+ * `{s}` expands to one URL per subdomain (MapLibre spreads requests across
+ * them); `{r}` (retina) is dropped. Tile failures are caught by
+ * BasemapHealth like any other source.
+ */
+export function rasterStyle(entry: BasemapCatalogEntry): BasemapStyle {
+  const template = entry.url.replace('{r}', '')
+  const tiles = template.includes('{s}') ? (entry.subdomains ?? ['a']).map((s) => template.replace('{s}', s)) : [template]
+  return {
+    version: 8,
+    sources: { 'basemap-raster': { type: 'raster', tiles, tileSize: 256, maxzoom: entry.maxzoom ?? 19, attribution: entry.attribution } },
+    // No cross-fade: on the globe, fading tiles draw their stretched borders
+    // past the limb while spinning (spec 008, user report: green patches in space).
+    layers: [{ id: 'basemap-raster', type: 'raster', source: 'basemap-raster', paint: { 'raster-fade-duration': 0 } }],
+  }
+}
+
+/**
  * Tile-level failure detection after a style loaded: the style document can
  * arrive while its tiles are blocked (CSP connect-src, a captive portal).
  * Falls back once enough tile/sprite/glyph requests have failed with none
@@ -87,6 +106,14 @@ export class BasemapHealth {
   recordFailure(): boolean {
     this.failures++
     return this.successes === 0 && this.failures >= this.threshold
+  }
+  /**
+   * Spec 008: the map settled (idle) with failed tiles and none loaded. A
+   * small view may need fewer tiles than the threshold (a raster basemap over
+   * a city is one or two tiles), so this ends the wait too.
+   */
+  settledWithoutTiles(): boolean {
+    return this.successes === 0 && this.failures > 0
   }
 }
 

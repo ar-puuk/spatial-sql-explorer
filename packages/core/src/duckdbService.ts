@@ -27,6 +27,8 @@ export interface DuckDbAssetUrls {
   workerUrl: string
   /** Fetchable URL for the `eh` bundle's wasm module. */
   wasmUrl: string
+  /** Spec 008: sql.js's wasm, fetched only when a GeoPackage is exported (research §3). */
+  sqlWasmUrl?: string
 }
 
 const SENTINEL_WASM_URL = 'https://duckdb-wasm.local/module.wasm'
@@ -126,6 +128,10 @@ async function lockDown(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
   // format-matrix suite failed without this.
   await conn.query('INSTALL parquet')
   await conn.query('LOAD parquet')
+  // Spec 008: JSON export is the engine's COPY ... (FORMAT JSON) (~230 ms
+  // here, during prewarm). Not fatal: without it only JSON export fails.
+  await conn.query('INSTALL json').catch(() => {})
+  await conn.query('LOAD json').catch(() => {})
   await conn.query(`SET allowed_directories = ['${SOURCE_DIR}']`)
   await conn.query('SET enable_external_access = false')
   await conn.query('SET lock_configuration = true')
@@ -173,6 +179,11 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
       if (sharedDb === attempt) sharedDb = null
     })
   }
+  return sharedDb
+}
+
+/** The shared engine's start, if one is under way or done; never starts one (the web landing page's status). */
+export function peekDuckDb(): Promise<duckdb.AsyncDuckDB> | null {
   return sharedDb
 }
 
