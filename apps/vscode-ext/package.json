@@ -86,6 +86,12 @@
         "title": "Open in Spatial Explorer",
         "category": "Spatial Explorer",
         "icon": "$(globe)"
+      },
+      {
+        "command": "spatialExplorer.exportData",
+        "title": "Export Data…",
+        "category": "Spatial Explorer",
+        "icon": "$(export)"
       }
     ],
     "menus": {
@@ -114,6 +120,10 @@
         {
           "command": "spatialExplorer.openInViewer",
           "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|geojson|json|csv|parquet|gml)$/i"
+        },
+        {
+          "command": "spatialExplorer.exportData",
+          "when": "activeCustomEditorId == spatialExplorer.editor || activeCustomEditorId == spatialExplorer.editorOption"
         }
       ]
     }

@@ -259,10 +259,12 @@ results save as Parquet (FR-004, FR-008).
 
 **Independent Test**: quickstart Scenario 6.
 
-- [ ] T026 [P] [US5] Extend `tests/vscode-ext/src/suite/export.test.ts`:
+- [X] T026 [P] [US5] Extend `tests/vscode-ext/src/suite/export.test.ts`:
   - with a viewer active, `executeCommand('spatialExplorer.exportData')` gives `_getExportState().open === true`;
   - with no viewer, the command shows the info message (stub `window.showInformationMessage` in the test, or check that the command resolves without error and `open` stays false).
-- [ ] T027 [US5] Contribute `spatialExplorer.exportData` in `apps/vscode-ext/package.json`, with title "Spatial Explorer: Export Data…" and `commandPalette` `when` set to `activeCustomEditorId == spatialExplorer.editor || activeCustomEditorId == spatialExplorer.editorOption`. Register it in `extension.ts`: post `openExport` to the active viewer, or show the message. Handle `openExport` in `webview/main.ts` → `store.openExport()`. Make T026 pass. Commit.
+  - *Done*: VS Code test: command opens the dialog in the active viewer; returns false with a message when none
+- [X] T027 [US5] Contribute `spatialExplorer.exportData` in `apps/vscode-ext/package.json`, with title "Spatial Explorer: Export Data…" and `commandPalette` `when` set to `activeCustomEditorId == spatialExplorer.editor || activeCustomEditorId == spatialExplorer.editorOption`. Register it in `extension.ts`: post `openExport` to the active viewer, or show the message. Handle `openExport` in `webview/main.ts` → `store.openExport()`. Make T026 pass. Commit.
+  - *Done*: Contributed with palette when-clause; openExportInActive targets only the active panel
 
 ---
 

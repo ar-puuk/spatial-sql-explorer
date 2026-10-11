@@ -451,6 +451,20 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 </html>`
   }
 
+  /**
+   * Spec 005 FR-013: opens the export dialog in the ACTIVE viewer (never another
+   * one). Returns false, after a short message, when no viewer is active.
+   */
+  openExportInActive(): boolean {
+    const panel = [...this.panels].find((p) => p.active)
+    if (!panel) {
+      void vscode.window.showInformationMessage('Open a file in Spatial Explorer to export its data.')
+      return false
+    }
+    void panel.webview.postMessage({ type: 'openExport' })
+    return true
+  }
+
   /** Test-only: posts a message to whichever viewer is active (or the only one). */
   postToActive(message: unknown): void {
     const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
@@ -517,6 +531,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string, confirm?: 'all' | 'first' | 'cancel') =>
       provider.postToActive({ type: 'testRunQuery', sql, confirm })
     ),
+    vscode.commands.registerCommand('spatialExplorer.exportData', () => provider.openExportInActive()),
     vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
     // Spec 003 test hooks: read the resolved style, apply a style, save it.

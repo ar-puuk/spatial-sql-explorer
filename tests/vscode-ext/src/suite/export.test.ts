@@ -124,3 +124,33 @@ suite('Spec 005 US2: export keeps the CRS in VS Code', () => {
     }
   })
 })
+
+// T026: US5, the command palette (FR-013).
+suite('Spec 005 US5: Export Data… command', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('opens the dialog for the active viewer, and explains when there is none', async function () {
+    this.timeout(90000)
+    const { dir } = await openCopy('world-boundaries.geojson')
+    try {
+      const opened = await vscode.commands.executeCommand('spatialExplorer.exportData')
+      assert.strictEqual(opened, true)
+      const deadline = Date.now() + 10000
+      while (!(await exportState())?.open) {
+        assert.ok(Date.now() < deadline, 'the export dialog did not open')
+        await sleep(100)
+      }
+      const s = await exportState()
+      assert.deepStrictEqual(s?.plan?.formats, ['geoparquet', 'geojson', 'csv'])
+
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      const none = await vscode.commands.executeCommand('spatialExplorer.exportData')
+      assert.strictEqual(none, false)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
