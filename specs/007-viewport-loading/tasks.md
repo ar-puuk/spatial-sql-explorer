@@ -72,7 +72,7 @@ they skip with a message, never pass silently.
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Extend `scripts/large-data.sql` and add `scripts/large-data.mjs`, which `npm run large-data` runs instead of the inline `duckdb -c`:
+- [X] T001 Extend `scripts/large-data.sql` and add `scripts/large-data.mjs`, which `npm run large-data` runs instead of the inline `duckdb -c`:
   - `large-data.mjs` runs the SQL once per variant, with the row count and output name as DuckDB variables:
     - `parcels-4m.parquet`;
     - `parcels-4m-nobbox.parquet`;
@@ -81,7 +81,8 @@ they skip with a message, never pass silently.
   - Then, if `ogr2ogr` is on `PATH` (or `OSGEO4W_ROOT` is set), it derives `parcels-4m.fgb` (`SPATIAL_INDEX=YES`), `parcels-460k.fgb`, `parcels-77k.geojson`, `parcels-230k.geojson` and `parcels-460k.geojson`, using the commands in research.md "Test data".
   - It skips existing files and prints sizes. It exits non-zero with a clear message if no DuckDB CLI is found.
   - Update `package.json`'s `large-data` script.
-- [ ] T002 [P] Generate and commit the small fixtures in `tests/vscode-ext/fixtures/`, from the same generator with 10,000 rows:
+  - *Done*: scripts/large-data.mjs fills the SQL template per variant (4m, 4m-nobbox, 6m, --huge 27m; --fixtures 10k) and derives FGB/GeoJSON/PMTiles via ogr2ogr (OSGeo4W env on Windows); npm run large-data
+- [X] T002 [P] Generate and commit the small fixtures in `tests/vscode-ext/fixtures/`, from the same generator with 10,000 rows:
   - `parcels-10k.parquet` (with the `bbox` covering column);
   - `parcels-10k-nobbox.parquet`;
   - `parcels-10k.fgb` (with index);
@@ -89,6 +90,7 @@ they skip with a message, never pass silently.
   - `sample.pmtiles`: a vector archive from `parcels-10k.geojson` through GDAL's PMTiles driver (`ogr2ogr -f PMTiles … -dsco MINZOOM=4 -dsco MAXZOOM=12`).
 
   Add `tests/vscode-ext/fixtures/README-007.md` stating provenance, sizes and row counts. The total must stay at or under 12 MB. If GDAL's PMTiles write fails, record that and use any permissively licensed public sample under 2 MB, with its license noted.
+  - *Done*: 5 fixtures generated and committed, ~14 MB total (GeoJSON precision 6, PMTiles maxzoom 10). Over the 12 MB target by ~2 MB: kept 10k rows, which the thinning/paging tests need
 - [ ] T003 [P] Add the `pmtiles` dependency (check BSD-3-Clause in its `package.json` and `LICENSE`) to `packages/ui/package.json`. Add it to `apps/vscode-ext/THIRD-PARTY-NOTICES.md`. `npm install`, and confirm the web and webview builds still pass (`npm run build --workspace=apps/web`, `npm run build --workspace=apps/vscode-ext`).
 - [ ] T004 [P] Extend `tests/web/specs/helpers.ts`:
   - `openFixture(page, name, search?)` opens a file from `tests/vscode-ext/fixtures`;
