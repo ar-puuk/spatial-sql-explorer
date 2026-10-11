@@ -122,10 +122,13 @@ test('CRS picker: pinned, suggested for the data, grouped and searchable; the CR
   expect(pinned[2]).toMatch(/Pseudo-Mercator.*3857/)
   // Groups start collapsed; one opens on click.
   const utm = tree.locator('.section', { hasText: 'Universal Transverse Mercator (UTM)' })
-  await expect(utm.locator('xpath=..')).toHaveAttribute('aria-expanded', 'false')
+  await expect(utm).toHaveAttribute('aria-expanded', 'false')
   await utm.click()
-  await expect(utm.locator('xpath=..')).toHaveAttribute('aria-expanded', 'true')
-  await expect(tree.getByRole('treeitem', { name: /NAD83 \/ UTM zone 12N/ }).first()).toBeVisible()
+  await expect(utm).toHaveAttribute('aria-expanded', 'true')
+  await expect(tree.locator('[aria-level="2"]', { hasText: /UTM zone/ }).first()).toBeVisible()
+  // Only the rows in view are in the page: the 1,156 UTM rows are not all drawn.
+  expect(await tree.locator('[role="treeitem"]').count()).toBeLessThan(80)
+  await expect(tree.locator('[aria-level="2"]', { hasText: /UTM zone/ }).first()).toHaveAttribute('aria-setsize', /^\d{3,}$/)
 
   // Search by name, choose with the keyboard.
   await search.fill('conus albers')

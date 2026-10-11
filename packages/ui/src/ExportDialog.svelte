@@ -197,6 +197,7 @@
               disabledLabel={plan.crs.forced ? `EPSG:4326 · WGS 84, required by ${EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? 'this format'}` : undefined}
               describedBy="export-crs-status"
               invalid={check?.state === 'invalid'}
+              valueName={check?.state === 'ok' ? check.name : null}
               onChoose={chooseCrs}
             />
           </div>

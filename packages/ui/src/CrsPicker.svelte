@@ -28,100 +28,133 @@
     disabledLabel?: string
     describedBy?: string
     invalid?: boolean
+    /** The chosen code's name, when known without the list (the engine's check). */
+    valueName?: string | null
     onChoose: (choice: Choice) => void
   }
-  let { id, value, resultLabel, resultSrid, extent, disabled = false, disabledLabel, describedBy, invalid = false, onChoose }: Props = $props()
+  let { id, value, resultLabel, resultSrid, extent, disabled = false, disabledLabel, describedBy, invalid = false, valueName = null, onChoose }: Props = $props()
 
   let catalog = $state.raw<CrsCatalog | null>(null)
   let loadError = $state<string | null>(null)
   let open = $state(false)
+  /** The search box's text, and the query the list follows (a beat behind while typing). */
   let query = $state('')
+  let q = $state('')
   let active = $state(0)
-  let expanded = $state<Record<string, boolean>>({ Pinned: true, 'Suggested for this data': true })
+  let expanded = $state<Record<string, boolean>>({})
   let trigger = $state<HTMLButtonElement>()
   let search = $state<HTMLInputElement>()
   let panel = $state<HTMLDivElement>()
+  let tree = $state<HTMLDivElement>()
   let place = $state<{ left: number; top: number; width: number; maxHeight: number; above: boolean } | null>(null)
   const treeId = $derived(`${id}-tree`)
-
-  const byCode = $derived(new Map(catalog?.entries.map((e) => [e.code, e]) ?? []))
-  // A chosen code shows its name without opening the list.
-  $effect(() => {
-    if (typeof value === 'number' && !catalog && !loadError) {
-      void loadCrsCatalog()
-        .then((c) => (catalog = c))
-        .catch(() => {})
-    }
-  })
-  const nameOf = (code: number): string | null => byCode.get(code)?.name ?? null
 
   const triggerText = $derived.by(() => {
     if (disabled && disabledLabel) return disabledLabel
     if (value === 'result') return `${resultLabel} · as the result`
-    const name = nameOf(value)
+    const name = valueName ?? catalog?.byCode.get(value)?.name ?? null
     return name ? `EPSG:${value} · ${name}` : `EPSG:${value}`
   })
 
-  type Item = { key: string; choice: Choice; label: string; code: number | null; area?: string }
-  type Section = { name: string; items: Item[]; count: number; fixed?: boolean }
-  const itemOf = (e: CrsEntry): Item => ({ key: `c${e.code}`, choice: e.code, label: e.name, code: e.code, area: e.area })
+  // --- The list: one flat array of rows, of which only the visible ones are in the DOM ---------
+  type Item = { choice: Choice; label: string; code: number | null; area?: string }
+  type Row =
+    | { kind: 'section'; name: string; count: number; fixed: boolean; open: boolean }
+    | { kind: 'item'; item: Item; pos: number; size: number }
+  const itemOf = (e: CrsEntry): Item => ({ choice: e.code, label: e.name, code: e.code, area: e.area })
 
-  const sections = $derived.by((): Section[] => {
+  /** The CRSs whose area holds the data: computed once per list and extent. */
+  const suggested = $derived(catalog ? suggestCrs(catalog.entries, extent, 6) : [])
+
+  const rows = $derived.by((): Row[] => {
     if (!catalog) return []
-    const q = query.trim()
-    const pinned: Item[] = [
-      { key: 'result', choice: 'result', label: `${resultLabel} · as the result`, code: resultSrid ?? null },
-      ...PINNED_CRS.filter((c) => c !== resultSrid)
-        .map((c) => byCode.get(c))
-        .filter((e): e is CrsEntry => !!e)
-        .map(itemOf),
-    ]
+    const out: Row[] = []
+    const add = (name: string, items: Item[], fixed: boolean, isOpen: boolean) => {
+      out.push({ kind: 'section', name, count: items.length, fixed, open: isOpen })
+      if (isOpen) items.forEach((item, pos) => out.push({ kind: 'item', item, pos: pos + 1, size: items.length }))
+    }
     if (!q) {
+      const pinned: Item[] = [
+        { choice: 'result', label: `${resultLabel} · as the result`, code: resultSrid ?? null },
+        ...PINNED_CRS.filter((c) => c !== resultSrid).flatMap((c) => {
+          const e = catalog!.byCode.get(c)
+          return e ? [itemOf(e)] : []
+        }),
+      ]
+      add('Pinned', pinned, true, true)
       const shown = new Set<number>([...PINNED_CRS, ...(resultSrid ? [resultSrid] : [])])
-      const suggested = suggestCrs(catalog.entries, extent, 6)
-        .filter((e) => !shown.has(e.code))
-        .map(itemOf)
-      const entries = catalog.entries
-      const groups = catalog.groups.map((g) => {
-        const items = entries.filter((e) => e.group === g).map(itemOf)
-        return { name: g, items, count: items.length }
-      })
-      return [{ name: 'Pinned', items: pinned, count: pinned.length, fixed: true }, ...(suggested.length ? [{ name: 'Suggested for this data', items: suggested, count: suggested.length, fixed: true }] : []), ...groups]
+      const sugg = suggested.filter((e) => !shown.has(e.code)).map(itemOf)
+      if (sugg.length) add('Suggested for this data', sugg, true, true)
+      for (const g of catalog.groups) {
+        const entries = catalog.byGroup.get(g) ?? []
+        // Items are built only for an open group (UTM alone holds 1,156).
+        if (expanded[g]) add(g, entries.map(itemOf), false, true)
+        else out.push({ kind: 'section', name: g, count: entries.length, fixed: false, open: false })
+      }
+      return out
     }
     const hits = searchCrs(catalog.entries, q, 400)
-    const out: Section[] = []
-    // A typed code the catalog doesn't hold can still be used (the engine checks it).
+    // A typed code the list doesn't hold can still be used (the engine checks it).
     const typed = /^\s*(?:epsg\s*:?)?\s*(\d{3,6})\s*$/i.exec(q)
-    if (typed && !byCode.has(Number(typed[1]))) {
-      const code = Number(typed[1])
-      out.push({ name: 'Other code', items: [{ key: `c${code}`, choice: code, label: `Use EPSG:${code}`, code: null }], count: 1, fixed: true })
+    if (typed && !catalog.byCode.has(Number(typed[1]))) add('Other code', [{ choice: Number(typed[1]), label: `Use EPSG:${typed[1]}`, code: null }], true, true)
+    const byGroup = new Map<string, Item[]>()
+    for (const e of hits) {
+      const list = byGroup.get(e.group)
+      if (list) list.push(itemOf(e))
+      else byGroup.set(e.group, [itemOf(e)])
     }
     for (const g of catalog.groups) {
-      const items = hits.filter((e) => e.group === g).map(itemOf)
-      if (items.length) out.push({ name: g, items, count: items.length })
+      const items = byGroup.get(g)
+      if (items) add(g, items, true, true)
     }
     return out
   })
-
-  /** While searching every section is open; otherwise as the user left them. */
-  const isOpen = (s: Section): boolean => !!query.trim() || !!s.fixed || !!expanded[s.name]
-
-  type Row = { kind: 'section'; section: Section; rowId: string } | { kind: 'item'; item: Item; section: Section; rowId: string }
-  const rows = $derived.by((): Row[] => {
-    const out: Row[] = []
-    sections.forEach((s, si) => {
-      out.push({ kind: 'section', section: s, rowId: `${id}-s${si}` })
-      if (isOpen(s)) s.items.forEach((item, ii) => out.push({ kind: 'item', item, section: s, rowId: `${id}-s${si}-${ii}` }))
-    })
-    return out
-  })
+  const rowId = (i: number): string => `${id}-r${i}`
   const activeRow = $derived(rows[active] ?? null)
   const isChosen = (it: Item): boolean => it.choice === value
+  /** The section a row belongs to (its index). */
+  function sectionOf(i: number): number {
+    for (let j = i; j >= 0; j--) if (rows[j].kind === 'section') return j
+    return 0
+  }
+
+  // Virtual scrolling: fixed-height rows, plus a margin above and below the view.
+  const ROW = 22
+  const OVERSCAN = 12
+  let scrollTop = $state(0)
+  let viewHeight = $state(320)
+  const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN))
+  const last = $derived(Math.min(rows.length, Math.ceil((scrollTop + viewHeight) / ROW) + OVERSCAN))
+  const visible = $derived(rows.slice(first, last).map((r, k) => ({ r, i: first + k })))
+
+  // Typing: the list follows a beat behind, so each key doesn't rebuild it.
+  let typing: ReturnType<typeof setTimeout> | null = null
+  function onInput(): void {
+    if (typing) clearTimeout(typing)
+    const next = query.trim()
+    if (!next) {
+      q = ''
+      return
+    }
+    typing = setTimeout(() => {
+      typing = null
+      q = query.trim()
+    }, 90)
+  }
+  // A new search starts at the first result, at the top.
+  $effect(() => {
+    void q
+    const i = rows.findIndex((r) => r.kind === 'item')
+    active = i < 0 ? 0 : i
+    if (tree) tree.scrollTop = 0
+    scrollTop = 0
+  })
 
   async function show(): Promise<void> {
     if (disabled || open) return
     open = true
     query = ''
+    q = ''
     placePanel()
     if (!catalog && !loadError) {
       try {
@@ -142,6 +175,8 @@
     if (!open) return
     open = false
     query = ''
+    q = ''
+    if (typing) clearTimeout(typing)
     if (refocus) trigger?.focus()
   }
 
@@ -150,9 +185,10 @@
     hide()
   }
 
-  function toggle(s: Section): void {
-    if (s.fixed || query.trim()) return
-    expanded = { ...expanded, [s.name]: !expanded[s.name] }
+  function toggle(i: number): void {
+    const r = rows[i]
+    if (!r || r.kind !== 'section' || r.fixed || q) return
+    expanded = { ...expanded, [r.name]: !r.open }
   }
 
   function placePanel(): void {
@@ -164,11 +200,14 @@
     place = { left: r.left, top: useAbove ? r.top - 2 : r.bottom + 2, width: r.width, maxHeight: Math.min(380, Math.max(160, useAbove ? above : below)), above: useAbove }
   }
 
+  /** Keeps the active row in view (it must be rendered: aria-activedescendant points at it). */
   function scrollActive(): void {
-    void tick().then(() => {
-      const r = rows[active]
-      if (r) document.getElementById(r.rowId)?.scrollIntoView({ block: 'nearest' })
-    })
+    if (!tree) return
+    const top = active * ROW
+    const h = tree.clientHeight || viewHeight
+    if (top < tree.scrollTop) tree.scrollTop = top
+    else if (top + ROW > tree.scrollTop + h) tree.scrollTop = top + ROW - h
+    scrollTop = tree.scrollTop
   }
 
   function onSearchKey(e: KeyboardEvent): void {
@@ -194,25 +233,35 @@
         if (!query) return move(rows.length - 1)
         return
       case 'ArrowRight':
-        if (r?.kind === 'section' && !isOpen(r.section)) {
+        if (r?.kind === 'section' && !r.open) {
           e.preventDefault()
-          toggle(r.section)
+          toggle(active)
         }
         return
       case 'ArrowLeft':
-        if (r?.kind === 'section' && isOpen(r.section) && !r.section.fixed && !query) {
+        if (r?.kind === 'section' && r.open && !r.fixed && !q) {
           e.preventDefault()
-          toggle(r.section)
-        } else if (r?.kind === 'item' && !query) {
-          e.preventDefault()
-          move(rows.findIndex((x) => x.kind === 'section' && x.section === r.section))
+          toggle(active)
+        } else if (r?.kind === 'item' && !q) {
+          move(sectionOf(active))
         }
         return
       case 'Enter':
         e.preventDefault()
         e.stopPropagation()
+        if (typing) {
+          // Enter right after typing: search now, then take the first result.
+          clearTimeout(typing)
+          typing = null
+          q = query.trim()
+          void tick().then(() => {
+            const hit = rows.find((x) => x.kind === 'item')
+            if (hit?.kind === 'item') choose(hit.item)
+          })
+          return
+        }
         if (r?.kind === 'item') choose(r.item)
-        else if (r) toggle(r.section)
+        else if (r) toggle(active)
         return
       case 'Escape':
         e.preventDefault()
@@ -254,14 +303,9 @@
       document.removeEventListener('scroll', onDocScroll, true)
     }
   })
-  // A new search starts at the first result.
-  $effect(() => {
-    void query
-    active = rows.findIndex((r) => r.kind === 'item')
-    if (active < 0) active = 0
-  })
   onDestroy(() => {
     open = false
+    if (typing) clearTimeout(typing)
   })
   const nf = new Intl.NumberFormat('en-US')
 </script>
@@ -304,10 +348,11 @@
         aria-expanded="true"
         aria-controls={treeId}
         aria-autocomplete="list"
-        aria-activedescendant={activeRow?.rowId}
+        aria-activedescendant={activeRow ? rowId(active) : undefined}
         placeholder="Search by EPSG code, name or area"
         autocomplete="off"
         spellcheck="false"
+        oninput={onInput}
         onkeydown={onSearchKey}
       />
     </div>
@@ -315,57 +360,69 @@
       <p class="empty" role="alert">{loadError}</p>
     {:else if !catalog}
       <p class="empty" role="status">Loading the CRS list…</p>
-    {:else if sections.length === 0}
-      <p class="empty" role="status">No CRS matches “{query.trim()}”.</p>
+    {:else if rows.length === 0}
+      <p class="empty" role="status">No CRS matches “{q}”.</p>
     {:else}
-      <div class="tree" id={treeId} role="tree" aria-label="Coordinate reference systems">
-        {#each sections as s, si (s.name)}
-          {@const sid = `${id}-s${si}`}
-          <div role="treeitem" tabindex="-1" id={sid} aria-expanded={isOpen(s)} aria-level={1} aria-selected="false" class="section-item">
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              class="section"
-              class:active={activeRow?.rowId === sid}
-              class:fixed={s.fixed}
-              onpointerdown={(e) => e.preventDefault()}
-              onclick={() => {
-                active = rows.findIndex((r) => r.rowId === sid)
-                toggle(s)
-              }}
-            >
-              {#if !s.fixed && !query.trim()}<span class="twisty" class:open={isOpen(s)}><Icon name="chevron-down" size={12} /></span>{/if}
-              <span class="section-name">{s.name}</span>
-              <span class="count">{nf.format(s.count)}</span>
-            </div>
-            {#if isOpen(s)}
-              <div role="group">
-                {#each s.items as it, ii (it.key)}
-                  {@const rid = `${sid}-${ii}`}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div
-                    role="treeitem"
-                    tabindex="-1"
-                    id={rid}
-                    aria-level={2}
-                    aria-selected={isChosen(it)}
-                    class="item"
-                    class:active={activeRow?.rowId === rid}
-                    class:chosen={isChosen(it)}
-                    title={it.area ? `${it.label}\n${it.area}` : it.label}
-                    onpointerdown={(e) => e.preventDefault()}
-                    onpointermove={() => (active = rows.findIndex((r) => r.rowId === rid))}
-                    onclick={() => choose(it)}
-                  >
-                    <span class="check">{#if isChosen(it)}<Icon name="check" size={12} />{/if}</span>
-                    <span class="name">{it.label}{#if it.area && query.trim()}<span class="area">{it.area}</span>{/if}</span>
-                    {#if it.code !== null}<span class="code">{it.code}</span>{/if}
-                  </div>
-                {/each}
+      <div
+        class="tree"
+        id={treeId}
+        role="tree"
+        aria-label="Coordinate reference systems"
+        bind:this={tree}
+        bind:clientHeight={viewHeight}
+        onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
+      >
+        <div class="spacer" style:height="{rows.length * ROW}px">
+          {#each visible as { r, i } (i)}
+            {#if r.kind === 'section'}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div
+                role="treeitem"
+                tabindex="-1"
+                id={rowId(i)}
+                aria-level={1}
+                aria-expanded={r.open}
+                aria-selected="false"
+                class="row section"
+                class:active={active === i}
+                class:fixed={r.fixed}
+                style:top="{i * ROW}px"
+                onpointerdown={(e) => e.preventDefault()}
+                onclick={() => {
+                  active = i
+                  toggle(i)
+                }}
+              >
+                {#if !r.fixed}<span class="twisty" class:open={r.open}><Icon name="chevron-down" size={12} /></span>{/if}
+                <span class="section-name">{r.name}</span>
+                <span class="count">{nf.format(r.count)}</span>
+              </div>
+            {:else}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div
+                role="treeitem"
+                tabindex="-1"
+                id={rowId(i)}
+                aria-level={2}
+                aria-posinset={r.pos}
+                aria-setsize={r.size}
+                aria-selected={isChosen(r.item)}
+                class="row item"
+                class:active={active === i}
+                class:chosen={isChosen(r.item)}
+                style:top="{i * ROW}px"
+                title={r.item.area ? `${r.item.label}\n${r.item.area}` : r.item.label}
+                onpointerdown={(e) => e.preventDefault()}
+                onpointermove={() => (active = i)}
+                onclick={() => choose(r.item)}
+              >
+                <span class="check">{#if isChosen(r.item)}<Icon name="check" size={12} />{/if}</span>
+                <span class="name">{r.item.label}{#if r.item.area && q}<span class="area">{r.item.area}</span>{/if}</span>
+                {#if r.item.code !== null}<span class="code">{r.item.code}</span>{/if}
               </div>
             {/if}
-          </div>
-        {/each}
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
@@ -456,7 +513,16 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding-bottom: 4px;
+    margin-bottom: 4px;
+  }
+  .spacer {
+    position: relative;
+  }
+  .row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    box-sizing: border-box;
   }
   .empty {
     margin: 0;
@@ -464,9 +530,6 @@
     color: var(--se-text-secondary);
   }
   .section {
-    position: sticky;
-    top: 0;
-    z-index: 1;
     display: flex;
     align-items: center;
     gap: 4px;

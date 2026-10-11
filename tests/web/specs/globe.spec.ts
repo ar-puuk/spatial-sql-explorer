@@ -6,7 +6,7 @@ type MapState = { projection: string; center?: [number, number]; zoom?: number; 
 const mapState = (page: Page) => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): MapState } }).__spatialExplorerE2E.mapState())
 const globe = (page: Page) => page.getByRole('button', { name: 'Globe view' })
 
-test('globe on and off keeps the view, and the choice is remembered', async ({ page }) => {
+test('globe on and off keeps the view; the map always opens flat', async ({ page }) => {
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   await expect(globe(page)).toHaveAttribute('aria-pressed', 'false')
   await expect.poll(async () => (await mapState(page)).center).toBeTruthy()
@@ -24,11 +24,11 @@ test('globe on and off keeps the view, and the choice is remembered', async ({ p
   const after = await mapState(page)
   if (after.center && before.center) expect(Math.abs(after.center[0] - before.center[0])).toBeLessThan(1)
 
+  // Not remembered (user decision, 2026-10-11): the map always opens flat.
   await page.reload()
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  await expect(globe(page)).toHaveAttribute('aria-pressed', 'true')
-  await globe(page).click()
   await expect(globe(page)).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(async () => (await mapState(page)).projection).toBe('mercator')
 })
 
 test('on the globe, views of a file read in parts keep their notices', async ({ page }) => {

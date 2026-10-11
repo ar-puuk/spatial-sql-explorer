@@ -23,6 +23,29 @@ export interface CrsCatalog {
   /** Group names in display order (Geographic first, "Other projections" last). */
   groups: string[]
   entries: CrsEntry[]
+  /** Each group's entries, in code order (built once). */
+  byGroup: Map<string, CrsEntry[]>
+  byCode: Map<number, CrsEntry>
+}
+
+/** Per entry, what search reads: folded once, not on every keystroke. */
+interface SearchKey {
+  plain: string
+  name: string
+  hay: string
+  code: string
+  penalty: number
+}
+const searchKeys = new WeakMap<CrsEntry, SearchKey>()
+function keyOf(e: CrsEntry): SearchKey {
+  let k = searchKeys.get(e)
+  if (!k) {
+    const plain = fold(e.name)
+    const name = `${plain} ${ALIASES[e.code] ?? ''}`
+    k = { plain, name, hay: `${name} ${fold(e.area)} ${fold(e.group)} ${e.code}`, code: String(e.code), penalty: penalty(e) }
+    searchKeys.set(e, k)
+  }
+  return k
 }
 
 type Row = [number, string, 'g' | 'p', string, number, number, number, number, number]
@@ -46,17 +69,17 @@ export function loadCrsCatalog(): Promise<CrsCatalog> {
 }
 
 export function fromData(data: { groups: string[]; crs: Row[] }): CrsCatalog {
-  return {
-    groups: data.groups,
-    entries: data.crs.map(([code, name, k, area, w, s, e, n, g]) => ({
-      code,
-      name,
-      kind: k === 'g' ? 'geographic' : 'projected',
-      area,
-      bbox: [w, s, e, n],
-      group: data.groups[g] ?? 'Other projections',
-    })),
-  }
+  const entries: CrsEntry[] = data.crs.map(([code, name, k, area, w, s, e, n, g]) => ({
+    code,
+    name,
+    kind: k === 'g' ? 'geographic' : 'projected',
+    area,
+    bbox: [w, s, e, n],
+    group: data.groups[g] ?? 'Other projections',
+  }))
+  const byGroup = new Map<string, CrsEntry[]>(data.groups.map((g) => [g, []]))
+  for (const e of entries) byGroup.get(e.group)?.push(e)
+  return { groups: data.groups, entries, byGroup, byCode: new Map(entries.map((e) => [e.code, e])) }
 }
 
 const fold = (t: string): string =>
@@ -75,20 +98,18 @@ export function searchCrs(entries: readonly CrsEntry[], query: string, limit = 2
   const q = fold(query.trim()).replace(/^epsg\s*:?\s*/, '')
   if (!q) return entries.slice(0, limit)
   if (/^\d+$/.test(q)) {
-    const exact = entries.filter((e) => String(e.code) === q)
-    const prefix = entries.filter((e) => String(e.code).startsWith(q) && String(e.code) !== q)
+    const exact = entries.filter((e) => keyOf(e).code === q)
+    const prefix = entries.filter((e) => keyOf(e).code.startsWith(q) && keyOf(e).code !== q)
     return [...exact, ...prefix].slice(0, limit)
   }
   const words = q.split(/[\s/,()]+/).filter(Boolean)
   const scored: Array<{ e: CrsEntry; score: number }> = []
   for (const e of entries) {
-    const plain = fold(e.name)
-    const name = `${plain} ${ALIASES[e.code] ?? ''}`
-    const hay = `${name} ${fold(e.area)} ${fold(e.group)} ${e.code}`
-    if (!words.every((w) => hay.includes(w))) continue
+    const k = keyOf(e)
+    if (!words.every((w) => k.hay.includes(w))) continue
     // Name matches beat area-only matches; names starting with the query first; then the usual choices; shorter names first.
-    const inName = words.filter((w) => name.includes(w)).length
-    const score = (words.length - inName) * 10000 + (name.startsWith(words[0]) ? 0 : 1000) + penalty(e) * 100 + Math.min(plain.length, 99)
+    const inName = words.filter((w) => k.name.includes(w)).length
+    const score = (words.length - inName) * 10000 + (k.name.startsWith(words[0]) ? 0 : 1000) + k.penalty * 100 + Math.min(k.plain.length, 99)
     scored.push({ e, score })
   }
   scored.sort((a, b) => a.score - b.score || a.e.code - b.e.code)

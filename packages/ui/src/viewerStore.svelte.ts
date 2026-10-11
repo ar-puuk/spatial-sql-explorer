@@ -450,14 +450,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let selection = $state.raw<Selection>(EMPTY_SELECTION)
   let showSelectedOnly = $state(false)
   let fitRequest = $state.raw<{ bbox: [number, number, number, number]; seq: number } | null>(null)
+  // The map always opens flat; the globe is a view for this session, not
+  // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
   let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
-  void hostAdapter
-    .loadState<string>('projection')
-    .then((v) => {
-      if (v === 'globe' || v === 'mercator') projection = v
-    })
-    .catch(() => {})
 
   /** After the rows were narrowed: new pages, a new view, the style and the count. */
   async function narrowed(): Promise<void> {
@@ -656,10 +652,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         if (r.state !== 'checking') crsChecked.set(code, r)
         if (current) exportCrsCheck = r
       }
-      void loadCrsCatalog()
-        .then((catalog) => catalog.entries.find((e) => e.code === code) ?? null)
+      // After the dialog has painted: the list is ~560 KB to parse.
+      const wait = new Promise<void>((resolve) => setTimeout(resolve, 150))
+      void wait
+        .then(() => (current ? loadCrsCatalog() : Promise.reject(new Error('stale'))))
+        .then((catalog) => catalog.byCode.get(code) ?? null)
         .catch(() => null)
         .then(async (listed) => {
+          if (!current) return
           if (listed) return settle({ code, state: 'ok', name: listed.name })
           if (current) exportCrsCheck = { code, state: 'checking' }
           const r = await retryWhenBusy(qs, () => qs.describeCrs(code))
@@ -1357,7 +1357,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setProjection(next) {
       projection = next
-      void hostAdapter.saveState('projection', next).catch(() => {})
     },
     get mapLayer() {
       return mapLayer

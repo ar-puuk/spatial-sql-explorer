@@ -169,7 +169,8 @@ JS writers, checked against GDAL 3.13 (`js-writers.mjs.txt`):
 
 **Decision**:
 - **Projection**: `map.setProjection({ type: 'globe' | 'mercator' })`. The
-  choice is kept with `saveState('projection')`. MapLibre transitions to
+  choice lasts for the session only (user decision, 2026-10-11: the map
+  always opens flat; earlier it was kept with `saveState('projection')`). MapLibre transitions to
   Mercator at high zoom on its own, which is fine.
 - **Extrusion**: a `fill-extrusion` layer per polygon layer, replacing the
   fill when on.

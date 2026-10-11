@@ -596,7 +596,7 @@ run the sample query, and search for a place.
   icon, the zoom and scale controls and the place search, MUST be legible in
   light, dark and high contrast (today the attribution "i" icon is dark on a
   dark background in dark mode).
-- **FR-036**: All remembered choices (theme, columns per file, projection)
+- **FR-036**: All remembered choices (theme, columns per file)
   MUST be stored through the host's preference storage, never with the
   user's data.
 - **FR-037**: Spec 007 behavior MUST keep working: viewport loading, the
@@ -619,8 +619,9 @@ run the sample query, and search for a place.
   filtered, selected rows) to spec 005's format, CRS and destination.
 - **Extrusion setting**: part of a layer style: on/off, height column or
   constant, height scale.
-- **Map view settings**: projection (flat or globe), tilt, rotation; the
-  projection is remembered per user.
+- **Map view settings**: projection (flat or globe), tilt, rotation. The map
+  always opens flat; the globe lasts for the session (user decision,
+  2026-10-11: the globe should not become the default).
 - **Theme preference** (web only): System, Light or Dark.
 - **Share link** (web only): query, style, basemap, projection, view and the
   file's name; never data.
