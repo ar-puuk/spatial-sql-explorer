@@ -122,11 +122,19 @@ export interface HostAdapter {
    * hosts without one omit it. Never carries file contents.
    */
   log?(line: string): void
+
+  /**
+   * A user setting the host owns (spec 008). VS Code: the
+   * `spatialExplorer.placeSearch.enabled` setting. Hosts without settings
+   * omit it, and callers treat `undefined` as the default (enabled).
+   */
+  getPreference?(key: 'placeSearch.enabled'): boolean | undefined
 }
 
 /** Spec 005: data exports may be large and binary; hosts pick a dialog default and filters by kind. */
 export interface SaveOptions {
-  kind?: 'style' | 'data'
+  /** Spec 008: `image` is a map PNG (VS Code: a PNG save dialog; web: a download). */
+  kind?: 'style' | 'data' | 'image'
 }
 
 export interface SaveResult {

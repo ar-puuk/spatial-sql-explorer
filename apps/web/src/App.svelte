@@ -7,7 +7,7 @@
   import { createWebHostAdapter, provideFiles, rangeReads } from './hostAdapter.js'
 
   // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
-  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm' }
+  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
   const hostAdapter = createWebHostAdapter()
   const store = createViewerStore(hostAdapter, duckdbAssets)
 

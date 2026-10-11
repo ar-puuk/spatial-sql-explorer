@@ -46,7 +46,7 @@ type WebviewToHostMessage =
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
   | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
   | { type: 'saveFileChunk'; transferId: number; index: number; count: number; bytesBase64: string }
-  | { type: 'saveFileEnd'; requestId: number; transferId: number; name: string; kind: 'style' | 'data'; totalBytes: number }
+  | { type: 'saveFileEnd'; requestId: number; transferId: number; name: string; kind: 'style' | 'data' | 'image'; totalBytes: number }
 
 const CHUNK_BYTES = 32 * 1024 * 1024
 
@@ -60,6 +60,20 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
   '.geojson': { GeoJSON: ['geojson', 'json'] },
   '.parquet': { Parquet: ['parquet'] },
   '.csv': { CSV: ['csv'] },
+  // Spec 008 (US4, US7).
+  '.geojsonl': { 'GeoJSON (newline-delimited)': ['geojsonl', 'geojsons', 'ndjson'] },
+  '.fgb': { FlatGeobuf: ['fgb'] },
+  '.gpkg': { GeoPackage: ['gpkg'] },
+  '.zip': { 'Zipped Shapefile': ['zip'] },
+  '.kml': { KML: ['kml'] },
+  '.xlsx': { 'Excel workbook': ['xlsx'] },
+  '.json': { JSON: ['json'] },
+  '.png': { 'PNG image': ['png'] },
+}
+
+/** Spec 008: the setting the webview needs (contracts/host-and-shells.md). */
+function placeSearchEnabled(): boolean {
+  return vscode.workspace.getConfiguration('spatialExplorer').get<boolean>('placeSearch.enabled', true)
 }
 
 /**
@@ -337,7 +351,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else {
         const ext = path.posix.extname(msg.name).toLowerCase()
         target = await vscode.window.showSaveDialog({
-          title: 'Export data',
+          title: msg.kind === 'image' ? 'Export map image' : 'Export data',
           defaultUri: vscode.Uri.joinPath(documentUri, '..', msg.name),
           filters: DATA_FILTERS[ext] ?? { 'All files': ['*'] },
         })
@@ -388,12 +402,15 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     const workerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js'))
     const wasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm'))
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
+    const sqlWasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'sqljs', 'sql-wasm.wasm'))
     const primaryName = path.basename(documentUri.fsPath)
     await panel.webview.postMessage({
       type: 'assets',
       duckdbWorkerUrl: workerUri.toString(),
       duckdbWasmUrl: wasmUri.toString(),
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
+      sqlWasmUrl: sqlWasmUri.toString(),
+      placeSearchEnabled: placeSearchEnabled(),
       primaryFileName: primaryName,
       // Stable per-file key for persisted webview state (spec 002 history).
       primaryFileUri: documentUri.toString(),
@@ -492,6 +509,11 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       const mb = (n: number): string => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)
       log(`${path.posix.basename(source.documentUri.path)}: read ${mb(stats.bytes)} MB of ${mb(stats.size)} MB in ${stats.requests} requests.`)
     }
+  }
+
+  /** Spec 008: tells every open viewer about a changed setting. */
+  postPreferences(): void {
+    for (const panel of this.panels) void panel.webview.postMessage({ type: 'preferences', placeSearchEnabled: placeSearchEnabled() })
   }
 
   /** Test hook (spec 007): the active viewer's bytes served, and whether a whole transfer was sent. */
@@ -604,6 +626,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   output = vscode.window.createOutputChannel('Spatial Explorer')
   context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('spatialExplorer.placeSearch.enabled')) provider.postPreferences()
+    })
+  )
   void reopenBinaryTabsFromStartup().catch((err) => log(`Could not reopen startup tabs: ${String(err)}`))
 
   context.subscriptions.push(

@@ -27,6 +27,8 @@ export interface DuckDbAssetUrls {
   workerUrl: string
   /** Fetchable URL for the `eh` bundle's wasm module. */
   wasmUrl: string
+  /** Spec 008: sql.js's wasm, fetched only when a GeoPackage is exported (research §3). */
+  sqlWasmUrl?: string
 }
 
 const SENTINEL_WASM_URL = 'https://duckdb-wasm.local/module.wasm'

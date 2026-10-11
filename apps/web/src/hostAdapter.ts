@@ -1,7 +1,7 @@
 // Web implementation of HostAdapter (T031). Reads file bytes directly via
 // the File/Blob API — no message-passing boundary to cross, unlike the VS
 // Code implementation (apps/vscode-ext/src/webview/hostAdapter.ts).
-import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind } from '@spatial-explorer/core'
+import type { FileSource, HostAdapter, OpenedFileRef, SaveOptions, SaveResult, StatusFields, ThemeKind } from '@spatial-explorer/core'
 
 const fileMap = new Map<string, File[]>()
 
@@ -102,10 +102,10 @@ export function createWebHostAdapter(): HostAdapter {
       rangeReads.largest = Math.max(rangeReads.largest, bytes.byteLength)
       return bytes
     },
-    async saveFile(name: string, content: Uint8Array | string): Promise<SaveResult> {
+    async saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult> {
       // The browser cannot write next to a picked file, so every save is a
       // download (HostAdapter.saveSidecar is intentionally not implemented).
-      const blob = new Blob([content as BlobPart], { type: 'application/octet-stream' })
+      const blob = new Blob([content as BlobPart], { type: options?.kind === 'image' ? 'image/png' : 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

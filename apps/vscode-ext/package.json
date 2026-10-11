@@ -34,6 +34,16 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "configuration": {
+      "title": "Spatial Explorer",
+      "properties": {
+        "spatialExplorer.placeSearch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the place search on the map. Searches send only the typed text to OpenStreetMap Nominatim."
+        }
+      }
+    },
     "customEditors": [
       {
         "viewType": "spatialExplorer.editor",
