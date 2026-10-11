@@ -5,10 +5,10 @@ representable; it appears in the notice.
 
 | Style element | QGIS QML (sidecar) | OGC SLD 1.1 | Mapbox GL style JSON |
 |---|---|---|---|
-| Renderer kind | ✅ `renderer-v2 type` | ⚠️ inferred from filters | ✅ metadata + expression shape |
+| Renderer kind | ✅ `renderer-v2 type` | ⚠️ inferred from filters | ✅ `metadata["spatial-explorer:layer-style"]` (the whole style) + expression shape |
 | Column | ✅ `attr` | ✅ `PropertyName` | ✅ `["get", col]` + metadata |
 | Category values | ✅ `<category value type>` | ✅ `PropertyIsEqualTo` | ✅ `match` |
-| "No value" class | ✅ `type="NULL" value="NULL"` | ✅ `PropertyIsNull` | ✅ `case` null guard |
+| "No value" class | ✅ categorized: `type="NULL" value="NULL"`; ⚠️ graduated: QGIS has no null class (nulls aren't drawn in QGIS), kept for us in a custom property | ✅ `PropertyIsNull` | ✅ `case` null guard |
 | "Other" class | ✅ `value=""` (all other values) | ✅ `ElseFilter` | ✅ `match` fallback |
 | Ranges / breaks | ✅ `<range lower upper>` | ✅ `And(>, <=)` (first `>=`) | ✅ `case` with `<=` |
 | Class colors | ✅ per-class `<symbol>` | ✅ per-rule symbolizer | ✅ expression outputs |
@@ -16,7 +16,7 @@ representable; it appears in the notice.
 | Hidden classes | ✅ `render="false"` | ⚠️ left out, with a notice | ✅ metadata + layer `filter` |
 | Method (equal/quantile/jenks) | ✅ `<classificationMethod id>` | ✗ imports as fixed classes | ✅ metadata |
 | Manual method | ✅ custom property `spatialExplorer/method=manual` | ✗ imports as fixed classes | ✅ metadata |
-| Ramp id / reversed | ⚠️ colors kept, ramp name not | ✗ colors kept | ✅ metadata |
+| Ramp id / reversed | ✅ custom properties `spatialExplorer/ramp`, `rampReversed` (QGIS keeps the colors) | ✗ colors kept | ✅ metadata |
 | Symbol settings (outline, opacity, width, size) | ✅ as spec 001 | ✅ as spec 001 | ✅ as spec 001 |
 
 **Import of foreign files**:

@@ -26,6 +26,7 @@
     setMethod,
     setRamp,
     validateStyle,
+    previewExportNotice,
     type GeometryType,
     type LayerStyle,
     type Renderer,
@@ -358,14 +359,20 @@
       {#if exportOpen}
         <div class="menu" role="menu">
           {#each STYLE_FORMATS as f (f.format)}
+            {@const losses = previewExportNotice(style, f.format, resolved).items}
             <button
               type="button"
               role="menuitem"
+              aria-describedby={losses.length ? `export-loss-${f.format}` : undefined}
               onclick={() => {
                 exportOpen = false
                 onExport(f.format)
-              }}>{f.label}</button
-            >
+              }}
+              >{f.label}
+              {#if losses.length}
+                <span class="loss" id={`export-loss-${f.format}`}>{losses.join(' ')}</span>
+              {/if}
+            </button>
           {/each}
         </div>
       {/if}
@@ -654,6 +661,7 @@
     left: 0;
     z-index: 10;
     min-width: 200px;
+    max-width: 280px;
     padding: 4px;
     background: var(--se-menu-bg);
     border: 1px solid var(--se-menu-border);
@@ -671,6 +679,17 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
+  }
+  .menu .loss {
+    display: block;
+    margin-top: 2px;
+    color: var(--se-text-secondary);
+    font-size: 0.85em;
+    line-height: 1.35;
+    white-space: normal;
+  }
+  .menu button:hover .loss {
+    color: inherit;
   }
   .menu button:hover {
     background: var(--se-menu-hover-bg);

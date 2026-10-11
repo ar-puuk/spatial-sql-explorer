@@ -324,18 +324,21 @@ SLD and Mapbox GL carry them, with notices for anything lost.
 
 **Independent Test**: quickstart Scenario 4.
 
-- [ ] T034 [P] [US4] Write `tests/core/style-interchange.test.ts` with one case per row of `contracts/interchange-mapping.md`:
+- [X] T034 [P] [US4] Write `tests/core/style-interchange.test.ts` with one case per row of `contracts/interchange-mapping.md`:
   - importing `fixtures/style/categorized.qml` and `graduated.qml` (QGIS-written) yields the same classes, colors, labels, hidden flags and method;
   - export, then import, for each renderer × format gives equal classes, values or breaks, and colors (SC-004);
   - `previewExportNotice` lists the exact losses for SLD (method, hidden classes) and nothing for QML or Mapbox;
   - foreign files: a QGIS `ruleBased` QML, a size-graduated QML, a GeoLibre-shaped SLD with the guard rule, and a GeoLibre-shaped Mapbox file (`step`, no metadata) all import with the documented notice items;
   - spec 001 single-symbol cases in `style.test.ts` stay green.
-- [ ] T035 [P] [US4] Extend `tests/vscode-ext/src/suite/style.test.ts`:
+  - *Done*: style-interchange.test.ts, 18 tests: both QGIS-written fixtures import exactly; round trips with no notes (categorized with hidden, quantile with hidden, jenks, manual) through QML and Mapbox; SLD categorized (hidden left out, announced), SLD graduated (bounds kept, Manual, announced), mixed-geometry SLD dedupe; previewExportNotice items; missing column exports single with a notice; foreign RuleRenderer, GraduatedSize, a GeoLibre SLD with guard rule, GeoLibre step Mapbox, Mapbox match. The spec 001 'first symbol only' test was updated to the new categorized import.
+- [X] T035 [P] [US4] Extend `tests/vscode-ext/src/suite/style.test.ts`:
   - `_setStyle` categorized with one hidden class, then `_saveStyle`: `<file>.qml` exists next to a temp copy of the fixture;
   - close all editors and reopen: `_getStyleState` equals the saved style (classes, colors, labels, visible flags);
   - delete the temp sidecar afterwards.
-- [ ] T036 [P] [US4] Create `tests/qgis/check_sidecar.py`: a PyQGIS script (run via `C:\OSGeo4W\bin\python-qgis.bat`) that loads a given QML onto a memory layer and prints its renderer type, classes, colors, labels and render flags as JSON. Also add `tests/qgis/README.md`, which says it is optional and how to run it.
-- [ ] T037 [US4] Extend `packages/core/src/style/qml.ts`:
+  - *Done*: style.test.ts US4: a temp copy of world-boundaries, categorized with Albania hidden and a custom Algeria color and label, plus Other's label. _saveStyle writes world.qml (categorizedSymbol, render=false); after reopening, source=world.qml, not dirty, identical classes, labels, colors, visibility and counts. VS Code 41/41. The modal 'replace?' detail text no longer claims single-symbol only.
+- [X] T036 [P] [US4] Create `tests/qgis/check_sidecar.py`: a PyQGIS script (run via `C:\OSGeo4W\bin\python-qgis.bat`) that loads a given QML onto a memory layer and prints its renderer type, classes, colors, labels and render flags as JSON. Also add `tests/qgis/README.md`, which says it is optional and how to run it.
+  - *Done*: tests/qgis/check_sidecar.py + README (PyQGIS; prints renderer, classes, colors, labels, render flags as JSON).
+- [X] T037 [US4] Extend `packages/core/src/style/qml.ts`:
   - write and read `categorizedSymbol` and `graduatedSymbol` per research §1;
   - one symbol per class, built like the existing single symbol with only the color changed;
   - NULL and empty-value categories;
@@ -345,8 +348,11 @@ SLD and Mapbox GL carry them, with notices for anything lost.
   - foreign renderers import as single, with notices.
 
   Make the QML cases of T034 pass.
-- [ ] T038 [US4] Extend `packages/core/src/style/sld.ts` (a rule per class, `PropertyIsEqualTo` / `PropertyIsNull` / `ElseFilter`, `And(>, <=)` ranges, GeoLibre's guard rule skipped on import) and `packages/core/src/style/mapbox.ts` (the same expressions as `expressions.ts`, plus `metadata["spatial-explorer:renderer"]`, with `match` / `step` / `case` / `interpolate` import). Add `previewExportNotice` in `index.ts`. Make T034 pass.
-- [ ] T039 [US4] In `packages/ui/src/LayerStylePanel.svelte` and the store's `exportStyleAs`, show `previewExportNotice` in the Export menu next to each format before writing, and the import notice after Import (FR-015). Make T035 pass. Run `tests/qgis/check_sidecar.py` on the QML written by T035 and record the output in `research.md` (SC-003). Commit.
+  - *Done*: qml.ts: categorizedSymbol/graduatedSymbol write (per-class symbols, QGIS category types long/double/bool/string/NULL, empty value as Other, render flags, classificationMethod or custom spatialExplorer/method=manual, ramp, cap, categories auto/manual, graduated No value as custom properties) and read (categorizedFrom/graduatedFrom in the new interchange.ts keep only non-default overrides). Foreign renderers import as single with a notice; GraduatedSize keeps colors. CDATA is escaped before parsing (happy-dom rejects it; QGIS writes it).
+- [X] T038 [US4] Extend `packages/core/src/style/sld.ts` (a rule per class, `PropertyIsEqualTo` / `PropertyIsNull` / `ElseFilter`, `And(>, <=)` ranges, GeoLibre's guard rule skipped on import) and `packages/core/src/style/mapbox.ts` (the same expressions as `expressions.ts`, plus `metadata["spatial-explorer:renderer"]`, with `match` / `step` / `case` / `interpolate` import). Add `previewExportNotice` in `index.ts`. Make T034 pass.
+  - *Done*: sld.ts: a rule per visible class (Title = label; PropertyIsEqualTo / PropertyIsNull / ElseFilter / And(>, <=) with the first >=; times geometry family for Mixed). Import recognises these plus GeoLibre's guard and open top class. mapbox.ts: the class-index expression and visibility filter in paint and filter, with the whole style in the existing spatial-explorer:layer-style metadata; foreign match/step/interpolate import. previewExportNotice and thematicForExport are exported.
+- [X] T039 [US4] In `packages/ui/src/LayerStylePanel.svelte` and the store's `exportStyleAs`, show `previewExportNotice` in the Export menu next to each format before writing, and the import notice after Import (FR-015). Make T035 pass. Run `tests/qgis/check_sidecar.py` on the QML written by T035 and record the output in `research.md` (SC-003). Commit.
+  - *Done*: Store Save/Export pass resolvedStyle and the columns; the Export menu shows each format's loss notice under its item (aria-describedby). SC-003 verified in real QGIS 4.2.3: categorized, Jenks and manual QML from the app load with identical classes, colors, labels and render flags (research.md). Core 230/230, web style 7/7, lint 0.
 
 **Checkpoint**: thematic styles persist and interoperate.
 

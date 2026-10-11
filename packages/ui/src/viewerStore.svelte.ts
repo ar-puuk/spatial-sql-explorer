@@ -424,7 +424,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function saveStyle(): Promise<void> {
     if (!session.layer || !currentFileName) return
     const name = sidecarStyleFileName(currentFileName)
-    const { text, notes } = exportStyle(style, 'qml', session.layer.geometryType, currentFileName)
+    const { text, notes } = exportStyle(style, 'qml', session.layer.geometryType, currentFileName, resolvedStyle, displayedLayer?.columns)
     try {
       const result = hostAdapter.saveSidecar ? await hostAdapter.saveSidecar(name, text) : await hostAdapter.saveFile(name, text)
       if (!result.saved) return
@@ -442,7 +442,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function exportStyleAs(format: StyleFormat): Promise<void> {
     if (!session.layer || !currentFileName) return
     const name = styleFileName(currentFileName, format)
-    const { text, notes } = exportStyle(style, format, session.layer.geometryType, currentFileName)
+    const { text, notes } = exportStyle(style, format, session.layer.geometryType, currentFileName, resolvedStyle, displayedLayer?.columns)
     try {
       const result = await hostAdapter.saveFile(name, text)
       if (!result.saved) return

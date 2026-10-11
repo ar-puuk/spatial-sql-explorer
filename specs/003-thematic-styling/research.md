@@ -324,3 +324,28 @@ place to edit.
 - **QGIS 3.x LTR compatibility**: the spikes used QGIS 4.2.3. The
   `renderer-v2` category/range format is unchanged since QGIS 3.10. One
   PyQGIS read check on whichever QGIS is installed runs in the quickstart.
+
+### SC-003: QML written by the app, read by QGIS (T039, 2026-10-10)
+
+`tests/qgis/check_sidecar.py` (QGIS 4.2.3, PyQGIS) on QML that
+`exportStyle(..., resolved, columns)` wrote:
+
+| Style | QGIS reads |
+|---|---|
+| Categorized (C, R1, R2 hidden with label "Residential 2", NULL) | `categorizedSymbol` on `zone`; 4 categories, identical colors and labels; R2 `render=false`; the NULL category is kept |
+| Graduated (Jenks, 4 classes, class 2 hidden) | `graduatedSymbol`, method **Jenks**; identical bounds (2.5–20–42.5–70–97.5), colors, labels and render flags |
+| Manual (0–50 "Low", 50–100) | `graduatedSymbol`, method **Custom** (QGIS's own name for fixed classes); identical bounds, colors and labels |
+
+Findings on the way:
+- QGIS category value types are `long`, `double`, `bool`, `string` and
+  `NULL`. QGIS also matches a `string` "1" against an integer 1, so the type
+  attribute is written from the column type but isn't critical.
+- QGIS writes CDATA sections, which happy-dom's XML parser rejects. The
+  importer turns CDATA into escaped text first, which is equivalent under
+  every parser.
+- QGIS graduated renderers have no "No value" class: QGIS leaves nulls
+  undrawn. The class's color and label are kept for Spatial Explorer in a
+  custom property.
+- Mapbox: the existing `spatial-explorer:layer-style` metadata key (spec 001)
+  already embeds the whole `LayerStyle`, renderer included, so it is used
+  instead of the separate key §7 proposed.

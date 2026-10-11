@@ -242,7 +242,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         if (exists) {
           const choice = await vscode.window.showWarningMessage(
             `"${msg.name}" already exists next to "${docName}". Replace it?`,
-            { modal: true, detail: "QGIS loads this file as the layer's default style. Spatial Explorer writes a single-symbol style, so a categorized or graduated QGIS style in it would be replaced." },
+            { modal: true, detail: "QGIS loads this file as the layer's default style. Saving replaces the style in it with the current one." },
             'Replace'
           )
           if (choice !== 'Replace') return void reply({ saved: false })

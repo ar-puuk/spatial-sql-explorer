@@ -2,13 +2,14 @@ export * from './model.js'
 export * from './ramps.js'
 export * from './classify.js'
 export * from './edit.js'
+export { previewExportNotice, thematicForExport } from './interchange.js'
 export * from './resolve.js'
 export * from './expressions.js'
 export { styleToQml, qmlToStyle, type StyleExport } from './qml.js'
 export { styleToSld, sldToStyle } from './sld.js'
 export { styleToMapbox, mapboxToStyle } from './mapbox.js'
 
-import type { LayerStyle, StyleFormat, StyleGeometry, StyleImportResult } from './model.js'
+import type { LayerStyle, ResolvedStyle, StyleFormat, StyleGeometry, StyleImportResult } from './model.js'
 import { qmlToStyle, styleToQml, type StyleExport } from './qml.js'
 import { sldToStyle, styleToSld } from './sld.js'
 import { mapboxToStyle, styleToMapbox } from './mapbox.js'
@@ -38,15 +39,29 @@ export function sidecarStyleFileName(dataFileName: string): string {
   return styleFileName(dataFileName, 'qml')
 }
 
-export function exportStyle(style: LayerStyle, format: StyleFormat, geometry: StyleGeometry, dataFileName: string): StyleExport {
+/**
+ * Writes the style in a format. Thematic styles need `resolved` (the classes
+ * as drawn) and, for QGIS category types, the result's `columns`.
+ */
+export function exportStyle(
+  style: LayerStyle,
+  format: StyleFormat,
+  geometry: StyleGeometry,
+  dataFileName: string,
+  resolved?: ResolvedStyle,
+  columns?: Array<{ name: string; type: string }>
+): StyleExport {
   const layerName = baseName(dataFileName)
   switch (format) {
-    case 'qml':
-      return styleToQml(style, geometry)
+    case 'qml': {
+      const r = style.renderer
+      const column = r && r.kind !== 'single' ? r.column : ''
+      return styleToQml(style, geometry, resolved, columns?.find((c) => c.name === column)?.type)
+    }
     case 'sld':
-      return styleToSld(style, geometry, layerName)
+      return styleToSld(style, geometry, layerName, resolved)
     case 'mapbox':
-      return styleToMapbox(style, geometry, layerName, dataFileName)
+      return styleToMapbox(style, geometry, layerName, dataFileName, resolved)
   }
 }
 

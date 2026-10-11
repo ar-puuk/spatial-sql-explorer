@@ -130,7 +130,8 @@ describe('QML written by QGIS', () => {
     expect(notes).toEqual(['The "square" marker shape was imported as a circle.'])
   })
 
-  it('imports the first symbol of a categorized renderer, with a note', () => {
+  // Spec 003 replaced spec 001's "first symbol only" import with real categorized classes.
+  it('imports a categorized renderer as categorized classes, keeping the symbol settings', () => {
     const qml = `<qgis><renderer-v2 type="categorizedSymbol" attr="kind">
       <categories><category symbol="0" value="a" label="a"/></categories>
       <symbols><symbol type="line" name="0" alpha="1"><layer class="SimpleLine" enabled="1">
@@ -139,7 +140,8 @@ describe('QML written by QGIS', () => {
     const { style, notes } = importStyle('roads.qml', qml)
     expect(style.strokeColor).toBe('#008000')
     expect(style.strokeWidth).toBe(3)
-    expect(notes[0]).toMatch(/categorizedSymbol/)
+    expect(notes).toEqual([])
+    expect(style.renderer).toMatchObject({ kind: 'categorized', column: 'kind', manual: true, classes: [{ value: 'a', color: '#008000' }] })
   })
 
   it('rejects a QML without symbology', () => {

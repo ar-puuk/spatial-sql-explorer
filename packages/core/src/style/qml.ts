@@ -16,9 +16,11 @@ import {
   round,
   sanitizeStyle,
   type LayerStyle,
+  type ResolvedStyle,
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
+import { QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 
 const PX_PER_MM = 96 / 25.4
 const PX_PER_PT = 96 / 72
@@ -35,7 +37,7 @@ function options(entries: Record<string, string>): string {
   return `          <Option type="Map">\n${rows.join('\n')}\n          </Option>`
 }
 
-function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle): string {
+function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0'): string {
   let layerClass: string
   let props: Record<string, string>
   if (kind === 'fill') {
@@ -72,7 +74,7 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle): string 
       size_unit: 'Pixel',
     }
   }
-  return `      <symbol type="${kind}" name="0" alpha="1" clip_to_extent="1" force_rhr="0">
+  return `      <symbol type="${kind}" name="${name}" alpha="1" clip_to_extent="1" force_rhr="0">
         <layer class="${layerClass}" enabled="1" locked="0" pass="0">
 ${options(props)}
         </layer>
@@ -88,7 +90,80 @@ export interface StyleExport {
   notes: string[]
 }
 
-export function styleToQml(input: LayerStyle, geometry: StyleGeometry): StyleExport {
+/** QGIS's QVariant type name for a category value of a DuckDB column type (spike: QGIS 4.2.3). */
+function categoryType(columnType: string | undefined): string {
+  const t = (columnType ?? '').toUpperCase()
+  if (/^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|U\w*INT|INT\d?)$/.test(t)) return 'long'
+  if (/^(FLOAT|DOUBLE|REAL|DECIMAL|NUMERIC)/.test(t)) return 'double'
+  if (t === 'BOOLEAN') return 'bool'
+  return 'string'
+}
+
+/** One symbol per class: the shared symbol with only the class color changed (FR-006). */
+function classStyle(style: LayerStyle, kind: 'fill' | 'line' | 'marker', color: string): LayerStyle {
+  return kind === 'line' ? { ...style, strokeColor: color } : { ...style, fillColor: color }
+}
+
+/** Spatial Explorer's own settings QGIS has no field for, as QGIS custom properties. */
+function customProperties(entries: Record<string, string>): string {
+  const rows = Object.entries(entries).map(([k, v]) => `      <Option name="${escapeXml(k)}" type="QString" value="${escapeXml(v)}"/>`)
+  return rows.length ? `  <customproperties>\n    <Option type="Map">\n${rows.join('\n')}\n    </Option>\n  </customproperties>\n` : ''
+}
+
+function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined): { renderer: string; props: Record<string, string> } {
+  const r = th.renderer
+  const symbols = th.classes.map((c, i) => symbolXml(kind, classStyle(style, kind, c.color), String(i))).join('\n')
+  const props: Record<string, string> = { 'spatialExplorer/ramp': r.ramp.id, 'spatialExplorer/rampReversed': String(r.ramp.reversed) }
+  if (r.kind === 'categorized') {
+    props['spatialExplorer/categories'] = r.manual ? 'manual' : 'auto'
+    props['spatialExplorer/cap'] = String(r.cap)
+    const type = categoryType(columnType)
+    const rows = th.classes.map((c, i) => {
+      // QGIS: an empty value is "all other values"; a NULL-typed one matches nulls.
+      const [value, vtype] = c.kind === 'noValue' ? ['NULL', 'NULL'] : c.kind === 'other' ? ['', 'string'] : [c.value ?? '', type]
+      return `      <category value="${escapeXml(value)}" type="${vtype}" label="${escapeXml(c.label)}" render="${c.visible}" symbol="${i}"/>`
+    })
+    return {
+      props,
+      renderer: `  <renderer-v2 type="categorizedSymbol" attr="${escapeXml(r.column)}" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    <categories>
+${rows.join('\n')}
+    </categories>
+    <symbols>
+${symbols}
+    </symbols>
+    <rotation/>
+    <sizescale/>
+  </renderer-v2>`,
+    }
+  }
+  if (r.method === 'manual') props['spatialExplorer/method'] = 'manual'
+  const ranges = th.classes.flatMap((c, i) =>
+    c.kind === 'range' ? [`      <range lower="${c.lower}" upper="${c.upper}" label="${escapeXml(c.label)}" render="${c.visible}" symbol="${i}"/>`] : []
+  )
+  const method = r.method === 'manual' ? '' : `    <classificationMethod id="${QGIS_METHOD_IDS[r.method]}"/>\n`
+  const noValue = th.classes.findIndex((c) => c.kind === 'noValue')
+  if (noValue !== -1) {
+    // QGIS draws nulls in no class; the "No value" color is kept for us.
+    const c = th.classes[noValue]
+    props['spatialExplorer/noValue'] = JSON.stringify({ color: c.color, label: c.label, visible: c.visible })
+  }
+  return {
+    props,
+    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    <ranges>
+${ranges.join('\n')}
+    </ranges>
+    <symbols>
+${symbols}
+    </symbols>
+${method}    <rotation/>
+    <sizescale/>
+  </renderer-v2>`,
+  }
+}
+
+export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?: ResolvedStyle, columnType?: string): StyleExport {
   const style = sanitizeStyle(input)
   const notes: string[] = []
   // A QGIS vector layer has exactly one geometry type, so a single-symbol
@@ -100,16 +175,21 @@ export function styleToQml(input: LayerStyle, geometry: StyleGeometry): StyleExp
     geom = 'Polygon'
   }
   const kind = geom === 'Point' ? 'marker' : geom === 'LineString' ? 'line' : 'fill'
-  const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology">
-  <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+  const { thematic, notes: thematicNotes } = thematicForExport(style, resolved)
+  notes.push(...thematicNotes)
+  let renderer = `  <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <symbols>
 ${symbolXml(kind, style)}
     </symbols>
     <rotation/>
     <sizescale/>
-  </renderer-v2>
-  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
+  </renderer-v2>`
+  let props: Record<string, string> = {}
+  if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType))
+  const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
+<qgis version="3.34.0" styleCategories="Symbology|CustomProperties">
+${renderer}
+${customProperties(props)}  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
 </qgis>
 `
   return { text, notes }
@@ -164,16 +244,41 @@ function colorAndAlpha(raw: string | undefined): { hex: string; alpha: number } 
   return c ? { hex: rgbToHex(c), alpha: c.a } : null
 }
 
+/** The color a class symbol carries: fill for fill and marker symbols, line color for line symbols. */
+function symbolColor(symbol: Element): string | null {
+  const layer = Array.from(symbol.getElementsByTagName('layer')).find((l) => l.getAttribute('enabled') !== '0')
+  if (!layer) return null
+  const p = readProps(layer)
+  const c = parseColor(layer.getAttribute('class') === 'SimpleLine' ? (p.get('line_color') ?? p.get('color')) : p.get('color'))
+  return c ? rgbToHex(c) : null
+}
+
+function readCustomProperties(doc: Document): Map<string, string> {
+  const out = new Map<string, string>()
+  const root = doc.getElementsByTagName('customproperties')[0]
+  if (!root) return out
+  for (const o of Array.from(root.getElementsByTagName('Option'))) {
+    const name = o.getAttribute('name')
+    const value = o.getAttribute('value')
+    if (name && value !== null) out.set(name, value)
+  }
+  return out
+}
+
 export function qmlToStyle(text: string): StyleImportResult {
-  const doc = new DOMParser().parseFromString(text, 'application/xml')
+  // QGIS writes CDATA sections (e.g. <editforminitcode>); not every XML parser
+  // in reach supports them (happy-dom doesn't). As escaped text they mean the same.
+  const plain = text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_m, body: string) => escapeXml(body))
+  const doc = new DOMParser().parseFromString(plain, 'application/xml')
   if (doc.getElementsByTagName('parsererror').length > 0) throw new Error('This QML file is not valid XML.')
   const renderer = doc.getElementsByTagName('renderer-v2')[0]
   if (!renderer) throw new Error('This QML file has no symbology (no <renderer-v2> element).')
 
   const notes: string[] = []
   const rendererType = renderer.getAttribute('type') ?? 'singleSymbol'
-  if (rendererType !== 'singleSymbol') {
-    notes.push(`This QML uses a "${rendererType}" renderer; only its first symbol was imported (categorized and graduated styles are not supported yet).`)
+  const thematicType = rendererType === 'categorizedSymbol' || rendererType === 'graduatedSymbol'
+  if (rendererType !== 'singleSymbol' && !thematicType) {
+    notes.push(`This QML uses a "${rendererType}" renderer, which isn't supported; its first symbol was imported as a single symbol.`)
   }
   const symbol = renderer.getElementsByTagName('symbol')[0]
   if (!symbol) throw new Error('This QML renderer contains no symbols.')
@@ -228,6 +333,53 @@ export function qmlToStyle(text: string): StyleImportResult {
     if (shape && shape !== 'circle') notes.push(`The "${shape}" marker shape was imported as a circle.`)
   } else {
     notes.push(`The "${cls}" symbol layer type is not supported; default colors were kept.`)
+  }
+
+  if (thematicType) {
+    const attr = renderer.getAttribute('attr') ?? ''
+    if (/[()"+\s]/.test(attr)) notes.push(`The classes use an expression ("${attr}"), not a column; they may not match any column here.`)
+    const custom = readCustomProperties(doc)
+    const symbols = new Map<string, string>()
+    for (const s of Array.from(renderer.getElementsByTagName('symbols')[0]?.children ?? [])) {
+      const name = s.getAttribute('name')
+      const color = symbolColor(s)
+      if (name !== null && color) symbols.set(name, color)
+    }
+    const ramp = custom.has('spatialExplorer/ramp') ? { id: custom.get('spatialExplorer/ramp') as string, reversed: custom.get('spatialExplorer/rampReversed') === 'true' } : undefined
+    if (rendererType === 'categorizedSymbol') {
+      const items: ImportedCategory[] = Array.from(renderer.getElementsByTagName('category')).map((c) => {
+        const type = c.getAttribute('type')
+        const raw = c.getAttribute('value') ?? ''
+        return {
+          value: type === 'NULL' ? null : raw === '' ? undefined : raw,
+          color: symbols.get(c.getAttribute('symbol') ?? ''),
+          label: c.getAttribute('label') ?? undefined,
+          visible: c.getAttribute('render') !== 'false',
+        }
+      })
+      const cap = Number(custom.get('spatialExplorer/cap'))
+      style.renderer = categorizedFrom(attr, items, { ramp, auto: custom.get('spatialExplorer/categories') === 'auto', cap: Number.isFinite(cap) ? cap : undefined })
+    } else {
+      if (renderer.getAttribute('graduatedMethod') === 'GraduatedSize') notes.push("Size by value isn't supported; the class colors were imported and the sizes ignored.")
+      const ranges: ImportedRange[] = Array.from(renderer.getElementsByTagName('range')).map((r) => ({
+        lower: Number(r.getAttribute('lower')),
+        upper: Number(r.getAttribute('upper')),
+        color: symbols.get(r.getAttribute('symbol') ?? ''),
+        label: r.getAttribute('label') ?? undefined,
+        visible: r.getAttribute('render') !== 'false',
+      }))
+      const methodId = renderer.getElementsByTagName('classificationMethod')[0]?.getAttribute('id') ?? ''
+      const method = custom.get('spatialExplorer/method') === 'manual' ? 'manual' : (QGIS_METHODS[methodId] ?? 'manual')
+      if (method === 'manual' && !custom.has('spatialExplorer/method') && methodId) notes.push(`The "${methodId}" classification isn't available; the classes were imported as fixed (Manual).`)
+      let noValue: ImportedCategory | undefined
+      try {
+        const nv = custom.get('spatialExplorer/noValue')
+        if (nv) noValue = { value: null, ...(JSON.parse(nv) as Omit<ImportedCategory, 'value'>) }
+      } catch {
+        // ignore a malformed property
+      }
+      style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue })
+    }
   }
 
   return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }

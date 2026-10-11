@@ -11,10 +11,13 @@ import {
   round,
   sanitizeStyle,
   type LayerStyle,
+  type ResolvedStyle,
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
 import type { StyleExport } from './qml.js'
+import { classIndexExpression, visibilityFilter } from './expressions.js'
+import { categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
 
@@ -22,25 +25,38 @@ const POLYGON_FILTER = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'],
 const LINE_FILTER = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
 const POINT_FILTER = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
 
-export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerName: string, dataFileName: string): StyleExport {
+export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerName: string, dataFileName: string, resolved?: ResolvedStyle): StyleExport {
   const style = sanitizeStyle(input)
   const source = 'data'
   const layers: unknown[] = []
   const wants = (g: Exclude<StyleGeometry, 'Mixed'>): boolean => geometry === 'Mixed' || geometry === g
+  // Thematic: the same class-index expression the viewer draws with (null and
+  // "" guarded, upper-inclusive ranges), so any MapLibre/Mapbox renderer
+  // shows the same classes; hidden classes become a layer filter.
+  const { thematic, notes } = thematicForExport(style, resolved)
+  const index = thematic && resolved ? classIndexExpression(style, resolved) : null
+  const classColor = (fallback: string): unknown => {
+    if (!index || !resolved) return fallback
+    const arms: unknown[] = []
+    resolved.classes.forEach((c, i) => arms.push(i, c.color))
+    return ['match', index, ...arms, fallback]
+  }
+  const hidden = thematic && resolved ? visibilityFilter(style, resolved) : null
+  const filter = (f: unknown): unknown => (hidden ? ['all', f, hidden] : f)
   if (wants('Polygon')) {
     layers.push({
       id: `${layerName}-fill`,
       type: 'fill',
       source,
-      filter: POLYGON_FILTER,
-      paint: { 'fill-color': style.fillColor, 'fill-opacity': round(style.fillOpacity) },
+      filter: filter(POLYGON_FILTER),
+      paint: { 'fill-color': classColor(style.fillColor), 'fill-opacity': round(style.fillOpacity) },
     })
     if (style.strokeWidth > 0) {
       layers.push({
         id: `${layerName}-outline`,
         type: 'line',
         source,
-        filter: POLYGON_FILTER,
+        filter: filter(POLYGON_FILTER),
         layout: { 'line-join': 'round' },
         paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
       })
@@ -51,9 +67,9 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       id: `${layerName}-line`,
       type: 'line',
       source,
-      filter: LINE_FILTER,
+      filter: filter(LINE_FILTER),
       layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
+      paint: { 'line-color': classColor(style.strokeColor), 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
     })
   }
   if (wants('Point')) {
@@ -61,9 +77,9 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       id: `${layerName}-point`,
       type: 'circle',
       source,
-      filter: POINT_FILTER,
+      filter: filter(POINT_FILTER),
       paint: {
-        'circle-color': style.fillColor,
+        'circle-color': classColor(style.fillColor),
         'circle-opacity': round(style.fillOpacity),
         'circle-radius': round(style.pointRadius),
         'circle-stroke-color': style.strokeColor,
@@ -79,7 +95,68 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
     sources: { [source]: { type: 'geojson', data: dataFileName } },
     layers,
   }
-  return { text: JSON.stringify(doc, null, 2) + '\n', notes: [] }
+  return { text: JSON.stringify(doc, null, 2) + '\n', notes }
+}
+
+// --- foreign thematic expressions (no spatial-explorer metadata) -------------
+
+/** The column an expression reads, through to-string / to-number / coalesce wrappers. */
+function columnOf(e: unknown): string | null {
+  if (!Array.isArray(e)) return null
+  if (e[0] === 'get' && typeof e[1] === 'string' && e.length === 2) return e[1]
+  if (e[0] === 'to-string' || e[0] === 'to-number' || e[0] === 'number' || e[0] === 'string' || e[0] === 'coalesce') return columnOf(e[1])
+  return null
+}
+
+const hexOf = (v: unknown): string | undefined => {
+  const c = typeof v === 'string' ? parseColor(v) : null
+  return c ? rgbToHex(c) : undefined
+}
+
+/** Classes from a data-driven color: `match` (categorized), `step` / `interpolate` (graduated). */
+function rendererFromColor(e: unknown, notes: string[]): LayerStyle['renderer'] | null {
+  if (!Array.isArray(e)) return null
+  const op = e[0]
+  if (op === 'match') {
+    const column = columnOf(e[1])
+    if (!column) return null
+    const items: ImportedCategory[] = []
+    for (let i = 2; i + 1 < e.length; i += 2) {
+      const labels = Array.isArray(e[i]) ? (e[i] as unknown[]) : [e[i]]
+      for (const l of labels) items.push({ value: String(l), color: hexOf(e[i + 1]) })
+    }
+    items.push({ value: undefined, color: hexOf(e[e.length - 1]) })
+    return categorizedFrom(column, items)
+  }
+  if (op === 'step' || op === 'interpolate') {
+    const isStep = op === 'step'
+    const input = isStep ? e[1] : e[2]
+    const column = columnOf(input)
+    if (!column) return null
+    const ranges: ImportedRange[] = []
+    if (isStep) {
+      // ["step", input, c0, b1, c1, b2, c2, ...]: c0 below b1, ci from bi.
+      const breaks: number[] = []
+      const colors: Array<string | undefined> = [hexOf(e[2])]
+      for (let i = 3; i + 1 < e.length; i += 2) {
+        breaks.push(Number(e[i]))
+        colors.push(hexOf(e[i + 1]))
+      }
+      if (!breaks.length || breaks.some((b) => !Number.isFinite(b))) return null
+      const span = breaks.length > 1 ? breaks[breaks.length - 1] - breaks[0] : Math.abs(breaks[0]) || 1
+      const bounds = [breaks[0] - span, ...breaks, breaks[breaks.length - 1] + span]
+      for (let i = 0; i < colors.length; i++) ranges.push({ lower: bounds[i], upper: bounds[i + 1], color: colors[i] })
+    } else {
+      const stops: Array<[number, string | undefined]> = []
+      for (let i = 3; i + 1 < e.length; i += 2) stops.push([Number(e[i]), hexOf(e[i + 1])])
+      if (stops.length < 2 || stops.some(([v]) => !Number.isFinite(v))) return null
+      for (let i = 0; i + 1 < stops.length; i++) ranges.push({ lower: stops[i][0], upper: stops[i + 1][0], color: stops[i][1] })
+      notes.push('A smooth color gradient was imported as classes.')
+    }
+    notes.push('These classes have no classification method in the file; they were imported as fixed classes (Manual).')
+    return graduatedFrom(column, ranges)
+  }
+  return null
 }
 
 // --- import ---------------------------------------------------------------
@@ -129,21 +206,30 @@ export function mapboxToStyle(text: string): StyleImportResult {
   const circleLayer = first('circle')
   if (!fillLayer && !lineLayer && !circleLayer) throw new Error('This style has no fill, line or circle layers.')
 
+  // Data-driven colors (a foreign style, or ours with the metadata stripped).
+  const dataColor = fillLayer?.paint?.['fill-color'] ?? circleLayer?.paint?.['circle-color'] ?? (!fillLayer && !circleLayer ? lineLayer?.paint?.['line-color'] : undefined)
+  const thematicNotes: string[] = []
+  const renderer = Array.isArray(dataColor) ? rendererFromColor(dataColor, thematicNotes) : null
+  if (renderer) {
+    style.renderer = renderer
+    notes.push(...thematicNotes)
+  }
+
   if (fillLayer?.paint) {
-    const c = color(fillLayer.paint['fill-color'])
+    const c = renderer ? undefined : color(fillLayer.paint['fill-color'])
     if (c) style.fillColor = c.hex
     const o = num(fillLayer.paint['fill-opacity'])
     style.fillOpacity = (o ?? 1) * (c?.a ?? 1)
     const outline = color(fillLayer.paint['fill-outline-color'])
     if (outline) style.strokeColor = outline.hex
   } else if (circleLayer?.paint) {
-    const c = color(circleLayer.paint['circle-color'])
+    const c = renderer ? undefined : color(circleLayer.paint['circle-color'])
     if (c) style.fillColor = c.hex
     const o = num(circleLayer.paint['circle-opacity'])
     style.fillOpacity = (o ?? 1) * (c?.a ?? 1)
   }
   if (lineLayer?.paint) {
-    const c = color(lineLayer.paint['line-color'])
+    const c = renderer && !fillLayer && !circleLayer ? undefined : color(lineLayer.paint['line-color'])
     if (c) style.strokeColor = c.hex
     const w = num(lineLayer.paint['line-width'])
     if (w !== undefined) style.strokeWidth = w
