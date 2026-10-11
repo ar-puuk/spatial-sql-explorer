@@ -43,7 +43,7 @@
   const legendRenderer = $derived(rendererOf(store.style))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
-      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
+      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
   const loading = $derived(session.loadState === 'loading')
@@ -343,7 +343,7 @@
           collapsed={store.legendCollapsed}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
-          fillOpacity={store.style.fillOpacity}
+          fillOpacity={store.style.fillOpacity * (store.style.layerOpacity ?? 1)}
         />
       {/if}
       {#if openPanel === 'style' && layer}

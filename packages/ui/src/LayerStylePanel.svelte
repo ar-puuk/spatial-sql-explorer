@@ -309,6 +309,22 @@
 
     <section aria-labelledby="style-sec-look">
       <h3 id="style-sec-look">Appearance</h3>
+      <!-- The whole layer's opacity, on top of the fill and outline opacities (QGIS's layer opacity). -->
+      <div class="row">
+        <span class="label" id="layer-opacity-label">Layer</span>
+        <input
+          type="range"
+          class="wide"
+          aria-label="Layer opacity"
+          aria-valuetext={pct(style.layerOpacity ?? 1)}
+          min="0"
+          max="1"
+          step="0.05"
+          value={style.layerOpacity ?? 1}
+          oninput={(e) => onChange({ layerOpacity: Number(e.currentTarget.value) })}
+        />
+        <span class="value">{pct(style.layerOpacity ?? 1)}</span>
+      </div>
       {#if hasFill}
         <div class="row">
           <span class="label" id="fill-label">Fill</span>

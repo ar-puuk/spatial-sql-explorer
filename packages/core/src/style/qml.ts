@@ -186,10 +186,13 @@ ${symbolXml(kind, style)}
   </renderer-v2>`
   let props: Record<string, string> = {}
   if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType))
+  // Spec 008: QGIS loads only the categories listed: layer opacity is in
+  // Rendering, and polygon extrusion in Symbology3D (checked with QGIS 4.2.3).
   const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology|CustomProperties">
+<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|Rendering|CustomProperties">
 ${renderer}
-${customProperties(props)}  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
+${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
+  <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
 </qgis>
 `
   return { text, notes }
@@ -382,5 +385,8 @@ export function qmlToStyle(text: string): StyleImportResult {
     }
   }
 
+  // Spec 008: QGIS's layer opacity.
+  const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
+  if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
   return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }
 }

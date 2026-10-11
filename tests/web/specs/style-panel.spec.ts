@@ -105,3 +105,19 @@ test('opacity applies live to the map and the legend', async ({ page }) => {
     .poll(() => legendRows(page).first().locator('.swatch').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toMatch(/(rgba?|color)\(.*[ ,/] ?0\.2[45]\d*\)$/)
 })
+
+test('layer opacity fades the whole layer, live, and is saved in the QML (user request)', async ({ page }) => {
+  await openFile(page, writeParcels(200))
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  const slider = page.getByRole('slider', { name: 'Layer opacity' })
+  await expect(slider).toHaveAttribute('aria-valuetext', '100%')
+  await slider.fill('0.5')
+  await expect(slider).toHaveAttribute('aria-valuetext', '50%')
+  // Default fill opacity 45%, times 50%: the legend swatch is about 22% opaque.
+  await expect
+    .poll(() => legendRows(page).first().locator('.swatch').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toMatch(/[ ,/] ?0\.2[0-4]\d*\)$/)
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const fs = await import('node:fs')
+  expect(fs.readFileSync(await download.path(), 'utf8')).toContain('<layerOpacity>0.5</layerOpacity>')
+})

@@ -22,6 +22,11 @@ export interface LayerStyle {
   /** Pixels (radius, as MapLibre's `circle-radius`). */
   pointRadius: number
   /**
+   * Spec 008: the whole layer's opacity, 0..1, on top of the fill and
+   * outline opacities (QGIS's layer opacity). Absent means 1.
+   */
+  layerOpacity?: number
+  /**
    * Spec 003. Absent in spec 001 styles, which behave as `{ kind: 'single' }`
    * (see `rendererOf`). `sanitizeStyle` and the defaults always fill it in.
    */
@@ -244,6 +249,7 @@ export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
     strokeWidth: num(style.strokeWidth, DEFAULT_LAYER_STYLE.strokeWidth, 0, 50),
     pointRadius: num(style.pointRadius, DEFAULT_LAYER_STYLE.pointRadius, 0.5, 100),
     renderer: sanitizeRenderer(style.renderer),
+    ...(typeof style.layerOpacity === 'number' && Number.isFinite(style.layerOpacity) && style.layerOpacity < 1 ? { layerOpacity: clamp(style.layerOpacity, 0, 1) } : {}),
   }
 }
 
@@ -346,4 +352,17 @@ export function validateStyle(style: LayerStyle): string[] {
 
 export function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Spec 008: the style with the layer opacity folded into the fill and
+ * outline opacities, for formats and renderers with no layer-level opacity
+ * (MapLibre paint, SLD, Mapbox GL style JSON).
+ */
+export function withLayerOpacity(style: LayerStyle): LayerStyle {
+  const lo = style.layerOpacity ?? 1
+  if (lo >= 1) return style
+  const { layerOpacity: _drop, ...rest } = style
+  void _drop
+  return { ...rest, fillOpacity: style.fillOpacity * lo, strokeOpacity: style.strokeOpacity * lo }
 }

@@ -6,7 +6,7 @@
 // the class color AND the hidden-class filter both read. The map and the
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
-import { parseColor, rendererOf, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
+import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
 
 export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
@@ -111,7 +111,8 @@ function classColorExpression(index: unknown, resolved: ResolvedStyle, fallback:
 }
 
 export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string): MapPaint {
-  const s = style
+  // Spec 008: the layer opacity scales the fill and outline opacities.
+  const s = withLayerOpacity(style)
   const sel = selectionColor
   const index = classIndexExpression(style, resolved)
   const thematic = index !== null
