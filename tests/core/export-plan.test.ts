@@ -171,3 +171,28 @@ describe('file names', () => {
     expect(planExport(request({ format: 'csv' }), ctx({ sourceName: 'data.v2.gpkg' })).fileName).toBe('data.v2-export.csv')
   })
 })
+
+// T009/T024: the runner's pure parts.
+import { copyOptions, exportErrorMessage, exportTarget } from '@spatial-explorer/core'
+
+describe('runner details', () => {
+  it('writes only under the allowed source directory, with protected __se_ names', () => {
+    const a = exportTarget('.parquet')
+    const b = exportTarget('.parquet')
+    expect(a).toMatch(/^\/se-source\/__se_export-\d+\.parquet$/)
+    expect(a).not.toBe(b)
+  })
+
+  it('GeoParquet turns off DuckDB metadata and carries ours, quoted for SQL', () => {
+    expect(copyOptions('geoparquet', `{"a":"it's"}`)).toBe(`(FORMAT PARQUET, GEOPARQUET_VERSION 'NONE', KV_METADATA {geo: '{"a":"it''s"}'})`)
+    expect(copyOptions('parquet')).toBe(`(FORMAT PARQUET, GEOPARQUET_VERSION 'NONE')`)
+    expect(copyOptions('csv')).toBe('(FORMAT CSV, HEADER)')
+  })
+
+  it('out-of-memory failures get an actionable message (FR-011)', () => {
+    const oom = 'The export ran out of memory. Filter the result or choose GeoParquet (smallest).'
+    expect(exportErrorMessage(new Error('Out of Memory Error: failed to allocate block'))).toBe(oom)
+    expect(exportErrorMessage(new RangeError('Array buffer allocation failed'))).toBe(oom)
+    expect(exportErrorMessage(new Error('Binder Error: x\nLINE 1'))).toBe('Binder Error: x')
+  })
+})

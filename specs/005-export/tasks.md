@@ -97,15 +97,17 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
   - *Done*: export-plan.test.ts (20): rows (default view gives layer / LIMIT 1000; first 50,000; user LIMIT; small file), formats (geometry, table, DESCRIBE blocked), CRS (GeoJSON forced plus reprojection SQL and notice; result vs WGS84; assumed), geometry SQL per format (WKB BLOB, WKT, X/Y for points only and collision-safe, ST_AsGeoJSON, other geometries as WKT), type notices per format from fixtures/export/columns.json, invalid-row notice, file names.
 - [X] T007 Implement `packages/core/src/export/plan.ts` (`planExport`) per the contract. Make T006 pass.
   - *Done*: export/plan.ts planExport: pure, with invalid geometry written as NULL via a CASE guard. 23/23.
-- [ ] T008 Implement `packages/core/src/export/projjson.ts`: `projjsonFor(db, conn, srid)` registers `/se-source/__se_crs_<srid>.geojson` (the GeoJSON `crs` member with `urn:ogc:def:crs:EPSG::<srid>`, no features), reads `ST_Read_Meta(...).layers[1].geometry_fields[1].crs.projjson`, caches it per engine and srid, and drops the probe file. It throws a clear error if PROJ doesn't know the code. The browser test comes in US2 (T020).
-- [ ] T009 Implement `packages/core/src/export/run.ts`, the engine-side runner:
+- [X] T008 Implement `packages/core/src/export/projjson.ts`: `projjsonFor(db, conn, srid)` registers `/se-source/__se_crs_<srid>.geojson` (the GeoJSON `crs` member with `urn:ogc:def:crs:EPSG::<srid>`, no features), reads `ST_Read_Meta(...).layers[1].geometry_fields[1].crs.projjson`, caches it per engine and srid, and drops the probe file. It throws a clear error if PROJ doesn't know the code. The browser test comes in US2 (T020).
+  - *Done*: export/projjson.ts: registers a feature-less GeoJSON declaring urn:ogc:def:crs:EPSG::<srid> under /se-source/, reads ST_Read_Meta's projjson, caches it per engine and srid, and drops the probe. Exercised end to end in US2 (T017).
+- [X] T009 Implement `packages/core/src/export/run.ts`, the engine-side runner:
   - `copyExport(session, sql, format, geo?)` runs `COPY (sql) TO '/se-source/__se_export-<n>.<ext>' (FORMAT …)` through `conn.send(sql, true)` (drained).
     - Parquet and GeoParquet use `GEOPARQUET_VERSION 'NONE'`, with `KV_METADATA {geo: …}` when `geo` is given.
     - CSV uses `(FORMAT CSV, HEADER)`.
   - It then runs `db.copyFileToBuffer` and always `db.dropFile` in `finally`.
   - Add `QuerySession.exportData(plan, request, hooks)` wrapping it in `exclusive(...)`, so `cancel()` stops exports exactly as it stops queries. A `QueryCancelledError` propagates.
   - Unit-test the pure parts (target naming, COPY option strings) in `tests/core/export-plan.test.ts`.
-- [ ] T010 Add export state to `packages/ui/src/viewerStore.svelte.ts`:
+  - *Done*: export/run.ts: COPY into /se-source/__se_export-<n> via send (cancellable), GEOPARQUET_VERSION 'NONE' plus our geo metadata (stats in the output CRS, PROJJSON unless WGS84), exact empty-geometry counts, copyFileToBuffer, and dropFile in finally. QuerySession.exportData runs it in exclusive() and logs it. Unit tests for target naming, COPY options and the OOM message mapping. Core 26/26.
+- [X] T010 Add export state to `packages/ui/src/viewerStore.svelte.ts`:
   - `exportOpen`, `openExport()`, `closeExport()`;
   - `exportRequest` (defaults from `HostAdapter.loadState('export.prefs')`, saved on change);
   - `exportPlan` (`$derived` from `planExport` + `querySession.lastResult` + `displayedLayer`, raw);
@@ -113,7 +115,8 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
   - `runExport()` (calls `querySession.exportData`, then `hostAdapter.saveFile(fileName, bytes, { kind: 'data' })`), `cancelExport()`.
 
   Export is disabled while a query is running (`queryPhase` running or awaitingConfirm), with the reason.
-- [ ] T011 VS Code binary delivery (`contracts/host-and-ui.md`):
+  - *Done*: Store: exportOpen/openExport/closeExport, exportRequest from export.prefs, exportPlan derived (runCount + displayedLayer, since the session facts aren't reactive), exportDisabled (no file / running query / blocked), exportPhase/exportProgress/exportOutcome, runExport (exportData, then saveFile kind data), cancelExport. HostAdapter.saveFile gains SaveOptions {kind}.
+- [X] T011 VS Code binary delivery (`contracts/host-and-ui.md`):
   - in `apps/vscode-ext/src/webview/hostAdapter.ts`, `saveFile` with a `Uint8Array` sends `saveFileBegin`, then 32 MB `saveFileChunk`s, then `saveFileEnd` (text keeps the single `saveFile` message);
   - in `apps/vscode-ext/src/extension.ts`:
     - reassemble per `requestId`;
@@ -123,6 +126,7 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
     - add the `_saveNextExportTo(path)` test hook, which makes the next data save skip the dialog and write to the given path, so tests can drive it.
 
   Extend the `WebviewToHostMessage` union.
+  - *Done*: VS Code: binary/data saveFile sends base64 saveFileChunk (24 MB raw each), then a saveFileEnd request. Deviation from the contract's Uint8Array chunks: post() JSON-normalizes messages, so base64 is used, as for the existing host-to-webview transfer. The host reassembles, checks the size, offers a save dialog defaulting next to the source with per-format filters (or uses the _saveNextExportTo test hook), refuses the source URI, and writes only at the end. Verified by T013.
 
 **Checkpoint**: specs 001–003 suites are green. Core can plan and run an
 export, and both hosts can receive bytes.
@@ -136,7 +140,7 @@ formats, from an Export button and dialog, in both shells.
 
 **Independent Test**: quickstart Scenarios 1–2.
 
-- [ ] T012 [P] [US1] Write `tests/web/specs/export.spec.ts` (US1). It captures downloads with `page.waitForEvent('download')` and saves them to a temp dir. Checks in the page use the e2e hook (T014):
+- [X] T012 [P] [US1] Write `tests/web/specs/export.spec.ts` (US1). It captures downloads with `page.waitForEvent('download')` and saves them to a temp dir. Checks in the page use the e2e hook (T014):
   - **Scenario 1**: the 22,000-parcel file → Export → the "All 22,000 rows" default → GeoParquet → the download's row count read back via the engine is 22,000, and its `geo` metadata has `primary_column` geom, WKB, and no `crs` (WGS84).
   - **Scenario 2**:
     - `WHERE zone = 'R1'` → GeoJSON: parse the JSON, 4,400 features, lon/lat coordinates in range, properties present;
@@ -144,15 +148,18 @@ formats, from an Export button and dialog, in both shells.
     - for the points CSV fixture with X/Y: columns `x`, `y`.
   - The confirmation text shows the file name and the row count.
   - **SC-007**: the source file's SHA-256 is unchanged.
-- [ ] T013 [P] [US1] Write `tests/vscode-ext/src/suite/export.test.ts` (US1):
+  - *Done*: export.spec.ts US1 (3): a whole-file GeoParquet (22,000 rows, one geo key, WGS84 with no crs, all columns), a filtered GeoJSON (4,400 features, lon/lat, no crs), GeoParquet and CSV WKT (4,401 lines), points X/Y (id,x,y); invalid geometry gives 1 null geometry plus the notice; SC-007 sha256 unchanged. 3/3.
+- [X] T013 [P] [US1] Write `tests/vscode-ext/src/suite/export.test.ts` (US1):
   - open a temp copy of `world-boundaries.geojson`, `_saveNextExportTo(<tmp>/out.parquet)`, then `_runExport({ format: 'geoparquet', rows: 'all', crs: 'result' })`;
   - wait for `_getExportState().phase === 'done'`; the file exists, its first 4 bytes are `PAR1`, and the reported rows are 180;
   - the same for GeoJSON (JSON parses to 180 features, with geometry `null` for the 1 invalid row);
   - the source checksum is unchanged.
 
   Add the hooks `_runExport`, `_getExportState` and `_saveNextExportTo` in `extension.ts` and `webview/main.ts`, mirroring `_runQuery` / `_getQueryState`.
-- [ ] T014 [US1] Add the e2e helpers the web test needs in `apps/web/src/App.svelte` (`?e2e=1` only): `parquetRows(bytes)` and `parquetGeo(bytes)` register the bytes under `/se-source/__se_check.parquet`, read the count and `parquet_kv_metadata`, then drop the file. Test-only, like `runRaw`.
-- [ ] T015 [US1] Implement `packages/core/src/export/geojson.ts`, the streamed RFC 7946 writer (research §4):
+  - *Done*: export.test.ts: world-boundaries GeoParquet (PAR1, 180 rows, size equal to the report) and GeoJSON (180 features, 1 null, notice) saved next to the source via the hooks; source sha unchanged. Hooks: _runExport, _getExportState (exportState.svelte.ts), _saveNextExportTo. VS Code 42/42.
+- [X] T014 [US1] Add the e2e helpers the web test needs in `apps/web/src/App.svelte` (`?e2e=1` only): `parquetRows(bytes)` and `parquetGeo(bytes)` register the bytes under `/se-source/__se_check.parquet`, read the count and `parquet_kv_metadata`, then drop the file. Test-only, like `runRaw`.
+  - *Done*: App.svelte e2e: inspectParquet(base64) reads rows, columns, geo and the geo key count in the real engine, then drops the file; exportFiles() globs leftover /se-source/__se_export*.
+- [X] T015 [US1] Implement `packages/core/src/export/geojson.ts`, the streamed RFC 7946 writer (research §4):
   - batches from `streamRows` with `yieldToUi`;
   - a JSON chunk array (never one giant string before the Blob);
   - BIGINT > 2^53 as a string, DATE and TIMESTAMP as ISO, nested values as JSON, BLOB as base64;
@@ -160,13 +167,15 @@ formats, from an Export button and dialog, in both shells.
   - progress after each batch.
 
   Wire it into `QuerySession.exportData` for `format: 'geojson'`. For GeoParquet, build the `geo` metadata (geometry types and bbox from a stats query in the output CRS; `crs` omitted for WGS84). The PROJJSON for a non-WGS84 result comes in US2, so until then, assert WGS84 or the srid's PROJJSON via T008.
-- [ ] T016 [US1] Create `packages/ui/src/ExportDialog.svelte` per `contracts/host-and-ui.md`:
+  - *Done*: export/geojson.ts: a streamed RFC 7946 writer (batch chunks encoded and yielded; bigint to number or string; JSON-marked nested columns embedded). The planner converts dates to text, decimals to double, huge ints to text, blobs to base64 and nested values via to_json in SQL, because JS loses column types. Proven by T012/T013.
+- [X] T016 [US1] Create `packages/ui/src/ExportDialog.svelte` per `contracts/host-and-ui.md`:
   - a modal dialog labeled "Export data" with focus trap, Esc and Enter;
   - Rows (only when display-limited), Format, CRS, and CSV geometry radio groups;
   - notices; Cancel / Export…;
   - a running state with progress and "Cancel export"; the done and failed states.
 
   Add an **Export** button (icon `export`, label "Export data…") to the attribute table header in `packages/ui/src/AttributeTable.svelte` (or the drawer header in `ViewerLayout.svelte`), and mount the dialog in `ViewerLayout.svelte`. Make T012 and T013 pass (excluding the CRS-specific assertions owned by US2). Commit.
+  - *Done*: ExportDialog.svelte (modal, focus trap, Esc/Enter, radio groups for rows/format/CSV geometry, CRS select locked for GeoJSON, notices, progress, outcome) and an 'Export data…' button in the attributes header. Visual review: the dialog moved after the panes, and the scrim is now neutral black (the bg-colored tint vanished over same-colored panels).
 
 **Checkpoint**: the MVP. Convert or extract to GeoJSON, GeoParquet or CSV
 in both shells.

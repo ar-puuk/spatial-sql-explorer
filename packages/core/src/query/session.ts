@@ -3,6 +3,8 @@
 // file, so a cancel can never touch file loading. Temp tables are
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
+import { exportErrorMessage, runExport, type ExportHooks, type ExportResult } from '../export/run.js'
+import type { ExportPlan } from '../export/plan.js'
 import { DEFAULT_QUERY, LARGE_RESULT_THRESHOLD, type Layer, type QueryableTable } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
@@ -301,6 +303,23 @@ export class QuerySession {
    */
   showDefaultView(): void {
     this.facts = this.defaultFacts
+  }
+
+  /**
+   * Writes an export plan's file and returns its bytes (spec 005). Runs on
+   * the exclusive connection like a query, so cancel() stops it the same way
+   * and a query never interleaves with it. Never touches __se_result.
+   */
+  async exportData(plan: ExportPlan, hooks: ExportHooks = {}): Promise<ExportResult> {
+    const started = performance.now()
+    try {
+      const result = await this.exclusive((isCancelled) => runExport(this.db, this.conn, plan, isCancelled, hooks))
+      this.log?.(`[export] ${plan.format}: ${nf.format(result.rows)} rows, ${nf.format(result.bytes.length)} bytes · ${Math.round(performance.now() - started)} ms`)
+      return result
+    } catch (err) {
+      this.log?.(`[export] ${plan.format}: ${err instanceof QueryCancelledError ? 'cancelled' : exportErrorMessage(err)}`)
+      throw err
+    }
   }
 
   /** Facts about the displayed result, for export (spec 005); null before the first result. */

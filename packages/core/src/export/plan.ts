@@ -10,6 +10,9 @@ import { EXPORT_FORMATS, exportFormat, type ExportFormatId } from './formats.js'
 /** The table holding the complete result of the last query (spec 002). */
 const RESULT_TABLE = '__se_result'
 
+/** Marks GeoJSON columns that hold JSON text to embed as values (nested types). */
+export const GEOJSON_JSON_PREFIX = '__se_json__'
+
 export interface ExportRequest {
   format: ExportFormatId
   /** FR-002: 'shown' only matters when the display is limited. */
@@ -117,7 +120,21 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const notices: string[] = []
   const xyAvailable = hasGeometry && layer.geometryType === 'Point'
   const csvGeometry = request.csvGeometry === 'xy' && xyAvailable ? 'xy' : 'wkt'
-  const select: string[] = layer.columns.map((c) => quoteIdent(c.name))
+  // GeoJSON values must survive the trip through JS, which loses column types:
+  // convert in SQL (research §4). Nested values come back as JSON text,
+  // marked so the writer embeds them as JSON values.
+  const column = (c: { name: string; type: string }): string => {
+    const id = quoteIdent(c.name)
+    if (format !== 'geojson') return id
+    const type = c.type.trim()
+    if (NESTED.test(type)) return `to_json(${id}) AS ${quoteIdent(GEOJSON_JSON_PREFIX + c.name)}`
+    if (DATE_TIME.test(type)) return `CAST(${id} AS VARCHAR) AS ${id}`
+    if (BINARY.test(type)) return `base64(${id}) AS ${id}`
+    if (/^(HUGEINT|UHUGEINT)$/i.test(type)) return `CAST(${id} AS VARCHAR) AS ${id}`
+    if (/^(DECIMAL|NUMERIC)/i.test(type)) return `CAST(${id} AS DOUBLE) AS ${id}`
+    return id
+  }
+  const select: string[] = layer.columns.map(column)
   for (const other of facts.otherGeometryColumns) select.push(`ST_AsText(${quoteIdent(other)}) AS ${quoteIdent(other)}`)
   if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
 

@@ -17,6 +17,7 @@
   import ProgressBar from './ProgressBar.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import LargeResultDialog from './LargeResultDialog.svelte'
+  import ExportDialog from './ExportDialog.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -54,6 +55,7 @@
   let panes: HTMLDivElement
   /** One map popover at a time. */
   let openPanel = $state<'style' | 'basemap' | null>(null)
+  let exportButton = $state<HTMLButtonElement>()
   /** Opened by a map click (FR-010); then follows the selection until closed. */
   let inspectorOpen = $state(false)
 
@@ -369,6 +371,19 @@
           {#if layer && layer.features.length > 0 && !collapsed}
             <span class="hint">Double-click a row to zoom</span>
           {/if}
+          {#if layer}
+            <button
+              type="button"
+              class="export-button"
+              bind:this={exportButton}
+              aria-label="Export data…"
+              title={store.exportDisabled ?? 'Export data… (save this result as GeoJSON, GeoParquet or CSV)'}
+              disabled={!!store.exportDisabled && !store.exportOpen}
+              onclick={() => store.openExport()}
+            >
+              <Icon name="export" size={14} /><span>Export</span>
+            </button>
+          {/if}
         </div>
         <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
           <AttributeTable
@@ -382,6 +397,15 @@
       </div>
     </div>
   </div>
+  {#if store.exportOpen}
+    <ExportDialog
+      {store}
+      onClose={() => {
+        store.closeExport()
+        void tick().then(() => exportButton?.focus())
+      }}
+    />
+  {/if}
 </div>
 
 <style>
@@ -658,6 +682,31 @@
   .hint {
     color: var(--se-text-muted);
     font-size: 0.9em;
+  }
+  .export-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    font: inherit;
+    cursor: pointer;
+  }
+  .export-button:hover:not(:disabled) {
+    background: var(--se-control-hover);
+    color: var(--se-text-primary);
+  }
+  .export-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .export-button:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
   }
   .drawer-body {
     flex: 1;
