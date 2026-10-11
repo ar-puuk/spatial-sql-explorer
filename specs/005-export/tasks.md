@@ -308,12 +308,13 @@ results save as Parquet (FR-004, FR-008).
   - `apps/vscode-ext/README.md` (an Export bullet: formats, CRS, command);
   - `specs/005-export/research.md` (outcomes and deviations).
   - *Done*: CHANGELOG (Added + Performance), extension README Export bullet, research.md 'Outcomes and deviations'
-- [ ] T034 Run the final full verification:
+- [X] T034 Run the final full verification:
   - lint, all typechecks;
   - `test:core`, `test:web` (incl. performance) and `test:vscode-ext`;
   - package the VSIX and install it into a clean profile.
 
   Record the results in `tasks.md`.
+  - *Done*: 2026-10-10. Lint 0. Typechecks: core tsc 0, ui and web svelte-check 0/0, extension tsc 0. test:core 260/260 (17 files). test:web 58/58 incl. performance (export 100k GeoParquet 2,019 ms, longest task 0 ms; cancel 64 ms). test:vscode-ext 46/46. VSIX 13 files, 8.23 MB, installs into a clean profile; the installed copy ships the Export Data command, the changelog entry and the README bullet
 
 ---
 
