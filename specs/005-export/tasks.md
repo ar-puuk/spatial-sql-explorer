@@ -73,12 +73,14 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
   - A unit-testable `describeResult()` helper may live in `query/run.ts`.
   - Add assertions to `tests/vscode-ext/src/suite/query.test.ts` or a web check that the initial view reports `defaultView: true` and a query reports `false`.
   - *Done*: QuerySession.lastResult (ResultFacts: exportable, geometry columns, resultCrs label/srid/assumed, totalRows, truncatedTo, defaultView) is set by run(), runDefault() and utility results (exportable: false). Found a trap: Reset shows the initial view without re-running, while __se_result still holds the last query. showDefaultView() restores the default facts, and the default view always exports from layer. A new query.spec test via the e2e resultFacts hook covers default, query, DESCRIBE and Reset: 6/6.
-- [ ] T004 [P] Write `tests/core/export-formats.test.ts`:
+- [X] T004 [P] Write `tests/core/export-formats.test.ts`:
   - `EXPORT_FORMATS` lists exactly geojson, geoparquet, csv and parquet (FR-004, research §2);
   - each entry has a label, an extension, a geometry requirement and a crs rule;
   - GeoJSON is `wgs84-only`, and Parquet is offered only for table results.
-- [ ] T005 [P] Implement `packages/core/src/export/formats.ts` (`EXPORT_FORMATS` as data per `data-model.md`) and `export/index.ts`, and export it from `packages/core/src/index.ts`. Make T004 pass.
-- [ ] T006 [P] Write `tests/core/export-plan.test.ts` (pure, per `contracts/export-core.md` `planExport`), covering:
+  - *Done*: export-formats.test.ts (3): exactly geoparquet, geojson, csv and parquet, with no GDAL-only ids; fields valid; GeoJSON wgs84-only and streamed; Parquet for tables.
+- [X] T005 [P] Implement `packages/core/src/export/formats.ts` (`EXPORT_FORMATS` as data per `data-model.md`) and `export/index.ts`, and export it from `packages/core/src/index.ts`. Make T004 pass.
+  - *Done*: export/formats.ts (EXPORT_FORMATS data plus exportFormat), export/index.ts, exported from core.
+- [X] T006 [P] Write `tests/core/export-plan.test.ts` (pure, per `contracts/export-core.md` `planExport`), covering:
   - **rows (FR-002)**:
     - the untouched default view with 22,000 file rows gives `displayLimited {shown: 1000, total: 22000}`, `source: 'layer'` for 'all', and `rowCount` 22,000 or 1,000;
     - `truncatedTo` 50,000 of 60,000 gives a display-limited plan and 'shown' writes 50,000;
@@ -92,7 +94,9 @@ and the result facts the plan needs. Specs 001–003 behavior is unchanged.
     - `reprojectToWgs84Sql` when the CRS is WGS84 and the result isn't;
     - other geometry columns as `ST_AsText`;
     - `LIMIT shown` for 'shown'.
-- [ ] T007 Implement `packages/core/src/export/plan.ts` (`planExport`) per the contract. Make T006 pass.
+  - *Done*: export-plan.test.ts (20): rows (default view gives layer / LIMIT 1000; first 50,000; user LIMIT; small file), formats (geometry, table, DESCRIBE blocked), CRS (GeoJSON forced plus reprojection SQL and notice; result vs WGS84; assumed), geometry SQL per format (WKB BLOB, WKT, X/Y for points only and collision-safe, ST_AsGeoJSON, other geometries as WKT), type notices per format from fixtures/export/columns.json, invalid-row notice, file names.
+- [X] T007 Implement `packages/core/src/export/plan.ts` (`planExport`) per the contract. Make T006 pass.
+  - *Done*: export/plan.ts planExport: pure, with invalid geometry written as NULL via a CASE guard. 23/23.
 - [ ] T008 Implement `packages/core/src/export/projjson.ts`: `projjsonFor(db, conn, srid)` registers `/se-source/__se_crs_<srid>.geojson` (the GeoJSON `crs` member with `urn:ogc:def:crs:EPSG::<srid>`, no features), reads `ST_Read_Meta(...).layers[1].geometry_fields[1].crs.projjson`, caches it per engine and srid, and drops the probe file. It throws a clear error if PROJ doesn't know the code. The browser test comes in US2 (T020).
 - [ ] T009 Implement `packages/core/src/export/run.ts`, the engine-side runner:
   - `copyExport(session, sql, format, geo?)` runs `COPY (sql) TO '/se-source/__se_export-<n>.<ext>' (FORMAT …)` through `conn.send(sql, true)` (drained).
