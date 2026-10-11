@@ -32,7 +32,7 @@ binding (tests query by role and name).
     first item; Up/Down move through items; Home/End jump; Enter
     activates; Escape closes and returns focus to the arrow button.
   - The menu is named `Style formats`.
-- `Import style…` and `Reset style` stay, as icon buttons with names.
+- `Load style…` (visible text "Load…", with its icon) is a secondary button beside Save (user request, 2026-10-11: the icon-only `Import style…` was easy to miss; QGIS calls it Load Style). `Reset style` stays an icon button with a name.
 - The legend's swatches carry the fill opacity (FR-005).
 
 ## Table (`AttributeTable.svelte` and friends)

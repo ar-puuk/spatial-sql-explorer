@@ -2,7 +2,7 @@
 // downloads the QGIS sidecar (web); the arrow's menu offers every format, and
 // works from the keyboard alone (WAI-ARIA menu button).
 import { test, expect, type Page } from '@playwright/test'
-import { openFile, writeSquares } from './helpers'
+import { fixture, openFile, writeSquares } from './helpers'
 
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
 
@@ -65,4 +65,16 @@ test('keyboard: open, move, jump, and Escape back to the arrow', async ({ page }
     await page.keyboard.press('Enter')
   })()])
   expect(sld.suggestedFilename()).toMatch(/\.sld$/)
+})
+
+// Spec 008 (user request): loading a style is a labelled button beside Save.
+test('Load style… picks a .qml and applies it', async ({ page }) => {
+  await openFile(page, fixture('points.csv'))
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  const load = panel(page).getByRole('button', { name: 'Load style…' })
+  await expect(load).toBeVisible()
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), load.click()])
+  expect(chooser.isMultiple()).toBe(false)
+  await chooser.setFiles(fixture('styled-points.qml'))
+  await expect(panel(page)).toContainText('Applied styled-points.qml.')
 })

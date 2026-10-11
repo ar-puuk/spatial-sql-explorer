@@ -410,7 +410,8 @@
 
   <footer>
     <SaveStyleButton {canSaveSidecar} {sidecarName} losses={(f) => previewExportNotice(style, f, resolved).items} {onSave} onSaveAs={onExport} />
-    <button type="button" class="icon-button" aria-label="Import style…" title="Import a QGIS .qml, OGC .sld or Mapbox GL style .json" onclick={onImport}><Icon name="import" /></button>
+    <!-- Spec 008 (user request): loading a style is as visible as saving one (QGIS: Load Style…). -->
+    <button type="button" class="secondary" aria-label="Load style…" title="Load a style: QGIS .qml, OGC .sld or Mapbox GL style .json" onclick={onImport}><Icon name="import" size={14} />Load…</button>
     <span class="spacer"></span>
     <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset" /></button>
   </footer>
@@ -644,6 +645,23 @@
   }
   .spacer {
     flex: 1;
+  }
+  .secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--se-button-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .secondary:hover {
+    background: var(--se-button-secondary-hover);
   }
   footer :global(button:focus-visible) {
     outline: 1px solid var(--se-focus);
