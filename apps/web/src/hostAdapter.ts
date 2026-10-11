@@ -16,6 +16,12 @@ function isLikelySidecar(name: string): boolean {
   return ['.shx', '.dbf', '.prj', '.cpg', '.qml', '.sld'].some((ext) => lower.endsWith(ext))
 }
 
+const STYLE_EXTENSIONS = ['.qml', '.sld']
+
+function primaryOf(files: File[]): File {
+  return files.find((f) => !isLikelySidecar(f.name)) ?? files[0]
+}
+
 let pendingOpenFilesResolve: ((refs: OpenedFileRef[]) => void) | null = null
 
 /**
@@ -36,6 +42,9 @@ export function provideFiles(files: File[]): void {
   pendingOpenFilesResolve?.([{ id, displayName: primary.name, stateKey: `${primary.name}|${primary.size}|${primary.lastModified}` }])
   pendingOpenFilesResolve = null
 }
+
+/** e2e (spec 007 T053): range reads served, to show PMTiles is never read whole. */
+export const rangeReads = { count: 0, bytes: 0, largest: 0 }
 
 export function createWebHostAdapter(): HostAdapter {
   const themeListeners = new Set<(theme: ThemeKind) => void>()
@@ -60,18 +69,38 @@ export function createWebHostAdapter(): HostAdapter {
         pendingOpenFilesResolve = resolve
       })
     },
-    async getFileSource(ref: OpenedFileRef): Promise<FileSource> {
+    async getFileSource(ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource> {
       const files = fileMap.get(ref.id)
       if (!files) throw new Error(`Unknown file reference: ${ref.id}`)
-      const entries = await Promise.all(files.map(async (f) => [f.name, await f.arrayBuffer()] as const))
-      const primaryName = files.find((f) => !isLikelySidecar(f.name))?.name ?? files[0].name
-      const result: Record<string, ArrayBuffer> = {}
-      let totalBytes = 0
-      for (const [name, buf] of entries) {
-        result[name] = buf
-        totalBytes += buf.byteLength
+      const primary = primaryOf(files)
+      // The QGIS-convention style sidecar (<basename>.qml) is read as text;
+      // other style files are never data.
+      const wantedStyle = `${primary.name.replace(/\.[^.]+$/, '')}.qml`.toLowerCase()
+      const style = files.find((f) => f !== primary && f.name.toLowerCase() === wantedStyle)
+      const styleSidecar = style ? { fileName: style.name, text: await style.text() } : null
+      const sidecars = files.filter((f) => f !== primary && !STYLE_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)))
+      if (options?.whole) {
+        // FlatGeobuf "load for queries" (spec 007): the whole file, in memory.
+        return {
+          kind: 'bytes',
+          name: primary.name,
+          size: primary.size,
+          bytes: new Uint8Array(await primary.arrayBuffer()),
+          sidecars: await Promise.all(sidecars.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))),
+          styleSidecar,
+        }
       }
-      return { files: result, primaryFileName: primaryName, totalBytes }
+      // Spec 007 research §2: the engine reads the File in slices; nothing is copied up front.
+      return { kind: 'handle', name: primary.name, size: primary.size, handle: primary, sidecars: sidecars.map((f) => ({ name: f.name, handle: f })), styleSidecar }
+    },
+    async readRange(ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array> {
+      const files = fileMap.get(ref.id)
+      if (!files) throw new Error(`Unknown file reference: ${ref.id}`)
+      const bytes = new Uint8Array(await primaryOf(files).slice(offset, offset + length).arrayBuffer())
+      rangeReads.count++
+      rangeReads.bytes += bytes.byteLength
+      rangeReads.largest = Math.max(rangeReads.largest, bytes.byteLength)
+      return bytes
     },
     async saveFile(name: string, content: Uint8Array | string): Promise<SaveResult> {
       // The browser cannot write next to a picked file, so every save is a

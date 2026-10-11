@@ -2,6 +2,7 @@
 // packages/ui holds mutable state. Business logic (parsing, DuckDB, style
 // interchange) stays in packages/core; this just drives the UI from a
 // ViewerSession and routes file I/O through the HostAdapter.
+import { untrack } from 'svelte'
 import {
   DEFAULT_LAYER_STYLE,
   createInitialViewerSession,
@@ -17,6 +18,7 @@ import {
   setClassVisible,
   resolveStyle,
   type ResolvedStyle,
+  type ResolveInput,
   sidecarStyleFileName,
   styleFileName,
   STYLE_FILE_EXTENSIONS,
@@ -38,12 +40,31 @@ import {
   type ExportRequest,
   type EngineError,
   type Layer,
+  type OpenedFileRef,
   DEFAULT_QUERY,
   describeOutcome,
   layerFromResult,
   type StyleFormat,
   type ViewerSession,
+  type DatasetFacts,
+  type OpenPhase,
+  type Feature,
+  type ViewFeatures,
+  type TablePage,
+  PAGE_SIZE,
+  viewCapFor,
+  ViewSkippedError,
+  WorkPreemptedError,
+  OutOfMemoryError,
 } from '@spatial-explorer/core'
+import { formatFromFileName } from '@spatial-explorer/core'
+import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
+
+/** The attribute columns a style draws from (spec 007: map views read only these). */
+function styleColumns(style: LayerStyle): string[] {
+  const r = style.renderer
+  return r && r.kind !== 'single' && r.column ? [r.column] : []
+}
 
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
 /** The result of the last export (spec 005 data-model ExportOutcome). */
@@ -59,7 +80,7 @@ export interface StyleNotice {
 }
 
 /** Query lifecycle (spec 002 data-model.md, "Query state transitions"). */
-export type QueryPhase = 'idle' | 'running' | 'awaitingConfirm' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
+export type QueryPhase = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'refused'
 
 export interface QueryTableInfo {
   name: string
@@ -85,10 +106,17 @@ export interface ViewerStore {
   readonly resultCrs: { label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null
   readonly crsOverride: number | null
   setCrsOverride(epsg: number | null): void
-  readonly fetchProgress: { fetched: number; total: number } | null
   readonly runStartedAt: number | null
-  readonly pendingLargeResult: { rowCount: number } | null
-  answerLargeResult(choice: 'all' | 'first' | 'cancel'): void
+  /** Spec 007: the attribute table pages the whole result (FR-011). */
+  readonly tableTotal: number
+  readonly tableSort: { column: string; dir: 'asc' | 'desc' } | null
+  /** Bumps when the result or the sort changes: loaded pages are stale. */
+  readonly tableRevision: number
+  /** A big result whose pages and views re-run the query (said once in the table header). */
+  readonly tableReRuns: boolean
+  setTableSort(sort: { column: string; dir: 'asc' | 'desc' } | null): void
+  /** One page of rows (PAGE_SIZE) at `offset`, in the current sort; null when there's nothing to page. */
+  loadPage(offset: number): Promise<TablePage | null>
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -131,6 +159,10 @@ export interface ViewerStore {
   readonly resolvedStyle: ResolvedStyle
   /** The displayed result without reactive proxies, for classification and pickers. */
   readonly displayedLayer: Layer | null
+  /** Spec 007: a style is being classified over a big result (shown after 300 ms). */
+  readonly classifying: boolean
+  /** What the style panel resolves against: columns, rows, distinct counts. */
+  readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
   readonly legendCollapsed: boolean
   setLegendCollapsed(collapsed: boolean): void
@@ -162,6 +194,45 @@ export interface ViewerStore {
   dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
+  /**
+   * Spec 007 T044: a FlatGeobuf read in parts. The map works; queries, the
+   * table, thematic styles and export wait for `loadWhole()`. Null otherwise.
+   */
+  readonly needsLoad: { sizeLabel: string } | null
+  /** Re-opens the file whole into memory (progress and Cancel through the open). */
+  loadWhole(): Promise<void>
+  /** Spec 007 US5: the open PMTiles archive (the map draws its tiles), or null. */
+  readonly tiles: TilesArchive | null
+  /** FR-009a: why SQL, the table, styling and export aren't available (PMTiles), or null. */
+  readonly tilesOnlyReason: string | null
+  /** A PMTiles feature clicked on the map: shown by the inspector. */
+  inspectTileFeature(feature: Feature | null): void
+  /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
+  readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
+  answerWholeRead(open: boolean): void
+  /** Spec 007: the open in progress (null when none), its whole-file facts as soon as known, and Cancel (FR-001, FR-002). */
+  readonly openPhase: OpenPhase | null
+  readonly openStartedAt: number | null
+  readonly openFacts: DatasetFacts | null
+  cancelOpen(): Promise<void>
+  /** Spec 007: the features drawn for the current map view (FR-005), and what the map should say about them (FR-006, FR-016). */
+  readonly viewFeatures: ViewFeatures | null
+  readonly viewLoading: boolean
+  readonly viewNotice: { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null
+  /** A selected feature outside the drawn set, fetched by id and drawn highlighted (FR-008). */
+  readonly outsideFeature: Feature | null
+  /** The full record of a map-selected feature (view rows carry only the style's columns). */
+  readonly detailFeature: Feature | null
+  /** The map drew the latest view data (MapLibre idle after setData). */
+  notifyPainted(): void
+  /** The map moved (debounced): load the result's features for this WGS84 view. */
+  requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void>
+  dismissViewNotice(): void
+  /** The last view the map asked for (WGS84). */
+  readonly lastViewBbox: [number, number, number, number] | null
+  /** Moves the camera (test hooks); MapView applies each new request once. */
+  readonly cameraRequest: { center: [number, number]; zoom: number; seq: number } | null
+  jumpTo(center: [number, number], zoom: number): void
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
   setCursor(coords: { lon: number; lat: number } | null): void
@@ -243,10 +314,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let queryTable = $state<QueryTableInfo | null>(null)
   let resultCrs = $state<{ label: string; source: 'layer' | 'detected' | 'engine' | 'override' } | null>(null)
   let crsOverride = $state<number | null>(null)
-  let fetchProgress = $state<{ fetched: number; total: number } | null>(null)
   let runStartedAt = $state<number | null>(null)
-  let pendingLargeResult = $state<{ rowCount: number } | null>(null)
-  let largeResultResolve: ((choice: 'all' | 'first' | 'cancel') => void) | null = null
+  // Spec 007: the table's paging state.
+  let tableSort = $state<{ column: string; dir: 'asc' | 'desc' } | null>(null)
+  let tableRevision = $state(0)
   let mapLayer = $state.raw<Layer | null>(null)
   // The displayed result, unproxied: classification walks every row, which
   // must not create a reactive signal per attribute (spec 003 T012). Kept in
@@ -255,19 +326,82 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   function setLayer(l: Layer | null): void {
     displayedLayer = l
     session.layer = l
+    // A new result: the table's loaded pages and sort belong to the old one.
+    tableSort = null
+    tableRevision++
   }
-  const resolvedStyle = $derived.by(() => resolveStyle(style, displayedLayer))
+  // Spec 007 FR-012: styles are resolved by the engine over the whole result
+  // (fetched values for small results, SQL statistics for big ones).
+  let resolvedStyle = $state.raw<ResolvedStyle>(resolveStyle(DEFAULT_LAYER_STYLE, null))
+  let styleDistinct = $state.raw<Record<string, number>>({})
+  let classifying = $state(false)
+  let styleGeneration = 0
+  let distinctFor: Layer | null = null
+
+  async function refreshStyle(): Promise<void> {
+    const generation = ++styleGeneration
+    const s = style
+    const layer = displayedLayer
+    const qs = querySession
+    if (!qs || !layer) {
+      resolvedStyle = resolveStyle(s, layer ? { columns: layer.columns, rowCount: layer.totalRows } : null)
+      return
+    }
+    const slow = setTimeout(() => {
+      if (generation === styleGeneration) classifying = true
+    }, 300)
+    try {
+      if (distinctFor !== layer) {
+        distinctFor = layer
+        styleDistinct = await retryWhenBusy(qs, () => qs.distinctCounts()).catch(() => ({}))
+      }
+      const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
+      if (generation === styleGeneration) resolvedStyle = r
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: style failed', err)
+    } finally {
+      clearTimeout(slow)
+      if (generation === styleGeneration) classifying = false
+    }
+  }
+
+  /** Runs engine work, waiting out a running query or export (it never queues behind them). */
+  async function retryWhenBusy<T>(qs: QuerySession, work: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await work()
+      } catch (err) {
+        // Interrupted by user work: always ask again. Blocked by it: a few times.
+        const preempted = err instanceof WorkPreemptedError
+        const busy = err instanceof Error && /already running/.test(err.message)
+        if (!preempted && (attempt >= 5 || !busy)) throw err
+        await qs.whenIdle()
+      }
+    }
+  }
+
+  $effect.root(() => {
+    $effect(() => {
+      void style
+      void displayedLayer
+      void untrack(() => refreshStyle())
+    })
+  })
   let mapDimmed = $state(false)
   let runCount = $state(0)
 
   // --- Spec 005: export ------------------------------------------------------
   const EXPORT_PREFS_KEY = 'export.prefs'
   let exportOpen = $state(false)
-  let exportRequest = $state<ExportRequest>({ format: 'geoparquet', rows: 'all', crs: 'result', csvGeometry: 'wkt' })
+  let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
     .loadState<Partial<ExportRequest>>(EXPORT_PREFS_KEY)
     .then((saved) => {
-      if (saved && typeof saved === 'object') exportRequest = { ...exportRequest, ...saved, rows: 'all' }
+      // Spec 007: older saved prefs may carry `rows` (the removed rows choice); only known fields are kept.
+      if (saved && typeof saved === 'object') {
+        const { format, crs, csvGeometry } = { ...exportRequest, ...saved }
+        exportRequest = { format, crs, csvGeometry }
+      }
     })
     .catch(() => {})
   let exportPhase = $state<'idle' | 'running' | 'done' | 'failed' | 'cancelled'>('idle')
@@ -282,8 +416,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (!layer || !facts) return null
     return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts })
   })
+  // Spec 007 T044: the opened file, to load it whole later, and its size.
+  let openedRef: OpenedFileRef | null = null
+  let openedSize = $state<number | null>(null)
+
+  const sizeLabel = (bytes: number): string =>
+    bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+  const needsLoad = $derived(session.layer?.facts?.needsLoad && openedSize !== null ? { sizeLabel: sizeLabel(openedSize) } : null)
+
+  // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
+  let tilesArchive = $state.raw<TilesArchive | null>(null)
+  const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
   const exportDisabled = $derived(
-    !displayedLayer ? 'Open a file first.' : queryPhase === 'running' || queryPhase === 'awaitingConfirm' ? 'Wait for the running query to finish.' : (exportPlan?.blocked ?? null)
+    !displayedLayer
+      ? 'Open a file first.'
+      : tilesOnlyReason
+        ? tilesOnlyReason
+        : needsLoad
+        ? `Load the whole file (${needsLoad.sizeLabel}) to export it.`
+        : queryPhase === 'running'
+          ? 'Wait for the running query to finish.'
+          : (exportPlan?.blocked ?? null)
   )
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
   let lastRunText = $state<string | null>(null)
@@ -296,7 +449,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function refreshCatalog(): Promise<void> {
     const qs = querySession
     if (!qs) return
-    const snapshot = await qs.catalog().catch(() => null)
+    const snapshot = await retryWhenBusy(qs, () => qs.catalog()).catch(() => null)
     if (snapshot && qs === querySession) catalog = snapshot
   }
   let resultGeometryColumn = $state<string | null>('geom')
@@ -323,9 +476,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     queryError = null
     queryErrorRange = null
     crsOverride = null
-    fetchProgress = null
     runStartedAt = null
-    pendingLargeResult = null
     mapLayer = null
     mapDimmed = false
     lastRun = null
@@ -338,38 +489,18 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
   async function runQuery(selection: { from: number; to: number }): Promise<void> {
     const qs = querySession
-    if (!qs || queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+    if (!qs || queryPhase === 'running') return
     queryPhase = 'running'
     queryError = null
     queryErrorRange = null
-    fetchProgress = null
     runStartedAt = performance.now()
     lastRun = { text: queryText, selection }
-    const outcome: RunOutcome = await qs.run(
-      { editorText: queryText, selection, crsOverride },
-      {
-        confirmLargeResult: (rowCount) =>
-          new Promise((resolve) => {
-            queryPhase = 'awaitingConfirm'
-            pendingLargeResult = { rowCount }
-            largeResultResolve = (choice) => {
-              pendingLargeResult = null
-              largeResultResolve = null
-              queryPhase = 'running'
-              runStartedAt = performance.now()
-              resolve(choice)
-            }
-          }),
-        onProgress: (fetched, total) => {
-          if (total > 2000) fetchProgress = { fetched, total }
-        },
-      }
-    )
+    // Spec 007 FR-009: no large-result prompt; any result size is shown by view and page.
+    const outcome: RunOutcome = await qs.run({ editorText: queryText, selection, crsOverride })
     applyOutcome(outcome)
   }
 
   function applyOutcome(outcome: RunOutcome): void {
-    fetchProgress = null
     runStartedAt = null
     queryStatus = describeOutcome(outcome)
     remember(outcome)
@@ -387,6 +518,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         }
         if (previous) setLayer(layerFromResult(displayedLayer ?? previous, built))
         session.selectedFeatureId = null
+        outsideFeature = null
         resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
         resultGeometryColumn = built.geometryColumn
         queryPhase = 'succeeded'
@@ -423,12 +555,148 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
-  async function load(): Promise<void> {
+  // Spec 007: map views (research §6). Each request gets a generation; an
+  // older one's features never replace a newer one's, and the previous
+  // features stay drawn until replaced (FR-007).
+  let viewFeatures = $state.raw<ViewFeatures | null>(null)
+  let viewLoading = $state(false)
+  let outsideFeature = $state.raw<Feature | null>(null)
+  let viewGeneration = 0
+  let lastViewArgs: { bbox: [number, number, number, number]; zoom: number; widthPx?: number } | null = null
+  /** The attribute columns the drawn view carries (the style's column; spec 007). */
+  let viewAttrs: string[] = []
+  // The map reports each paint of new view data (MapView onPainted).
+  let paintWaiters: Array<() => void> = []
+  function waitForPaint(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        paintWaiters = paintWaiters.filter((w) => w !== done)
+        resolve()
+      }
+      const timer = setTimeout(done, timeoutMs)
+      paintWaiters.push(done)
+    })
+  }
+  /** The full record of a map-selected feature whose view row had only the style's columns. */
+  let detailFeature = $state.raw<Feature | null>(null)
+  /** The layer whose first view already had its preview (see requestView). */
+  let previewedLayer: Layer | null = null
+  /** Features in the quick first view of a new file or result. */
+  const PREVIEW_CAP = 2_000
+  let fallbackDismissed = $state(false)
+  // FR-014: a map view, table page or style that ran out of memory says so (the session has recovered).
+  let memoryNotice = $state<string | null>(null)
+  function noteOutOfMemory(err: unknown): boolean {
+    if (!(err instanceof OutOfMemoryError)) return false
+    memoryNotice = err.message
+    return true
+  }
+  let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
+  let cameraRequest = $state<{ center: [number, number]; zoom: number; seq: number } | null>(null)
+  const viewNf = new Intl.NumberFormat()
+
+  async function requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void> {
+    const qs = querySession
+    const layer = session.layer
+    // A table-only result keeps the previous features, dimmed (spec 002 FR-006).
+    if (!qs || !layer || mapDimmed) return
+    lastViewBbox = bbox
+    const generation = ++viewGeneration
+    const current = (): boolean => generation === viewGeneration && querySession === qs
+    const slow = setTimeout(() => {
+      if (generation === viewGeneration) viewLoading = true
+    }, 300)
+    const cap = viewCapFor(layer.facts?.readMode ?? 'whole')
+    lastViewArgs = { bbox, zoom, widthPx }
+    const attrs = styleColumns(style)
+    viewAttrs = attrs
+    // The first view of a new file or result is drawn in two steps: a quick
+    // spread-out preview, then the full view, which replaces it without a
+    // blank map (FR-007). The preview shows no subset notice (it's replaced at
+    // once). Only for files in memory, where drawing dominates; for files read
+    // in parts the overview is I/O-bound, and a preview would double it.
+    let preview = previewedLayer !== layer && cap > PREVIEW_CAP && (layer.facts?.readMode ?? 'whole') === 'whole'
+    previewedLayer = layer
+    try {
+      // A view never blocks user work (a query, export, autocomplete): it is
+      // skipped or interrupted, then asked again once the engine is free,
+      // unless a newer view came meanwhile.
+      for (let attempt = 0; attempt < 5 && current(); attempt++) {
+        try {
+          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx, attrs })
+          if (!current()) return
+          if (preview) {
+            viewFeatures = { ...v, thinned: false, preview: true }
+            preview = false
+            attempt = -1
+            // Paint the preview before loading the full view; otherwise a
+            // quick full view replaces it unseen (at most 1 s).
+            await waitForPaint(1000)
+            continue
+          }
+          viewFeatures = v
+          return
+        } catch (err) {
+          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError)) throw err
+          await qs.whenIdle()
+        }
+      }
+    } catch (err) {
+      if (!noteOutOfMemory(err)) console.warn('Spatial Explorer: map view failed', err)
+    } finally {
+      clearTimeout(slow)
+      if (generation === viewGeneration) viewLoading = false
+    }
+  }
+
+  const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
+    if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
+    const facts = session.layer?.facts
+    if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
+    const v = viewFeatures
+    if (v?.thinned) {
+      const of = v.inViewEstimated ? `about ${viewNf.format(v.inView)}` : v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
+      return { text: `Showing ${viewNf.format(v.features.length)} of ${of} in view. Zoom in to see all.`, kind: 'info', dismissible: false }
+    }
+    return null
+  })
+
+  // Spec 007: the open in progress.
+  let openPhase = $state<OpenPhase | null>(null)
+  let openStartedAt = $state<number | null>(null)
+  let openFacts = $state<DatasetFacts | null>(null)
+  let openCancelled = false
+  let openInterrupt: (() => Promise<void>) | null = null
+  let wholeReadPrompt = $state<{ sizeBytes: number; format: string; resolve: (open: boolean) => void } | null>(null)
+
+  function answerWholeRead(open: boolean): void {
+    const prompt = wholeReadPrompt
+    wholeReadPrompt = null
+    prompt?.resolve(open)
+  }
+
+  async function loadWhole(): Promise<void> {
+    if (!openedRef || !needsLoad) return
+    await load({ ref: openedRef, loadWhole: true })
+  }
+
+  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean } = {}): Promise<void> {
+    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : null
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
+    openCancelled = false
+    openFacts = null
+    viewFeatures = null
+    outsideFeature = null
+    fallbackDismissed = false
+    memoryNotice = null
+    openPhase = null
+    openStartedAt = null
     try {
-      const [ref] = await hostAdapter.openFiles()
+      const ref = options.ref ?? (await hostAdapter.openFiles())[0]
+      openedRef = ref
       currentFileName = ref.displayName
       historyStateKey = ref.stateKey
       history = []
@@ -439,7 +707,48 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       // go before the next file's `layer` view is created.
       await querySession?.dispose().catch(() => {})
       querySession = null
-      const opened = await openFile(ref, { hostAdapter, duckdbAssets })
+      tilesArchive = null
+      openStartedAt = performance.now()
+      openPhase = 'registering'
+      if (formatFromFileName(ref.displayName) === 'pmtiles') {
+        // US5: the map reads the archive itself; the engine isn't involved.
+        const { layer, archive } = await openTilesArchive(ref, hostAdapter)
+        openPhase = null
+        openStartedAt = null
+        resetQueryState()
+        catalog = null
+        tilesArchive = archive
+        initialLayer = layer
+        setLayer(layer)
+        session.loadState = 'ready'
+        applySidecar(null)
+        hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: 'features' })
+        return
+      }
+      const opened = await openFile(
+        ref,
+        { hostAdapter, duckdbAssets },
+        {
+          onPhase: (phase, detail) => {
+            if (!openCancelled) openPhase = phase
+            if (detail?.sizeBytes !== undefined) openedSize = detail.sizeBytes
+          },
+          onFacts: (facts) => {
+            openFacts = facts
+            // File-level metadata (FR-006) before the first view (FR-001).
+            hostAdapter.setStatus({ crs: facts.crs.label, featureCount: facts.rows - (facts.invalid ?? 0), countLabel: facts.invalid === null ? 'rows' : 'features' })
+          },
+          confirmWholeRead: (sizeBytes, format) => new Promise<boolean>((resolve) => (wholeReadPrompt = { sizeBytes, format, resolve })),
+          onCancelHandle: (interrupt) => {
+            openInterrupt = interrupt
+          },
+          isCancelled: () => openCancelled,
+        },
+        { loadWhole: options.loadWhole }
+      )
+      openInterrupt = null
+      openPhase = null
+      openStartedAt = null
       querySession = opened.session
       resetQueryState()
       catalog = null
@@ -448,14 +757,37 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       initialLayer = layer
       setLayer(layer)
       session.loadState = 'ready'
-      applySidecar(layer.styleSidecar)
+      if (keptStyle) {
+        // Loading the whole file keeps the style the user was looking at.
+        style = keptStyle.style
+        styleSource = keptStyle.styleSource
+        styleDirty = keptStyle.styleDirty
+      } else applySidecar(layer.styleSidecar)
       // File-level metadata (FR-006): the whole file, not the displayed result.
-      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features })
+      hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: layer.facts?.invalid === null ? 'rows' : 'features' })
     } catch (err) {
+      openInterrupt = null
+      openStartedAt = null
       setLayer(null)
+      if (err instanceof QueryCancelledError || openCancelled) {
+        // FR-002: back to the empty state, no error (the previous file was
+        // already closed: one `layer` per engine).
+        openPhase = 'cancelled'
+        openFacts = null
+        session.loadState = 'idle'
+        hostAdapter.setStatus({})
+        return
+      }
+      openPhase = 'failed'
       session.loadState = 'error'
       session.loadError = { message: err instanceof Error ? err.message : String(err) }
     }
+  }
+
+  async function cancelOpen(): Promise<void> {
+    if (session.loadState !== 'loading') return
+    openCancelled = true
+    await openInterrupt?.().catch(() => {})
   }
 
   function applySidecar(sidecar: { fileName: string; text: string } | null): void {
@@ -521,6 +853,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   }
 
   return {
+    get openPhase() {
+      return openPhase
+    },
+    get openStartedAt() {
+      return openStartedAt
+    },
+    get openFacts() {
+      return openFacts
+    },
+    cancelOpen,
     get session() {
       return session
     },
@@ -542,7 +884,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return queryText !== DEFAULT_QUERY && queryText !== (lastRunText ?? DEFAULT_QUERY)
     },
     async resetQuery() {
-      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') await this.cancelQuery()
+      if (queryPhase === 'running') await this.cancelQuery()
       const original = initialLayer
       resetQueryState()
       querySession?.showDefaultView()
@@ -583,17 +925,38 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         void runQuery(selection)
       }
     },
-    get fetchProgress() {
-      return fetchProgress
-    },
     get runStartedAt() {
       return runStartedAt
     },
-    get pendingLargeResult() {
-      return pendingLargeResult
+    get tableTotal() {
+      return displayedLayer?.totalRows ?? 0
     },
-    answerLargeResult(choice) {
-      largeResultResolve?.(choice)
+    get tableSort() {
+      return tableSort
+    },
+    get tableRevision() {
+      return tableRevision
+    },
+    get tableReRuns() {
+      return querySession?.lastResult?.reRuns ?? false
+    },
+    setTableSort(sort) {
+      tableSort = sort
+      tableRevision++
+    },
+    async loadPage(offset) {
+      const qs = querySession
+      if (!qs) return null
+      try {
+        // Waits out style or map work holding the engine rather than leaving skeleton rows.
+        const sort = tableSort ? { column: tableSort.column, dir: tableSort.dir } : null
+        return await retryWhenBusy(qs, () => qs.page({ offset, limit: PAGE_SIZE, sort }))
+      } catch (err) {
+        // A page interrupted by user work: the table asks again when it next scrolls or redraws.
+        if (err instanceof QueryCancelledError) return null
+        if (noteOutOfMemory(err)) return null
+        throw err
+      }
     },
     get mapLayer() {
       return mapLayer
@@ -681,7 +1044,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return history
     },
     loadFromHistory(entry) {
-      if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') return
+      if (queryPhase === 'running') return
       queryText = entry.text
       queryError = null
       queryErrorRange = null
@@ -690,12 +1053,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     runQuery,
     async cancelQuery() {
-      // A pending large-result question is answered "cancel"; otherwise the engine is interrupted.
-      if (largeResultResolve) largeResultResolve('cancel')
       await querySession?.cancel()
     },
     get resolvedStyle() {
       return resolvedStyle
+    },
+    get classifying() {
+      return classifying
+    },
+    get styleInput() {
+      const l = displayedLayer
+      return l ? { columns: l.columns, rowCount: l.totalRows, distinct: styleDistinct } : null
     },
     get displayedLayer() {
       return displayedLayer
@@ -772,13 +1140,86 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     prewarm() {
       prewarmDuckDb(duckdbAssets)
     },
-    load,
+    load: () => load(),
+    get needsLoad() {
+      return needsLoad
+    },
+    loadWhole,
+    get wholeReadPrompt() {
+      return wholeReadPrompt
+    },
+    answerWholeRead,
+    get tiles() {
+      return tilesArchive
+    },
+    get tilesOnlyReason() {
+      return tilesOnlyReason
+    },
+    inspectTileFeature(feature) {
+      detailFeature = feature
+      session.selectedFeatureId = feature?.id ?? null
+    },
     selectFeature(id) {
       session.selectedFeatureId = id
+      // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
+      const drawn = viewFeatures?.features.find((f) => f.id === id)
+      if (drawn?.partialAttributes && typeof id === 'number' && querySession) {
+        const qs = querySession
+        void retryWhenBusy(qs, () => qs.featureById(id))
+          .then((f) => {
+            if (session.selectedFeatureId === id) detailFeature = f
+          })
+          .catch(() => {})
+      }
+    },
+    get detailFeature() {
+      return detailFeature
     },
     zoomToFeature(id) {
       session.selectedFeatureId = id
-      zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+      // FR-008: a feature outside the drawn set is fetched by its stable id, drawn highlighted, then zoomed to.
+      const drawn = viewFeatures?.features.some((f) => f.id === id) || outsideFeature?.id === id
+      if (drawn || typeof id !== 'number' || !querySession) {
+        zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+        return
+      }
+      const qs = querySession
+      void retryWhenBusy(qs, () => qs.featureById(id))
+        .then((f) => {
+          if (session.selectedFeatureId !== id) return
+          outsideFeature = f
+          zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
+        })
+        .catch(() => {})
+    },
+    get viewFeatures() {
+      return viewFeatures
+    },
+    get viewLoading() {
+      return viewLoading
+    },
+    get viewNotice() {
+      return viewNotice
+    },
+    get outsideFeature() {
+      return outsideFeature
+    },
+    requestView,
+    notifyPainted() {
+      for (const w of [...paintWaiters]) w()
+    },
+    get lastViewBbox() {
+      return lastViewBbox
+    },
+    get cameraRequest() {
+      return cameraRequest
+    },
+    jumpTo(center, zoom) {
+      cameraRequest = { center, zoom, seq: (cameraRequest?.seq ?? 0) + 1 }
+    },
+    dismissViewNotice() {
+      if (memoryNotice) memoryNotice = null
+      else fallbackDismissed = true
     },
     setCursor(coords) {
       session.cursorCoordinates = coords
@@ -787,6 +1228,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setStyle(patch) {
       style = sanitizeStyle({ ...style, ...patch })
       styleDirty = true
+      // A thematic column the drawn view doesn't carry yet: load the view again with it.
+      if (lastViewArgs && styleColumns(style).some((c) => !viewAttrs.includes(c))) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
     },
     resetStyle() {
       style = { ...DEFAULT_LAYER_STYLE }

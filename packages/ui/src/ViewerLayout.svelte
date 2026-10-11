@@ -14,10 +14,12 @@
   import MapLegend from './MapLegend.svelte'
   import BasemapPicker from './BasemapPicker.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
-  import ProgressBar from './ProgressBar.svelte'
+  import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
-  import LargeResultDialog from './LargeResultDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import LoadWholeNotice from './LoadWholeNotice.svelte'
+  import ReadWholeDialog from './ReadWholeDialog.svelte'
+  import UnavailableNotice from './UnavailableNotice.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -114,9 +116,14 @@
     else return
     e.preventDefault()
   }
-  let inspected = $derived(
-    inspectorOpen && layer && session.selectedFeatureId !== null ? (layer.features.find((f) => f.id === session.selectedFeatureId) ?? null) : null
-  )
+  // The inspector shows the selected feature from wherever it is: the table's
+  // rows, the drawn view (spec 007), or one fetched outside the view (FR-008).
+  let inspected = $derived.by(() => {
+    const id = session.selectedFeatureId
+    if (!inspectorOpen || !layer || id === null) return null
+    if (store.detailFeature?.id === id) return store.detailFeature
+    return store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
+  })
 
   // Popovers that need a layer close when it goes away (new file, error).
   $effect(() => {
@@ -209,6 +216,8 @@
   let countLabel = $derived.by(() => {
     if (loading) return 'Loading…'
     if (!layer) return ''
+    // PMTiles (spec 007 US5): the archive's feature count, from its metadata.
+    if (layer.facts?.readMode === 'tiles') return `${nf.format(layer.featureCount)} features in tiles`
     if (layer.truncated) return `Showing ${nf.format(layer.rowCount)} of ${nf.format(layer.totalRows)} rows`
     // Rows with invalid geometry are listed but not drawn (spec 002 amendment).
     if (layer.rowCount !== layer.featureCount) return `${nf.format(layer.rowCount)} rows · ${nf.format(layer.featureCount)} mapped`
@@ -220,7 +229,10 @@
 
 <div class="viewer-layout" class:dragging>
   {#if loading}
-    <ProgressBar label="Loading file" />
+    <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} onCancel={() => void store.cancelOpen()} />
+  {/if}
+  {#if store.wholeReadPrompt}
+    <ReadWholeDialog sizeBytes={store.wholeReadPrompt.sizeBytes} format={store.wholeReadPrompt.format} onAnswer={(open) => store.answerWholeRead(open)} />
   {/if}
   <ErrorBanner message={session.loadState === 'error' ? (session.loadError?.message ?? 'Unknown error') : null} />
   {#if store.sourceChanged}
@@ -238,6 +250,12 @@
     <div class="map-pane">
       <MapView
         layer={store.mapLayer ?? layer}
+        viewFeatures={store.viewFeatures}
+        extraFeature={store.outsideFeature}
+        viewLoading={store.viewLoading}
+        cameraRequest={store.cameraRequest}
+        onPainted={() => store.notifyPainted()}
+        onViewChange={(bbox, zoom, widthPx) => void store.requestView(bbox, zoom, widthPx)}
         dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}
         style={store.style}
@@ -252,6 +270,13 @@
         onTogglePanel={(panel) => (openPanel = openPanel === panel ? null : panel)}
         onSelectFeature={handleMapSelect}
         onCursorMove={(c) => store.setCursor(c)}
+        tiles={store.tiles}
+        onInspectTileFeature={(f) => {
+          store.inspectTileFeature(f)
+          inspectorOpen = f !== null
+          openPanel = null
+        }}
+        styleUnavailable={store.tilesOnlyReason}
       />
       {#if inspected}
         <div class="inspector-slot">
@@ -277,6 +302,14 @@
           <Icon name="info" size={14} />
           <span>This result has no geometry to map. The previous layer is shown dimmed.</span>
         </div>
+      {:else if store.viewNotice}
+        <div class="map-notice" class:info={store.viewNotice.kind === 'info'} role="status">
+          <Icon name={store.viewNotice.kind === 'info' ? 'info' : 'warning'} size={14} />
+          <span>{store.viewNotice.text}</span>
+          {#if store.viewNotice.dismissible}
+            <button type="button" aria-label="Dismiss" onclick={() => store.dismissViewNotice()}><Icon name="close" size={14} /></button>
+          {/if}
+        </div>
       {:else if store.basemapNotice && openPanel !== 'basemap'}
         <div class="map-notice" role="status">
           <Icon name="warning" size={14} />
@@ -299,7 +332,7 @@
           <LayerStylePanel
             style={store.style}
             resolved={store.resolvedStyle}
-            layer={store.displayedLayer}
+            layer={store.styleInput}
             geometryType={layer.geometryType}
             sidecarName={sidecarStyleFileName(fileName ?? 'layer')}
             styleSource={store.styleSource}
@@ -313,13 +346,16 @@
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
             onClose={closePanel}
+            needsLoad={store.needsLoad}
+            classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
+            onLoad={() => {
+              closePanel()
+              void store.loadWhole()
+            }}
           />
         </div>
       {/if}
       {@render mapOverlay?.()}
-      {#if store.pendingLargeResult}
-        <LargeResultDialog rowCount={store.pendingLargeResult.rowCount} onChoose={(c) => store.answerLargeResult(c)} />
-      {/if}
     </div>
 
     <!-- A focusable separator is the WAI-ARIA "window splitter" pattern: it is
@@ -368,7 +404,7 @@
           </button>
           <span class="count" class:truncated={layer?.truncated}>{countLabel}</span>
           <span class="spacer"></span>
-          {#if layer && layer.features.length > 0 && !collapsed}
+          {#if layer && layer.rowCount > 0 && !collapsed && !store.needsLoad && !store.tilesOnlyReason}
             <span class="hint">Double-click a row to zoom</span>
           {/if}
           {#if layer}
@@ -386,13 +422,24 @@
           {/if}
         </div>
         <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
+          {#if store.tilesOnlyReason}
+            <UnavailableNotice text={store.tilesOnlyReason} />
+          {:else if store.needsLoad}
+            <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} purpose="list its rows" onLoad={() => void store.loadWhole()} />
+          {:else}
           <AttributeTable
             {layer}
             {loading}
+            total={store.tableTotal}
+            revision={store.tableRevision}
+            sort={store.tableSort}
+            loadPage={(offset) => store.loadPage(offset)}
+            onSort={(s) => store.setTableSort(s)}
             selectedFeatureId={session.selectedFeatureId}
             onSelectFeature={(id) => store.selectFeature(id)}
             onZoomToFeature={(id) => store.zoomToFeature(id)}
           />
+          {/if}
         </div>
       </div>
     </div>
@@ -477,6 +524,12 @@
   }
   .map-notice > :global(.icon) {
     color: var(--se-warning);
+  }
+  .map-notice.info {
+    border-left-color: var(--se-info);
+  }
+  .map-notice.info > :global(.icon) {
+    color: var(--se-info);
   }
   .map-notice button,
   .changed-banner button {

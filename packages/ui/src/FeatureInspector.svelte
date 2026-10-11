@@ -38,9 +38,16 @@
 >
   <header>
     <h2>Feature</h2>
-    <span class="id">#{typeof feature.id === 'number' ? feature.id + 1 : feature.id}</span>
+    {#if feature.sourceLayer !== undefined}
+      <!-- PMTiles (spec 007 US5): the archive layer, not a row number. -->
+      <span class="id" title="Archive layer">{feature.sourceLayer}</span>
+    {:else}
+      <span class="id">#{typeof feature.id === 'number' ? feature.id + 1 : feature.id}</span>
+    {/if}
     <span class="spacer"></span>
-    <button type="button" class="icon-button" title="Zoom to feature" aria-label="Zoom to feature" onclick={onZoom}><Icon name="zoom" /></button>
+    {#if feature.sourceLayer === undefined}
+      <button type="button" class="icon-button" title="Zoom to feature" aria-label="Zoom to feature" onclick={onZoom}><Icon name="zoom" /></button>
+    {/if}
     <button type="button" class="icon-button" title="Close" aria-label="Close" onclick={onClose}><Icon name="close" /></button>
   </header>
   {#if entries.length === 0}

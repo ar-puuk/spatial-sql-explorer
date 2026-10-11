@@ -1,6 +1,7 @@
 // What an export will do, decided before anything runs (spec 005
 // contracts/export-core.md, data-model.md ExportPlan). Pure: the dialog shows
 // the plan, and the runner executes its SQL.
+import { visibleColumns } from '../source/layerSql.js'
 import { reprojectToWgs84Sql } from '../crs.js'
 import type { GeometryType, Layer } from '../models.js'
 import type { ResultFacts } from '../query/session.js'
@@ -15,8 +16,6 @@ export const GEOJSON_JSON_PREFIX = '__se_json__'
 
 export interface ExportRequest {
   format: ExportFormatId
-  /** FR-002: 'shown' only matters when the display is limited. */
-  rows: 'all' | 'shown'
   crs: 'result' | 'wgs84'
   /** CSV only; 'xy' only for point layers. */
   csvGeometry: 'wkt' | 'xy'
@@ -33,7 +32,6 @@ export interface ExportPlan {
   /** 'layer': the whole file (the default view); 'result': `__se_result`. */
   source: 'layer' | 'result'
   rowCount: number
-  displayLimited: { shown: number; total: number } | null
   formats: Array<{ id: ExportFormatId; available: boolean; reason?: string }>
   /** Set when nothing can be exported (e.g. a DESCRIBE result). */
   blocked: string | null
@@ -95,13 +93,9 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const format = formats.find((f) => f.id === request.format && f.available)?.id ?? formats.find((f) => f.available)?.id ?? request.format
   const fmt = exportFormat(format)
 
-  // Rows (FR-002): display limits are the default view's cap and "Show first 50,000".
-  let displayLimited: ExportPlan['displayLimited'] = null
-  if (facts.defaultView && facts.totalRows > layer.rowCount) displayLimited = { shown: layer.rowCount, total: facts.totalRows }
-  else if (facts.truncatedTo !== null && facts.totalRows > facts.truncatedTo) displayLimited = { shown: facts.truncatedTo, total: facts.totalRows }
-  const shownOnly = displayLimited !== null && request.rows === 'shown'
+  // Rows (spec 007 FR-009): nothing is display-limited any more; export writes the whole result.
   const source: ExportPlan['source'] = facts.defaultView ? 'layer' : 'result'
-  const rowCount = displayLimited ? (shownOnly ? displayLimited.shown : displayLimited.total) : facts.defaultView ? layer.rowCount : facts.totalRows
+  const rowCount = facts.defaultView ? layer.rowCount : facts.totalRows
 
   // CRS (FR-006).
   const resultCrs = facts.resultCrs
@@ -134,7 +128,9 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     if (/^(DECIMAL|NUMERIC)/i.test(type)) return `CAST(${id} AS DOUBLE) AS ${id}`
     return id
   }
-  const select: string[] = layer.columns.map(column)
+  // Hidden engine columns (__se_rowid, bbox) are never exported (spec 007).
+  const columns = visibleColumns(layer.columns)
+  const select: string[] = columns.map(column)
   for (const other of facts.otherGeometryColumns) select.push(`ST_AsText(${quoteIdent(other)}) AS ${quoteIdent(other)}`)
   if (facts.otherGeometryColumns.length) notices.push(`Other geometry columns are written as WKT text: ${facts.otherGeometryColumns.join(', ')}.`)
 
@@ -146,7 +142,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     if (format === 'geoparquet') select.push(`${valid(`ST_AsWKB(${projected})::BLOB`)} AS ${col}`)
     else if (format === 'geojson') select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
     else if (format === 'csv' && csvGeometry === 'xy') {
-      const taken = new Set(layer.columns.map((c) => c.name.toLowerCase()))
+      const taken = new Set(columns.map((c) => c.name.toLowerCase()))
       const [x, y] = taken.has('x') || taken.has('y') ? [`${g}_x`, `${g}_y`] : ['x', 'y']
       select.push(`${valid(`ST_X(${projected})`)} AS ${quoteIdent(x)}, ${valid(`ST_Y(${projected})`)} AS ${quoteIdent(y)}`)
     } else select.push(`${valid(`ST_AsText(${projected})`)} AS ${col}`)
@@ -155,23 +151,17 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     if (resultCrs?.assumed) notices.push('The CRS is assumed to be WGS84: the file has none.')
     const invalidShown = layer.invalidGeometryCount
     if (invalidShown > 0) {
-      notices.push(
-        shownOnly || !displayLimited
-          ? `${invalidShown} ${invalidShown === 1 ? 'row has' : 'rows have'} no valid geometry: written with an empty geometry.`
-          : 'Rows without valid geometry are written with an empty geometry (the count is reported when the export finishes).'
-      )
+      notices.push(`${invalidShown} ${invalidShown === 1 ? 'row has' : 'rows have'} no valid geometry: written with an empty geometry.`)
     }
   }
-  notices.push(...typeNotices(format, layer.columns))
+  notices.push(...typeNotices(format, columns))
 
   const from = source === 'layer' ? quoteIdent('layer') : RESULT_TABLE
-  const limit = shownOnly && displayLimited ? ` LIMIT ${displayLimited.shown}` : ''
-  const sql = `SELECT ${select.join(', ') || '*'} FROM ${from}${limit}`
+  const sql = `SELECT ${select.join(', ') || '*'} FROM ${from}`
 
   return {
     source,
     rowCount,
-    displayLimited,
     formats,
     blocked,
     format,

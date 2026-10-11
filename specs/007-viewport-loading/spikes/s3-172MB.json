@@ -1,0 +1,37 @@
+{
+  "file": "parcels-230k.geojson",
+  "reg": {
+    "ms": 1,
+    "bytes": 172226400
+  },
+  "meta": {
+    "ms": 3840,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 235295
+      }
+    ],
+    "engineBytes": 0
+  },
+  "materialize": {
+    "ms": 11971,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 235295
+      }
+    ],
+    "engineBytes": 73553920
+  },
+  "count": {
+    "ms": 3,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 235295
+      }
+    ],
+    "engineBytes": 73553920
+  }
+}

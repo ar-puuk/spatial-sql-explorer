@@ -5,8 +5,8 @@ table, without opening a desktop GIS.
 
 ## Features
 
-- **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile
-  and GeoParquet open in Spatial Explorer by default. GeoJSON, CSV, Parquet,
+- **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile,
+  GeoParquet and PMTiles open in Spatial Explorer by default. GeoJSON, CSV, Parquet,
   GML and JSON offer it under **Open With…**, so text viewers aren't
   replaced. You can also right-click a file and choose
   **Open in Spatial Explorer**.
@@ -52,7 +52,7 @@ table, without opening a desktop GIS.
 ## Query examples
 
 ```sql
--- Filter (the initial view is SELECT * FROM layer LIMIT 1000)
+-- Filter (the initial view is SELECT * FROM layer: the whole file)
 SELECT * FROM layer WHERE name LIKE 'S%';
 
 -- Measure: areas in the layer's own CRS units
@@ -67,11 +67,26 @@ Queries are read-only. Only `TEMP` tables and views can be created, and they
 live in that viewer only. Writes, `COPY`/export, extensions and settings are
 refused with a reason.
 
-## Notes
+## Large files
 
-- Large files: the initial view shows up to 1,000 features. Raise or remove
-  the `LIMIT` in the query panel to see more. Results over 50,000 rows ask
-  first. The feature count and the map extent always cover the whole file.
+Files of several GB open without being loaded into memory where the format
+allows it. The map draws the features in view (up to 25,000; above that an
+even sample, with a notice); queries, the table, styles and export always
+work on the whole data. Measured on a laptop in the web build (VS Code is
+similar):
+
+| Format | How it's read | Measured |
+|---|---|---|
+| GeoParquet / Parquet | In parts, any size | 1.1 GB (6M rows): facts 2 s, overview 4.9 s, city views < 2 s. 5 GB (27M rows): overview 9.5 s, engine memory < 60 MB |
+| FlatGeobuf (with index) | In parts, any size; queries need **Load** (into memory) | 1.45 GB (4M rows): facts 2 s, overview 2.7 s, city views 0.4 s |
+| GeoJSON, Shapefile, CSV, GML, GeoPackage | Read in full, once; announced above 100 MB | 325 MB GeoJSON: ~34 s |
+| PMTiles (vector) | Tiles in view only; view-only | Any size |
+
+Opening can always be cancelled (within 3 s). Running out of memory (the
+engine's limit is 3.1 GB) ends in a message, and the viewer stays usable.
+For very large data, GeoParquet is the best format.
+
+## Notes
 - Output: **View → Output → Spatial Explorer** logs each open and each query
   with timings.
 - Multi-layer files open their first layer.
@@ -79,7 +94,8 @@ refused with a reason.
 ## Supported formats
 
 GeoJSON, GeoPackage, FlatGeobuf, Shapefile (with `.shx`, `.dbf`, `.prj`),
-GeoParquet, Parquet with a WKB geometry column, GML, and CSV with
-`lon`/`lat`, `longitude`/`latitude` or `wkt` columns.
+GeoParquet, Parquet with a WKB geometry column, GML, CSV with
+`lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles
+(view only). See **Large files** for how each is read.
 
 Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/

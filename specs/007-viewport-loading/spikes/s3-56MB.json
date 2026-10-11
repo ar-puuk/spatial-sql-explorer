@@ -1,0 +1,37 @@
+{
+  "file": "parcels-77k.geojson",
+  "reg": {
+    "ms": 1,
+    "bytes": 56305579
+  },
+  "meta": {
+    "ms": 1284,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 76924
+      }
+    ],
+    "engineBytes": 0
+  },
+  "materialize": {
+    "ms": 3953,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 76924
+      }
+    ],
+    "engineBytes": 25319424
+  },
+  "count": {
+    "ms": 3,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 76924
+      }
+    ],
+    "engineBytes": 25319424
+  }
+}

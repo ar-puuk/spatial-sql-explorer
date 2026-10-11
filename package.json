@@ -17,6 +17,7 @@
     "test:core": "npm run test --workspace=tests/core",
     "test:web": "npm run test --workspace=tests/web",
     "test:vscode-ext": "npm run test --workspace=tests/vscode-ext",
+    "large-data": "node scripts/large-data.mjs",
     "screenshots": "npm run build --workspace=apps/web && npm run build --workspace=apps/vscode-ext && node scripts/screenshots.mjs",
     "lint": "eslint packages apps"
   },

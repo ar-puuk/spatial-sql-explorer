@@ -5,46 +5,18 @@
 import { test, expect, type Page } from '@playwright/test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writePoints } from './helpers'
+import { exportDialog as dialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, runQuery, writeParcels, writePoints } from './helpers'
 
 const sha = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
-const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
-
-/** Opens the dialog, sets choices, exports, and returns the downloaded bytes. */
-export async function exportVia(page: Page, choices: { format: string; rows?: string; crs?: 'result' | 'wgs84'; geometry?: string }): Promise<{ name: string; bytes: Buffer }> {
-  if (!(await dialog(page).isVisible())) await page.getByRole('button', { name: 'Export data…' }).click()
-  await expect(dialog(page)).toBeVisible()
-  if (choices.rows) await dialog(page).getByRole('radio', { name: choices.rows }).click()
-  await dialog(page).getByRole('radio', { name: choices.format, exact: true }).click()
-  if (choices.crs) await dialog(page).getByLabel('CRS').selectOption(choices.crs)
-  if (choices.geometry) await dialog(page).getByRole('radio', { name: choices.geometry }).click()
-  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), dialog(page).getByRole('button', { name: 'Export…' }).click()])
-  const file = await download.path()
-  await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
-  return { name: download.suggestedFilename(), bytes: fs.readFileSync(file) }
-}
-
-export async function inspectParquet(page: Page, bytes: Buffer) {
-  return page.evaluate(
-    (b64) =>
-      (
-        window as unknown as {
-          __spatialExplorerE2E: { inspectParquet: (b: string) => Promise<{ rows: number; columns: string[]; geo: any; geoKeys: number }> }
-        }
-      ).__spatialExplorerE2E.inspectParquet(b64),
-    bytes.toString('base64')
-  )
-}
-
 test.describe('export: GeoJSON, GeoParquet and CSV (US1)', () => {
-  test('converting a whole file: "All 22,000 rows" by default, GeoParquet with WGS84 metadata', async ({ page }) => {
+  test('converting a whole file: all 22,000 rows, GeoParquet with WGS84 metadata', async ({ page }) => {
     test.setTimeout(180000)
     const source = writeParcels(22_000)
     const before = sha(source)
     await openFile(page, source, '?e2e=1')
+    // Spec 007 FR-009: nothing is display-limited, so there is no rows choice.
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await expect(dialog(page).getByRole('radio', { name: 'All 22,000 rows' })).toHaveAttribute('aria-checked', 'true')
-    await expect(dialog(page).getByRole('radio', { name: 'Only the 1,000 shown' })).toBeVisible()
+    await expect(dialog(page).getByRole('radiogroup', { name: 'Rows' })).toHaveCount(0)
     const { name, bytes } = await exportVia(page, { format: 'GeoParquet' })
     expect(name).toBe('parcels-22000-export.parquet')
     await expect(dialog(page)).toContainText('22,000 rows')
@@ -199,12 +171,9 @@ test.describe('large exports stay responsive (US4)', () => {
     // A slow export (1,000,000 rows), cancelled once it is running.
     await openQueryPanel(page)
     await runQuery(page, 'SELECT a.* FROM layer a, range(10) b')
-    // Over 50,000 rows: spec 002 asks first. Showing the first 50,000 makes
-    // the export display-limited, with "All 1,000,000 rows" as the default.
-    await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
-    await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+    // Spec 007 FR-009: no prompt; the whole result is the export.
+    await expect(page.locator('.query-status')).toContainText('1,000,000 rows', { timeout: 120000 })
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await expect(dialog(page).getByRole('radio', { name: 'All 1,000,000 rows' })).toHaveAttribute('aria-checked', 'true')
     await dialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
     let downloaded = false
     page.on('download', () => (downloaded = true))

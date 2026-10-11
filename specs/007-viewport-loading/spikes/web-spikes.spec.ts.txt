@@ -1,0 +1,208 @@
+// SPIKE (spec 007 plan, temporary; deleted after research.md is written).
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const data = path.resolve('tests/.large-data')
+const out = path.resolve('specs/007-viewport-loading/spikes')
+type Hook = { spikeInput(): void; spikeRegister(n: string): Promise<unknown>; spikeQuery(s: string): Promise<{ ms?: number; error?: string }> }
+const hook = (page: Page) => ({
+  input: () => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spikeInput()),
+  register: (n: string) => page.evaluate((n) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spikeRegister(n), n),
+  q: (s: string) => page.evaluate((s) => (window as unknown as { __spatialExplorerE2E: Hook }).__spatialExplorerE2E.spikeQuery(s), s),
+})
+
+async function setup(page: Page, file: string, name: string) {
+  page.on('console', (m) => ['error', 'warning'].includes(m.type()) && console.log('console:', m.text().slice(0, 300)))
+  await page.goto('/?e2e=1')
+  const h = hook(page)
+  await h.input()
+  await page.setInputFiles('#spike-file', path.join(data, file))
+  return { h, reg: await h.register(name) }
+}
+
+test('S1 GeoParquet: facts, viewport, filter, overview, memory', async ({ page }) => {
+  test.setTimeout(900000)
+  const { h, reg } = await setup(page, process.env.SPIKE_FILE ?? 'parcels-4m.parquet', 'big.parquet')
+  const P = `read_parquet('/se-source/big.parquet')`
+  const report: Record<string, unknown> = { file: process.env.SPIKE_FILE ?? 'parcels-4m.parquet', reg }
+  const run = async (k: string, sql: string) => {
+    const r = await h.q(sql)
+    report[k] = r
+    console.log(k, JSON.stringify(r).slice(0, 400))
+  }
+  await run('settings', `SELECT current_setting('memory_limit') AS mem, current_setting('threads') AS threads, version() AS v`)
+  await run('count', `SELECT count(*) AS n FROM ${P}`)
+  await run('describe', `SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ${P})`)
+  await run('geoMeta', `SELECT left(decode(value), 200) AS v FROM parquet_kv_metadata('/se-source/big.parquet') WHERE decode(key) = 'geo'`)
+  await run('rowGroups', `SELECT count(DISTINCT row_group_id) AS rg, sum(total_compressed_size) AS bytes FROM parquet_metadata('/se-source/big.parquet')`)
+  // A city-sized view (~4 x 3 km) and a region view, via the bbox covering columns.
+  const view = (x1: number, y1: number, x2: number, y2: number, cap: number) =>
+    `SELECT parcel_id, zone, ST_AsGeoJSON(geom) AS g FROM ${P} WHERE bbox.xmin <= ${x2} AND bbox.xmax >= ${x1} AND bbox.ymin <= ${y2} AND bbox.ymax >= ${y1} LIMIT ${cap}`
+  await run('viewCity', view(-111.92, 40.74, -111.88, 40.77, 50000))
+  await run('viewCityAgain', view(-111.90, 40.75, -111.86, 40.78, 50000))
+  await run('viewRegion', view(-112.2, 40.4, -111.6, 41.0, 50000))
+  // The same view via the geometry itself (no covering column): pruning or full scan?
+  await run('viewCityGeom', `SELECT count(*) AS n FROM ${P} WHERE ST_Intersects(geom, ST_MakeEnvelope(-111.92, 40.74, -111.88, 40.77))`)
+  await run('viewCityCount', `SELECT count(*) AS n FROM ${P} WHERE bbox.xmin <= -111.88 AND bbox.xmax >= -111.92 AND bbox.ymin <= 40.77 AND bbox.ymax >= 40.74`)
+  // Whole-file queries: exact counts and aggregates stream.
+  await run('filterCount', `SELECT count(*) AS n FROM ${P} WHERE value > 1500000`)
+  await run('groupBy', `SELECT zone, count(*) AS n, avg(acres) AS a FROM ${P} GROUP BY zone ORDER BY zone`)
+  await run('quantiles', `SELECT quantile_cont(value, [0.2, 0.4, 0.6, 0.8]) AS q FROM ${P}`)
+  // Overview candidates.
+  await run('overviewSystemSample', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) AS g FROM ${P} USING SAMPLE 0.5% (system))`)
+  await run('overviewRowNumber', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) AS g FROM ${P} WHERE parcel_id % 200 = 0)`)
+  await run('overviewGridFromBbox', `SELECT count(*) AS n FROM (SELECT DISTINCT ON (floor(bbox.xmin * 40), floor(bbox.ymin * 40)) parcel_id FROM ${P})`)
+  // Sort of the whole file (table "sort by column"), and materializing (expected to fail).
+  await run('sortTopN', `SELECT parcel_id FROM ${P} ORDER BY value DESC LIMIT 100`)
+  await run('sortOffset', `SELECT parcel_id, value FROM ${P} ORDER BY value DESC LIMIT 100 OFFSET 2000000`)
+  await run('pageOffset', `SELECT parcel_id FROM ${P} LIMIT 100 OFFSET 3500000`)
+  await run('resultTableFiltered', `CREATE OR REPLACE TEMP TABLE r1 AS SELECT * FROM ${P} WHERE zone = 'C1' AND value > 1800000`)
+  await run('resultTableFilteredCount', `SELECT count(*) AS n FROM r1`)
+  await run('materializeAll', `CREATE OR REPLACE TEMP TABLE big AS SELECT * FROM ${P}`)
+  await run('afterMaterialize', `SELECT 42 AS ok`)
+  fs.writeFileSync(path.join(out, `s1-${path.basename(String(report.file))}.json`), JSON.stringify(report, null, 2))
+})
+
+test('S2 FlatGeobuf: header facts, index-filtered view, whole scans', async ({ page }) => {
+  test.setTimeout(900000)
+  const { h, reg } = await setup(page, 'parcels-4m.fgb', 'big.fgb')
+  const F = `'/se-source/big.fgb'`
+  const report: Record<string, unknown> = { reg }
+  const run = async (k: string, sql: string) => {
+    const r = await h.q(sql)
+    report[k] = r
+    console.log(k, JSON.stringify(r).slice(0, 300))
+  }
+  await run('meta', `SELECT layers[1].feature_count AS n, layers[1].geometry_fields[1].crs.auth_code AS crs, len(layers[1].fields) AS fields FROM ST_Read_Meta(${F})`)
+  await run('viewCity', `SELECT count(*) AS n FROM ST_Read(${F}, spatial_filter_box := ST_MakeBox2D(ST_Point(-111.92, 40.74), ST_Point(-111.88, 40.77)))`)
+  await run('viewCityRows', `SELECT parcel_id, ST_AsGeoJSON(geom) AS g FROM ST_Read(${F}, spatial_filter_box := ST_MakeBox2D(ST_Point(-111.92, 40.74), ST_Point(-111.88, 40.77))) LIMIT 50000`)
+  await run('viewRegion', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) FROM ST_Read(${F}, spatial_filter_box := ST_MakeBox2D(ST_Point(-112.2, 40.4), ST_Point(-111.6, 41.0))) LIMIT 50000)`)
+  await run('countAll', `SELECT count(*) AS n FROM ST_Read(${F})`)
+  await run('filterAll', `SELECT count(*) AS n FROM ST_Read(${F}) WHERE value > 1500000`)
+  await run('materializeAttrs', `CREATE OR REPLACE TABLE fgb_attrs AS SELECT parcel_id, zone, value, ST_XMin(geom) AS xmin, ST_YMin(geom) AS ymin, ST_XMax(geom) AS xmax, ST_YMax(geom) AS ymax FROM ST_Read(${F})`)
+  fs.writeFileSync(path.join(out, 's2-fgb.json'), JSON.stringify(report, null, 2))
+})
+
+for (const [file, n] of [['parcels-77k.geojson', '56MB'], ['parcels-230k.geojson', '172MB'], ['parcels-460k.geojson', '325MB']] as const) {
+  test(`S3 GeoJSON ${n}: whole read via file handle`, async ({ page }) => {
+    test.setTimeout(900000)
+    const { h, reg } = await setup(page, file, `g.geojson`)
+    const report: Record<string, unknown> = { file, reg }
+    const run = async (k: string, sql: string) => {
+      const r = await h.q(sql)
+      report[k] = r
+      console.log(n, k, JSON.stringify(r).slice(0, 300))
+    }
+    await run('meta', `SELECT layers[1].feature_count AS n FROM ST_Read_Meta('/se-source/g.geojson')`)
+    await run('materialize', `CREATE OR REPLACE TABLE g AS SELECT * FROM ST_Read('/se-source/g.geojson')`)
+    await run('count', `SELECT count(*) AS n FROM g`)
+    fs.writeFileSync(path.join(out, `s3-${n}.json`), JSON.stringify(report, null, 2))
+  })
+}
+
+test('S4 GeoParquet over HTTP range requests (the localhost-server design)', async ({ page }) => {
+  test.setTimeout(600000)
+  const http = await import('node:http')
+  let requests = 0
+  let bytes = 0
+  const log: string[] = []
+  const server = http.createServer((req, res) => {
+    const file = path.join(data, decodeURIComponent(new URL(req.url!, 'http://x').pathname.slice(1)))
+    const size = fs.statSync(file).size
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range', 'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges' }
+    if (log.length < 60) log.push(`${req.method} ${req.headers.range ?? '-'}`)
+    if (req.method === 'OPTIONS') return void res.writeHead(204, cors).end()
+    requests++
+    const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? '')
+    if (req.method === 'HEAD') return void res.writeHead(req.headers.range ? 206 : 200, { ...cors, 'Content-Length': size, 'Content-Range': `bytes 0-${size - 1}/${size}`, 'Accept-Ranges': 'bytes' }).end()
+    if (!m) {
+      bytes += size
+      res.writeHead(200, { ...cors, 'Content-Length': size, 'Accept-Ranges': 'bytes' })
+      return void fs.createReadStream(file).pipe(res)
+    }
+    const start = Number(m[1])
+    const end = m[2] ? Number(m[2]) : size - 1
+    bytes += end - start + 1
+    res.writeHead(206, { ...cors, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes' })
+    fs.createReadStream(file, { start, end }).pipe(res)
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const port = (server.address() as { port: number }).port
+  try {
+    page.on('console', (m) => ['error', 'warning'].includes(m.type()) && console.log('console:', m.text().slice(0, 300)))
+    await page.goto('/?e2e=1')
+    const reg = await page.evaluate(([u]) => (window as any).__spatialExplorerE2E.spikeRegisterUrl('http.parquet', u), [`http://127.0.0.1:${port}/parcels-4m.parquet`])
+    const h = hook(page)
+    const P = `read_parquet('/se-source/http.parquet')`
+    const report: Record<string, unknown> = { reg }
+    const run = async (k: string, sql: string) => {
+      const before = { requests, bytes }
+      const r = await h.q(sql)
+      report[k] = { ...r, requests: requests - before.requests, bytesRead: bytes - before.bytes }
+      console.log(k, JSON.stringify(report[k]).slice(0, 300))
+    }
+    report.log = log
+    await run('count', `SELECT count(*) AS n FROM ${P}`)
+    await run('viewCity', `SELECT parcel_id, ST_AsGeoJSON(geom) AS g FROM ${P} WHERE bbox.xmin <= -111.88 AND bbox.xmax >= -111.92 AND bbox.ymin <= 40.77 AND bbox.ymax >= 40.74 LIMIT 50000`)
+    await run('viewRegion', `SELECT parcel_id, ST_AsGeoJSON(geom) AS g FROM ${P} WHERE bbox.xmin <= -111.6 AND bbox.xmax >= -112.2 AND bbox.ymin <= 41.0 AND bbox.ymax >= 40.4 LIMIT 50000`)
+    await run('filterCount', `SELECT count(*) AS n FROM ${P} WHERE value > 1500000`)
+    await run('outsideAllowed', `SELECT count(*) FROM read_parquet('http://127.0.0.1:${port}/parcels-4m.parquet')`)
+    fs.writeFileSync(path.join(out, 's4-http.json'), JSON.stringify(report, null, 2))
+  } finally {
+    server.close()
+  }
+})
+
+test('S6 engine capabilities and limits', async ({ page }) => {
+  test.setTimeout(1200000)
+  const report: Record<string, unknown> = {}
+  const { h } = await setup(page, 'parcels-4m-nobbox.parquet', 'nobbox.parquet')
+  const run = async (k: string, sql: string) => {
+    const r = await h.q(sql)
+    report[k] = r
+    console.log(k, JSON.stringify(r).slice(0, 300))
+  }
+  const N = `read_parquet('/se-source/nobbox.parquet')`
+  await run('fnMvt', `SELECT function_name FROM duckdb_functions() WHERE function_name IN ('ST_AsMVT', 'ST_AsMVTGeom', 'ST_TileEnvelope', 'ST_Hilbert', 'ST_QuadKey') GROUP BY ALL ORDER BY 1`)
+  await run('mvt', `SELECT octet_length(ST_AsMVT({'geom': ST_AsMVTGeom(geom, ST_Extent(ST_TileEnvelope(12, 806, 1547))), 'parcel_id': parcel_id})) AS bytes FROM ${N} WHERE parcel_id < 100000`)
+  // A bbox index built by one scan of a file without covering columns.
+  await run('bboxIndex', `CREATE OR REPLACE TABLE idx AS SELECT file_row_number AS rn, ST_XMin(geom) AS xmin, ST_YMin(geom) AS ymin, ST_XMax(geom) AS xmax, ST_YMax(geom) AS ymax FROM read_parquet('/se-source/nobbox.parquet', file_row_number := true)`)
+  await run('bboxIndexView', `SELECT count(*) AS n FROM idx WHERE xmin <= -111.88 AND xmax >= -111.92 AND ymin <= 40.77 AND ymax >= 40.74`)
+  await run('fetchByRowNumber', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) FROM read_parquet('/se-source/nobbox.parquet', file_row_number := true) WHERE file_row_number IN (SELECT rn FROM idx WHERE xmin <= -111.88 AND xmax >= -111.92 AND ymin <= 40.77 AND ymax >= 40.74))`)
+  await run('rtreeTable', `CREATE OR REPLACE TABLE t AS SELECT parcel_id, geom FROM ${N} WHERE parcel_id % 4 = 0`)
+  await run('rtreeIndex', `CREATE INDEX t_rtree ON t USING RTREE (geom)`)
+  await run('rtreeView', `SELECT count(*) AS n FROM t WHERE ST_Intersects(geom, ST_MakeEnvelope(-111.92, 40.74, -111.88, 40.77))`)
+  await run('noIndexView', `SELECT count(*) AS n FROM t WHERE ST_XMin(geom) <= -111.88 AND ST_XMax(geom) >= -111.92 AND ST_YMin(geom) <= 40.77 AND ST_YMax(geom) >= 40.74`)
+  await run('dropT', `DROP TABLE t; DROP TABLE idx`)
+  // The real memory ceiling: two full copies (~2.9 GB) should fail cleanly, and the engine survive.
+  await run('copy1', `CREATE OR REPLACE TABLE c1 AS SELECT * FROM ${N}`)
+  await run('copy2', `CREATE OR REPLACE TABLE c2 AS SELECT * FROM ${N}`)
+  await run('copy3', `CREATE OR REPLACE TABLE c3 AS SELECT * FROM ${N}`)
+  await run('afterOom', `SELECT 42 AS ok`)
+  await run('dropCopies', `DROP TABLE IF EXISTS c1; DROP TABLE IF EXISTS c2; DROP TABLE IF EXISTS c3`)
+  await run('afterDrop', `SELECT count(*) AS n FROM ${N} WHERE value > 1500000`)
+  fs.writeFileSync(path.join(out, 's6-engine.json'), JSON.stringify(report, null, 2))
+})
+
+test('S7 FlatGeobuf scans: file handle vs memory buffer (157 MB, 444k features)', async ({ page }) => {
+  test.setTimeout(1200000)
+  const report: Record<string, unknown> = {}
+  await page.goto('/?e2e=1')
+  const h = hook(page)
+  await h.input()
+  await page.setInputFiles('#spike-file', path.join(data, 'parcels-460k.fgb'))
+  report.regHandle = await h.register('h.fgb')
+  report.regBuffer = await page.evaluate(() => (window as any).__spatialExplorerE2E.spikeRegisterBuffer('b.fgb'))
+  for (const name of ['b.fgb', 'h.fgb']) {
+    for (const [k, sql] of [
+      ['scan', `SELECT count(*) AS n FROM ST_Read('/se-source/${name}') WHERE value > 1500000`],
+      ['region', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) FROM ST_Read('/se-source/${name}', spatial_filter_box := ST_MakeBox2D(ST_Point(-112.2, 40.4), ST_Point(-111.6, 41.0))) LIMIT 50000)`],
+    ] as const) {
+      const r = await h.q(sql)
+      report[`${name}:${k}`] = r
+      console.log(name, k, JSON.stringify(r).slice(0, 200))
+    }
+  }
+  fs.writeFileSync(path.join(out, 's7-fgb-buffer.json'), JSON.stringify(report, null, 2))
+})

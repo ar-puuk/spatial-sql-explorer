@@ -108,3 +108,32 @@ describe('parseEngineError: streaming-API JSON errors', () => {
     expect(e).toEqual({ kind: 'Binder', message: 'Referenced column "nope" not found in FROM clause!', hints: ['Candidate bindings: "name", "geom"'] })
   })
 })
+
+// Spec 007 T051 (FR-014): out-of-memory errors at each stage.
+import { isOutOfMemory, memoryLimitLabel, OutOfMemoryError, outOfMemoryMessage } from '@spatial-explorer/core'
+
+describe('out of memory (FR-014)', () => {
+  const engine = new Error('Out of Memory Error: could not allocate block of size 256.0 KiB (7.6 MiB/7.6 MiB used)\nDatabase is launched in in-memory mode…')
+
+  it('recognizes the engine error, allocation failures and its own error', () => {
+    expect(isOutOfMemory(engine)).toBe(true)
+    expect(isOutOfMemory(new Error('Out of Memory Error: failed to allocate data of size 16.0 MiB (3.1 GiB/3.1 GiB used)'))).toBe(true)
+    expect(isOutOfMemory(new RangeError('Array buffer allocation failed'))).toBe(true)
+    expect(isOutOfMemory(new OutOfMemoryError('That ran out of memory'))).toBe(true)
+    expect(isOutOfMemory(new Error('Binder Error: column "x" not found'))).toBe(false)
+  })
+
+  it('names the stage and a way forward', () => {
+    expect(outOfMemoryMessage('open-whole', '3.1 GiB')).toBe(
+      'This file is too large to read in full here (out of memory). Convert it to GeoParquet or FlatGeobuf to open it at any size.'
+    )
+    expect(outOfMemoryMessage('work', '3.1 GiB')).toBe('That ran out of memory (3.1 GB limit). Filter the result, or select fewer columns.')
+    expect(outOfMemoryMessage('open', '64.0 MiB')).toMatch(/^Opening this file ran out of memory \(64\.0 MB limit\)\./)
+  })
+
+  it('shows the engine limit in GB/MB, or the measured default when unknown', () => {
+    expect(memoryLimitLabel('3.1 GiB')).toBe('3.1 GB')
+    expect(memoryLimitLabel('7.6 MiB')).toBe('7.6 MB')
+    expect(memoryLimitLabel(null)).toBe('3.1 GB')
+  })
+})

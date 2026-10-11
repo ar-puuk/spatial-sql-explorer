@@ -11,15 +11,20 @@ It is being rebuilt, not patched. Use the legacy app only as a feature reference
 
 ## Explicitly out of scope
 Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb
-integration, plugin system, 3D tiles/globe/planets, raster analysis, stacked
+integration, plugin system, 3D tiles/terrain/planets, raster analysis, stacked
 basemaps. Say no to scope creep and flag it instead.
+Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection toggle
+(MapLibre's built-in globe, no terrain), and polygon extrusion as a style option
+(height from a column). Nothing else 3D.
 
 ## Product decisions (already made)
 - Name: Spatial Explorer. Marketplace display name pattern: "Spatial Explorer: Spatial SQL & Map Viewer"
   (keywords in the display name; id/publisher TBD). Publish to VS Code Marketplace AND Open VSX.
 - DuckDB runs as DuckDB-WASM inside the webview (NOT native in the extension host).
   Use the single-threaded bundle (no SharedArrayBuffer; coi-serviceworker is not usable in VS Code webviews).
-  Known ceiling: omx-viewer hit a ~512 MB OOM. Design for it (see performance rules).
+  Known ceiling: the engine's memory limit is 3.1 GiB in both shells (measured, specs/007-viewport-loading/research.md §1;
+  omx-viewer's ~512 MB OOM was likely JS-side copies, not the engine). After an OOM the registered file handle must be re-registered.
+  Design for it (see performance rules).
 - Each custom-editor webview owns its own DuckDB instance. Use retainContextWhenHidden for the MVP.
 - Do not rely on IndexedDB inside the webview. Persist through the HostAdapter.
 - Map: MapLibre GL JS. deck.gl only later, only if needed.

@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind, SaveOptions } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -54,20 +54,98 @@ const primaryFileNamePromise = new Promise<string>((resolve) => {
   primaryFileNameResolve = resolve
 })
 
-let pendingFiles: Map<string, PendingFile> | null = null
-let fileSourceResolve: ((source: FileSource) => void) | null = null
-let fileSourceReject: ((err: Error) => void) | null = null
-let fileSourcePromise: Promise<FileSource> | null = null
+/** What the host announces for the opened file (spec 007, contracts/host-and-shells.md). */
+interface FileSourceInfo {
+  name: string
+  size: number
+  /** The loopback range server's URL (`http://localhost.:<port>/<token>/<name>`), or null when it couldn't start. */
+  url: string | null
+  sidecars: Array<{ name: string; url: string }>
+  styleSidecar: { fileName: string; text: string } | null
+  /** asWebviewUri(file): main-thread Range reads (PMTiles, research §3). */
+  resourceUri: string
+  /** Test hook: behave as if partial reads failed. */
+  forceFallback: boolean
+  serverError: string | null
+  /** Test-only thresholds (spec 007 TestOverrides), applied before the file opens. */
+  testOverrides?: Record<string, unknown>
+}
 
-function ensureFileSourcePromise(): Promise<FileSource> {
-  if (!fileSourcePromise) {
-    pendingFiles = new Map()
-    fileSourcePromise = new Promise((resolve, reject) => {
-      fileSourceResolve = resolve
-      fileSourceReject = reject
-    })
+let infoResolve: ((info: FileSourceInfo) => void) | null = null
+let infoReject: ((err: Error) => void) | null = null
+const infoPromise = new Promise<FileSourceInfo>((resolve, reject) => {
+  infoResolve = resolve
+  infoReject = reject
+})
+
+// The whole-file transfer (spec 001's chunk protocol), requested on demand:
+// the fallback when partial reads fail, or FlatGeobuf "load for queries".
+// Every request is a fresh transfer: the engine takes (detaches) the buffers.
+let pendingFiles: Map<string, PendingFile> | null = null
+let wholeResolve: ((source: FileSource) => void) | null = null
+let wholeReject: ((err: Error) => void) | null = null
+
+function requestWholeTransfer(reason: string): Promise<FileSource> {
+  pendingFiles = new Map()
+  const promise = new Promise<FileSource>((resolve, reject) => {
+    wholeResolve = resolve
+    wholeReject = reject
+  })
+  post({ type: 'requestBytes', reason })
+  return promise
+}
+
+let probeResult: Promise<string | null> | null = null
+
+/**
+ * One HEAD + `Range: bytes=0-` against the loopback URL: 206 within 3 s
+ * means the engine can read in parts. Resolves null on success, otherwise
+ * why not (shown in the FR-015 notice).
+ */
+function probe(info: FileSourceInfo): Promise<string | null> {
+  probeResult ??= (async () => {
+    if (info.forceFallback) return 'forced by a test'
+    if (!info.url) return info.serverError ?? 'no local file server'
+    try {
+      const res = await fetch(info.url, { method: 'HEAD', headers: { Range: 'bytes=0-' }, signal: AbortSignal.timeout(3000) })
+      return res.status === 206 ? null : `the local file server answered ${res.status}`
+    } catch {
+      return 'the local file server is unreachable'
+    }
+  })()
+  return probeResult
+}
+
+/** The whole file over the loopback server: one main-thread request each, no base64. */
+async function fetchWhole(info: FileSourceInfo, url: string): Promise<FileSource> {
+  const get = async (url: string): Promise<Uint8Array> => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return new Uint8Array(await res.arrayBuffer())
   }
-  return fileSourcePromise
+  const bytes = await get(url)
+  const sidecars = await Promise.all(info.sidecars.map(async (s) => ({ name: s.name, bytes: await get(s.url) })))
+  return { kind: 'bytes', name: info.name, size: bytes.byteLength, bytes, sidecars, styleSidecar: info.styleSidecar }
+}
+
+/**
+ * The whole-transfer FileSource: the primary file plus its same-basename
+ * data sidecars, with the QGIS style sidecar (<basename>.qml) split off as
+ * text (spec 007 FileSource).
+ */
+function bytesSource(files: Array<{ name: string; isPrimary: boolean; bytes: Uint8Array }>): FileSource {
+  const primary = files.find((f) => f.isPrimary) ?? files[0]
+  const wantedStyle = `${primary.name.replace(/\.[^.]+$/, '')}.qml`.toLowerCase()
+  const style = files.find((f) => f !== primary && f.name.toLowerCase() === wantedStyle)
+  const isStyle = (name: string): boolean => ['.qml', '.sld'].some((ext) => name.toLowerCase().endsWith(ext))
+  return {
+    kind: 'bytes',
+    name: primary.name,
+    size: primary.bytes.byteLength,
+    bytes: primary.bytes,
+    sidecars: files.filter((f) => f !== primary && !isStyle(f.name)).map((f) => ({ name: f.name, bytes: f.bytes })),
+    styleSidecar: style ? { fileName: style.name, text: new TextDecoder().decode(style.bytes) } : null,
+  }
 }
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -161,29 +239,26 @@ window.addEventListener('message', (event: MessageEvent) => {
       primaryFileNameFromAssets = msg.primaryFileName
       primaryFileNameResolve?.(msg.primaryFileName)
     }
+  } else if (msg.type === 'fileSource') {
+    const info = event.data as FileSourceInfo
+    if (info.testOverrides && Object.keys(info.testOverrides).length) setTestOverrides(info.testOverrides as TestOverrides)
+    infoResolve?.(info)
   } else if (msg.type === 'initFileStart' && msg.fileName) {
-    ensureFileSourcePromise()
-    pendingFiles?.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
+    pendingFiles ??= new Map()
+    pendingFiles.set(msg.fileName, { name: msg.fileName, isPrimary: !!msg.isPrimary, chunks: new Array(msg.chunkCount ?? 1) })
   } else if (msg.type === 'initFileChunk' && msg.fileName && msg.bytesBase64 !== undefined && msg.index !== undefined) {
     const pending = pendingFiles?.get(msg.fileName)
     if (pending) pending.chunks[msg.index] = msg.bytesBase64
   } else if (msg.type === 'initFilesDone') {
-    if (pendingFiles && fileSourceResolve) {
-      const files: Record<string, ArrayBuffer> = {}
-      let primaryFileName = ''
-      let totalBytes = 0
-      for (const pending of pendingFiles.values()) {
-        const buf = base64ToArrayBuffer(pending.chunks.join(''))
-        files[pending.name] = buf
-        totalBytes += buf.byteLength
-        if (pending.isPrimary) primaryFileName = pending.name
-      }
-      fileSourceResolve({ files, primaryFileName, totalBytes })
+    if (pendingFiles && wholeResolve) {
+      wholeResolve(bytesSource([...pendingFiles.values()].map((f) => ({ name: f.name, isPrimary: f.isPrimary, bytes: new Uint8Array(base64ToArrayBuffer(f.chunks.join(''))) }))))
     }
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
-    fileSourceReject?.(new Error(msg.message))
+    const err = new Error(msg.message)
+    infoReject?.(err)
+    wholeReject?.(err)
   }
 })
 
@@ -206,8 +281,33 @@ export function createVsCodeHostAdapter(): HostAdapter {
       const displayName = await primaryFileNamePromise
       return [{ id: 'document', displayName, stateKey: primaryFileUri ?? displayName }]
     },
-    async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
-      return ensureFileSourcePromise()
+    async getFileSource(_ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource> {
+      const info = await infoPromise
+      if (options?.whole) {
+        if ((await probe(info)) === null && info.url) {
+          try {
+            return await fetchWhole(info, info.url)
+          } catch {
+            // Fall through to the chunked transfer.
+          }
+        }
+        return requestWholeTransfer('loading the whole file')
+      }
+      // Spec 007 research §3: the engine reads the loopback URL in parts.
+      const failure = await probe(info)
+      if (failure === null && info.url) return { kind: 'url', name: info.name, size: info.size, url: info.url, sidecars: info.sidecars, styleSidecar: info.styleSidecar }
+      // FR-015: no partial reads in this window; read the whole file instead, and say why.
+      const reason = failure ?? 'no local file server'
+      const whole = await requestWholeTransfer(reason)
+      return whole.kind === 'bytes' ? { ...whole, styleSidecar: info.styleSidecar, fallbackReason: `Partial reads aren't available in this window (${reason}).` } : whole
+    },
+    async readRange(_ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array> {
+      // Main-thread Range reads of the resource URI work (research §3); workers' don't.
+      const info = await infoPromise
+      const res = await fetch(info.resourceUri, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } })
+      if (res.status !== 206 && res.status !== 200) throw new Error(`Could not read the file (HTTP ${res.status}).`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      return res.status === 200 ? bytes.subarray(offset, offset + length) : bytes
     },
     async saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult> {
       if (options?.kind !== 'data' && typeof content === 'string') {
@@ -309,6 +409,16 @@ export function reportQueryState(state: unknown): void {
 }
 
 /** Export state for the extension's test hook (spec 005). */
+/** Spec 007 T031: the drawn map view, for spatialExplorer._getMapView. */
+export function reportMapViewState(state: unknown): void {
+  post({ type: 'mapViewState', state })
+}
+
+/** Spec 007 T019: the open's phase and whole-file facts, for spatialExplorer._getOpenState. */
+export function reportOpenState(state: unknown): void {
+  post({ type: 'openState', state })
+}
+
 export function reportExportState(state: unknown): void {
   post({ type: 'exportState', state })
 }

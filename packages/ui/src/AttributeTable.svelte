@@ -1,84 +1,120 @@
 <script lang="ts">
-  // Attribute grid. Row virtualization, sticky header, client-side sort,
+  // Attribute grid. Row virtualization, sticky header, sort,
   // scroll-selected-into-view and zoom-to-feature follow GeoLibre's
   // AttributeTable (design-plan.md §8.1); the implementation is our own and
   // simpler, since every row here is the same height.
   //
-  // Sorting reorders only the loaded rows (at most DEFAULT_FEATURE_CAP); it is
-  // a view affordance, not a query — ordering the whole source is the SQL
-  // editor's job (spec 002).
-  import { onMount } from 'svelte'
-  import type { Feature, Layer } from '@spatial-explorer/core'
+  // Spec 007 (FR-011): the table pages the whole result from the engine,
+  // PAGE_SIZE rows at a time, as they scroll into view; sorting is SQL over
+  // the whole result. Rows still loading show as placeholders (aria-busy).
+  import { onMount, untrack } from 'svelte'
+  import { PAGE_SIZE, type Feature, type Layer, type TablePage } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   interface Props {
     layer: Layer | null
     loading: boolean
+    /** Rows in the whole result. */
+    total: number
+    /** Bumps when the result or sort changes: loaded pages are discarded. */
+    revision: number
+    sort: { column: string; dir: 'asc' | 'desc' } | null
+    loadPage: (offset: number) => Promise<TablePage | null>
+    onSort: (sort: { column: string; dir: 'asc' | 'desc' } | null) => void
     selectedFeatureId: string | number | null
     onSelectFeature: (id: string | number | null) => void
     onZoomToFeature: (id: string | number) => void
   }
-  let { layer, loading, selectedFeatureId, onSelectFeature, onZoomToFeature }: Props = $props()
+  let { layer, loading, total, revision, sort, loadPage, onSort, selectedFeatureId, onSelectFeature, onZoomToFeature }: Props = $props()
 
   type Value = Feature['attributes'][string] | undefined
+  type Row = TablePage['rows'][number]
   const OVERSCAN = 8
   const MIN_COL = 56
   const MAX_AUTO_COL = 320
 
-  let scroller: HTMLDivElement
+  let scroller: HTMLDivElement | undefined = $state()
   let rowHeight = $state(24)
   let viewportHeight = $state(0)
   let scrollTop = $state(0)
-  let sort = $state<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   let widths = $state<Record<string, number>>({})
+
+  // Loaded pages of the current revision, by page index.
+  let pages = $state.raw<Map<number, TablePage>>(new Map())
+  // Pages being fetched: bookkeeping only, never rendered.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  let pending = new Set<number>()
+  let loadedRevision = -1
+  /** The keyboard cursor (a row index), which may sit on a row still loading. */
+  let activeIndex = $state(-1)
 
   // Spec 002: rows whose geometry is missing or invalid are listed, not drawn.
   let hasGeometry = $derived(!!layer && layer.featureCount + layer.invalidGeometryCount > 0)
-  let columns = $derived(layer && layer.features.length > 0 ? Object.keys(layer.features[0].attributes) : [])
+  let firstPage = $derived(pages.get(0))
+  let columns = $derived(firstPage && firstPage.rows.length > 0 ? Object.keys(firstPage.rows[0].attributes) : (layer?.columns.map((c) => c.name) ?? []))
 
-  // Reset per-layer view state when a different file is opened.
+  // A new result or sort: drop loaded pages, back to the top.
   $effect(() => {
-    void layer
-    sort = null
-    widths = {}
+    const r = revision
+    if (r === loadedRevision) return
+    loadedRevision = r
+    pages = new Map()
+    pending = new Set()
+    activeIndex = -1
+    syncedIndex = -1
     if (scroller) scroller.scrollTop = 0
+    scrollTop = 0
   })
 
-  function compare(a: Value, b: Value): number {
-    const an = a === null || a === undefined
-    const bn = b === null || b === undefined
-    if (an || bn) return an && bn ? 0 : an ? 1 : -1 // nulls last, whatever the direction
-    if (typeof a === 'number' && typeof b === 'number') return a - b
-    if (typeof a === 'boolean' && typeof b === 'boolean') return Number(a) - Number(b)
-    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })
+  // A new file: column widths start over.
+  $effect(() => {
+    void layer?.id
+    widths = {}
+  })
+
+  async function ensurePage(index: number): Promise<void> {
+    if (index < 0 || index * PAGE_SIZE >= total || pages.has(index) || pending.has(index)) return
+    const rev = revision
+    pending.add(index)
+    try {
+      const page = await loadPage(index * PAGE_SIZE)
+      if (rev !== revision || !page) return
+      // `pages` is $state.raw and replaced whole, so a plain Map is right here.
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const next = new Map(pages)
+      next.set(index, page)
+      pages = next
+    } finally {
+      if (rev === revision) pending.delete(index)
+    }
   }
 
-  let rows = $derived.by(() => {
-    const features = layer?.features ?? []
-    if (!sort) return features
-    const { key, dir } = sort
-    const sign = dir === 'asc' ? 1 : -1
-    return [...features].sort((x, y) => {
-      const xv = x.attributes[key]
-      const yv = y.attributes[key]
-      if (xv === null || xv === undefined || yv === null || yv === undefined) return compare(xv, yv)
-      return sign * compare(xv, yv)
-    })
-  })
+  function rowAt(index: number): Row | null {
+    return pages.get(Math.floor(index / PAGE_SIZE))?.rows[index % PAGE_SIZE] ?? null
+  }
 
   let first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN))
-  let last = $derived(Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN))
-  let visible = $derived(rows.slice(first, last))
+  let last = $derived(Math.min(total, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN))
 
-  /** Auto width from the header and a sample of values; resizable afterwards. */
+  // Load the pages the visible window needs.
+  $effect(() => {
+    void revision
+    if (loading || total === 0) return
+    const from = Math.floor(first / PAGE_SIZE)
+    const to = Math.floor(Math.max(first, last - 1) / PAGE_SIZE)
+    for (let p = from; p <= to; p++) void ensurePage(p)
+  })
+
+  let visible = $derived(Array.from({ length: Math.max(0, last - first) }, (_, i) => ({ index: first + i, row: (void pages, rowAt(first + i)) })))
+
+  /** Auto width from the header and the first page's values; resizable afterwards. */
   function autoWidth(col: string): number {
     let chars = col.length + 3
-    const sample = layer?.features.slice(0, 200) ?? []
-    for (const f of sample) chars = Math.max(chars, display(f.attributes[col]).length)
+    for (const r of firstPage?.rows ?? []) chars = Math.max(chars, display(r.attributes[col]).length)
     return Math.min(MAX_AUTO_COL, Math.max(MIN_COL + 24, chars * 7.2 + 20))
   }
   let colWidths = $derived(columns.map((c) => widths[c] ?? autoWidth(c)))
-  let idWidth = $derived(Math.max(44, String(layer?.features.length ?? 0).length * 8 + 20))
+  let idWidth = $derived(Math.max(44, String(total).length * 8 + 20))
   let tableWidth = $derived(idWidth + colWidths.reduce((a, b) => a + b, 0))
 
   function display(v: Value): string {
@@ -88,13 +124,13 @@
   }
 
   function toggleSort(col: string): void {
-    if (!sort || sort.key !== col) sort = { key: col, dir: 'asc' }
-    else if (sort.dir === 'asc') sort = { key: col, dir: 'desc' }
-    else sort = null
+    if (!sort || sort.column !== col) onSort({ column: col, dir: 'asc' })
+    else if (sort.dir === 'asc') onSort({ column: col, dir: 'desc' })
+    else onSort(null)
   }
 
   function ariaSort(col: string): 'ascending' | 'descending' | 'none' {
-    return sort?.key === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+    return sort?.column === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
   }
 
   // --- column resize -------------------------------------------------------
@@ -117,7 +153,15 @@
   }
 
   // --- selection + keyboard ------------------------------------------------
-  let selectedIndex = $derived(selectedFeatureId === null ? -1 : rows.findIndex((f) => f.id === selectedFeatureId))
+  /** The selected row's index, when its page is loaded. */
+  let selectedIndex = $derived.by(() => {
+    if (selectedFeatureId === null) return -1
+    for (const [p, page] of pages) {
+      const i = page.rows.findIndex((r) => r.id === selectedFeatureId)
+      if (i >= 0) return p * PAGE_SIZE + i
+    }
+    return -1
+  })
 
   /** Scrolls a row into view only if it isn't already fully visible ("auto" alignment). */
   function ensureVisible(index: number): void {
@@ -129,39 +173,57 @@
     else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight
   }
 
-  // Selection made on the map: bring its row into view.
+  // Selection made on the map: bring its row into view (when it's loaded).
+  // Follows selection changes only: a keyboard move across pages (End) sets
+  // the cursor before its row loads, and must not be pulled back to the old
+  // selection meanwhile.
+  let syncedIndex = -1
   $effect(() => {
     const index = selectedIndex
-    if (index >= 0) ensureVisible(index)
+    if (index < 0 || index === syncedIndex) return
+    syncedIndex = index
+    if (index !== untrack(() => activeIndex)) {
+      activeIndex = index
+      ensureVisible(index)
+    }
   })
 
-  function moveSelection(delta: number): void {
-    if (rows.length === 0) return
-    const base = selectedIndex < 0 ? (delta > 0 ? -1 : rows.length) : selectedIndex
-    const next = Math.min(rows.length - 1, Math.max(0, base + delta))
-    onSelectFeature(rows[next].id)
+  /** Moves the cursor; selects the row there, waiting for its page if needed. */
+  async function moveTo(index: number): Promise<void> {
+    if (total === 0) return
+    const next = Math.min(total - 1, Math.max(0, index))
+    activeIndex = next
+    ensureVisible(next)
+    let row = rowAt(next)
+    if (!row) {
+      await ensurePage(Math.floor(next / PAGE_SIZE))
+      if (activeIndex !== next) return
+      row = rowAt(next)
+    }
+    if (row) onSelectFeature(row.id)
   }
 
   function handleKeydown(e: KeyboardEvent): void {
     const page = Math.max(1, Math.floor(viewportHeight / rowHeight) - 1)
+    const base = activeIndex >= 0 ? activeIndex : selectedIndex
     switch (e.key) {
       case 'ArrowDown':
-        moveSelection(1)
+        void moveTo(base < 0 ? 0 : base + 1)
         break
       case 'ArrowUp':
-        moveSelection(-1)
+        void moveTo(base < 0 ? total - 1 : base - 1)
         break
       case 'PageDown':
-        moveSelection(page)
+        void moveTo(base < 0 ? 0 : base + page)
         break
       case 'PageUp':
-        moveSelection(-page)
+        void moveTo(base < 0 ? 0 : base - page)
         break
       case 'Home':
-        if (rows.length > 0) onSelectFeature(rows[0].id)
+        void moveTo(0)
         break
       case 'End':
-        if (rows.length > 0) onSelectFeature(rows[rows.length - 1].id)
+        void moveTo(total - 1)
         break
       case 'Enter':
         if (selectedFeatureId !== null) onZoomToFeature(selectedFeatureId)
@@ -176,6 +238,7 @@
   }
 
   onMount(() => {
+    if (!scroller) return
     const raw = parseFloat(getComputedStyle(scroller).getPropertyValue('--se-row-height'))
     if (Number.isFinite(raw) && raw > 0) rowHeight = raw
   })
@@ -187,21 +250,22 @@
   class="attribute-table"
   bind:this={scroller}
   bind:clientHeight={viewportHeight}
-  onscroll={() => (scrollTop = scroller.scrollTop)}
+  onscroll={() => (scrollTop = scroller?.scrollTop ?? 0)}
   style:--row-h="{rowHeight}px"
 >
   {#if loading}
     <p class="placeholder">Loading…</p>
-  {:else if !layer || layer.features.length === 0}
+  {:else if !layer || total === 0}
     <p class="placeholder">No features to display.</p>
   {:else}
+    {@const activeRow = activeIndex >= 0 ? rowAt(activeIndex) : null}
     <table
       style:min-width="{tableWidth}px"
       role="grid"
       aria-label="Attribute table"
-      aria-rowcount={rows.length + 1}
+      aria-rowcount={total + 1}
       aria-colcount={columns.length + 1}
-      aria-activedescendant={selectedIndex >= 0 ? `row-${String(rows[selectedIndex].id)}` : undefined}
+      aria-activedescendant={activeRow ? `row-${String(activeRow.id)}` : undefined}
       tabindex="0"
       onkeydown={handleKeydown}
     >
@@ -222,7 +286,7 @@
             <th scope="col" role="columnheader" aria-sort={ariaSort(col)} title={col}>
               <button type="button" class="sort" onclick={() => toggleSort(col)}>
                 <span class="label">{col}</span>
-                {#if sort?.key === col}
+                {#if sort?.column === col}
                   <Icon name={sort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} />
                 {/if}
               </button>
@@ -237,29 +301,39 @@
         {#if first > 0}
           <tr class="spacer" aria-hidden="true" style:height="{first * rowHeight}px"><td colspan={columns.length + 2}></td></tr>
         {/if}
-        {#each visible as feature, i (feature.id)}
-          {@const index = first + i}
-          <tr
-            id="row-{String(feature.id)}"
-            aria-rowindex={index + 2}
-            aria-selected={feature.id === selectedFeatureId}
-            class:odd={index % 2 === 1}
-            class:selected={feature.id === selectedFeatureId}
-            onclick={() => onSelectFeature(feature.id)}
-            ondblclick={() => onZoomToFeature(feature.id)}
-          >
-            <td class="id" role="gridcell">
-              {#if hasGeometry && feature.geometry === null}<span class="no-geom" title="No valid geometry: listed here, not drawn on the map" aria-label="no geometry">∅</span>{/if}{typeof feature.id === 'number' ? feature.id + 1 : feature.id}
-            </td>
-            {#each columns as col (col)}
-              {@const v = feature.attributes[col]}
-              <td role="gridcell" class:num={typeof v === 'number'} class:null={v === null || v === undefined} title={display(v)}>{display(v)}</td>
-            {/each}
-            <td class="filler" aria-hidden="true"></td>
-          </tr>
+        {#each visible as { index, row } (row ? `r${String(row.id)}` : `i${index}`)}
+          {#if row}
+            <tr
+              id="row-{String(row.id)}"
+              aria-rowindex={index + 2}
+              aria-selected={row.id === selectedFeatureId}
+              class:odd={index % 2 === 1}
+              class:selected={row.id === selectedFeatureId}
+              onclick={() => {
+                activeIndex = index
+                onSelectFeature(row.id)
+              }}
+              ondblclick={() => onZoomToFeature(row.id)}
+            >
+              <td class="id" role="gridcell">
+                {#if hasGeometry && row.invalidGeometry}<span class="no-geom" title="No valid geometry: listed here, not drawn on the map" aria-label="no geometry">∅</span>{/if}{index + 1}
+              </td>
+              {#each columns as col (col)}
+                {@const v = row.attributes[col]}
+                <td role="gridcell" class:num={typeof v === 'number'} class:null={v === null || v === undefined} title={display(v)}>{display(v)}</td>
+              {/each}
+              <td class="filler" aria-hidden="true"></td>
+            </tr>
+          {:else}
+            <tr class="skeleton" aria-rowindex={index + 2} aria-busy="true" class:odd={index % 2 === 1}>
+              <td class="id" role="gridcell">{index + 1}</td>
+              <td role="gridcell" colspan={columns.length}><span class="bar"></span></td>
+              <td class="filler" aria-hidden="true"></td>
+            </tr>
+          {/if}
         {/each}
-        {#if last < rows.length}
-          <tr class="spacer" aria-hidden="true" style:height="{(rows.length - last) * rowHeight}px"><td colspan={columns.length + 2}></td></tr>
+        {#if last < total}
+          <tr class="spacer" aria-hidden="true" style:height="{(total - last) * rowHeight}px"><td colspan={columns.length + 2}></td></tr>
         {/if}
       </tbody>
     </table>
@@ -411,6 +485,15 @@
     padding: 0;
     border: 0;
     background: transparent;
+  }
+  /* Spec 007: a row whose page is still loading. */
+  tr.skeleton .bar {
+    display: block;
+    width: 60%;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--se-table-row-border);
+    opacity: 0.6;
   }
   .placeholder {
     margin: 0;

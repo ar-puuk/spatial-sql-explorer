@@ -21,6 +21,10 @@ export interface Feature {
   /** Reprojected to EPSG:4326 for display. */
   geometry: GeoJSON.Geometry | null
   attributes: Record<string, string | number | boolean | null>
+  /** Spec 007: only the columns a map view needed; fetch by id for the full record. */
+  partialAttributes?: boolean
+  /** PMTiles (US5): the archive layer the feature came from, shown by the inspector. */
+  sourceLayer?: string
 }
 
 /**
@@ -53,8 +57,6 @@ export interface Layer {
   totalRows: number
   /** WGS84 extent to fit. For the initial view this is the whole file's extent, not just the loaded subset. */
   extent: Bbox | null
-  /** All rows of the result. `geometry` is null when the row's geometry is missing or invalid. */
-  features: Feature[]
   /**
    * The result's attribute columns (no geometry columns) with their DuckDB
    * types, in result order. Decides which columns each thematic renderer can
@@ -71,15 +73,116 @@ export interface Layer {
   styleSidecar: { fileName: string; text: string } | null
   /** Milliseconds per load step, for logs. Diagnostic only. */
   loadTimings?: Record<string, number>
+  /** Whole-file facts, never derived from what's on screen (spec 007 FR-001). */
+  facts?: DatasetFacts
 }
+
+// --- Spec 007: large files and viewport loading ------------------------------------
+
+/** How the engine reaches a file (research §4). `tiles`: the map reads it, not the engine. */
+export type ReadModeKind = 'partial' | 'partial-view' | 'whole' | 'tiles'
+
+/** Where map views get feature bounding boxes. */
+export type SpatialIndexKind = 'covering' | 'built' | 'building' | 'file' | 'rtree' | 'none'
+
+/** Whole-file facts shown at once (FR-001). */
+export interface DatasetFacts {
+  rows: number
+  /** True only while a count is still pending. */
+  rowsEstimated: boolean
+  /** Rows with missing or invalid geometry, when known without a full scan (null = unknown). */
+  invalid: number | null
+  extent: Bbox | null
+  crs: CrsInfo
+  crsAssumed: boolean
+  srid: number | null
+  geometryType: GeometryType
+  columns: Array<{ name: string; type: string }>
+  readMode: ReadModeKind
+  spatialIndex: SpatialIndexKind
+  /** Why the whole file is being read, when partial reads failed (FR-015). */
+  fallback: string | null
+  /**
+   * FlatGeobuf read in parts (T044): the map works, but queries, the table,
+   * thematic styles and export wait until the user loads the whole file.
+   */
+  needsLoad: boolean
+  /** PMTiles (US5): the archive's zoom range and vector layers, from its header and metadata. */
+  tiles?: { minZoom: number; maxZoom: number; layers: string[] }
+}
+
+/** A map view to load (data-model.md). `bbox` is WGS84. */
+export interface ViewRequest {
+  generation: number
+  bbox: Bbox
+  zoom: number
+  cap: number
+  /** The map canvas width in CSS pixels: features under ~2 px are sent as points so they stay visible. */
+  widthPx?: number
+  /**
+   * The attribute columns the map needs (the style's column), or undefined
+   * for all. Fewer columns read far less of a large file; features then
+   * carry `partialAttributes` and the inspector fetches the full record.
+   */
+  attrs?: string[]
+}
+
+export interface ViewFeatures {
+  generation: number
+  /** WGS84 geometry; `id` is the stable `__se_rowid`. */
+  features: Feature[]
+  /** Exact count of the result's mappable rows intersecting the view. */
+  inView: number
+  /** inView > cap: one feature per grid cell was drawn. */
+  thinned: boolean
+  /** FlatGeobuf read in parts: `inView` is a floor ("more than"), not an exact count. */
+  inViewAtLeast?: boolean
+  /** `inView` is estimated from a spatial index (FlatGeobuf in parts: ~16 features per index node). */
+  inViewEstimated?: boolean
+  /** A quick first view, replaced by the full one at once (no subset notice). */
+  preview?: boolean
+  ms: number
+}
+
+export interface TablePageRequest {
+  offset: number
+  limit: number
+  sort: { column: string; dir: 'asc' | 'desc' } | null
+}
+
+export interface TablePage {
+  offset: number
+  rows: Array<{ id: number; attributes: Feature['attributes']; invalidGeometry: boolean }>
+}
+
+/** The input to classification, computed in SQL over the whole result (research §11). */
+export interface StyleStats {
+  column: string
+  rows: number
+  nulls: number
+  categories?: Array<{ value: string | number | boolean | null; count: number }>
+  otherCount?: number
+  min?: number
+  max?: number
+  quantiles?: number[]
+  /** Natural-breaks input: every value, or a deterministic sample when `sampled`. */
+  values?: number[]
+  sampled?: boolean
+  /** Exact, after breaks are known. */
+  classCounts?: number[]
+}
+
+/** The open pipeline's visible phases (data-model.md OpenPhase). */
+export type OpenPhase = 'registering' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
 
 // --- Spec 002: query ------------------------------------------------------------
 
-/** The initial view's query (spec 002 FR-003); Reset restores it (FR-011). */
-export const DEFAULT_QUERY = 'SELECT * FROM layer LIMIT 1000'
-
-/** Results larger than this ask before rendering (spec 002 FR-012). */
-export const LARGE_RESULT_THRESHOLD = 50_000
+/**
+ * The initial view's query (spec 002 FR-003); Reset restores it (FR-011).
+ * Spec 007 FR-009: no LIMIT. The whole file is the result; the map draws it
+ * by view and the table pages it.
+ */
+export const DEFAULT_QUERY = 'SELECT * FROM layer'
 
 /** The opened file as SQL sees it (spec 002 data-model.md). */
 export interface QueryableTable {

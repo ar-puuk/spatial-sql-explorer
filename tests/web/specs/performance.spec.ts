@@ -53,7 +53,8 @@ async function timeOpen(page: Page): Promise<{ metadataMs: number; renderedMs: n
   await page.locator('input[type="file"]').setInputFiles(fixture)
   await expect(page.locator('.status-bar')).toContainText('22,000 features', { timeout: 60000 })
   const metadataMs = Date.now() - t0
-  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  // The first paint of data (spec 007: a quick preview, then the full view).
+  await page.locator('.canvas-host[data-paints]').waitFor({ state: 'attached', timeout: 60000 })
   return { metadataMs, renderedMs: Date.now() - t0 }
 }
 
@@ -75,9 +76,9 @@ test('SC-001 / SC-003: ~10 MB file, cold and warm', async ({ page }) => {
   const warm = await timeOpen(page)
   results.warmMetadataMs = warm.metadataMs
   results.warmRenderedMs = warm.renderedMs
+  // Read once the drawn view settles: the attribute is cleared while the full view replaces the preview.
+  await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-rendered-features')) ?? 0), { timeout: 15000 }).toBeGreaterThan(0)
   results.renderedFeatures = Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
-
-  expect(results.renderedFeatures).toBeGreaterThan(0)
   expect(warm.renderedMs, 'SC-001 (warm): ~10 MB file rendered in under 2 s').toBeLessThan(2000)
   expect(warm.metadataMs, 'SC-003 (warm): CRS / count / type visible in under 2 s').toBeLessThan(2000)
 })
@@ -198,7 +199,6 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   await openFile(page, writeParcels(100_000, 'parcels-100k.geojson'))
   const dialog = page.getByRole('dialog', { name: 'Export data' })
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await expect(dialog.getByRole('radio', { name: 'All 100,000 rows' })).toHaveAttribute('aria-checked', 'true')
   await dialog.getByRole('radio', { name: 'GeoParquet', exact: true }).click()
   await page.evaluate(() => {
     const w = window as unknown as { __longTasks: number[] }
@@ -219,8 +219,8 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   // SC-004: a 1,000,000-row GeoJSON export, cancelled while it writes.
   await openQueryPanel(page)
   await runQuery(page, 'SELECT a.* FROM layer a, range(10) b')
-  await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
-  await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+  // Spec 007 FR-009: no prompt; the 1,000,000-row result is the export.
+  await expect(page.locator('.query-status')).toContainText('1,000,000 rows', { timeout: 120000 })
   await page.getByRole('button', { name: 'Export data…' }).click()
   await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
   await dialog.getByRole('button', { name: 'Export…' }).click()

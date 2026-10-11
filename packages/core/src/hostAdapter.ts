@@ -22,17 +22,40 @@ export interface OpenedFileRef {
   stateKey: string
 }
 
-export interface FileSource {
-  /** All bytes needed to read this layer, keyed by basename (e.g. "sample.shp", "sample.shx") — more than one entry for sidecar-based formats. */
-  files: Record<string, ArrayBuffer>
-  /** Which key in `files` is the primary file to hand to ST_Read/read_parquet. */
-  primaryFileName: string
-  totalBytes: number
+/** The QGIS-convention style file found next to the data (`<basename>.qml`), as text (spec 003). */
+export interface StyleSidecarText {
+  fileName: string
+  text: string
 }
+
+/**
+ * How a shell hands the opened file to core (spec 007, data-model.md). Core
+ * passes `handle` and `url` straight to the engine, which reads them in parts
+ * (research §2–§3); only `bytes` is ever held in memory whole.
+ * - `handle`: web. An opaque File handle; core never calls the File API on it.
+ * - `url`: VS Code. The extension host's loopback range server.
+ * - `bytes`: the whole file (VS Code fallback, FlatGeobuf "load for queries").
+ * Sidecars are the primary's same-basename data files (Shapefile .dbf/.shx/.prj/.cpg).
+ */
+export type FileSource =
+  | { kind: 'handle'; name: string; size: number; handle: unknown; sidecars: Array<{ name: string; handle: unknown }>; styleSidecar: StyleSidecarText | null }
+  | { kind: 'url'; name: string; size: number; url: string; sidecars: Array<{ name: string; url: string }>; styleSidecar: StyleSidecarText | null }
+  | {
+      kind: 'bytes'
+      name: string
+      size: number
+      bytes: Uint8Array
+      sidecars: Array<{ name: string; bytes: Uint8Array }>
+      styleSidecar: StyleSidecarText | null
+      /** Set when the shell fell back to a whole transfer because partial reads failed (FR-015). */
+      fallbackReason?: string
+    }
 
 export interface StatusFields {
   crs?: string
   featureCount?: number
+  /** Spec 007: `rows` when invalid geometry isn't known yet (large files read in parts), so the count never over-claims. */
+  countLabel?: 'features' | 'rows'
   cursor?: { lon: number; lat: number } | null
 }
 
@@ -44,7 +67,15 @@ export interface HostAdapter {
 
   openFiles(): Promise<OpenedFileRef[]>
 
-  getFileSource(ref: OpenedFileRef): Promise<FileSource>
+  /**
+   * The opened file for the engine (spec 007). `whole: true` asks for the
+   * bytes (FlatGeobuf "load for queries"); otherwise shells return a handle
+   * or a URL the engine reads in parts.
+   */
+  getFileSource(ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource>
+
+  /** Bytes [offset, offset + length) of the opened file, without reading the rest (PMTiles, spec 007). */
+  readRange(ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array>
 
   /**
    * Saves content to a user-chosen location: VS Code shows a save dialog

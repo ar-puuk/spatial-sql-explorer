@@ -1,0 +1,45 @@
+// SPIKE (spec 007 plan, temporary): partial reads inside the real VS Code webview.
+import * as assert from 'assert'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as vscode from 'vscode'
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+suite('SPIKE 007: partial reads in the webview', () => {
+  test('main-thread Range fetch, and the engine over a localhost range server', async function () {
+    this.timeout(300000)
+    const fixture = path.resolve(__dirname, '../../fixtures/sample.parquet')
+    await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(fixture), 'spatialExplorer.editorOption')
+    const deadline = Date.now() + 60000
+    while (((await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null)?.loadState !== 'ready') {
+      assert.ok(Date.now() < deadline, 'fixture did not load')
+      await sleep(200)
+    }
+    // A big file inside a localResourceRoot (the fixture's folder) for the Range fetch:
+    // the localhost server ignores the URL path and always serves the big file.
+    const big = path.resolve(__dirname, '../../../.large-data/parcels-4m.parquet')
+    const link = path.resolve(__dirname, '../../fixtures/zz-spike-big.parquet')
+    if (!fs.existsSync(link)) fs.linkSync(big, link)
+    try {
+      const started = await vscode.commands.executeCommand('spatialExplorer._spike007', link)
+      console.log('SPIKE started', JSON.stringify(started))
+      let result: { pending?: boolean } | undefined
+      const until = Date.now() + Number(process.env.SPIKE_WAIT ?? 90000)
+      for (;;) {
+        result = await vscode.commands.executeCommand('spatialExplorer._getSpike007')
+        if (!result?.pending) break
+        if (Date.now() > until) {
+          console.log('SPIKE PENDING', JSON.stringify(result))
+          break
+        }
+        await sleep(500)
+      }
+      console.log('SPIKE RESULT', JSON.stringify(result))
+      fs.writeFileSync(path.resolve(__dirname, '../../../../specs/007-viewport-loading/spikes/s5-vscode.json'), JSON.stringify(result, null, 2))
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(link, { force: true })
+    }
+  })
+})

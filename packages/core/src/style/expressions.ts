@@ -97,6 +97,11 @@ function categorizedIndex(r: CategorizedRenderer, resolved: ResolvedStyle): unkn
   return ['let', 'v', ['get', r.column], ['case', ['==', v, null], noValue, ['==', ['to-string', v], ''], noValue, byValue]]
 }
 
+/** Map feature property marking a polygon or line drawn as a dot because it's under ~2 px in the view (spec 007). */
+export const DOT_PROP = '__se_dot'
+const DOT = ['boolean', ['get', DOT_PROP], false]
+const DOT_RADIUS = 1.75
+
 /** The class color per feature: `match` on the class index. */
 function classColorExpression(index: unknown, resolved: ResolvedStyle, fallback: string): unknown {
   const arms: unknown[] = []
@@ -140,9 +145,10 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     circle: {
       'circle-color': ['case', selected, sel, fillColor],
       'circle-opacity': ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
-      'circle-radius': ['case', selected, s.pointRadius + 2, hovered, s.pointRadius + 1, s.pointRadius],
+      // Spec 007: a polygon or line under ~2 px in the current view is drawn as a small dot (DOT_PROP).
+      'circle-radius': ['case', selected, s.pointRadius + 2, DOT, DOT_RADIUS, hovered, s.pointRadius + 1, s.pointRadius],
       'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', s.strokeColor],
-      'circle-stroke-width': ['case', selected, 2, s.strokeWidth],
+      'circle-stroke-width': ['case', selected, 2, DOT, 0, s.strokeWidth],
       'circle-stroke-opacity': ['case', selected, 1, s.strokeOpacity],
     },
   }

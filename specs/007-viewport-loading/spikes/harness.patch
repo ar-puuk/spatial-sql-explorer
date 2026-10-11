@@ -1,0 +1,271 @@
+diff --git a/apps/vscode-ext/src/extension.ts b/apps/vscode-ext/src/extension.ts
+index b94c3e9..1587cae 100644
+--- a/apps/vscode-ext/src/extension.ts
++++ b/apps/vscode-ext/src/extension.ts
+@@ -85,6 +85,8 @@ let lastSelection: string | number | null = null
+ /** Latest query state, same rationale (spec 002 test hooks). */
+ let lastQueryState: unknown = null
+ let lastStyleState: unknown = null
++let lastSpike: unknown
++let spikeServerStats: unknown
+ let lastExportState: unknown = null
+ /** Last logged lines (spec 002 T037: tests assert what reached the output channel). */
+ const recentLogLines: string[] = []
+@@ -203,6 +205,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
+         lastQueryState = msg.state
+       } else if (msg.type === 'styleState') {
+         lastStyleState = msg.state
++      } else if ((msg as { type: string }).type === 'spikeResult') {
++        lastSpike = (msg as unknown as { result: unknown }).result
+       } else if (msg.type === 'exportState') {
+         lastExportState = msg.state
+       } else if (msg.type === 'reloadSource') {
+@@ -440,7 +444,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
+ <html lang="en" data-theme="vscode">
+ <head>
+ <meta charset="UTF-8">
+-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
++<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://127.0.0.1:* http://[::1]:* http://localhost.:* http://127.0.0.2:* https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
+ <link rel="stylesheet" href="${styleUri}">
+ <title>Spatial Explorer</title>
+ </head>
+@@ -465,6 +469,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
+     return true
+   }
+ 
++  /** SPIKE (spec 007 plan, temporary). */
++  spikeResourceUri(fsPath: string): string {
++    const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
++    return panel ? panel.webview.asWebviewUri(vscode.Uri.file(fsPath)).toString() : ''
++  }
++
+   /** Test-only: posts a message to whichever viewer is active (or the only one). */
+   postToActive(message: unknown): void {
+     const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
+@@ -539,6 +549,41 @@ export function activate(context: vscode.ExtensionContext): void {
+     // Spec 005 test hooks: run an export, read its state.
+     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
+     vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),
++    // SPIKE (spec 007 plan, temporary): serve one file over 127.0.0.1 with Range support.
++    vscode.commands.registerCommand('spatialExplorer._spike007', async (fsPath: string) => {
++      const http = await import('node:http')
++      const fs = await import('node:fs')
++      const stats = { requests: 0, bytes: 0, log: [] as string[] }
++      const server = http.createServer((req, res) => {
++        const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname.slice(1))
++        const target = pathname.endsWith('.geojson') ? require('node:path').join(require('node:path').dirname(fsPath), '..', '..', '.large-data', pathname) : fsPath
++        const size = fs.statSync(target).size
++        const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS', 'Access-Control-Allow-Private-Network': 'true', 'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges' }
++        if (stats.log.length < 40) stats.log.push(`${req.method} ${req.headers.range ?? '-'} origin=${req.headers.origin ?? '-'}`)
++        if (req.method === 'OPTIONS') return void res.writeHead(204, cors).end()
++        stats.requests++
++        if (req.method === 'HEAD') return void res.writeHead(req.headers.range ? 206 : 200, { ...cors, 'Content-Length': size, 'Content-Range': `bytes 0-${size - 1}/${size}`, 'Accept-Ranges': 'bytes' }).end()
++        const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? '')
++        const start = m ? Number(m[1]) : 0
++        const end = m && m[2] ? Number(m[2]) : size - 1
++        stats.bytes += end - start + 1
++        res.writeHead(m ? 206 : 200, { ...cors, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes' })
++        const n = stats.log.length - 1
++        res.on('finish', () => (stats.log[n] += ' finished'))
++        res.on('close', () => (stats.log[n] += ' closed'))
++        fs.createReadStream(target, { start, end }).pipe(res)
++      })
++      server.on('connection', (s) => stats.log.push(`connection ${s.remotePort}`))
++      await new Promise<void>((r) => server.listen({ port: 0, host: '::', ipv6Only: false }, () => r()))
++      const port = (server.address() as { port: number }).port
++      const local = vscode.Uri.parse(`http://127.0.0.1:${port}/file.parquet`)
++      const external = await vscode.env.asExternalUri(local)
++      lastSpike = undefined
++      provider.postToActive({ type: 'spike007', url: external.toString(true), resourceUri: provider.spikeResourceUri(fsPath) })
++      spikeServerStats = stats
++      return { port, external: external.toString(true) }
++    }),
++    vscode.commands.registerCommand('spatialExplorer._getSpike007', () => (lastSpike ? { ...(lastSpike as object), server: spikeServerStats } : { pending: true, server: spikeServerStats })),
+     // Spec 005 test hook: write the next data export to this path (no dialog).
+     vscode.commands.registerCommand('spatialExplorer._saveNextExportTo', (fsPath: string) => {
+       nextExportPath = fsPath
+diff --git a/apps/vscode-ext/src/webview/hostAdapter.ts b/apps/vscode-ext/src/webview/hostAdapter.ts
+index f5b969f..884aa35 100644
+--- a/apps/vscode-ext/src/webview/hostAdapter.ts
++++ b/apps/vscode-ext/src/webview/hostAdapter.ts
+@@ -17,6 +17,11 @@ const vscode = acquireVsCodeApi()
+ // webview->host message is small, so normalize through JSON here, once, rather
+ // than trusting each call site to snapshot its fields (same root cause as
+ // research.md §5's MapLibre DataCloneError).
++// SPIKE (spec 007 plan, temporary).
++export function spikeReport(result: unknown): void {
++  post({ type: 'spikeResult', result })
++}
++
+ function post(msg: unknown): void {
+   vscode.postMessage(JSON.parse(JSON.stringify(msg)))
+ }
+diff --git a/apps/vscode-ext/src/webview/main.ts b/apps/vscode-ext/src/webview/main.ts
+index 574b995..f16a4cf 100644
+--- a/apps/vscode-ext/src/webview/main.ts
++++ b/apps/vscode-ext/src/webview/main.ts
+@@ -17,6 +17,7 @@ import {
+   reportQueryState,
+   reportStyleState,
+   reportExportState,
++  spikeReport,
+   reportSelectionChanged,
+   reportViewState,
+   signalReady,
+@@ -124,6 +125,83 @@ async function main(): Promise<void> {
+   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
+   // mouse interaction.
+   window.addEventListener('message', (event: MessageEvent) => {
++    // SPIKE (spec 007 plan, temporary): partial reads in this webview.
++    const spike = event.data as { type: string; url?: string; resourceUri?: string }
++    if (spike.type === 'spike007') {
++      void (async () => {
++        const result: Record<string, unknown> = {}
++        try {
++          const t0 = performance.now()
++          const r = await fetch(spike.resourceUri!, { headers: { Range: 'bytes=0-15' } })
++          const body = await r.arrayBuffer()
++          result.mainThreadRange = { status: r.status, bytes: body.byteLength, contentRange: r.headers.get('content-range'), ms: Math.round(performance.now() - t0) }
++        } catch (e) {
++          result.mainThreadRange = { error: String(e) }
++        }
++        // Transport only: a plain blob worker doing sequential synchronous Range XHRs.
++        result.workerSyncXhr = await new Promise((resolve) => {
++          const src = `onmessage = (e) => {
++            const out = []; const t0 = performance.now();
++            for (let i = 0; i < 50; i++) {
++              const x = new XMLHttpRequest(); const s = i * 100000;
++              try { x.open(i === 0 ? 'HEAD' : 'GET', e.data, false); x.setRequestHeader('Range', 'bytes=' + s + '-' + (s + 65535)); if (i) x.responseType = 'arraybuffer'; x.send(null);
++                out.push(x.status) } catch (err) { out.push(String(err)); break }
++            }
++            postMessage({ statuses: out.join(','), ms: Math.round(performance.now() - t0) })
++          }`
++          const port = new URL(spike.url!).port
++          const hosts = ['[::1]', 'localhost.', '127.0.0.2']
++          const out: Record<string, unknown> = {}
++          const next = (i: number): void => {
++            if (i >= hosts.length) return resolve(out)
++            const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })))
++            const timer = setTimeout(() => { out[hosts[i]] = { timedOut: true }; w.terminate(); next(i + 1) }, 12000)
++            w.onmessage = (e) => { clearTimeout(timer); out[hosts[i]] = e.data; w.terminate(); next(i + 1) }
++            w.onerror = (e) => { clearTimeout(timer); out[hosts[i]] = { error: e.message }; next(i + 1) }
++            w.postMessage(`http://${hosts[i]}:${port}/file.parquet`)
++          }
++          next(0)
++        })
++        try {
++          const { getDuckDb } = await import('@spatial-explorer/core')
++          const db = await getDuckDb(duckdbAssets)
++          const u = new URL(spike.url!)
++          u.hostname = 'localhost.'
++          result.engineUrl = u.toString()
++          await db.registerFileURL('/se-source/spike-http.parquet', u.toString(), 4, false)
++          const conn = await db.connect()
++          const time = async (k: string, sql: string) => {
++            const t0 = performance.now()
++            try {
++              const q = await conn.query(sql)
++              result[k] = { ms: Math.round(performance.now() - t0), rows: q.numRows, first: JSON.parse(JSON.stringify(q.toArray()[0]?.toJSON() ?? null, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))) }
++            } catch (e) {
++              result[k] = { error: String(e) }
++            }
++          }
++          const P = `read_parquet('/se-source/spike-http.parquet')`
++          await time('count', `SELECT count(*) AS n FROM ${P}`)
++          await time('viewCity', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) FROM ${P} WHERE bbox.xmin <= -111.88 AND bbox.xmax >= -111.92 AND bbox.ymin <= 40.77 AND bbox.ymax >= 40.74)`)
++          await time('viewRegion', `SELECT count(*) AS n FROM (SELECT ST_AsGeoJSON(geom) FROM ${P} WHERE bbox.xmin <= -111.6 AND bbox.xmax >= -112.2 AND bbox.ymin <= 41.0 AND bbox.ymax >= 40.4 LIMIT 50000)`)
++          await time('filterCount', `SELECT count(*) AS n FROM ${P} WHERE value > 1500000`)
++          await time('memoryLimit', `SELECT current_setting('memory_limit') AS m`)
++          const g = new URL(u.toString())
++          g.pathname = '/parcels-230k.geojson'
++          await db.registerFileURL('/se-source/spike-http.geojson', g.toString(), 4, false)
++          await time('geojson172Materialize', `CREATE OR REPLACE TABLE spike_g AS SELECT * FROM ST_Read('/se-source/spike-http.geojson')`)
++          await time('geojsonCount', `SELECT count(*) AS n FROM spike_g`)
++          await time('copy1', `CREATE OR REPLACE TABLE c1 AS SELECT * FROM ${P}`)
++          await time('copy2', `CREATE OR REPLACE TABLE c2 AS SELECT * FROM ${P}`)
++          await time('afterCopies', `SELECT 42 AS ok`)
++          await time('drop', `DROP TABLE c1; DROP TABLE c2; DROP TABLE spike_g`)
++          await conn.close()
++        } catch (e) {
++          result.engine = { error: String(e) }
++        }
++        spikeReport(result)
++      })()
++      return
++    }
+     const msg = event.data as { type: string; id?: string | number | null; sql?: string; confirm?: 'all' | 'first' | 'cancel'; style?: unknown; request?: Record<string, unknown> }
+     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
+       // Test-only (spec 002 T028): the same store action the Run button uses,
+diff --git a/apps/web/src/App.svelte b/apps/web/src/App.svelte
+index ac06c1a..6ca1bf1 100644
+--- a/apps/web/src/App.svelte
++++ b/apps/web/src/App.svelte
+@@ -67,6 +67,55 @@
+       },
+       /** Spec 005 T003: what an export knows about the displayed result. */
+       resultFacts: () => JSON.parse(JSON.stringify(store.querySession?.lastResult ?? null)),
++      // SPIKE (spec 007 plan, temporary): register a picked File as a lazily
++      // read handle in the real, locked-down engine, and time raw SQL on it.
++      spikeInput: () => {
++        const input = document.createElement('input')
++        input.type = 'file'
++        input.id = 'spike-file'
++        input.style.display = 'none'
++        document.body.append(input)
++      },
++      spikeRegister: async (name: string) => {
++        const { getDuckDb } = await import('@spatial-explorer/core')
++        const db = await getDuckDb(duckdbAssets)
++        const file = (document.getElementById('spike-file') as HTMLInputElement).files![0]
++        const t0 = performance.now()
++        await db.registerFileHandle(`/se-source/${name}`, file, 2 /* DuckDBDataProtocol.BROWSER_FILEREADER */, true)
++        return { ms: Math.round(performance.now() - t0), bytes: file.size }
++      },
++      spikeRegisterBuffer: async (name: string) => {
++        const { getDuckDb } = await import('@spatial-explorer/core')
++        const db = await getDuckDb(duckdbAssets)
++        const file = (document.getElementById('spike-file') as HTMLInputElement).files![0]
++        const t0 = performance.now()
++        await db.registerFileBuffer(`/se-source/${name}`, new Uint8Array(await file.arrayBuffer()))
++        return { ms: Math.round(performance.now() - t0), bytes: file.size }
++      },
++      spikeRegisterUrl: async (name: string, url: string) => {
++        const { getDuckDb } = await import('@spatial-explorer/core')
++        const db = await getDuckDb(duckdbAssets)
++        const t0 = performance.now()
++        await db.registerFileURL(`/se-source/${name}`, url, 4 /* DuckDBDataProtocol.HTTP */, false)
++        return { ms: Math.round(performance.now() - t0) }
++      },
++      spikeQuery: async (sql: string) => {
++        const { getDuckDb } = await import('@spatial-explorer/core')
++        const db = await getDuckDb(duckdbAssets)
++        const conn = await db.connect()
++        try {
++          const t0 = performance.now()
++          const r = await conn.query(sql)
++          const ms = Math.round(performance.now() - t0)
++          const mem = await conn.query(`SELECT sum(memory_usage_bytes)::BIGINT AS b FROM duckdb_memory()`)
++          const rows = r.toArray().slice(0, 5).map((x) => JSON.parse(JSON.stringify(x.toJSON(), (_k, v) => (typeof v === 'bigint' ? Number(v) : v instanceof Uint8Array ? `<${v.length} bytes>` : v))))
++          return { ms, rowCount: r.numRows, rows, engineBytes: Number(mem.toArray()[0].toJSON().b) }
++        } catch (e) {
++          return { error: String(e instanceof Error ? e.message : e) }
++        } finally {
++          await conn.close()
++        }
++      },
+       /** Spec 003 T006: the displayed result's attribute columns and types. */
+       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
+     }
+diff --git a/packages/core/src/duckdbService.ts b/packages/core/src/duckdbService.ts
+index 3a53a3a..bd44a4a 100644
+--- a/packages/core/src/duckdbService.ts
++++ b/packages/core/src/duckdbService.ts
+@@ -75,6 +75,8 @@ ${workerScriptText}
+   const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
+   const db = new duckdb.AsyncDuckDB(logger, worker)
+   await db.instantiate(SENTINEL_WASM_URL)
++  // SPIKE (spec 007 plan): range reads for registered URLs, never a silent full download.
++  await db.open({ filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false, forceFullHTTPReads: false } })
+   return db
+ }
+ 

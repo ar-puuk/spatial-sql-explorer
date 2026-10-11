@@ -39,3 +39,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Spec 007: generated multi-GB test files (scripts/large-data.sql)
+tests/.large-data/

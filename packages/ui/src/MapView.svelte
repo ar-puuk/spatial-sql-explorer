@@ -5,7 +5,6 @@
     ScaleControl,
     type GeoJSONSource,
     type MapGeoJSONFeature,
-    type MapLayerMouseEvent,
     type MapMouseEvent,
     type StyleSpecification,
   } from 'maplibre-gl'
@@ -18,14 +17,31 @@
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
+    type Feature,
     type Layer,
     type LayerStyle,
     type ResolvedStyle,
+    type ViewFeatures,
+    DOT_PROP,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import ProgressBar from './ProgressBar.svelte'
+  import type { TilesArchive } from './pmtilesSource.js'
 
   interface Props {
     layer: Layer | null
+    /** Spec 007: the result's features in the current view (research §6); the map draws these, not the whole result. */
+    viewFeatures: ViewFeatures | null
+    /** A selected feature outside the drawn set (FR-008), drawn so it can be highlighted and zoomed to. */
+    extraFeature?: Feature | null
+    /** A view takes longer than 300 ms: a thin bar on the map's top edge. */
+    viewLoading?: boolean
+    /** Moves the camera once per new request (test hooks). */
+    cameraRequest?: { center: [number, number]; zoom: number; seq: number } | null
+    /** The map drew the latest view data (idle after setData). */
+    onPainted?: () => void
+    /** The map settled on a new view (WGS84 bbox, zoom), debounced. */
+    onViewChange: (bbox: [number, number, number, number], zoom: number, widthPx: number) => void
     selectedFeatureId: string | number | null
     style: LayerStyle
     /** The style resolved against the displayed result (spec 003): drives paint and filters. */
@@ -45,9 +61,21 @@
     onTogglePanel: (panel: 'style' | 'basemap') => void
     onSelectFeature: (id: string | number | null) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
+    /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
+    tiles?: TilesArchive | null
+    /** A clicked PMTiles feature, for the inspector (tiles carry no table to look it up in). */
+    onInspectTileFeature?: (feature: Feature | null) => void
+    /** Why the Layer style button is unavailable (PMTiles), or null. */
+    styleUnavailable?: string | null
   }
   let {
     layer,
+    viewFeatures,
+    extraFeature = null,
+    viewLoading = false,
+    cameraRequest = null,
+    onPainted,
+    onViewChange,
     selectedFeatureId,
     style,
     resolved,
@@ -62,6 +90,9 @@
     onTogglePanel,
     onSelectFeature,
     onCursorMove,
+    tiles = null,
+    onInspectTileFeature,
+    styleUnavailable = null,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -78,7 +109,7 @@
   const POLYGON = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
   const LINE = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
   const POINT = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
-  const INTERACTIVE_LAYERS = ['fill', 'line', 'circle']
+  const INTERACTIVE_DEFS = ['fill', 'line', 'circle']
 
   /**
    * Canvas colors cannot use CSS variables (CLAUDE.md), so the selection
@@ -100,7 +131,25 @@
     { id: 'circle', type: 'circle', filter: POINT },
   ]
 
-  function toFeatureCollection(l: Layer): GeoJSON.FeatureCollection {
+  /**
+   * The map layers drawn now: LAYER_DEFS once over the view features, or (PMTiles,
+   * US5) once per archive layer, as `<def>::<source layer>`.
+   */
+  let styledTiles: TilesArchive | null = null
+  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string }> {
+    if (!styledTiles) return LAYER_DEFS.map((def) => ({ id: def.id, def }))
+    return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.map((def) => ({ id: `${def.id}::${sourceLayer}`, def, sourceLayer })))
+  }
+  function interactiveLayers(): string[] {
+    return layerInstances()
+      .filter((l) => INTERACTIVE_DEFS.includes(l.def.id))
+      .map((l) => l.id)
+      .filter((id) => map?.getLayer(id))
+  }
+
+  function toFeatureCollection(features: Feature[]): GeoJSON.FeatureCollection {
+    // A Point standing in for a polygon or line (under ~2 px, spec 007) is drawn as a small dot.
+    const dots = layer?.geometryType !== 'Point'
     // Svelte 5's $state wraps Layer (and its nested features/geometry) in
     // reactive Proxy objects (structuredClone refuses to clone them
     // directly: "could not be cloned", confirmed via Playwright). Passing a
@@ -114,11 +163,11 @@
     return JSON.parse(
       JSON.stringify({
         type: 'FeatureCollection',
-        features: l.features
+        features: features
           .filter((f) => f.geometry !== null)
           .map((f) => ({
             type: 'Feature',
-            properties: { ...f.attributes, [ID_PROP]: f.id },
+            properties: { ...f.attributes, [ID_PROP]: f.id, ...(dots && f.geometry?.type === 'Point' ? { [DOT_PROP]: true } : {}) },
             geometry: f.geometry as GeoJSON.Geometry,
           })),
       })
@@ -134,20 +183,25 @@
   function applyPaint(): void {
     if (!map || !mapReady) return
     const p = paintFor(style, resolved, selectionColor())
-    for (const def of LAYER_DEFS) {
-      if (map.getLayer(def.id)) map.setFilter(def.id, layerFilter(def) as Parameters<MapLibreMap['setFilter']>[1])
-    }
-    for (const [layerId, props] of Object.entries(p)) {
-      if (!map.getLayer(layerId)) continue // mid basemap switch; buildStyle carries the current paints
-      for (const [prop, value] of Object.entries(props)) {
-        map.setPaintProperty(layerId, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
+    for (const l of layerInstances()) {
+      if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
+      map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
+      for (const [prop, value] of Object.entries(p[l.def.id as keyof typeof p] ?? {})) {
+        map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
     }
   }
 
+  /** A PMTiles feature for the inspector: its properties and the archive layer it came from. */
+  function tileFeature(hit: MapGeoJSONFeature): Feature {
+    const attributes: Feature['attributes'] = {}
+    for (const [k, v] of Object.entries(hit.properties ?? {})) attributes[k] = v as Feature['attributes'][string]
+    return { id: hit.id ?? `${hit.sourceLayer}:${JSON.stringify(hit.properties)}`, geometry: null, attributes, sourceLayer: hit.sourceLayer }
+  }
+
   let hoveredId: string | number | null = null
   function setHover(id: string | number | null): void {
-    if (!map || id === hoveredId) return
+    if (!map || id === hoveredId || styledTiles) return
     if (hoveredId !== null) map.setFeatureState({ source: SOURCE_ID, id: hoveredId }, { hover: false })
     hoveredId = id
     if (id !== null) map.setFeatureState({ source: SOURCE_ID, id }, { hover: true })
@@ -181,10 +235,19 @@
       const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
       if (first && !first.attribution) first.attribution = entry.attribution
     }
-    doc.sources[SOURCE_ID] = { type: 'geojson', data: currentData, promoteId: ID_PROP }
+    styledTiles = tiles
+    doc.sources[SOURCE_ID] = styledTiles ? { type: 'vector', url: styledTiles.url } : { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paintFor(style, resolved, selectionColor())
-    for (const def of LAYER_DEFS) {
-      doc.layers.push({ id: def.id, type: def.type, source: SOURCE_ID, filter: layerFilter(def), layout: def.layout ?? {}, paint: p[def.id as keyof typeof p] } as never)
+    for (const l of layerInstances()) {
+      doc.layers.push({
+        id: l.id,
+        type: l.def.type,
+        source: SOURCE_ID,
+        ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
+        filter: layerFilter(l.def),
+        layout: l.def.layout ?? {},
+        paint: p[l.def.id as keyof typeof p],
+      } as never)
     }
     return doc
   }
@@ -193,14 +256,32 @@
     if (!map) return
     const m = map
     m.on('click', (e: MapMouseEvent) => {
-      const hit = m.queryRenderedFeatures(e.point, { layers: INTERACTIVE_LAYERS })[0]
+      if (styledTiles) {
+        // PMTiles: the tile feature itself is what the inspector shows. Tile
+        // features are often a pixel or two wide, so a click allows 4 px.
+        const { x, y } = e.point
+        const near = m.queryRenderedFeatures(
+          [
+            [x - 4, y - 4],
+            [x + 4, y + 4],
+          ],
+          { layers: interactiveLayers() }
+        )[0]
+        onInspectTileFeature?.(near ? tileFeature(near) : null)
+        return
+      }
+      const hit = m.queryRenderedFeatures(e.point, { layers: interactiveLayers() })[0]
       onSelectFeature(featureId(hit))
     })
-    for (const id of INTERACTIVE_LAYERS) {
-      m.on('mousemove', id, (e: MapLayerMouseEvent) => setHover(featureId(e.features?.[0])))
-      m.on('mouseleave', id, () => setHover(null))
-    }
-    m.on('mousemove', (e: MapMouseEvent) => onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat }))
+    m.on('mousemove', (e: MapMouseEvent) => {
+      onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
+      const layers = interactiveLayers()
+      const hit = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
+      else setHover(featureId(hit))
+    })
+    // Spec 007 FR-007: load the new view once the map settles.
+    m.on('moveend', scheduleViewChange)
     m.on('mouseout', () => onCursorMove(null))
 
     // Tile/sprite/glyph failures after the style document itself loaded
@@ -219,10 +300,18 @@
     // webview). Refreshed on every idle, since a basemap switch rebuilds
     // the style. Read by the VS Code test hook and the browser tests.
     m.on('idle', () => {
-      // Only meaningful once a layer is loaded: an idle before the data
-      // arrives must not publish a premature "0".
-      if (!layer) return
-      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
+      // Only meaningful once this layer's first view is drawn: an idle before
+      // the data arrives must not publish a premature "0".
+      if (!layer || !dataLoaded) return
+      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: interactiveLayers() }).length)
+      if (paintPending) {
+        paintPending = false
+        // Monotonic "view data was drawn" counter: unlike data-rendered-features
+        // (cleared when new data arrives), it never disappears, so a quick
+        // preview paint is observable (spec 007, SC-009 timing).
+        container.dataset.paints = String(Number(container.dataset.paints ?? 0) + 1)
+        onPainted?.()
+      }
     })
     m.on('sourcedata', (e: { sourceId?: string; tile?: unknown }) => {
       if (e.sourceId !== SOURCE_ID && e.tile) health.recordSuccess()
@@ -230,6 +319,7 @@
   }
 
   let activeBasemap: BasemapCatalogEntry | null = null
+  let activeBaseStyle: BasemapStyle | null = null
   let basemapHost = ''
   let health = new BasemapHealth()
   let basemapRequest = 0
@@ -243,6 +333,7 @@
       return
     }
     activeBasemap = entry
+    activeBaseStyle = result.style
     basemapHost = entry.url ? new URL(entry.url).host : ''
     health = new BasemapHealth()
     const m = map
@@ -294,7 +385,7 @@
   }
 
   function zoomToFeature(id: string | number): void {
-    const feature = layer?.features.find((f) => f.id === id)
+    const feature = viewFeatures?.features.find((f) => f.id === id) ?? (extraFeature?.id === id ? extraFeature : undefined)
     if (!map || !feature?.geometry) return
     const b = geometryBounds(feature.geometry)
     if (!b) return
@@ -355,21 +446,74 @@
   })
 
   onDestroy(() => {
+    if (viewTimer) clearTimeout(viewTimer)
     resizeObserver?.disconnect()
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
     map?.remove()
     map = null
   })
 
-  // The only place source.setData() is called: the layer may arrive before
-  // or after the map's style has loaded, so this waits for both.
+  // Spec 007: views. A new layer (file or result) fits its extent, which
+  // ends in a moveend and so a view request; the previous features stay
+  // drawn until the new view arrives (FR-007).
+  let viewTimer: ReturnType<typeof setTimeout> | null = null
+  function emitViewChange(): void {
+    if (!map || !layer) return
+    const b = map.getBounds()
+    onViewChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map.getZoom(), container.clientWidth)
+  }
+  function scheduleViewChange(): void {
+    if (viewTimer) clearTimeout(viewTimer)
+    viewTimer = setTimeout(() => {
+      viewTimer = null
+      emitViewChange()
+    }, 150)
+  }
+
+  let dataLoaded = false
+  /** New view data was set and hasn't been reported painted yet. */
+  let paintPending = false
+  let shownLayer: Layer | null = null
   $effect(() => {
     const current = layer
     if (!mapReady || !map) return
-    currentData = current ? toFeatureCollection(current) : { type: 'FeatureCollection', features: [] }
+    if (current === shownLayer) return
+    const firstOfFile = !shownLayer || !current || shownLayer.id !== current.id
+    shownLayer = current
+    // A PMTiles archive and view features need different sources: rebuild the style when that changes (US5).
+    const nextTiles = untrack(() => tiles)
+    if (nextTiles?.url !== styledTiles?.url && activeBasemap) {
+      hoveredId = null
+      map.setStyle(buildStyle(activeBaseStyle, activeBasemap), { diff: false })
+    }
+    if (!current) {
+      dataLoaded = false
+      currentData = { type: 'FeatureCollection', features: [] }
+      ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
+      return
+    }
+    if (firstOfFile) dataLoaded = false
+    // Tiles draw themselves; their first idle reports what was drawn.
+    if (nextTiles) {
+      dataLoaded = true
+      delete container.dataset.renderedFeatures
+    }
+    untrack(() => fitExtent(false))
+    // fitBounds without animation still ends in a moveend; ask explicitly too, in case the camera didn't move.
+    scheduleViewChange()
+  })
+
+  // The only place source.setData() is called.
+  $effect(() => {
+    const features = viewFeatures?.features ?? null
+    const extra = extraFeature
+    if (!mapReady || !map || features === null) return
+    const all = extra && !features.some((f) => f.id === extra.id) ? [...features, extra] : features
+    currentData = toFeatureCollection(all)
     ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
     hoveredId = null
-    fitExtent(false)
+    dataLoaded = true
+    paintPending = true
     // Marks the rendered-feature count stale until the next idle (above).
     delete container.dataset.renderedFeatures
   })
@@ -390,7 +534,7 @@
   $effect(() => {
     const id = selectedFeatureId
     void layer
-    if (!map || !mapReady) return
+    if (!map || !mapReady || styledTiles) return
     if (previousSelected !== null) map.setFeatureState({ source: SOURCE_ID, id: previousSelected }, { selected: false })
     if (id !== null && id !== undefined) map.setFeatureState({ source: SOURCE_ID, id }, { selected: true })
     previousSelected = id ?? null
@@ -413,6 +557,14 @@
     if (req && mapReady) untrack(() => zoomToFeature(req.id))
   })
 
+  let appliedCamera = 0
+  $effect(() => {
+    const req = cameraRequest
+    if (!req || !mapReady || !map || req.seq === appliedCamera) return
+    appliedCamera = req.seq
+    map.jumpTo({ center: req.center, zoom: req.zoom })
+  })
+
   $effect(() => {
     // Splitter drag ended: catch up with one resize.
     if (!resizing) scheduleResize()
@@ -421,6 +573,9 @@
 
 <div class="map-view" style:background={blankColor ?? undefined}>
   <div class="canvas-host" class:dimmed bind:this={container}></div>
+  {#if viewLoading}
+    <ProgressBar label="Loading the features in view" />
+  {/if}
   <div class="controls" role="toolbar" aria-label="Map controls">
     <div class="group">
       <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
@@ -430,11 +585,11 @@
     <div class="group">
       <button
         type="button"
-        title="Layer style"
+        title={styleUnavailable ?? 'Layer style'}
         aria-label="Layer style"
         aria-pressed={openPanel === 'style'}
         class:active={openPanel === 'style'}
-        disabled={!layer}
+        disabled={!layer || styleUnavailable !== null}
         onclick={() => onTogglePanel('style')}
       >
         <Icon name="paint" />

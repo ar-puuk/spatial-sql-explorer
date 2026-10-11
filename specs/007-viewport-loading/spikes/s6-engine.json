@@ -1,0 +1,148 @@
+{
+  "fnMvt": {
+    "ms": 55,
+    "rowCount": 5,
+    "rows": [
+      {
+        "function_name": "ST_AsMVT"
+      },
+      {
+        "function_name": "ST_AsMVTGeom"
+      },
+      {
+        "function_name": "ST_Hilbert"
+      },
+      {
+        "function_name": "ST_QuadKey"
+      },
+      {
+        "function_name": "ST_TileEnvelope"
+      }
+    ],
+    "engineBytes": 0
+  },
+  "mvt": {
+    "ms": 4854,
+    "rowCount": 1,
+    "rows": [
+      {
+        "bytes": 25
+      }
+    ],
+    "engineBytes": 356352
+  },
+  "bboxIndex": {
+    "ms": 6860,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 4000000
+      }
+    ],
+    "engineBytes": 215406592
+  },
+  "bboxIndexView": {
+    "ms": 4,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 49
+      }
+    ],
+    "engineBytes": 215406592
+  },
+  "fetchByRowNumber": {
+    "ms": 10,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 49
+      }
+    ],
+    "engineBytes": 215406592
+  },
+  "rtreeTable": {
+    "ms": 3477,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 1000000
+      }
+    ],
+    "engineBytes": 482846720
+  },
+  "rtreeIndex": {
+    "ms": 492,
+    "rowCount": 0,
+    "rows": [],
+    "engineBytes": 507750400
+  },
+  "rtreeView": {
+    "ms": 3,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 10
+      }
+    ],
+    "engineBytes": 507750400
+  },
+  "noIndexView": {
+    "ms": 305,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 10
+      }
+    ],
+    "engineBytes": 507750400
+  },
+  "dropT": {
+    "ms": 3,
+    "rowCount": 0,
+    "rows": [],
+    "engineBytes": 356352
+  },
+  "copy1": {
+    "ms": 4494,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 4000000
+      }
+    ],
+    "engineBytes": 1257592832
+  },
+  "copy2": {
+    "ms": 4695,
+    "rowCount": 1,
+    "rows": [
+      {
+        "Count": 4000000
+      }
+    ],
+    "engineBytes": 2513682432
+  },
+  "copy3": {
+    "error": "Out of Memory Error: failed to allocate data of size 16.0 MiB (3.1 GiB/3.1 GiB used)\nDatabase is launched in in-memory mode and no temporary directory is specified.\nUnused blocks cannot be offloaded to disk.\n\nLaunch the database with a persistent storage back-end\nOr set SET temp_directory='/path/to/tmp.tmp'\n\nPossible solutions:\n* Reducing the number of threads (SET threads=X)\n* Disabling insertion-order preservation (SET preserve_insertion_order=false)\n* Increasing the memory limit (SET memory_limit='...GB')\n\nSee also https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads"
+  },
+  "afterOom": {
+    "ms": 1,
+    "rowCount": 1,
+    "rows": [
+      {
+        "ok": 42
+      }
+    ],
+    "engineBytes": 2512179200
+  },
+  "dropCopies": {
+    "ms": 5,
+    "rowCount": 0,
+    "rows": [],
+    "engineBytes": 0
+  },
+  "afterDrop": {
+    "error": "Invalid Input Error: File '/se-source/nobbox.parquet' too small to be a Parquet file\n\nLINE 1: SELECT count(*) AS n FROM read_parquet('/se-source/nobbox.parquet') WHERE value >...\n                                  ^"
+  }
+}

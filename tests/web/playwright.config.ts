@@ -35,7 +35,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /performance\.spec\.ts/,
+      testIgnore: /(performance|scale)\.spec\.ts/,
       use: chromium,
     },
     // Timing checks (SC-001/003/004) run alone, after everything else:
@@ -43,7 +43,7 @@ export default defineConfig({
     // the app (a 1.4 s open measured 2.3 s under load).
     {
       name: 'performance',
-      testMatch: /performance\.spec\.ts/,
+      testMatch: /(performance|scale)\.spec\.ts/,
       dependencies: ['chromium'],
       fullyParallel: false,
       use: chromium,

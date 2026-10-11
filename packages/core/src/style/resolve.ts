@@ -2,12 +2,48 @@
 // draw (spec 003 data-model.md ResolvedStyle). Pure; recomputed whenever the
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
-import type { Layer } from '../models.js'
+import type { Feature, Layer } from '../models.js'
 import { NO_VALUE_COLOR, OTHER_COLOR, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 
-export type ResolveInput = Pick<Layer, 'features' | 'columns'>
+/**
+ * The styled column's data (spec 007 research §11). `values`: every row's
+ * value (results up to STYLE_VALUES_CAP rows; classified exactly as in spec
+ * 003). For bigger results, from SQL: `categories` (exact per-category
+ * counts) or `numbers` (evenly spaced order statistics, exact quantile order
+ * statistics; class counts are filled in afterwards, also exactly).
+ */
+export type ColumnData =
+  | { kind: 'values'; column: string; values: Array<Feature['attributes'][string]> }
+  | { kind: 'categories'; column: string; top: Array<{ value: string; count: number }>; distinct: number; nonNull: number; nulls: number }
+  | { kind: 'numbers'; column: string; sample: number[]; n: number; nulls: number; quantileStats?: Record<number, number> }
+
+/**
+ * What a style is resolved against: the result's columns, plus its features
+ * (spec 003; small in-memory results and tests) or, since spec 007, its row
+ * count and the styled column's data computed by the engine.
+ */
+export interface ResolveInput {
+  columns: Layer['columns']
+  features?: Feature[]
+  rowCount?: number
+  data?: ColumnData | null
+  /** Distinct-value counts per column, when known (renderer suggestions). */
+  distinct?: Record<string, number>
+}
+
+/** Rows in the result. */
+export function rowsOf(input: ResolveInput | null): number {
+  return input?.rowCount ?? input?.features?.length ?? 0
+}
+
+/** Every value of `column`, from the fetched data or the features. */
+export function valuesOf(input: ResolveInput, column: string): Array<Feature['attributes'][string] | undefined> {
+  const d = input.data
+  if (d?.kind === 'values' && d.column === column) return d.values
+  return (input.features ?? []).map((f) => f.attributes[column])
+}
 
 const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|FLOAT|DOUBLE|REAL|DECIMAL(\(.*\))?|NUMERIC(\(.*\))?|INT[1248]?|FLOAT[48])$/i
 
@@ -28,7 +64,7 @@ function single(style: LayerStyle, layer: ResolveInput | null, extra: Partial<Re
     caption: '',
     notes: [],
     ...extra,
-    classes: [{ key: 'single', kind: 'single', label: 'All features', color: style.fillColor, visible: true, count: layer?.features.length ?? 0 }],
+    classes: [{ key: 'single', kind: 'single', label: 'All features', color: style.fillColor, visible: true, count: rowsOf(layer) }],
   }
 }
 
@@ -69,10 +105,17 @@ function categorized(style: LayerStyle, r: CategorizedRenderer, layer: ResolveIn
 
   const counts = new Map<string, number>()
   let nulls = 0
-  for (const f of layer.features) {
-    const v = toCategory(f.attributes[r.column])
-    if (v === null) nulls++
-    else counts.set(v, (counts.get(v) ?? 0) + 1)
+  // Spec 007: a big result's exact counts from SQL (the top categories, plus totals).
+  const sql = layer.data?.kind === 'categories' && layer.data.column === r.column ? layer.data : null
+  if (sql) {
+    for (const c of sql.top) counts.set(c.value, c.count)
+    nulls = sql.nulls
+  } else {
+    for (const value of valuesOf(layer, r.column)) {
+      const v = toCategory(value)
+      if (v === null) nulls++
+      else counts.set(v, (counts.get(v) ?? 0) + 1)
+    }
   }
 
   const ordered = r.manual
@@ -86,6 +129,13 @@ function categorized(style: LayerStyle, r: CategorizedRenderer, layer: ResolveIn
       otherCount += n
       otherGroups++
     }
+  }
+  if (sql) {
+    // Categories beyond the fetched top ones are "Other" too.
+    let fetched = 0
+    for (const n of counts.values()) fetched += n
+    otherCount += Math.max(0, sql.nonNull - fetched)
+    otherGroups += Math.max(0, sql.distinct - counts.size)
   }
 
   const colors = rampColors(r.ramp, ordered.length)
@@ -161,8 +211,11 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   const type = layer.columns.find((c) => c.name === r.column)?.type ?? ''
   if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
 
-  const numbers: Array<number | null> = layer.features.map((f) => toNumber(f.attributes[r.column]))
-  const sorted = numbers.filter((v): v is number => v !== null).sort((a, b) => a - b)
+  // Spec 007: a big result's order statistics from SQL (counts filled in afterwards).
+  const stats = layer.data?.kind === 'numbers' && layer.data.column === r.column ? layer.data : null
+  const numbers: Array<number | null> = stats ? [] : valuesOf(layer, r.column).map((v) => toNumber(v))
+  const sorted = stats ? stats.sample : numbers.filter((v): v is number => v !== null).sort((a, b) => a - b)
+  const total = stats ? stats.n : sorted.length
   const notes: string[] = []
   let estimated = false
   // Fewer distinct values than classes: one class per value, labeled by it.
@@ -184,8 +237,15 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
       ranges = distinct.map((v, i) => ({ lower: i === 0 ? v : distinct[i - 1], upper: v }))
       notes.push(`Only ${distinct.length} distinct values: ${distinct.length} classes.`)
     } else {
-      const breaks = r.method === 'equal' ? equalIntervalBreaks(sorted, r.classCount) : r.method === 'quantile' ? quantileBreaks(sorted, r.classCount) : jenksBreaks(sorted, r.classCount)
-      estimated = r.method === 'jenks' && sorted.length > JENKS_EXACT_LIMIT
+      const breaks =
+        r.method === 'equal'
+          ? equalIntervalBreaks(sorted, r.classCount)
+          : r.method === 'quantile'
+            ? stats?.quantileStats
+              ? quantileFromStats(total, r.classCount, stats.quantileStats)
+              : quantileBreaks(sorted, r.classCount)
+            : jenksBreaks(sorted, r.classCount)
+      estimated = r.method === 'jenks' && (stats ? stats.sample.length < total : total > JENKS_EXACT_LIMIT)
       ranges = rangesFrom(sorted, breaks)
       if (ranges.length < r.classCount) notes.push(`${r.classCount - ranges.length} of ${r.classCount} classes merged: many values are identical.`)
     }
@@ -194,7 +254,7 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   }
 
   const counts = ranges.map(() => 0)
-  let nulls = 0
+  let nulls = stats ? stats.nulls : 0
   let outside = 0
   for (const v of numbers) {
     if (v === null) nulls++
@@ -213,11 +273,22 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
     const label = perValue || range.lower === range.upper ? fmt.format(range.upper) : `${fmt.format(range.lower)} – ${fmt.format(range.upper)}`
     return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? label, color: o?.color ?? colors[i], visible: o?.visible !== false, count: counts[i] }
   })
-  if (outside > 0) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: outside })
+  // A big result's class counts arrive from SQL afterwards (QuerySession.resolveStyle), "Other" included.
+  if (outside > 0 || (stats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: outside })
   if (nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: nulls })
 
   const n = ranges.length
   let caption = `${r.column} · ${METHOD_NAMES[r.method]}, ${n} ${n === 1 ? 'class' : 'classes'}`
-  if (estimated) caption += ` (estimated from ${nf.format(JENKS_EXACT_LIMIT)} values)`
+  if (estimated) caption += ` (estimated from ${nf.format(stats ? stats.sample.length : JENKS_EXACT_LIMIT)} values)`
   return { status: 'ok', caption, classes, notes }
+}
+
+/** QGIS's quantile from just the order statistics around each break (stats.ts quantilePositions). */
+function quantileFromStats(n: number, k: number, stats: Record<number, number>): number[] {
+  return Array.from({ length: k - 1 }, (_, i) => {
+    const a = ((i + 1) / k) * (n - 1)
+    const lo = Math.floor(a)
+    const r = a - lo
+    return (1 - r) * (stats[lo] ?? 0) + r * (stats[Math.min(lo + 1, n - 1)] ?? stats[lo] ?? 0)
+  })
 }

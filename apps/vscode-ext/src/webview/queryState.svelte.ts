@@ -17,6 +17,8 @@ export interface QueryStateReport {
   refusedReason?: string
   status?: string
   historyLength?: number
+  /** The editor text (spec 007 T043: the default is `SELECT * FROM layer`). */
+  queryText?: string
 }
 
 export function watchQueryState(store: ViewerStore, report: (state: QueryStateReport) => void): () => void {
@@ -37,6 +39,7 @@ export function watchQueryState(store: ViewerStore, report: (state: QueryStateRe
         refusedReason: store.queryPhase === 'refused' ? store.queryStatus.replace(/^⛔\s*/, '') : undefined,
         status: store.queryStatus,
         historyLength: store.history.length,
+        queryText: store.queryText,
       })
     })
   })

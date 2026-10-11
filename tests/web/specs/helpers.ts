@@ -1,5 +1,5 @@
 // Shared helpers for spec 002's query specs. Not a spec file itself.
-import { expect, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -89,4 +89,57 @@ export function writeSquares(): string {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-sq-')), 'squares.geojson')
   fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${features.join(',')}]}`)
   return file
+}
+
+// --- Spec 007 ---------------------------------------------------------------
+
+/**
+ * Opens a committed fixture (tests/vscode-ext/fixtures) and waits for data.
+ *
+ * `search` may carry the spec 007 test overrides, which the app honors only
+ * with `e2e=1` (packages/core/src/source/readModes.ts, `TEST_OVERRIDE_KEYS`):
+ * - `cap=<n>`: display cap for map views (exercises thinning on small data);
+ * - `wholeThreshold=<bytes>`: whole-read announcement / FlatGeobuf in-memory threshold;
+ * - `materializeCap=<n>`: results above this many rows stay views;
+ * - `jenksSample=<n>`: natural-breaks sample size;
+ * - `memoryLimit=<size>`: engine memory limit (out-of-memory tests);
+ * - `slowViewMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests.
+ */
+export async function openFixture(page: Page, name: string, search = '?e2e=1'): Promise<void> {
+  await openFile(page, fixture(name), search)
+}
+
+/** A file from the gitignored tests/.large-data (npm run large-data); skips the test when it's missing. */
+export function largeData(name: string): string {
+  const file = path.resolve(__dirname, '../../.large-data', name)
+  test.skip(!fs.existsSync(file), `Run \`npm run large-data\` to generate ${name}`)
+  return file
+}
+
+// Spec 005 export helpers (shared by export.spec and paging.spec).
+export const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
+
+/** Opens the dialog, sets choices, exports, and returns the downloaded bytes. */
+export async function exportVia(page: Page, choices: { format: string; crs?: 'result' | 'wgs84'; geometry?: string }): Promise<{ name: string; bytes: Buffer }> {
+  if (!(await exportDialog(page).isVisible())) await page.getByRole('button', { name: 'Export data…' }).click()
+  await expect(exportDialog(page)).toBeVisible()
+  await exportDialog(page).getByRole('radio', { name: choices.format, exact: true }).click()
+  if (choices.crs) await exportDialog(page).getByLabel('CRS').selectOption(choices.crs)
+  if (choices.geometry) await exportDialog(page).getByRole('radio', { name: choices.geometry }).click()
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), exportDialog(page).getByRole('button', { name: 'Export…' }).click()])
+  const file = await download.path()
+  await expect(exportDialog(page).getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
+  return { name: download.suggestedFilename(), bytes: fs.readFileSync(file) }
+}
+
+export async function inspectParquet(page: Page, bytes: Buffer) {
+  return page.evaluate(
+    (b64) =>
+      (
+        window as unknown as {
+          __spatialExplorerE2E: { inspectParquet: (b: string) => Promise<{ rows: number; columns: string[]; geo: any; geoKeys: number }> }
+        }
+      ).__spatialExplorerE2E.inspectParquet(b64),
+    bytes.toString('base64')
+  )
 }

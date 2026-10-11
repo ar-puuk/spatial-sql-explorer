@@ -1,0 +1,50 @@
+{
+  "regHandle": {
+    "ms": 1,
+    "bytes": 157630744
+  },
+  "regBuffer": {
+    "ms": 106,
+    "bytes": 157630744
+  },
+  "b.fgb:scan": {
+    "ms": 232,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 111409
+      }
+    ],
+    "engineBytes": 0
+  },
+  "b.fgb:region": {
+    "ms": 12,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 10289
+      }
+    ],
+    "engineBytes": 0
+  },
+  "h.fgb:scan": {
+    "ms": 348523,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 111409
+      }
+    ],
+    "engineBytes": 0
+  },
+  "h.fgb:region": {
+    "ms": 8538,
+    "rowCount": 1,
+    "rows": [
+      {
+        "n": 10289
+      }
+    ],
+    "engineBytes": 0
+  }
+}

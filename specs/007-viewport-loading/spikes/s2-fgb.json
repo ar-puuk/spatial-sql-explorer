@@ -1,0 +1,9 @@
+{
+  "note": "Transcribed from the run log: the test timed out (15 min) inside countAll, before writing its report.",
+  "file": "parcels-4m.fgb (1,450,668,064 bytes, packed Hilbert R-tree), registered as a File handle",
+  "meta": { "ms": 38, "feature_count": 4000000, "crs": "4326", "fields": 6 },
+  "viewCity": { "ms": 50, "n": 49 },
+  "viewCityRows": { "ms": 47, "rows": 49 },
+  "viewRegion_50000": { "ms": 37179, "n": 50000 },
+  "countAll": { "result": "did not finish within ~14 minutes" }
+}

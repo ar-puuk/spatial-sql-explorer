@@ -7,7 +7,7 @@ export interface ExportStateReport {
   open: boolean
   phase: string
   disabled: string | null
-  plan: { format: string; rowCount: number; displayLimited: { shown: number; total: number } | null; formats: string[]; crs: string; notices: string[] } | null
+  plan: { format: string; rowCount: number; formats: string[]; crs: string; notices: string[] } | null
   outcome: unknown
 }
 
@@ -23,7 +23,6 @@ export function watchExportState(store: ViewerStore, report: (state: ExportState
           ? {
               format: plan.format,
               rowCount: plan.rowCount,
-              displayLimited: plan.displayLimited,
               formats: plan.formats.filter((f) => f.available).map((f) => f.id),
               crs: plan.crs.label,
               notices: plan.notices,
