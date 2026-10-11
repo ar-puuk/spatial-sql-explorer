@@ -3,7 +3,7 @@
 // back by QGIS or a reader) appear here.
 //
 // Every GDAL writer still fails in DuckDB-WASM 1.32.0, so the engine writes
-// only Parquet/GeoParquet, CSV and JSON; the other formats are written in JS
+// only Parquet/GeoParquet, CSV, JSON and GeoJSONSeq; the other formats are written in JS
 // from the result's rows (export/writers/*), streamed out of the engine in
 // batches.
 
@@ -33,7 +33,7 @@ export const EXPORT_FORMATS: readonly ExportFormat[] = [
   { id: 'flatgeobuf', label: 'FlatGeobuf', extension: '.fgb', group: 'spatial', crs: 'any', writer: 'js', streams: true },
   { id: 'shapefile', label: 'Shapefile (zip)', extension: '.shp.zip', group: 'spatial', crs: 'any', writer: 'js', streams: true },
   { id: 'kml', label: 'KML', extension: '.kml', group: 'spatial', crs: 'wgs84-only', writer: 'js', streams: true },
-  { id: 'geojsonseq', label: 'GeoJSON (newline-delimited)', extension: '.geojsonl', group: 'spatial', crs: 'wgs84-only', writer: 'js', streams: true },
+  { id: 'geojsonseq', label: 'GeoJSON (newline-delimited)', extension: '.geojsonl', group: 'spatial', crs: 'wgs84-only', writer: 'engine', streams: false },
   { id: 'csv', label: 'CSV', extension: '.csv', group: 'both', crs: 'any', writer: 'engine', streams: false },
   { id: 'parquet', label: 'Parquet', extension: '.parquet', group: 'attributes', crs: 'any', writer: 'engine', streams: false },
   { id: 'xlsx', label: 'Excel workbook', extension: '.xlsx', group: 'attributes', crs: 'any', writer: 'js', streams: true },

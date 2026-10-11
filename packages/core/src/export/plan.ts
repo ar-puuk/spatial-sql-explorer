@@ -212,7 +212,14 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   if (format === 'geopackage') notices.push('A GeoPackage is built in memory: very large results (over 1.5 GB) stop with a message; use GeoParquet for those.')
 
   const from = source === 'layer' ? quoteIdent('layer') : RESULT_TABLE
-  const selectList = select.join(', ') || '*'
+  // GeoJSONSeq is written by the engine (COPY ... FORMAT JSON, one object per
+  // line): each row is shaped as a Feature in SQL (spec 008, DuckDB first).
+  const selectList =
+    format === 'geojsonseq'
+      ? `'Feature' AS "type", ${columns.length ? `struct_pack(${columns.map((c) => `${quoteIdent(c.name)} := ${quoteIdent(c.name)}`).join(', ')})` : 'NULL'} AS properties, ${
+          g ? `CASE WHEN ${quoteIdent(g)} IS NOT NULL AND ST_IsValid(${quoteIdent(g)}) THEN ST_AsGeoJSON(${output === 'wgs84' && !resultIsWgs84 ? reprojectToWgs84Sql(quoteIdent(g), resultCrs?.srid ?? null) : quoteIdent(g)})::JSON END` : 'NULL'
+        } AS geometry`
+      : select.join(', ') || '*'
   const sql = `SELECT ${selectList} FROM ${from}`
 
   return {

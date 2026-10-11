@@ -13,7 +13,6 @@ import {
   dbfFieldNames,
   dbfRenames,
   flatGeobufWriter,
-  geoJsonSeqWriter,
   geoPackageWriter,
   gpkgGeometry,
   kmlWriter,
@@ -72,17 +71,6 @@ describe('helpers', () => {
     const v = new DataView(b.buffer)
     expect([b[0], b[1], b[3] & 0b1110, v.getInt32(4, true)]).toEqual([0x47, 0x50, 0b10, 4326])
     expect([v.getFloat64(8, true), v.getFloat64(16, true), v.getFloat64(24, true), v.getFloat64(32, true)]).toEqual([0, 4, 0, 4])
-  })
-})
-
-describe('GeoJSON (newline-delimited)', () => {
-  it('one feature per line, big integers kept as text', async () => {
-    const lines = strFromU8(await write(geoJsonSeqWriter(columns))).trim().split('\n')
-    expect(lines).toHaveLength(3)
-    const f = lines.map((l) => JSON.parse(l))
-    expect(f[0]).toMatchObject({ type: 'Feature', properties: { name: 'Alpha & <Co>', population: 12, open: true }, geometry: { type: 'Polygon' } })
-    expect(f[1].properties.population).toBe('9007199254740993')
-    expect(f[2].geometry).toBeNull()
   })
 })
 

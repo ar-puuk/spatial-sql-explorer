@@ -13,7 +13,6 @@ import { writeGeoJson } from './geojson.js'
 import { GEOJSON_JSON_PREFIX, type ExportPlan } from './plan.js'
 import { projjsonFor, wktFor } from './projjson.js'
 import { writerColumnsOf, type RowWriter } from './writers/common.js'
-import { geoJsonSeqWriter } from './writers/geojsonseq.js'
 import { kmlWriter } from './writers/kml.js'
 import { flatGeobufWriter } from './writers/flatgeobuf.js'
 import { shapefileWriter } from './writers/shapefile.js'
@@ -49,6 +48,7 @@ export function exportTarget(extension: string): string {
 export function copyOptions(format: ExportPlan['format'], geo?: string): string {
   if (format === 'csv') return '(FORMAT CSV, HEADER)'
   if (format === 'json') return '(FORMAT JSON, ARRAY true)'
+  if (format === 'geojsonseq') return '(FORMAT JSON)'
   const kv = geo ? `, KV_METADATA {geo: '${geo.replace(/'/g, "''")}'}` : ''
   return `(FORMAT PARQUET, GEOPARQUET_VERSION 'NONE'${kv})`
 }
@@ -86,7 +86,7 @@ async function geoMetadata(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: E
 async function emptyGeometries(conn: AsyncDuckDBConnection, plan: ExportPlan, isCancelled: () => boolean): Promise<number> {
   if (!plan.geometryColumn || plan.format === 'parquet') return 0
   if (!plan.includeGeometry) return 0
-  const col = exportFormat(plan.format).writer === 'js' ? '"__se_geojson"' : plan.format === 'csv' && plan.csvGeometry === 'xy' ? null : `"${plan.geometryColumn}"`
+  const col = exportFormat(plan.format).writer === 'js' ? '"__se_geojson"' : plan.format === 'geojsonseq' ? 'geometry' : plan.format === 'csv' && plan.csvGeometry === 'xy' ? null : `"${plan.geometryColumn}"`
   if (!col) return 0 // X/Y: counted through the same CASE guard, reported by the plan
   const row = await singleRow<{ n: bigint | number }>(conn, `SELECT count(*) AS n FROM (${plan.sql}) WHERE ${col} IS NULL`, isCancelled)
   return Number(row.n)
@@ -108,8 +108,6 @@ async function writerFor(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: Exp
   // Unknown CRS: the viewer assumed WGS84 (crsAssumed), so the files say so too.
   const srid = plan.crs.srid ?? 4326
   switch (plan.format) {
-    case 'geojsonseq':
-      return geoJsonSeqWriter(columns)
     case 'kml':
       return kmlWriter(columns, baseOf(plan))
     case 'flatgeobuf':
