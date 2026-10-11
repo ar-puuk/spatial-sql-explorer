@@ -35,6 +35,8 @@ export interface ExportRequest {
    * formats (CSV, Parquet, Excel, JSON).
    */
   includeGeometry?: boolean
+  /** Spec 008 (user request): the output file name without its extension; empty or absent: `<source>-export`. */
+  fileName?: string
 }
 
 export type ExportScope = 'all' | 'filtered' | 'selected'
@@ -57,7 +59,16 @@ export interface ExportPlan {
   blocked: string | null
   /** The format actually used (the request's, or the first available). */
   format: ExportFormatId
-  crs: { output: 'result' | 'wgs84' | 'custom'; label: string; srid: number | null; forced: boolean; reason?: string; /** The result's own CRS, whatever is chosen. */ resultLabel: string }
+  crs: {
+    output: 'result' | 'wgs84' | 'custom'
+    label: string
+    srid: number | null
+    forced: boolean
+    reason?: string
+    /** The result's own CRS, whatever is chosen. */
+    resultLabel: string
+    resultSrid: number | null
+  }
   csvGeometry: 'wkt' | 'xy'
   xyAvailable: boolean
   geometryColumn: string | null
@@ -77,6 +88,10 @@ export interface ExportPlan {
   /** Scopes offered, with their row counts (only those that apply). */
   scopes: Array<{ id: ExportScope; rows: number }>
   fileName: string
+  /** The file name without its extension (the default, or the user's). */
+  fileBase: string
+  /** The dataset name inside the file (GeoPackage table, Shapefile parts, KML document): the source's name. */
+  layerName: string
 }
 
 const BIG_INT = /^(BIGINT|HUGEINT|UBIGINT|UHUGEINT|INT8|LONG)$/i
@@ -88,6 +103,26 @@ const quoted = (names: string[]): string => names.map((n) => `"${n}"`).join(', '
 const baseName = (fileName: string): string => {
   const dot = fileName.lastIndexOf('.')
   return dot > 0 ? fileName.slice(0, dot) : fileName
+}
+
+/**
+ * Spec 008: a typed output name, made safe for a file name: no folders,
+ * no characters Windows refuses, and without the format's extension if typed
+ * (it is added back). Empty when nothing usable is left.
+ */
+export function exportFileBase(typed: string, extension: string): string {
+  let s = Array.from(typed)
+    .filter((ch) => ch.charCodeAt(0) >= 32)
+    .join('')
+    .trim()
+  s = s.split(/[\\/]/).pop() ?? ''
+  for (const ext of [extension, '.' + (extension.split('.').pop() ?? '')]) {
+    if (ext.length > 1 && s.toLowerCase().endsWith(ext.toLowerCase())) s = s.slice(0, -ext.length)
+  }
+  return s
+    .replace(/[<>:"|?*]/g, '_')
+    .replace(/[. ]+$/, '')
+    .trim()
 }
 
 /** Type-driven notices: what each format does to columns it can't hold as-is (FR-009). */
@@ -128,6 +163,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   })
   const format = formats.find((f) => f.id === request.format && f.available)?.id ?? formats.find((f) => f.available)?.id ?? request.format
   const fmt = exportFormat(format)
+  const fileBase = exportFileBase(request.fileName ?? '', fmt.extension) || `${baseName(ctx.sourceName)}-export`
 
   // Rows (spec 007 FR-009): nothing is display-limited any more; export writes the whole result.
   const source: ExportPlan['source'] = facts.defaultView ? 'layer' : 'result'
@@ -148,6 +184,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const crs: ExportPlan['crs'] = {
     output,
     resultLabel: resultCrs?.label ?? 'EPSG:4326 (WGS84)',
+    resultSrid: resultCrs?.srid ?? null,
     label: output === 'wgs84' ? 'EPSG:4326 (WGS84)' : output === 'custom' ? `EPSG:${customCode}` : (resultCrs?.label ?? 'EPSG:4326 (WGS84)'),
     srid: targetSrid,
     forced,
@@ -248,6 +285,8 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     includeGeometry,
     writerColumns,
     geometryType: includeGeometry ? layer.geometryType : null,
-    fileName: `${baseName(ctx.sourceName)}-export${fmt.extension}`,
+    fileName: `${fileBase}${fmt.extension}`,
+    fileBase,
+    layerName: baseName(ctx.sourceName) || 'export',
   }
 }

@@ -531,12 +531,12 @@ run the sample query, and search for a place.
 
 **Export (US4)**
 
-- **FR-019**: The export dialog MUST let the user choose whether the
-  geometry is written (by default yes when the result has geometry), and
-  MUST offer only formats valid for that choice. (Revised 2026-10-11: the
-  choice is made by the format group, "With geometry" or "Attributes only".)
-  The user MUST be able to choose the output CRS before export: the
-  result's, WGS84, or any CRS by EPSG code, checked before export.
+- **FR-019**: The export dialog MUST offer an "Include geometry" switch
+  (on by default when the result has geometry), and MUST list only formats
+  valid for that choice. The user MUST be able to choose the output CRS
+  before export (the result's, or any CRS the engine knows, searchable by
+  code, name or area, the usual ones pinned) and the output file name
+  (user requests, 2026-10-11).
 - **FR-020**: With geometry, the dialog MUST offer GeoPackage, FlatGeobuf,
   Shapefile (zipped), KML and newline-delimited GeoJSON in addition to
   today's formats; without geometry, CSV, Parquet, Excel workbook and JSON.

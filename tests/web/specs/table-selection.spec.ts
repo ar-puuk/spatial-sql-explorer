@@ -2,7 +2,7 @@
 // the selection, show selected only, and exporting the selected rows.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { chooseFormat, exportDialog, inspectParquet, openFile, rowCount, writeParcels } from './helpers'
+import { exportDialog, inspectParquet, openFile, rowCount, writeParcels } from './helpers'
 
 type Sel = { kind: string; count: number; ids: number[] | null }
 const hook = <T,>(page: Page, name: string) => page.evaluate((n) => (window as unknown as { __spatialExplorerE2E: Record<string, () => T> }).__spatialExplorerE2E[n](), name)
@@ -31,9 +31,8 @@ test('tick rows, zoom to them, show only them, export them', async ({ page }) =>
 
   // Export the selected rows only.
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await exportDialog(page).getByLabel('Rows').selectOption('selected')
-  await expect(exportDialog(page).getByLabel('Rows')).toContainText('Selected rows (3)')
-  await chooseFormat(page, 'GeoParquet')
+  await exportDialog(page).getByRole('radio', { name: /^Selected \(3\)/ }).click()
+  await exportDialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoParquet' })
   const [download] = await Promise.all([page.waitForEvent('download'), exportDialog(page).getByRole('button', { name: 'Export…' }).click()])
   const parquet = await inspectParquet(page, fs.readFileSync(await download.path()))
   expect(parquet.rows).toBe(3)

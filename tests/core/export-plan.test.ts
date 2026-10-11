@@ -2,7 +2,7 @@
 // do, decided before anything runs: rows, formats, CRS, notices, SQL, name.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { planExport, type ExportPlanContext, type ExportRequest } from '@spatial-explorer/core'
+import { exportFileBase, planExport, type ExportPlanContext, type ExportRequest } from '@spatial-explorer/core'
 
 const ALL_TYPES = (JSON.parse(readFileSync(`${import.meta.dirname}/fixtures/export/columns.json`, 'utf8')) as { columns: Array<{ name: string; type: string }> }).columns
 
@@ -256,5 +256,24 @@ describe('custom CRS', () => {
   it('the same code as the result needs no transform', () => {
     const p = planExport(request({ crs: 'custom', crsCode: 26912 }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
     expect(p.sql).not.toContain('ST_Transform')
+  })
+})
+
+// Spec 008 (user request): the output file name.
+describe('output file name', () => {
+  it('defaults to <source>-export, takes a typed name, and keeps the dataset name inside', () => {
+    expect(planExport(request(), ctx())).toMatchObject({ fileBase: expect.stringMatching(/-export$/) })
+    const p = planExport(request({ format: 'shapefile', fileName: 'Utah parcels 2026' }), ctx())
+    expect(p.fileName).toBe('Utah parcels 2026.shp.zip')
+    expect(p.layerName).not.toBe('Utah parcels 2026')
+  })
+  it('is made safe: no folders, no reserved characters, the extension added once', () => {
+    expect(exportFileBase('a/b\\c.parquet', '.parquet')).toBe('c')
+    expect(exportFileBase('x.shp.zip', '.shp.zip')).toBe('x')
+    expect(exportFileBase('x.zip', '.shp.zip')).toBe('x')
+    expect(exportFileBase('what? <now>: "yes"|*', '.csv')).toBe('what_ _now__ _yes___')
+    expect(exportFileBase('  trailing. ', '.csv')).toBe('trailing')
+    expect(exportFileBase('   ', '.csv')).toBe('')
+    expect(planExport(request({ fileName: '  ' }), ctx()).fileBase).toMatch(/-export$/)
   })
 })

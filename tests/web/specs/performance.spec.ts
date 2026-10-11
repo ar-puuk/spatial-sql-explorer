@@ -10,7 +10,6 @@ import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { chooseFormat } from './helpers'
 
 /** ~10 MB of realistic polygons: 22,000 parcel-like 12-vertex rings with 6 attributes. */
 function makeTenMegabyteGeoJson(): string {
@@ -200,7 +199,7 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   await openFile(page, writeParcels(100_000, 'parcels-100k.geojson'))
   const dialog = page.getByRole('dialog', { name: 'Export data' })
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await chooseFormat(page, 'GeoParquet')
+  await dialog.getByLabel('Format', { exact: true }).selectOption({ label: 'GeoParquet' })
   await page.evaluate(() => {
     const w = window as unknown as { __longTasks: number[] }
     w.__longTasks = []
@@ -223,7 +222,7 @@ test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel 
   // Spec 007 FR-009: no prompt; the 1,000,000-row result is the export.
   await expect(page.locator('.query-status')).toContainText('1,000,000 rows', { timeout: 120000 })
   await page.getByRole('button', { name: 'Export data…' }).click()
-  await chooseFormat(page, 'GeoJSON')
+  await dialog.getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
   await dialog.getByRole('button', { name: 'Export…' }).click()
   await expect(dialog.getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
   const t1 = Date.now()

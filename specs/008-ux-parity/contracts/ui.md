@@ -71,25 +71,33 @@ binding (tests query by role and name).
 
 ## Export dialog
 
-Settings stacked in VS Code's settings-editor style (label, native
-`<select>`, one line of description). Focus starts on the first select.
+Label-left rows (user decision, 2026-10-11: the earlier stacked layout
+with grouped formats was rejected). Focus starts on the first checked
+radio (Rows), else the Format list.
 
-- `Rows` select (All rows, Filtered rows (N), Selected rows (N)), shown
-  only when a narrower scope applies.
-- `Format` select with two `<optgroup>`s: `With geometry` (the spatial
-  formats, and CSV) and `Attributes only` (CSV, Parquet, Excel workbook,
-  JSON). The group an option is in sets whether the geometry is written
-  (user request, 2026-10-11; replaces the `Include geometry` switch). A
-  result with no geometry shows `Attributes only` alone. Under it: what the
-  format is good for, and the output file name.
-- `Coordinate reference system` select, with geometry only: the result's
-  CRS, `EPSG:4326 · WGS 84`, `EPSG:3857 · Web Mercator`, `Other EPSG code…`.
-  Disabled, showing WGS 84 and the reason, for WGS84-only formats. `Other`
-  shows an `EPSG code` box (accepts `26912` or `EPSG:26912`) and a status
-  line: the CRS name from the engine's PROJ database, or why the code is
-  not usable (`aria-invalid`). While it's unusable, the dialog's Export
-  button is disabled (the toolbar's Export data… button is not).
-- `Geometry as` select (WKT text, X / Y columns) for CSV with geometry.
+- `Rows` radiogroup with All, Filtered (N) and Selected (N), shown only
+  when they apply.
+- `Include geometry` switch (`role="switch"`), disabled with a reason when
+  the result has no geometry.
+- `Format`: a native `<select>` listing only the formats that fit the
+  geometry choice.
+- `CRS` (with geometry only): `CrsPicker`, a button (`aria-haspopup="tree"`)
+  that opens a panel with a search combobox (`Search coordinate reference
+  systems`, by EPSG code, name or area) over a tree
+  (`Coordinate reference systems`): `Pinned` (the result's CRS, WGS 84,
+  Web Mercator), `Suggested for this data` (CRSs whose area of use holds
+  the data, the usual ones first), then the catalog's groups, collapsed:
+  Geographic; UTM, US State Plane, Gauss-Krüger, World (as ArcGIS groups);
+  projection families (as QGIS groups). A search opens every group with
+  matches; a code the catalog lacks is offered as `Use EPSG:n`. Arrows,
+  PageUp/PageDown, Home/End, Right/Left (expand/collapse), Enter, Escape.
+  Disabled with the reason for WGS84-only formats. A status line under it:
+  "Coordinates are reprojected to EPSG:n.", or why the code is unusable
+  (then the dialog's Export button is disabled; the toolbar's is not).
+- `Geometry` radiogroup (WKT text, X / Y columns) for CSV with geometry.
+- `File name` text box, defaulting to `<source>-export`, with the format's
+  extension shown after it. Reset for each export; made file-safe
+  (`exportFileBase`).
 - The "What changes" list shows `forcedChanges`, including Shapefile field
   renames.
 

@@ -100,7 +100,7 @@ function exactNotices(plan: ExportPlan, empty: number): string[] {
 }
 
 /** The base name of the exported file, e.g. `parcels` (a GeoPackage table, a Shapefile's parts). */
-const baseOf = (plan: ExportPlan): string => plan.fileName.replace(/-export\..*$/, '') || 'export'
+const baseOf = (plan: ExportPlan): string => plan.layerName
 
 /** A JS writer for the plan's format (spec 008 research §3). */
 async function writerFor(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: ExportPlan, assets: ExportAssets, isCancelled: () => boolean): Promise<RowWriter> {

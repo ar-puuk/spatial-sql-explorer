@@ -5,7 +5,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { chooseFormat, exportDialog as dialog, exportVia, formatGroup, fixture, inspectParquet, openFile, openQueryPanel, runQuery, writeParcels, writePoints } from './helpers'
+import { exportDialog as dialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, runQuery, writeParcels, writePoints } from './helpers'
 
 const sha = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 test.describe('export: GeoJSON, GeoParquet and CSV (US1)', () => {
@@ -16,7 +16,7 @@ test.describe('export: GeoJSON, GeoParquet and CSV (US1)', () => {
     await openFile(page, source, '?e2e=1')
     // Spec 007 FR-009: nothing is display-limited, so there is no rows choice.
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await expect(dialog(page).getByLabel('Rows')).toHaveCount(0)
+    await expect(dialog(page).getByRole('radiogroup', { name: 'Rows' })).toHaveCount(0)
     const { name, bytes } = await exportVia(page, { format: 'GeoParquet' })
     expect(name).toBe('parcels-22000-export.parquet')
     await expect(dialog(page)).toContainText('22,000 rows')
@@ -101,11 +101,10 @@ test.describe('export keeps the CRS honestly (US2)', () => {
     expect(w.bbox[0]).toBeGreaterThan(-180)
     expect(w.bbox[2]).toBeLessThan(180)
 
-    await chooseFormat(page, 'GeoJSON')
-    const crs = dialog(page).getByLabel('Coordinate reference system')
+    await dialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
+    const crs = dialog(page).getByLabel('CRS')
     await expect(crs).toBeDisabled()
-    await expect(crs).toContainText('EPSG:4326 · WGS 84')
-    await expect(dialog(page)).toContainText(/GeoJSON.*WGS ?84/)
+    await expect(crs).toContainText('required by GeoJSON')
     const gj = await exportVia(page, { format: 'GeoJSON' })
     const [lon, lat] = JSON.parse(gj.bytes.toString('utf8')).features[0].geometry.coordinates[0][0][0]
     expect(lon).toBeGreaterThan(-180)
@@ -135,15 +134,15 @@ test.describe('formats offered (US3)', () => {
     test.setTimeout(120000)
     await openFile(page, writeParcels(500), '?e2e=1')
     await page.getByRole('button', { name: 'Export data…' }).click()
-    expect(await formatGroup(page, 'With geometry')).toEqual(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV'])
+    const formats = dialog(page).getByLabel('Format', { exact: true }).locator('option')
+    await expect(formats).toHaveText(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV'])
     await dialog(page).getByRole('button', { name: 'Cancel' }).click()
 
     await openQueryPanel(page)
     await runQuery(page, 'SELECT zone, count(*)::INTEGER AS n FROM layer GROUP BY zone ORDER BY zone')
     await page.getByRole('button', { name: 'Export data…' }).click()
-    expect(await formatGroup(page, 'With geometry')).toEqual([])
-    expect(await formatGroup(page, 'Attributes only')).toEqual(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
-    await expect(dialog(page).getByLabel('Coordinate reference system')).toHaveCount(0)
+    await expect(formats).toHaveText(['CSV', 'Parquet', 'Excel workbook', 'JSON'])
+    await expect(dialog(page).getByLabel('CRS')).toHaveCount(0)
     const out = await exportVia(page, { format: 'Parquet' })
     const p = await inspectParquet(page, out.bytes)
     expect(p.rows).toBe(5)
@@ -160,7 +159,7 @@ test.describe('large exports stay responsive (US4)', () => {
 
     // 100,000 polygons to GeoJSON: rows-written progress, then a download.
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await chooseFormat(page, 'GeoJSON')
+    await dialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     const done = page.waitForEvent('download', { timeout: 120000 })
     await dialog(page).getByRole('button', { name: 'Export…' }).click()
     await expect(dialog(page).getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
@@ -174,7 +173,7 @@ test.describe('large exports stay responsive (US4)', () => {
     // Spec 007 FR-009: no prompt; the whole result is the export.
     await expect(page.locator('.query-status')).toContainText('1,000,000 rows', { timeout: 120000 })
     await page.getByRole('button', { name: 'Export data…' }).click()
-    await chooseFormat(page, 'GeoJSON')
+    await dialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     let downloaded = false
     page.on('download', () => (downloaded = true))
     await dialog(page).getByRole('button', { name: 'Export…' }).click()

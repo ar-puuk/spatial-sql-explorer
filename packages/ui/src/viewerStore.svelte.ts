@@ -40,6 +40,7 @@ import {
   QueryCancelledError,
   type ExportPlan,
   type ExportRequest,
+  type Bbox,
   type EngineError,
   type Layer,
   type OpenedFileRef,
@@ -176,6 +177,8 @@ export interface ViewerStore {
   readonly exportCrsCheck: ExportCrsCheck | null
   /** Spec 008: why the chosen output CRS can't be used yet (blocks the dialog's Export button only). */
   readonly exportCrsProblem: string | null
+  /** Spec 008: the displayed data's WGS84 extent (the CRS picker suggests CRSs for it). */
+  readonly exportExtent: Bbox | null
   /** Why Export is unavailable right now (a query is running, nothing open), or null. */
   readonly exportDisabled: string | null
   readonly exportPhase: 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -1314,6 +1317,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     openExport() {
       exportOpen = true
+      // The output name is per export: back to the default each time.
+      if (exportRequest.fileName !== undefined) exportRequest = { ...exportRequest, fileName: undefined }
       if (exportPhase !== 'running') {
         exportPhase = 'idle'
         exportOutcome = null
@@ -1339,6 +1344,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get exportCrsProblem() {
       return customCrsProblem
+    },
+    get exportExtent() {
+      return displayedLayer?.extent ?? null
     },
     get exportDisabled() {
       return exportDisabled

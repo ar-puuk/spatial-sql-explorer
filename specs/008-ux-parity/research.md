@@ -459,3 +459,15 @@ Every format offered was written by the real web build, then read back:
   Unknown codes (e.g. 999999) get a message, and Export stays disabled.
 - Verified: `usa-utm12n.gpkg` exported to EPSG:5070 as GeoPackage reads back
   with CRS 5070 and 1 row (export-formats.spec).
+
+- CRS list (user request): the WASM build has no CRS-listing function
+  (`duckdb_functions()` shows only `DuckDB_Proj_Version`, 9.1.1) and PROJ's
+  database isn't reachable, so the list is data: `scripts/crs-catalog.py`
+  reads QGIS's proj.db (EPSG v12.029, PROJ 9.8.1; 5,957 geographic 2D and
+  projected CRSs), and `tests/web/specs/crs-catalog.tool.spec.ts` keeps the
+  5,625 the engine transforms to (332 newer codes dropped, e.g. 10178
+  IGS20). Grouped like ArcGIS (UTM, US State Plane from the "SPCS" area
+  names, Gauss-Krüger, World) and QGIS (projection method families);
+  GeoLibre's picker (Geographic/Projected split, search by name or code)
+  was the reference. 567 KB, 119 KB gzipped, loaded on first open of the
+  picker.
