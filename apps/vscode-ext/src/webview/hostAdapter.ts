@@ -293,8 +293,9 @@ export function createVsCodeHostAdapter(): HostAdapter {
       const failure = await probe(info)
       if (failure === null && info.url) return { kind: 'url', name: info.name, size: info.size, url: info.url, sidecars: info.sidecars, styleSidecar: info.styleSidecar }
       // FR-015: no partial reads in this window; read the whole file instead, and say why.
-      const whole = await requestWholeTransfer(failure)
-      return whole.kind === 'bytes' ? { ...whole, styleSidecar: info.styleSidecar, fallbackReason: `Partial reads aren't available in this window (${failure}).` } : whole
+      const reason = failure ?? 'no local file server'
+      const whole = await requestWholeTransfer(reason)
+      return whole.kind === 'bytes' ? { ...whole, styleSidecar: info.styleSidecar, fallbackReason: `Partial reads aren't available in this window (${reason}).` } : whole
     },
     async readRange(_ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array> {
       // Main-thread Range reads of the resource URI work (research §3); workers' don't.
