@@ -8,6 +8,9 @@
   // format from its menu. Import reads any of the three formats.
   import {
     eligibleColumns,
+    extrusionUnavailableReason,
+    DEFAULT_EXTRUSION_SCALE,
+    type Extrusion,
     METHOD_NAMES,
     MIN_CLASS_COUNT,
     MAX_CLASS_COUNT,
@@ -70,6 +73,8 @@
     onLoad?: () => void
     /** Spec 007: rows being classified by the engine (shown after 300 ms), or null. */
     classifyingRows?: number | null
+    /** Spec 008 US6: polygons drawn flat by the extrusion (missing, zero or negative height), or null. */
+    extrusionFlat?: number | null
   }
   let {
     style,
@@ -93,7 +98,28 @@
     needsLoad = null,
     onLoad = () => {},
     classifyingRows = null,
+    extrusionFlat = null,
   }: Props = $props()
+
+  // --- Spec 008 US6: 3D extrusion ---------------------------------------
+  const CONSTANT = '__constant'
+  const extrusionReason = $derived(extrusionUnavailableReason(geometryType))
+  const ext = $derived(style.extrusion)
+  const heightColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
+  /** A first guess at the height column: a name that says height, else the first numeric column. */
+  function defaultHeightSource(): Extrusion['source'] {
+    const cols = heightColumns
+    const named = cols.find((c) => /height|elev|floor|storey|stories|levels|hgt/i.test(c.name))
+    const col = named ?? cols[0]
+    return col ? { kind: 'column', column: col.name } : { kind: 'constant', meters: 10 }
+  }
+  function setExtrusion(patch: Partial<Extrusion>): void {
+    const base: Extrusion = ext ?? { enabled: false, source: defaultHeightSource(), scale: DEFAULT_EXTRUSION_SCALE }
+    onChange({ extrusion: { ...base, ...patch } })
+  }
+  function chooseHeight(value: string): void {
+    setExtrusion({ source: value === CONSTANT ? { kind: 'constant', meters: ext?.source.kind === 'constant' ? ext.source.meters : 10 } : { kind: 'column', column: value } })
+  }
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
     { kind: 'single', label: 'Single', hint: 'One color for every feature' },
@@ -398,6 +424,82 @@
         </div>
       {/if}
     </section>
+
+    <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height. -->
+    <section aria-labelledby="style-sec-3d">
+      <h3 id="style-sec-3d">3D</h3>
+      {#if extrusionReason}
+        <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionReason}</p>
+      {:else}
+        <div class="row field">
+          <span class="label" id="extrude-label">Extrude</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            aria-label="Extrude polygons"
+            aria-checked={ext?.enabled === true}
+            onclick={() => setExtrusion({ enabled: !ext?.enabled })}
+          >
+            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+            <span>{ext?.enabled ? 'On' : 'Off'}</span>
+          </button>
+        </div>
+        {#if ext?.enabled}
+          <div class="row field">
+            <label class="label" for="extrude-height">Height</label>
+            <select id="extrude-height" aria-label="Height from" value={ext.source.kind === 'column' ? ext.source.column : CONSTANT} onchange={(e) => chooseHeight(e.currentTarget.value)}>
+              {#if ext.source.kind === 'column' && !heightColumns.some((c) => ext.source.kind === 'column' && c.name === ext.source.column)}
+                <option value={ext.source.column}>{ext.source.column}</option>
+              {/if}
+              {#each heightColumns as c (c.name)}
+                <option value={c.name}>{c.name} · {c.type}</option>
+              {/each}
+              <option value={CONSTANT}>Constant height</option>
+            </select>
+          </div>
+          {#if ext.source.kind === 'constant'}
+            <div class="row field">
+              <label class="label" for="extrude-meters">Meters</label>
+              <input
+                id="extrude-meters"
+                class="number"
+                type="number"
+                aria-label="Constant height"
+                min="0"
+                step="any"
+                value={ext.source.meters}
+                onchange={(e) => {
+                  const v = Number(e.currentTarget.value)
+                  if (Number.isFinite(v) && v >= 0) setExtrusion({ source: { kind: 'constant', meters: v } })
+                }}
+              />
+            </div>
+          {/if}
+          <div class="row field">
+            <label class="label" for="extrude-scale">Scale</label>
+            <input
+              id="extrude-scale"
+              class="number"
+              type="number"
+              aria-label="Height scale"
+              aria-describedby="extrude-scale-hint"
+              min="0"
+              step="any"
+              value={ext.scale}
+              onchange={(e) => {
+                const v = Number(e.currentTarget.value)
+                if (Number.isFinite(v) && v > 0) setExtrusion({ scale: v })
+              }}
+            />
+          </div>
+          <p class="hint" id="extrude-scale-hint">Height in meters = {ext.source.kind === 'column' ? `${ext.source.column} × ${ext.scale}` : `${ext.source.meters} × ${ext.scale}`}. Right-drag or Shift+arrows to tilt and rotate.</p>
+          {#if extrusionFlat}
+            <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionFlat.toLocaleString('en-US')} {extrusionFlat === 1 ? 'polygon' : 'polygons'} drawn flat (no height, zero or negative).</p>
+          {/if}
+        {/if}
+      {/if}
+    </section>
   </div>
 
   {#if notice}
@@ -524,6 +626,75 @@
   }
   .row.field {
     grid-template-columns: 72px 1fr;
+  }
+  input.number {
+    justify-self: start;
+    width: 96px;
+    height: 24px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-input-fg, var(--se-text-primary));
+    font: inherit;
+  }
+  input.number:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .hint {
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
+  .switch {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .switch .track {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: var(--se-input-bg);
+    border: 1px solid var(--se-input-border);
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-secondary);
+    transition: left 0.12s;
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    left: 14px;
+    background: var(--se-button-fg);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch .thumb {
+      transition: none;
+    }
   }
   select.narrow {
     justify-self: start;

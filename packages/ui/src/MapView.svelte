@@ -23,6 +23,7 @@
     type ResolvedStyle,
     type ViewFeatures,
     DOT_PROP,
+    EXTRUSION_PITCH,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
@@ -77,6 +78,8 @@
     onInspectTileFeature?: (feature: Feature | null) => void
     /** Why the Layer style button is unavailable (PMTiles), or null. */
     styleUnavailable?: string | null
+    /** Spec 008 US6: polygons are raised (the style's extrusion applies to this layer). */
+    extruded?: boolean
   }
   let {
     layer,
@@ -108,6 +111,7 @@
     tiles = null,
     onInspectTileFeature,
     styleUnavailable = null,
+    extruded = false,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -137,14 +141,34 @@
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle'; filter: unknown; layout?: Record<string, unknown> }> = [
+  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
     // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'circle', type: 'circle', filter: POINT },
+    // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
+    { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
   ]
+
+  /**
+   * Spec 008 US6 (research §4): while extruded, the fill-extrusion layer
+   * draws the polygons; the fill stays beneath at opacity 0 so clicks and
+   * `data-rendered-features` still find them (fill-extrusion can't be
+   * queried without a point on the globe); outlines and halo would float
+   * at ground level, so they hide.
+   */
+  function layerPaint(id: string, p: ReturnType<typeof paintFor>): Record<string, unknown> {
+    const paint = p[id as keyof typeof p] ?? {}
+    if (extruded && id === 'fill') return { ...paint, 'fill-opacity': 0 }
+    return paint
+  }
+  function layerVisibility(id: string): 'visible' | 'none' {
+    if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
+    if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
+    return 'visible'
+  }
 
   /**
    * The map layers drawn now: LAYER_DEFS once over the view features, or (PMTiles,
@@ -201,9 +225,10 @@
     for (const l of layerInstances()) {
       if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
-      for (const [prop, value] of Object.entries(p[l.def.id as keyof typeof p] ?? {})) {
+      for (const [prop, value] of Object.entries(layerPaint(l.def.id, p))) {
         map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
+      map.setLayoutProperty(l.id, 'visibility', layerVisibility(l.def.id))
     }
   }
 
@@ -262,8 +287,8 @@
         source: SOURCE_ID,
         ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
         filter: layerFilter(l.def),
-        layout: l.def.layout ?? {},
-        paint: p[l.def.id as keyof typeof p],
+        layout: { ...(l.def.layout ?? {}), visibility: layerVisibility(l.def.id) },
+        paint: layerPaint(l.def.id, p),
       } as never)
     }
     return doc
@@ -302,6 +327,11 @@
     m.on('moveend', () => {
       const c = m.getCenter()
       onCameraChange({ center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() })
+    })
+    // Spec 008 FR-026: "Reset view" shows while the map is tilted or rotated.
+    m.on('move', () => {
+      const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
+      if (t !== tilted) tilted = t
     })
     m.on('mouseout', () => onCursorMove(null))
 
@@ -457,8 +487,9 @@
       // side at low zoom reads as duplicated data.
       renderWorldCopies: false,
       trackResize: false,
+      // Rotation and tilt are on while polygons are extruded (spec 008 US6).
       dragRotate: false,
-      pitchWithRotate: false,
+      pitchWithRotate: true,
       touchPitch: false,
     })
     map.touchZoomRotate.disableRotation()
@@ -587,6 +618,28 @@
     untrack(() => applyTicked())
   })
 
+  // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show,
+  // and lets the mouse tilt and rotate (right-drag; Shift+arrows by keyboard).
+  let tilted = $state(false)
+  let wasExtruded = false
+  $effect(() => {
+    const on = extruded
+    if (!map || !mapReady) return
+    untrack(() => applyPaint())
+    if (on) {
+      map.dragRotate.enable()
+      map.touchZoomRotate.enableRotation()
+      if (!wasExtruded && map.getPitch() < 1) map.easeTo({ pitch: EXTRUSION_PITCH, duration: 600 })
+    } else {
+      map.dragRotate.disable()
+      map.touchZoomRotate.disableRotation()
+    }
+    wasExtruded = on
+  })
+  function resetView(): void {
+    map?.easeTo({ pitch: 0, bearing: 0, duration: 500 })
+  }
+
   // Spec 008 FR-023: switching keeps the camera (center and zoom).
   $effect(() => {
     const type = projection
@@ -662,6 +715,10 @@
       >
         <Icon name="globe" />
       </button>
+      {#if tilted}
+        <!-- Spec 008 FR-026: back to flat and north-up. -->
+        <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
+      {/if}
     </div>
     <div class="group">
       <button

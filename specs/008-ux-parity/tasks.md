@@ -376,14 +376,14 @@ QML and Mapbox GL (FR-025–FR-027).
 
 ### Tests for US6
 
-- [ ] T070 [P] [US6] Core test `tests/core/style-extrusion.test.ts`:
+- [X] T070 [P] [US6] Core test `tests/core/style-extrusion.test.ts`:
   - `sanitizeStyle` drops extrusion for non-polygons;
   - `resolveStyle` height expression and `flatCount`;
   - QML writes `<renderer-3d>` like `specs/008-ux-parity/spikes/extrude.qml`, and `fromQml` reads `"col" * k`, `"col"` and constants;
   - other expressions import as off, with a notice;
   - the Mapbox `fill-extrusion` round trip;
   - SLD returns the `extrusion-dropped` notice.
-- [ ] T071 [P] [US6] Web test `tests/web/specs/extrusion.spec.ts` with `buildings-10k.parquet`:
+- [X] T071 [P] [US6] Web test `tests/web/specs/extrusion.spec.ts` with `buildings-10k.parquet`:
   - the `3D` section appears for polygons only (a point file shows the reason);
   - turning it on tilts the map (`mapState().pitch > 0`);
   - "N polygons drawn flat" matches the null, zero and negative count;
@@ -391,15 +391,15 @@ QML and Mapbox GL (FR-025–FR-027).
   - `Reset view` returns pitch and bearing to 0;
   - clicking a raised polygon opens the inspector (Mercator and globe);
   - saved QML and Mapbox GL contain the extrusion, and reopening restores it.
-- [ ] T072 [P] [US6] QGIS check: extend `tests/qgis/check_sidecar.py` to print the 3D renderer and height expression, run it on a QML saved by the app, and record the result in research.md (SC/US6 scenario 6).
+- [X] T072 [P] [US6] QGIS check: extend `tests/qgis/check_sidecar.py` to print the 3D renderer and height expression, run it on a QML saved by the app, and record the result in research.md (SC/US6 scenario 6).
 
 ### Implementation for US6
 
-- [ ] T073 [US6] Add `LayerStyle.extrusion?` in `packages/core/src/style/model.ts`; sanitize and defaults in `edit.ts`; resolution in `resolve.ts` (height expression `max(0, coalesce(col, 0) * scale)`, plus `flatCount` from a SQL count as background work).
-- [ ] T074 [P] [US6] QML read and write of `<renderer-3d type="vector">` in `packages/core/src/style/qml.ts` (research §5).
-- [ ] T075 [P] [US6] Mapbox GL `fill-extrusion` read and write in `packages/core/src/style/mapbox.ts`; the SLD notice in `packages/core/src/style/sld.ts`.
-- [ ] T076 [P] [US6] Create `packages/ui/src/style/ExtrusionSection.svelte`: an `Extrude polygons` switch, a `Height from` combobox (numeric columns plus "Constant height"), a `Height scale` input and the flat-count status. Add it to `LayerStylePanel.svelte` as the `3D` section.
-- [ ] T077 [US6] Map extrusion in `packages/ui/src/MapView.svelte`:
+- [X] T073 [US6] Add `LayerStyle.extrusion?` in `packages/core/src/style/model.ts`; sanitize and defaults in `edit.ts`; resolution in `resolve.ts` (height expression `max(0, coalesce(col, 0) * scale)`, plus `flatCount` from a SQL count as background work).
+- [X] T074 [P] [US6] QML read and write of `<renderer-3d type="vector">` in `packages/core/src/style/qml.ts` (research §5).
+- [X] T075 [P] [US6] Mapbox GL `fill-extrusion` read and write in `packages/core/src/style/mapbox.ts`; the SLD notice in `packages/core/src/style/sld.ts`.
+- [X] T076 [P] [US6] Create `packages/ui/src/style/ExtrusionSection.svelte`: an `Extrude polygons` switch, a `Height from` combobox (numeric columns plus "Constant height"), a `Height scale` input and the flat-count status. Add it to `LayerStylePanel.svelte` as the `3D` section.
+- [X] T077 [US6] Map extrusion in `packages/ui/src/MapView.svelte`:
   - a `fill-extrusion` layer replacing the fill when on, with the same color expression and fill opacity;
   - a hidden (opacity 0) fill kept beneath for hit tests and `data-rendered-features` (research §4);
   - turning extrusion on eases to pitch 50 if flat;

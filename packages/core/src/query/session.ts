@@ -2,6 +2,7 @@
 // owns a dedicated query connection, separate from the one that opened the
 // file, so a cancel can never touch file loading. Temp tables are
 // per-connection in DuckDB, so user temp objects and __se_result live here.
+import { flatCountSql, type Extrusion } from '../style/extrusion.js'
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
@@ -638,6 +639,18 @@ export class QuerySession {
    * result, as background work. Null when the column has no numbers, or the
    * result can't be read in full yet (spec 007 needsLoad).
    */
+  /** Spec 008 US6: rows drawn flat by the extrusion (missing, zero or negative height). */
+  async extrusionFlatCount(e: Extrusion): Promise<number | null> {
+    const facts = this.facts
+    if (!facts || this.needsLoad || e.source.kind !== 'column') return null
+    const column = e.source.column
+    if (!facts.columns.some((c) => c.name === column)) return null
+    if (this.utilityRows) return this.utilityRows.filter((f) => !(Number(f.attributes[column]) * e.scale > 0)).length
+    const sql = flatCountSql(this.statsRelation(), e)
+    if (!sql) return null
+    return this.exclusive(async (isCancelled) => Number((await singleRow<{ n: bigint | number }>(this.conn, sql, isCancelled)).n), 'background')
+  }
+
   async valueHistogram(column: string): Promise<ValueHistogram | null> {
     const facts = this.facts
     if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null

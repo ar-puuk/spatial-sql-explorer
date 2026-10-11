@@ -4,6 +4,8 @@
 // OGC SLD, Mapbox GL style JSON: see ./qml.ts, ./sld.ts, ./mapbox.ts).
 // Persisted shapes are plain JSON; derived ones (ResolvedStyle) never are.
 //
+import { sanitizeExtrusion, type Extrusion } from './extrusion.js'
+
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
 // SLD) are converted at the format boundary, never here.
@@ -31,6 +33,8 @@ export interface LayerStyle {
    * (see `rendererOf`). `sanitizeStyle` and the defaults always fill it in.
    */
   renderer?: Renderer
+  /** Spec 008 US6: polygon extrusion (./extrusion.ts). Absent: flat. */
+  extrusion?: Extrusion
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
@@ -250,6 +254,7 @@ export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
     pointRadius: num(style.pointRadius, DEFAULT_LAYER_STYLE.pointRadius, 0.5, 100),
     renderer: sanitizeRenderer(style.renderer),
     ...(typeof style.layerOpacity === 'number' && Number.isFinite(style.layerOpacity) && style.layerOpacity < 1 ? { layerOpacity: clamp(style.layerOpacity, 0, 1) } : {}),
+    ...(sanitizeExtrusion(style.extrusion) ? { extrusion: sanitizeExtrusion(style.extrusion) } : {}),
   }
 }
 

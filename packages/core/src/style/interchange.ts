@@ -57,6 +57,8 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   const items: string[] = []
   const { thematic, notes } = thematicForExport(style, resolved)
   items.push(...notes)
+  // Spec 008 FR-027: SLD has no 3D.
+  if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (thematic && format === 'sld') {
     if (thematic.renderer.kind === 'graduated') items.push("SLD can't store the classification method: the classes will import as fixed (Manual).")
     const hidden = thematic.classes.filter((c) => !c.visible).length

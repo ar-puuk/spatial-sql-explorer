@@ -471,3 +471,24 @@ Every format offered was written by the real web build, then read back:
   GeoLibre's picker (Geographic/Projected split, search by name or code)
   was the reference. 567 KB, 119 KB gzipped, loaded on first open of the
   picker.
+
+## Implementation outcomes (US6, 2026-10-11)
+
+- Map: a `fill-extrusion` layer replaces the fill while extruded; the fill
+  stays at opacity 0 for hit tests, outline and halo hide. Extrusions are
+  solid (opacity = the layer opacity), like QGIS 3D: at the fill's default
+  45 % they read as ghosts. Colors follow Single, Categorized and Graduated.
+- Height: `max(0, to-number(coalesce(col, 0)) * scale)`, or a constant;
+  the flat count is DuckDB's `count(*) WHERE coalesce(TRY_CAST(col AS DOUBLE), 0) * k <= 0`
+  over the displayed result (600 of 10,000 in buildings-10k).
+- Map views carry the height column (styleColumns), as they do the
+  thematic column.
+- Tilt and rotate (right-drag, Shift+arrows) are on only while extruded;
+  turning extrusion on eases to pitch 50; "Reset view" shows while tilted
+  or rotated.
+- QGIS check (T072): `check_sidecar.py` on a QML the app saved
+  (`"height_m" * 1.5`, layer opacity 0.8) prints
+  `QgsVectorLayer3DRenderer`, symbol `polygon`, height expression
+  `"height_m" * 1.5`, opacity 0.8 (QGIS 4.2.3). QGIS's own spike file
+  (`extrude.qml`, `"pop_est" * 0.001`) imports as column `pop_est`, scale
+  0.001.

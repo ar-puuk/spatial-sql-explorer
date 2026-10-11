@@ -37,6 +37,8 @@ import {
   type RunOutcome,
   planExport,
   isTemporalType,
+  activeExtrusion,
+  extrusionColumn,
   exportErrorMessage,
   QueryCancelledError,
   type ExportPlan,
@@ -72,7 +74,10 @@ import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtile
 /** The attribute columns a style draws from (spec 007: map views read only these). */
 function styleColumns(style: LayerStyle): string[] {
   const r = style.renderer
-  return r && r.kind !== 'single' && r.column ? [r.column] : []
+  const cols = r && r.kind !== 'single' && r.column ? [r.column] : []
+  // Spec 008 US6: the extrusion's height column.
+  const h = extrusionColumn(style)
+  return h && !cols.includes(h) ? [...cols, h] : cols
 }
 
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
@@ -213,6 +218,10 @@ export interface ViewerStore {
   readonly classifying: boolean
   /** Spec 008 FR-003: the graduated column's value distribution, or null (not graduated, or loading). */
   readonly styleHistogram: ValueHistogram | null
+  /** Spec 008 US6: the displayed polygons are extruded (the map draws them raised). */
+  readonly extruded: boolean
+  /** Spec 008 US6: polygons drawn flat by the extrusion, or null (unknown, or a constant height). */
+  readonly extrusionFlat: number | null
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
@@ -510,6 +519,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     }
   }
 
+  // Spec 008 US6: how many polygons the extrusion draws flat.
+  let extrusionFlat = $state<number | null>(null)
+  let flatKey: string | null = null
+  async function refreshFlat(s: LayerStyle, layer: Layer | null, qs: QuerySession | null): Promise<void> {
+    const e = activeExtrusion(s, layer?.geometryType)
+    if (!e || e.source.kind !== 'column' || !layer || !qs) {
+      flatKey = null
+      extrusionFlat = null
+      return
+    }
+    const key = `${layer.id}\u0000${layer.totalRows}\u0000${e.source.column}\u0000${e.scale}`
+    if (key === flatKey) return
+    flatKey = key
+    try {
+      const n = await retryWhenBusy(qs, () => qs.extrusionFlatCount(e))
+      if (flatKey === key) extrusionFlat = n
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: flat count failed', err)
+    }
+  }
+
   async function refreshStyle(): Promise<void> {
     const generation = ++styleGeneration
     const s = style
@@ -517,6 +547,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const qs = querySession
     if (!qs || !layer) {
       void refreshHistogram(s, layer, qs)
+      void refreshFlat(s, layer, qs)
       resolvedStyle = resolveStyle(s, layer ? { columns: layer.columns, rowCount: layer.totalRows } : null)
       return
     }
@@ -532,7 +563,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (generation === styleGeneration) {
         resolvedStyle = r
         // After the style: the chart is secondary, and must not compete with it for the engine.
-        void refreshHistogram(s, layer, qs)
+        void refreshHistogram(s, layer, qs).then(() => refreshFlat(s, layer, qs))
       }
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: style failed', err)
@@ -1423,6 +1454,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get styleHistogram() {
       return styleHistogram
+    },
+    get extruded() {
+      return !tilesArchive && activeExtrusion(style, displayedLayer?.geometryType) !== null
+    },
+    get extrusionFlat() {
+      return extrusionFlat
     },
     get styleInput() {
       const l = displayedLayer

@@ -289,6 +289,7 @@
           openPanel = null
         }}
         styleUnavailable={store.tilesOnlyReason}
+        extruded={store.extruded}
       />
       {#if inspected || store.fileLayers.length > 1}
         <div class="inspector-slot">
@@ -369,6 +370,7 @@
             onClose={closePanel}
             needsLoad={store.needsLoad}
             classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
+            extrusionFlat={store.extrusionFlat}
             onLoad={() => {
               closePanel()
               void store.loadWhole()

@@ -6,9 +6,10 @@
 // the class color AND the hidden-class filter both read. The map and the
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
+import { extrusionHeightExpression } from './extrusion.js'
 import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
 
-export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo'
+export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
 
 // The focused feature (inspector, table cursor), or a ticked row (spec 008 FR-012): drawn alike.
@@ -143,6 +144,16 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
       'line-color': ['case', selected, sel, lineColor],
       'line-width': ['case', selected, outlineWidth + 1, hovered, s.strokeWidth + 1, s.strokeWidth],
       'line-opacity': ['case', selected, 1, s.strokeOpacity],
+    },
+    // Spec 008 US6: polygons raised by the extrusion, in the style's colors.
+    // Solid, like QGIS 3D (MapLibre extrusion opacity is layer-wide): the
+    // layer opacity still applies.
+    extrusion: {
+      'fill-extrusion-color': ['case', selected, sel, fillColor],
+      'fill-extrusion-height': style.extrusion ? extrusionHeightExpression(style.extrusion) : 0,
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': style.layerOpacity ?? 1,
+      'fill-extrusion-vertical-gradient': true,
     },
     circle: {
       'circle-color': ['case', selected, sel, fillColor],

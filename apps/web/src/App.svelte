@@ -83,7 +83,7 @@
       /** Spec 008 T025: the ticked rows. */
       selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
       /** Spec 008 T064: the map's projection and camera. */
-      mapState: () => ({ projection: store.projection, ...(store.mapCamera ?? {}) }),
+      mapState: () => ({ projection: store.projection, extrusion: store.extruded, ...(store.mapCamera ?? {}) }),
       /** Spec 008 T025: the map's current bounds (zoom to selection). */
       mapBounds: () => store.lastViewBbox,
       /**

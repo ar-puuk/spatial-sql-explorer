@@ -23,6 +23,12 @@ def main() -> int:
     app = QgsApplication([], False)
     app.initQgis()
     try:
+        from qgis._3d import Qgs3D  # registers the 3D renderer, so a QML's <renderer-3d> loads
+
+        Qgs3D.initialize()
+    except ImportError:
+        pass
+    try:
         layer = QgsVectorLayer(f'{geometry}?crs=EPSG:4326', 'check', 'memory')
         message, ok = layer.loadNamedStyle(qml)
         renderer = layer.renderer()
@@ -43,6 +49,20 @@ def main() -> int:
             ]
         elif renderer.type() == 'singleSymbol':
             out['color'] = renderer.symbol().color().name()
+        # Spec 008: layer opacity, and polygon extrusion (QGIS's 3D renderer).
+        out['opacity'] = layer.opacity()
+        r3d = layer.renderer3D()
+        if r3d is not None:
+            from qgis.core import QgsAbstract3DSymbol
+            sym = r3d.symbol()
+            prop = sym.dataDefinedProperties().property(QgsAbstract3DSymbol.Property.ExtrusionHeight)
+            out['renderer3d'] = {
+                'type': type(r3d).__name__,
+                'symbol': sym.type(),
+                'symbolClass': type(sym).__name__,
+                'extrusionHeight': sym.extrusionHeight() if hasattr(sym, 'extrusionHeight') else None,
+                'heightExpression': prop.expressionString() if prop.isActive() else None,
+            }
         print(json.dumps(out, indent=1))
         return 0 if ok else 1
     finally:

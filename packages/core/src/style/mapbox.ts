@@ -4,6 +4,7 @@
 // GeoJSON source points at the data file name (the consumer re-points it);
 // our own LayerStyle is also embedded under `metadata` so a round trip
 // through Spatial Explorer is lossless even after a tool rewrites paints.
+import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
   parseColor,
@@ -61,6 +62,21 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
         paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
       })
     }
+  }
+  // Spec 008 US6: polygon extrusion.
+  if (wants('Polygon') && style.extrusion?.enabled) {
+    layers.push({
+      id: `${layerName}-extrusion`,
+      type: 'fill-extrusion',
+      source,
+      filter: filter(POLYGON_FILTER),
+      paint: {
+        'fill-extrusion-color': classColor(style.fillColor),
+        'fill-extrusion-height': extrusionHeightExpression(style.extrusion),
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': round(style.layerOpacity ?? 1),
+      },
+    })
   }
   if (wants('LineString')) {
     layers.push({
@@ -204,7 +220,7 @@ export function mapboxToStyle(text: string): StyleImportResult {
   const fillLayer = first('fill')
   const lineLayer = first('line')
   const circleLayer = first('circle')
-  if (!fillLayer && !lineLayer && !circleLayer) throw new Error('This style has no fill, line or circle layers.')
+  if (!fillLayer && !lineLayer && !circleLayer && !first('fill-extrusion')) throw new Error('This style has no fill, line or circle layers.')
 
   // Data-driven colors (a foreign style, or ours with the metadata stripped).
   const dataColor = fillLayer?.paint?.['fill-color'] ?? circleLayer?.paint?.['circle-color'] ?? (!fillLayer && !circleLayer ? lineLayer?.paint?.['line-color'] : undefined)
@@ -244,6 +260,12 @@ export function mapboxToStyle(text: string): StyleImportResult {
   if (circleLayer?.paint) {
     const r = num(circleLayer.paint['circle-radius'])
     if (r !== undefined) style.pointRadius = r
+  }
+  const extrusionLayer = first('fill-extrusion')
+  if (extrusionLayer?.paint) {
+    const parsed = extrusionFromMapbox(extrusionLayer.paint['fill-extrusion-height'])
+    if (parsed) style.extrusion = { enabled: true, ...parsed }
+    else notes.push('The fill-extrusion height is not a column, a column times a number, or a constant: extrusion is off.')
   }
   if (skipped > 0) notes.push('Some paint values are expressions or zoom functions; only literal values were imported.')
   if (layers.filter((l) => ['fill', 'line', 'circle'].includes(l.type ?? '')).length > 3) {
