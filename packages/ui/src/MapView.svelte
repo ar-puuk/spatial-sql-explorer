@@ -9,7 +9,7 @@
     type StyleSpecification,
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { onMount, onDestroy, untrack } from 'svelte'
+  import { onMount, onDestroy, tick, untrack } from 'svelte'
   import {
     BasemapHealth,
     loadBasemapStyle,
@@ -27,6 +27,7 @@
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
+  import { drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
   import type { TilesArchive } from './pmtilesSource.js'
 
   interface Props {
@@ -219,8 +220,19 @@
     return hidden ? ['all', def.filter, hidden] : def.filter
   }
 
+  /**
+   * Spec 008: a Blank basemap paints the globe too. On the flat map the
+   * container's color shows through; the globe needs a background layer,
+   * or its sphere is MapLibre's default gray in every theme.
+   */
+  const BLANK_BG = 'blank-background'
+  function blankBackground(): string {
+    return blankColor ?? (getComputedStyle(container).getPropertyValue('--se-map-bg').trim() || '#e5e5e5')
+  }
+
   function applyPaint(): void {
     if (!map || !mapReady) return
+    if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
     const p = paintFor(style, resolved, selectionColor())
     for (const l of layerInstances()) {
       if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
@@ -272,11 +284,14 @@
     for (const key of ['center', 'zoom', 'bearing', 'pitch', 'roll']) delete camera[key]
     // Spec 008: the projection belongs to the viewer too, not to the basemap style.
     camera.projection = { type: untrack(() => projection) }
+    // Spec 008 (user request): the globe's atmosphere glow; space is drawn behind the map (globeSky.ts).
+    if (untrack(() => projection) === 'globe') camera.sky = GLOBE_SKY
     // Always show the catalog's attribution (CLAUDE.md "Basemaps").
     if (base && entry.attribution) {
       const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
       if (first && !first.attribution) first.attribution = entry.attribution
     }
+    if (!base) doc.layers.unshift({ id: BLANK_BG, type: 'background', paint: { 'background-color': blankBackground() } } as never)
     styledTiles = tiles
     doc.sources[SOURCE_ID] = styledTiles ? { type: 'vector', url: styledTiles.url } : { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paintFor(style, resolved, selectionColor())
@@ -294,10 +309,27 @@
     return doc
   }
 
+  /**
+   * Spec 008 (user report): on the globe, a point in space is not on the map,
+   * but a query there can still return a feature near the far limb. A point
+   * on the sphere survives screen -> lng/lat -> screen; one in space is
+   * clamped to the horizon and comes back elsewhere (public API only).
+   */
+  function onSurface(p: { x: number; y: number }): boolean {
+    if (untrack(() => projection) !== 'globe' || !map) return true
+    const back = map.project(map.unproject([p.x, p.y]))
+    return Math.hypot(back.x - p.x, back.y - p.y) < 2
+  }
+
   function registerHandlers(): void {
     if (!map) return
     const m = map
     m.on('click', (e: MapMouseEvent) => {
+      if (!onSurface(e.point)) {
+        if (styledTiles) onInspectTileFeature?.(null)
+        else onSelectFeature(null)
+        return
+      }
       if (styledTiles) {
         // PMTiles: the tile feature itself is what the inspector shows. Tile
         // features are often a pixel or two wide, so a click allows 4 px.
@@ -318,7 +350,7 @@
     m.on('mousemove', (e: MapMouseEvent) => {
       onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
       const layers = interactiveLayers()
-      const hit = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      const hit = layers.length && onSurface(e.point) ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
       else setHover(featureId(hit))
     })
@@ -328,6 +360,7 @@
       const c = m.getCenter()
       onCameraChange({ center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() })
     })
+    m.on('move', scheduleSky)
     // Spec 008 FR-026: "Reset view" shows while the map is tilted or rotated.
     m.on('move', () => {
       const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
@@ -469,6 +502,21 @@
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = 0
       map?.resize()
+      scheduleSky()
+    })
+  }
+
+  // Spec 008 (user request): the night sky behind the globe, redrawn as the view moves.
+  let skyCanvas = $state<HTMLCanvasElement>()
+  let skyFrame = 0
+  function scheduleSky(): void {
+    if (skyFrame || !map || untrack(() => projection) !== 'globe') return
+    skyFrame = requestAnimationFrame(() => {
+      skyFrame = 0
+      if (!map || !skyCanvas || untrack(() => projection) !== 'globe') return
+      const m = map
+      const c = m.getCenter()
+      drawSky(skyCanvas, c, m.getBearing(), globeCircle(c, (p) => m.project(p)))
     })
   }
 
@@ -507,6 +555,7 @@
     if (viewTimer) clearTimeout(viewTimer)
     resizeObserver?.disconnect()
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
+    if (skyFrame) cancelAnimationFrame(skyFrame)
     map?.remove()
     map = null
   })
@@ -583,8 +632,11 @@
     void style.strokeOpacity
     void style.strokeWidth
     void style.pointRadius
+    void style.layerOpacity
+    void style.extrusion
     void resolved
     void themeRevision
+    void blankColor
     applyPaint()
   })
 
@@ -645,6 +697,8 @@
     const type = projection
     if (!map || !mapReady) return
     if (map.getProjection()?.type !== type) map.setProjection({ type })
+    map.setSky(type === 'globe' ? GLOBE_SKY : FLAT_SKY)
+    if (type === 'globe') void tick().then(scheduleSky)
   })
 
   let appliedFit = 0
@@ -695,7 +749,10 @@
   })
 </script>
 
-<div class="map-view" style:background={blankColor ?? undefined}>
+<div class="map-view" class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
+  {#if projection === 'globe'}
+    <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
+  {/if}
   <div class="canvas-host" class:dimmed bind:this={container}></div>
   {#if viewLoading}
     <ProgressBar label="Loading the features in view" />
@@ -760,6 +817,17 @@
     position: absolute;
     inset: 0;
     transition: opacity 0.15s;
+  }
+  /* Spec 008: deep space around the globe (fixed colors, like data colors). */
+  .map-view.space {
+    background: #020610;
+  }
+  .sky {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
   .canvas-host.dimmed {
     opacity: 0.35;

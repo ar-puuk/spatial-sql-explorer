@@ -492,3 +492,25 @@ Every format offered was written by the real web build, then read back:
   `"height_m" * 1.5`, opacity 0.8 (QGIS 4.2.3). QGIS's own spike file
   (`extrude.qml`, `"pop_est" * 0.001`) imports as column `pop_est`, scale
   0.001.
+
+## Globe in space (user request, 2026-10-11)
+
+- Design after GeoLibre's effects (decisions only, no code): deep-space
+  radial backdrop and a seeded starfield on a canvas behind the map (the
+  globe projection leaves space transparent), drifting with the view's
+  center and bearing; a soft blue halo just outside the globe's outline
+  (outline from 24 points 88° from the center, projected); MapLibre's own
+  `sky` atmosphere (`atmosphere-blend` 1 → 0 between zoom 5 and 7). Fixed
+  colors, decorative, not in exports.
+- A Blank basemap now has a `background` layer, so the globe's sphere takes
+  the theme's (or the user's) blank color instead of MapLibre's gray.
+- User report: a click in space beside the globe opened a far-limb feature
+  (Uzbekistan; reproduced with Myanmar). `queryRenderedFeatures` answers for
+  points in space on the globe. Fix: a point is on the surface only if
+  screen → lng/lat → screen returns within 2 px (public API; MapLibre's
+  `isPointOnMapSurface` is internal and not reachable). Clicks and hover
+  off the surface select nothing.
+- User report: green patches in space while spinning a Satellite globe.
+  Not reproduced in screenshots; raster cross-fade draws stretched tile
+  borders past the limb, so raster basemaps now have
+  `raster-fade-duration: 0`.

@@ -103,6 +103,8 @@ radio (Rows), else the Format list.
 
 ## Map
 
+- Globe: a decorative night sky (`canvas.sky`, `aria-hidden`) and atmosphere glow; clicks and hover in space select nothing.
+- `Reset view` (shown while tilted or rotated) eases to flat, north-up.
 - **Controls toolbar** (`Map controls`) adds:
   - `Globe view` (toggle, `aria-pressed`);
   - `Reset view` (enabled when pitch or bearing is not 0);

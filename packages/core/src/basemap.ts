@@ -83,7 +83,9 @@ export function rasterStyle(entry: BasemapCatalogEntry): BasemapStyle {
   return {
     version: 8,
     sources: { 'basemap-raster': { type: 'raster', tiles, tileSize: 256, maxzoom: entry.maxzoom ?? 19, attribution: entry.attribution } },
-    layers: [{ id: 'basemap-raster', type: 'raster', source: 'basemap-raster' }],
+    // No cross-fade: on the globe, fading tiles draw their stretched borders
+    // past the limb while spinning (spec 008, user report: green patches in space).
+    layers: [{ id: 'basemap-raster', type: 'raster', source: 'basemap-raster', paint: { 'raster-fade-duration': 0 } }],
   }
 }
 
