@@ -1,5 +1,5 @@
 // Shared helpers for spec 002's query specs. Not a spec file itself.
-import { expect, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -88,5 +88,30 @@ export function writeSquares(): string {
   const features = Array.from({ length: 100 }, (_, i) => `{"type":"Feature","properties":{"value":${i * i}},"geometry":{"type":"Point","coordinates":[${(-112 + i * 0.01).toFixed(2)},40.5]}}`)
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-sq-')), 'squares.geojson')
   fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${features.join(',')}]}`)
+  return file
+}
+
+// --- Spec 007 ---------------------------------------------------------------
+
+/**
+ * Opens a committed fixture (tests/vscode-ext/fixtures) and waits for data.
+ *
+ * `search` may carry the spec 007 test overrides, which the app honors only
+ * with `e2e=1` (packages/core/src/source/readModes.ts, `TEST_OVERRIDE_KEYS`):
+ * - `cap=<n>`: display cap for map views (exercises thinning on small data);
+ * - `wholeThreshold=<bytes>`: whole-read announcement / FlatGeobuf in-memory threshold;
+ * - `materializeCap=<n>`: results above this many rows stay views;
+ * - `jenksSample=<n>`: natural-breaks sample size;
+ * - `memoryLimit=<size>`: engine memory limit (out-of-memory tests);
+ * - `slowViewMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests.
+ */
+export async function openFixture(page: Page, name: string, search = '?e2e=1'): Promise<void> {
+  await openFile(page, fixture(name), search)
+}
+
+/** A file from the gitignored tests/.large-data (npm run large-data); skips the test when it's missing. */
+export function largeData(name: string): string {
+  const file = path.resolve(__dirname, '../../.large-data', name)
+  test.skip(!fs.existsSync(file), `Run \`npm run large-data\` to generate ${name}`)
   return file
 }

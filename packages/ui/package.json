@@ -21,6 +21,7 @@
     "@lezer/highlight": "1.2.5",
     "@spatial-explorer/core": "*",
     "maplibre-gl": "^6.13.0",
+    "pmtiles": "^4.5.0",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

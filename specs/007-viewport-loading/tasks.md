@@ -91,11 +91,13 @@ they skip with a message, never pass silently.
 
   Add `tests/vscode-ext/fixtures/README-007.md` stating provenance, sizes and row counts. The total must stay at or under 12 MB. If GDAL's PMTiles write fails, record that and use any permissively licensed public sample under 2 MB, with its license noted.
   - *Done*: 5 fixtures generated and committed, ~14 MB total (GeoJSON precision 6, PMTiles maxzoom 10). Over the 12 MB target by ~2 MB: kept 10k rows, which the thinning/paging tests need
-- [ ] T003 [P] Add the `pmtiles` dependency (check BSD-3-Clause in its `package.json` and `LICENSE`) to `packages/ui/package.json`. Add it to `apps/vscode-ext/THIRD-PARTY-NOTICES.md`. `npm install`, and confirm the web and webview builds still pass (`npm run build --workspace=apps/web`, `npm run build --workspace=apps/vscode-ext`).
-- [ ] T004 [P] Extend `tests/web/specs/helpers.ts`:
+- [X] T003 [P] Add the `pmtiles` dependency (check BSD-3-Clause in its `package.json` and `LICENSE`) to `packages/ui/package.json`. Add it to `apps/vscode-ext/THIRD-PARTY-NOTICES.md`. `npm install`, and confirm the web and webview builds still pass (`npm run build --workspace=apps/web`, `npm run build --workspace=apps/vscode-ext`).
+  - *Done*: pmtiles 4.5.0 (BSD-3-Clause, upstream LICENSE; npm ships none) + its dep fflate 0.8.3 (MIT) in packages/ui; both in THIRD-PARTY-NOTICES.md; web and webview builds pass
+- [X] T004 [P] Extend `tests/web/specs/helpers.ts`:
   - `openFixture(page, name, search?)` opens a file from `tests/vscode-ext/fixtures`;
   - `largeData(name)` returns the path in `tests/.large-data`, or calls `test.skip(true, 'Run npm run large-data to generate <name>')`;
   - query-string overrides read by the app in `?e2e=1` mode only: `cap=<n>`, `wholeThreshold=<bytes>`, `materializeCap=<n>`, `jenksSample=<n>`. Document them in the helper.
+  - *Done*: helpers.ts: openFixture, largeData (test.skip with the generate hint); the e2e override keys documented (implemented in T007)
 
 ---
 
