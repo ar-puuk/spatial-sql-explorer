@@ -7,9 +7,15 @@
   // Spec 007 (FR-011): the table pages the whole result from the engine,
   // PAGE_SIZE rows at a time, as they scroll into view; sorting is SQL over
   // the whole result. Rows still loading show as placeholders (aria-busy).
+  //
+  // Spec 008 (FR-008–FR-012): hidden columns aren't rendered; each header
+  // cell carries its column's filter under the sort button (one header row,
+  // so row counts stay as they were); a checkbox column ticks rows, with a
+  // tri-state "all matching" box in the header.
   import { onMount, untrack } from 'svelte'
-  import { PAGE_SIZE, type Feature, type Layer, type TablePage } from '@spatial-explorer/core'
+  import { PAGE_SIZE, type ColumnFilter as Filter, type Feature, type Layer, type Selection, type TablePage } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import ColumnFilter from './ColumnFilter.svelte'
 
   interface Props {
     layer: Layer | null
@@ -24,8 +30,34 @@
     selectedFeatureId: string | number | null
     onSelectFeature: (id: string | number | null) => void
     onZoomToFeature: (id: string | number) => void
+    /** Spec 008: columns not shown (FR-008). */
+    hiddenColumns?: ReadonlySet<string>
+    /** Spec 008: the filters, by column (FR-010); null hides the filter row. */
+    filters?: readonly Filter[] | null
+    onFilter?: (column: string, filter: Filter | null) => void
+    /** Spec 008: the ticked rows (FR-012). */
+    selection?: Selection
+    onToggleSelect?: (id: number, selected: boolean) => void
+    onSelectAll?: (selected: boolean) => void
   }
-  let { layer, loading, total, revision, sort, loadPage, onSort, selectedFeatureId, onSelectFeature, onZoomToFeature }: Props = $props()
+  let {
+    layer,
+    loading,
+    total,
+    revision,
+    sort,
+    loadPage,
+    onSort,
+    selectedFeatureId,
+    onSelectFeature,
+    onZoomToFeature,
+    hiddenColumns = new Set<string>(),
+    filters = null,
+    onFilter = () => {},
+    selection = { kind: 'ids', ids: new Set<number>() },
+    onToggleSelect = () => {},
+    onSelectAll = () => {},
+  }: Props = $props()
 
   type Value = Feature['attributes'][string] | undefined
   type Row = TablePage['rows'][number]
@@ -51,7 +83,16 @@
   // Spec 002: rows whose geometry is missing or invalid are listed, not drawn.
   let hasGeometry = $derived(!!layer && layer.featureCount + layer.invalidGeometryCount > 0)
   let firstPage = $derived(pages.get(0))
-  let columns = $derived(firstPage && firstPage.rows.length > 0 ? Object.keys(firstPage.rows[0].attributes) : (layer?.columns.map((c) => c.name) ?? []))
+  let allColumns = $derived(firstPage && firstPage.rows.length > 0 ? Object.keys(firstPage.rows[0].attributes) : (layer?.columns.map((c) => c.name) ?? []))
+  let columns = $derived(allColumns.filter((c) => !hiddenColumns.has(c)))
+  const typeOf = (col: string): string => layer?.columns.find((c) => c.name === col)?.type ?? 'VARCHAR'
+  const filterOf = (col: string): Filter | null => filters?.find((f) => f.column === col) ?? null
+  const showFilters = $derived(filters !== null)
+  const isSelected = (id: number | string): boolean => selection.kind === 'all-matching' || (typeof id === 'number' && selection.ids.has(id))
+  const headerState = $derived<'true' | 'false' | 'mixed'>(
+    selection.kind === 'all-matching' ? 'true' : selection.ids.size === 0 ? 'false' : selection.ids.size >= total && total > 0 ? 'true' : 'mixed'
+  )
+  const CHECK_W = 28
 
   // A new result or sort: drop loaded pages, back to the top.
   $effect(() => {
@@ -95,6 +136,7 @@
 
   let first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN))
   let last = $derived(Math.min(total, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN))
+  // (The header is sticky and at most two rows tall: OVERSCAN covers the difference.)
 
   // Load the pages the visible window needs.
   $effect(() => {
@@ -115,7 +157,9 @@
   }
   let colWidths = $derived(columns.map((c) => widths[c] ?? autoWidth(c)))
   let idWidth = $derived(Math.max(44, String(total).length * 8 + 20))
-  let tableWidth = $derived(idWidth + colWidths.reduce((a, b) => a + b, 0))
+  let tableWidth = $derived(CHECK_W + idWidth + colWidths.reduce((a, b) => a + b, 0))
+  /** The sticky header: one row, or two lines tall with the filter inputs. */
+  let headerHeight = $derived(showFilters ? rowHeight * 2 : rowHeight)
 
   function display(v: Value): string {
     if (v === null || v === undefined) return 'NULL'
@@ -166,10 +210,10 @@
   /** Scrolls a row into view only if it isn't already fully visible ("auto" alignment). */
   function ensureVisible(index: number): void {
     if (!scroller || index < 0) return
-    // Row i starts below the sticky header, which occupies the top row slot.
-    const top = (index + 1) * rowHeight
+    // Row i starts below the sticky header.
+    const top = headerHeight + index * rowHeight
     const bottom = top + rowHeight
-    if (top < scroller.scrollTop + rowHeight) scroller.scrollTop = top - rowHeight
+    if (top < scroller.scrollTop + headerHeight) scroller.scrollTop = top - headerHeight
     else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight
   }
 
@@ -228,6 +272,12 @@
       case 'Enter':
         if (selectedFeatureId !== null) onZoomToFeature(selectedFeatureId)
         break
+      case ' ': {
+        // Spec 008 FR-012: Space ticks the row under the cursor.
+        const row = activeIndex >= 0 ? rowAt(activeIndex) : null
+        if (row && typeof row.id === 'number') onToggleSelect(row.id, !isSelected(row.id))
+        break
+      }
       case 'Escape':
         onSelectFeature(null)
         break
@@ -255,7 +305,7 @@
 >
   {#if loading}
     <p class="placeholder">Loading…</p>
-  {:else if !layer || total === 0}
+  {:else if !layer || (total === 0 && !(filters ?? []).some((f) => f.valid))}
     <p class="placeholder">No features to display.</p>
   {:else}
     {@const activeRow = activeIndex >= 0 ? rowAt(activeIndex) : null}
@@ -264,12 +314,13 @@
       role="grid"
       aria-label="Attribute table"
       aria-rowcount={total + 1}
-      aria-colcount={columns.length + 1}
+      aria-colcount={columns.length + 2}
       aria-activedescendant={activeRow ? `row-${String(activeRow.id)}` : undefined}
       tabindex="0"
       onkeydown={handleKeydown}
     >
       <colgroup>
+        <col style:width="{CHECK_W}px" />
         <col style:width="{idWidth}px" />
         {#each colWidths as w, i (columns[i])}
           <col style:width="{w}px" />
@@ -280,7 +331,17 @@
         <col />
       </colgroup>
       <thead>
-        <tr aria-rowindex={1}>
+        <tr aria-rowindex={1} style:height="{headerHeight}px">
+          <th class="check" scope="col" role="columnheader">
+            <input
+              type="checkbox"
+              aria-label="Select all matching rows"
+              checked={headerState === 'true'}
+              indeterminate={headerState === 'mixed'}
+              aria-checked={headerState}
+              onchange={(e) => onSelectAll(e.currentTarget.checked)}
+            />
+          </th>
           <th class="id" scope="col" role="columnheader">#</th>
           {#each columns as col, i (col)}
             <th scope="col" role="columnheader" aria-sort={ariaSort(col)} title={col}>
@@ -290,6 +351,11 @@
                   <Icon name={sort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} />
                 {/if}
               </button>
+              {#if showFilters}
+                <div class="filter-cell">
+                  <ColumnFilter column={col} type={typeOf(col)} filter={filterOf(col)} onChange={(f) => onFilter(col, f)} />
+                </div>
+              {/if}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <span class="resizer" onpointerdown={(e) => startResize(e, col, i)}></span>
             </th>
@@ -299,7 +365,7 @@
       </thead>
       <tbody>
         {#if first > 0}
-          <tr class="spacer" aria-hidden="true" style:height="{first * rowHeight}px"><td colspan={columns.length + 2}></td></tr>
+          <tr class="spacer" aria-hidden="true" style:height="{first * rowHeight}px"><td colspan={columns.length + 3}></td></tr>
         {/if}
         {#each visible as { index, row } (row ? `r${String(row.id)}` : `i${index}`)}
           {#if row}
@@ -309,12 +375,22 @@
               aria-selected={row.id === selectedFeatureId}
               class:odd={index % 2 === 1}
               class:selected={row.id === selectedFeatureId}
+              class:ticked={isSelected(row.id)}
               onclick={() => {
                 activeIndex = index
                 onSelectFeature(row.id)
               }}
               ondblclick={() => onZoomToFeature(row.id)}
             >
+              <td class="check" role="gridcell">
+                <input
+                  type="checkbox"
+                  aria-label="Select row {index + 1}"
+                  checked={isSelected(row.id)}
+                  onclick={(e) => e.stopPropagation()}
+                  onchange={(e) => typeof row.id === 'number' && onToggleSelect(row.id, e.currentTarget.checked)}
+                />
+              </td>
               <td class="id" role="gridcell">
                 {#if hasGeometry && row.invalidGeometry}<span class="no-geom" title="No valid geometry: listed here, not drawn on the map" aria-label="no geometry">∅</span>{/if}{index + 1}
               </td>
@@ -326,6 +402,7 @@
             </tr>
           {:else}
             <tr class="skeleton" aria-rowindex={index + 2} aria-busy="true" class:odd={index % 2 === 1}>
+              <td class="check" role="gridcell"></td>
               <td class="id" role="gridcell">{index + 1}</td>
               <td role="gridcell" colspan={columns.length}><span class="bar"></span></td>
               <td class="filler" aria-hidden="true"></td>
@@ -333,10 +410,13 @@
           {/if}
         {/each}
         {#if last < total}
-          <tr class="spacer" aria-hidden="true" style:height="{(total - last) * rowHeight}px"><td colspan={columns.length + 2}></td></tr>
+          <tr class="spacer" aria-hidden="true" style:height="{(total - last) * rowHeight}px"><td colspan={columns.length + 3}></td></tr>
         {/if}
       </tbody>
     </table>
+    {#if total === 0}
+      <p class="placeholder" role="status">No rows match the filters.</p>
+    {/if}
   {/if}
 </div>
 
@@ -375,6 +455,30 @@
     letter-spacing: var(--se-table-header-tracking);
     text-align: left;
     white-space: nowrap;
+  }
+  thead tr {
+    vertical-align: top;
+  }
+  th.check,
+  td.check {
+    width: 28px;
+    padding: 0;
+    text-align: center;
+  }
+  th.check {
+    padding-top: calc((var(--row-h) - 14px) / 2);
+  }
+  th.check input,
+  td.check input {
+    margin: 0;
+    accent-color: var(--se-accent);
+    cursor: pointer;
+  }
+  .filter-cell {
+    padding: 0 6px 4px 6px;
+  }
+  tbody tr.ticked {
+    box-shadow: inset 2px 0 0 var(--se-accent);
   }
   thead th.id {
     padding: 0 8px;

@@ -239,3 +239,29 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   await expect(page.locator('.error-banner')).toHaveCount(0)
   for (const mib of Object.values(memory)) expect(mib, 'SC-002: engine memory under 3.1 GiB').toBeLessThan(3174)
 })
+
+test('SC-004 (spec 008): a table filter on 4M rows counts within 3 s, and can be cancelled by new work', async ({ page }) => {
+  test.setTimeout(300000)
+  const file = largeData('parcels-4m.parquet')
+  await page.goto('/?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await expect(statusBar(page)).toContainText('4,000,000', { timeout: 60000 })
+  const count = page.locator('.drawer-header > .count')
+  const input = page.getByRole('textbox', { name: 'Filter zone' })
+  await input.fill('C1')
+  const t0 = Date.now()
+  await input.press('Enter')
+  await expect(count).toHaveText(/^[\d,]+ of 4,000,000 rows$/, { timeout: 60000 })
+  const ms = Date.now() - t0
+  results.spec008_filter4M = { ms, label: await count.textContent() }
+  expect(ms).toBeLessThan(3000)
+  // A newer filter replaces a count still running: no stale "of" figure stays.
+  await input.fill('R1')
+  await input.press('Enter')
+  await page.getByRole('combobox', { name: 'value filter operator' }).selectOption('gte')
+  await page.getByRole('textbox', { name: 'Filter value' }).fill('1500000')
+  await page.getByRole('textbox', { name: 'Filter value' }).press('Enter')
+  await expect(count).toHaveText(/^[\d,]+ of 4,000,000 rows$/, { timeout: 60000 })
+  const both = await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { filterState(): { filters: unknown[] } } }).__spatialExplorerE2E.filterState().filters.length)
+  expect(both).toBe(2)
+})

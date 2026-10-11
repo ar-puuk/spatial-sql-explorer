@@ -5,7 +5,7 @@
   // format, CRS, CSV geometry, and every change a format forces, before
   // anything runs.
   import { onDestroy, onMount, tick } from 'svelte'
-  import { EXPORT_FORMATS, type ExportFormatId } from '@spatial-explorer/core'
+  import { EXPORT_FORMATS, type ExportFormatId, type ExportScope } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
@@ -113,6 +113,33 @@
       <p class="blocked" role="status">{plan?.blocked ?? store.exportDisabled ?? 'Nothing to export yet.'}</p>
     {:else}
       <div class="body">
+        {#if plan.scopes.length > 1}
+          <!-- Spec 008 FR-014: all rows, the filtered rows, or the selected rows. -->
+          <div class="field">
+            <span class="label" id="export-rows">Rows</span>
+            <div class="options" role="radiogroup" aria-labelledby="export-rows">
+              {#each plan.scopes as sc (sc.id)}
+                {@const label = `${sc.id === 'all' ? 'All' : sc.id === 'filtered' ? 'Filtered' : 'Selected'} (${sc.rows.toLocaleString('en-US')})`}
+                <button
+                  type="button"
+                  role="radio"
+                  data-value={sc.id}
+                  aria-checked={plan.scope === sc.id}
+                  tabindex={plan.scope === sc.id ? 0 : -1}
+                  disabled={running}
+                  onclick={() => store.setExportRequest({ scope: sc.id })}
+                  onkeydown={(e) =>
+                    radioKeys(
+                      e,
+                      plan.scopes.map((x) => x.id),
+                      plan.scope,
+                      (v) => store.setExportRequest({ scope: v as ExportScope })
+                    )}>{label}</button
+                >
+              {/each}
+            </div>
+          </div>
+        {/if}
         <div class="field">
           <span class="label" id="export-format">Format</span>
           <div class="options" role="radiogroup" aria-labelledby="export-format">

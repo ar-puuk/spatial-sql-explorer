@@ -39,6 +39,7 @@ type WebviewToHostMessage =
   | { type: 'mapViewState'; state: unknown }
   | { type: 'queryState'; state: unknown }
   | { type: 'styleState'; state: unknown }
+  | { type: 'tableState'; state: unknown }
   | { type: 'exportState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
@@ -111,6 +112,7 @@ let lastSelection: string | number | null = null
 /** Latest query state, same rationale (spec 002 test hooks). */
 let lastQueryState: unknown = null
 let lastStyleState: unknown = null
+let lastTableState: unknown = null
 let lastOpenState: unknown = null
 let lastMapViewState: unknown = null
 /** Spec 007 test hook: thresholds sent to the next viewers (see readModes TestOverrides). */
@@ -240,6 +242,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         lastQueryState = msg.state
       } else if (msg.type === 'styleState') {
         lastStyleState = msg.state
+      } else if (msg.type === 'tableState') {
+        lastTableState = msg.state
       } else if (msg.type === 'exportState') {
         lastExportState = msg.state
       } else if (msg.type === 'requestBytes') {
@@ -675,6 +679,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
     // Spec 003 test hooks: read the resolved style, apply a style, save it.
     vscode.commands.registerCommand('spatialExplorer._getStyleState', () => lastStyleState),
+    // Spec 008 T026: table columns, filters and selection.
+    vscode.commands.registerCommand('spatialExplorer._getTableState', () => lastTableState),
+    vscode.commands.registerCommand('spatialExplorer._setFilter', (column: string, filter: unknown) => provider.postToActive({ type: 'testSetFilter', column, filter })),
+    vscode.commands.registerCommand('spatialExplorer._setHiddenColumns', (hidden: string[]) => provider.postToActive({ type: 'testSetHiddenColumns', hidden })),
     // Spec 005 test hooks: run an export, read its state.
     vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
     vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),

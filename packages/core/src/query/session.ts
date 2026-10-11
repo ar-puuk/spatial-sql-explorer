@@ -37,6 +37,7 @@ import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
 import { QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
+import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import {
@@ -239,6 +240,8 @@ export class QuerySession {
   private filterWhere: string | null = null
   /** Rows matching the filters, once counted (null: not counted, or no filters). */
   private matchingRows: number | null = null
+  /** Spec 008 FR-013 "Show selected only": the selection's predicate, or null. */
+  private selectedOnlyWhere: string | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -456,7 +459,49 @@ export class QuerySession {
 
   /** The WHERE body narrowing the displayed result, or null. */
   private restriction(): string | null {
-    return this.filterWhere
+    const parts = [this.filterWhere, this.selectedOnlyWhere].filter((p): p is string => !!p)
+    return parts.length ? parts.map((p) => `(${p})`).join(' AND ') : null
+  }
+
+  /**
+   * "Show selected only" (FR-013): narrows the displayed rows to `selection`
+   * (on top of the filters), or shows every matching row again with null.
+   * Large id selections go through a temporary table.
+   */
+  async setShowSelectedOnly(selection: Selection | null): Promise<void> {
+    if (selection) {
+      const fill = selectionTableSql(selection)
+      if (fill) {
+        await this.exclusive(async () => {
+          for (const sql of fill) await this.conn.query(sql)
+        })
+      }
+    }
+    const where = selection ? selectionPredicate(selection) : null
+    if (where !== this.selectedOnlyWhere) {
+      this.selectedOnlyWhere = where
+      this.matchingRows = null
+      this.pages.clear()
+    }
+  }
+
+  /**
+   * The WGS84 extent of the selected rows among those displayed (FR-013
+   * "Zoom to selection"), or null when none has geometry.
+   */
+  async selectionExtent(selection: Selection): Promise<[number, number, number, number] | null> {
+    const fill = selectionTableSql(selection)
+    return this.exclusive(async (isCancelled) => {
+      if (fill) for (const sql of fill) await this.conn.query(sql)
+      const target = this.pageTarget()
+      if (!target?.geom) return null
+      const where = selectionPredicate(selection)
+      const rel = this.narrowed(target.relation)
+      const relation = where ? `(SELECT * FROM ${rel} WHERE ${where})` : rel
+      const srid = this.facts?.defaultView ? this.table.srid : (this.facts?.resultCrs?.srid ?? null)
+      const b = await singleRow<{ x0: number | null; y0: number | null; x1: number | null; y1: number | null }>(this.conn, selectionExtentSqlFor(relation, target.geom, srid), isCancelled)
+      return b.x0 === null || b.y0 === null || b.x1 === null || b.y1 === null ? null : [Number(b.x0), Number(b.y0), Number(b.x1), Number(b.y1)]
+    }, 'background')
   }
 
   /** `rel` narrowed by the active filters (rel must carry the columns the filters use). */
@@ -843,6 +888,7 @@ export class QuerySession {
     this.filters = []
     this.filterWhere = null
     this.matchingRows = null
+    this.selectedOnlyWhere = null
     if (this.facts?.exportable !== false) this.utilityRows = null
   }
 
@@ -904,17 +950,37 @@ export class QuerySession {
    * the exclusive connection like a query, so cancel() stops it the same way
    * and a query never interleaves with it. Never touches __se_result.
    */
-  async exportData(plan: ExportPlan, hooks: ExportHooks = {}): Promise<ExportResult> {
+  async exportData(plan: ExportPlan, hooks: ExportHooks = {}, selection?: Selection): Promise<ExportResult> {
     if (this.needsLoad) throw new Error('Load the whole file to export it.')
     const started = performance.now()
     try {
-      const result = await this.exclusive((isCancelled) => runExport(this.db, this.conn, plan, isCancelled, hooks))
+      const fill = plan.scope === 'selected' && selection ? selectionTableSql(selection) : null
+      const result = await this.exclusive(async (isCancelled) => {
+        if (fill) for (const sql of fill) await this.conn.query(sql)
+        return runExport(this.db, this.conn, this.scopedExport(plan, selection), isCancelled, hooks)
+      })
       this.log?.(`[export] ${plan.format}: ${nf.format(result.rows)} rows, ${nf.format(result.bytes.length)} bytes · ${Math.round(performance.now() - started)} ms`)
       return result
     } catch (err) {
       this.log?.(`[export] ${plan.format}: ${err instanceof QueryCancelledError ? 'cancelled' : exportErrorMessage(err)}`)
       throw err
     }
+  }
+
+  /**
+   * Spec 008 FR-014: the plan run over its scope's rows. 'all' is the plan
+   * as built (every row of the result, whatever the table shows); 'filtered'
+   * and 'selected' read the result with row ids, narrowed by the filters
+   * (and the selection), with the same columns.
+   */
+  private scopedExport(plan: ExportPlan, selection?: Selection): ExportPlan {
+    if (plan.scope === 'all') return plan
+    const target = this.pageTarget()
+    if (!target) return plan
+    const parts = [this.filterWhere, plan.scope === 'selected' && selection ? selectionPredicate(selection) : null].filter((p): p is string => !!p)
+    const rel = parts.length ? `(SELECT * FROM ${target.relation} WHERE ${parts.map((p) => `(${p})`).join(' AND ')})` : target.relation
+    const select = plan.select === '*' ? "COLUMNS(c -> NOT starts_with(c, '__se_'))" : plan.select
+    return { ...plan, sql: `SELECT ${select} FROM ${rel}` }
   }
 
   /** Facts about the displayed result, for export (spec 005); null before the first result. */

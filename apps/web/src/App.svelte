@@ -59,6 +59,13 @@
           await db.dropFile(path)
         }
       },
+      /** Spec 008 T024: the table filters and the narrowed row count. */
+      filterState: () =>
+        JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.viewFeatures?.inView ?? null })),
+      /** Spec 008 T025: the ticked rows. */
+      selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
+      /** Spec 008 T025: the map's current bounds (zoom to selection). */
+      mapBounds: () => store.lastViewBbox,
       /** Spec 005 T023: export files still in the engine's memory (should be none). */
       exportFiles: () => {
         const qs = store.querySession

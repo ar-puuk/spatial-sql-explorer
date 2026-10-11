@@ -59,7 +59,12 @@
     onBasemapFailure: (message: string) => void
     openPanel: 'style' | 'basemap' | null
     onTogglePanel: (panel: 'style' | 'basemap') => void
-    onSelectFeature: (id: string | number | null) => void
+    /** `additive`: Ctrl/Cmd was held (spec 008 FR-012: add to the selection). */
+    onSelectFeature: (id: string | number | null, additive?: boolean) => void
+    /** Spec 008 FR-012: the ticked rows, highlighted like the selected feature ('all': every drawn feature). */
+    tickedIds?: ReadonlySet<number> | 'all'
+    /** Spec 008 FR-013: fits the map to a WGS84 box once per new request. */
+    fitRequest?: { bbox: [number, number, number, number]; seq: number } | null
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
@@ -89,6 +94,8 @@
     openPanel,
     onTogglePanel,
     onSelectFeature,
+    tickedIds = new Set<number>(),
+    fitRequest = null,
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
@@ -271,7 +278,7 @@
         return
       }
       const hit = m.queryRenderedFeatures(e.point, { layers: interactiveLayers() })[0]
-      onSelectFeature(featureId(hit))
+      onSelectFeature(featureId(hit), e.originalEvent.ctrlKey || e.originalEvent.metaKey)
     })
     m.on('mousemove', (e: MapMouseEvent) => {
       onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
@@ -343,6 +350,8 @@
       hoveredId = null
       if (selectedFeatureId !== null && selectedFeatureId !== undefined) m.setFeatureState({ source: SOURCE_ID, id: selectedFeatureId }, { selected: true })
       previousSelected = selectedFeatureId ?? null
+      tickedApplied = new Set()
+      applyTicked()
     })
   }
 
@@ -538,6 +547,43 @@
     if (previousSelected !== null) map.setFeatureState({ source: SOURCE_ID, id: previousSelected }, { selected: false })
     if (id !== null && id !== undefined) map.setFeatureState({ source: SOURCE_ID, id }, { selected: true })
     previousSelected = id ?? null
+  })
+
+  // Spec 008 FR-012: ticked rows share the selection highlight (feature-state
+  // `ticked`), set on the drawn features only: a selection can be far larger
+  // than what is drawn.
+  let tickedApplied = new Set<string | number>()
+  function applyTicked(): void {
+    if (!map || !mapReady || styledTiles) return
+    const ids = tickedIds
+    const drawn = [...(viewFeatures?.features ?? []), ...(extraFeature ? [extraFeature] : [])].map((f) => f.id)
+    const next = new Set(ids === 'all' ? drawn : drawn.filter((id) => typeof id === 'number' && ids.has(id)))
+    for (const id of tickedApplied) if (!next.has(id)) map.setFeatureState({ source: SOURCE_ID, id }, { ticked: false })
+    for (const id of next) if (!tickedApplied.has(id)) map.setFeatureState({ source: SOURCE_ID, id }, { ticked: true })
+    tickedApplied = next
+  }
+  $effect(() => {
+    void tickedIds
+    void viewFeatures
+    void extraFeature
+    untrack(() => applyTicked())
+  })
+
+  let appliedFit = 0
+  $effect(() => {
+    const req = fitRequest
+    if (!req || !mapReady || !map || req.seq === appliedFit) return
+    appliedFit = req.seq
+    const [x0, y0, x1, y1] = req.bbox
+    if (x0 === x1 && y0 === y1) map.easeTo({ center: [x0, y0], zoom: Math.max(map.getZoom(), 14), duration: 500 })
+    else
+      map.fitBounds(
+        [
+          [x0, y0],
+          [x1, y1],
+        ],
+        { padding: 48, maxZoom: 17, duration: 500 }
+      )
   })
 
   // Basemap choice, theme default and failure fallback all arrive here.

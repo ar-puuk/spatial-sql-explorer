@@ -440,6 +440,11 @@ export function reportStyleState(state: unknown): void {
   post({ type: 'styleState', state })
 }
 
+/** Spec 008 T026: the table's columns, filters and selection, for tests. */
+export function reportTableState(state: unknown): void {
+  post({ type: 'tableState', state })
+}
+
 /** One line in the "Spatial Explorer" output channel. */
 export function logToHost(detail: string): void {
   post({ type: 'log', detail })

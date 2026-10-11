@@ -18,8 +18,8 @@ describe('single symbol (spec 001 behavior, unchanged)', () => {
   const resolved = resolveStyle(style, { features: [], columns: [] })
   const p = paintFor(style, resolved, '#0078d4')
 
-  it('produces the same paint MapView built before spec 003', () => {
-    const selected = ['boolean', ['feature-state', 'selected'], false]
+  it('produces the same paint MapView built before spec 003 (selected now also means ticked, spec 008)', () => {
+    const selected = ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'ticked'], false]]
     const hovered = ['boolean', ['feature-state', 'hover'], false]
     expect(p.fill['fill-color']).toEqual(['case', selected, '#0078d4', '#123456'])
     expect(p.fill['fill-opacity']).toEqual(['case', selected, 0.6, hovered, Math.min(1, style.fillOpacity + 0.15), style.fillOpacity])

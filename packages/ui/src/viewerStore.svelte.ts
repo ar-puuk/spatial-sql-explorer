@@ -58,6 +58,11 @@ import {
   ViewSkippedError,
   WorkPreemptedError,
   OutOfMemoryError,
+  EMPTY_SELECTION,
+  isEmptySelection,
+  selectionSize,
+  type ColumnFilter,
+  type Selection,
 } from '@spatial-explorer/core'
 import { formatFromFileName } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
@@ -119,6 +124,32 @@ export interface ViewerStore {
   setTableSort(sort: { column: string; dir: 'asc' | 'desc' } | null): void
   /** One page of rows (PAGE_SIZE) at `offset`, in the current sort; null when there's nothing to page. */
   loadPage(offset: number): Promise<TablePage | null>
+  // --- Spec 008 US2: columns, filters, selection --------------------------
+  /** Columns hidden in the table (FR-008/FR-009): remembered per file for the file's own columns. */
+  readonly hiddenColumns: ReadonlySet<string>
+  setHiddenColumns(hidden: string[]): void
+  /** The table filters (FR-010), as parsed: invalid ones carry `valid: false` and a reason. */
+  readonly filters: readonly ColumnFilter[]
+  /** Replaces the filter on `column` (null removes it). */
+  setFilter(column: string, filter: ColumnFilter | null): void
+  clearFilters(): void
+  /** "N of M" (FR-011) while filters or "show selected only" narrow the rows; null otherwise or while counting. */
+  readonly filterCounts: { total: number; matching: number } | null
+  /** True while the narrowed rows are being counted. */
+  readonly filtering: boolean
+  /** The ticked rows (FR-012): ids, or every row matching the filters. */
+  readonly selection: Selection
+  readonly selectedCount: number
+  toggleSelected(id: number, selected?: boolean): void
+  /** Map click (FR-012): replace the selection with one feature; with `add`, toggle it instead (Ctrl/Cmd). */
+  selectOnMap(id: number | null, add: boolean): void
+  selectAllMatching(): void
+  clearSelection(): void
+  readonly showSelectedOnly: boolean
+  setShowSelectedOnly(on: boolean): void
+  zoomToSelection(): Promise<void>
+  /** Fits the map to a WGS84 box once per new request. */
+  readonly fitRequest: { bbox: [number, number, number, number]; seq: number } | null
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -335,12 +366,83 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // must not create a reactive signal per attribute (spec 003 T012). Kept in
   // step with session.layer by setLayer().
   let displayedLayer = $state.raw<Layer | null>(null)
+  /** The file's own result (its default view), reactive: the column view applies to its columns. */
+  let initialLayerState = $state.raw<Layer | null>(null)
   function setLayer(l: Layer | null): void {
     displayedLayer = l
     session.layer = l
     // A new result: the table's loaded pages and sort belong to the old one.
     tableSort = null
     tableRevision++
+    // ... and so do its filters and selection (the session clears its own).
+    filters = []
+    filterCounts = null
+    selection = EMPTY_SELECTION
+    showSelectedOnly = false
+    resultHidden = []
+  }
+
+  // --- Spec 008 US2: the column view, filters and selection (data-model.md) ----
+  /** Hidden columns of the source's own column set, saved per file. */
+  let savedHidden = $state.raw<string[]>([])
+  /** Hidden columns of a query result with other columns: this result only. */
+  let resultHidden = $state.raw<string[]>([])
+  let columnsKey: string | null = null
+  const columnNames = (l: Layer | null): string => (l ? l.columns.map((c) => c.name).join('\u0000') : '')
+  const sourceColumns = $derived(columnNames(initialLayerState))
+  const showsSourceColumns = $derived(!!displayedLayer && columnNames(displayedLayer) === sourceColumns)
+  // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const hiddenColumns = $derived(new Set(showsSourceColumns ? savedHidden : resultHidden))
+
+  function loadColumnView(key: string): void {
+    columnsKey = key
+    savedHidden = []
+    void hostAdapter
+      .loadState<{ hidden?: unknown }>(`columns:${key}`)
+      .then((v) => {
+        if (columnsKey === key && Array.isArray(v?.hidden)) savedHidden = v.hidden.filter((n): n is string => typeof n === 'string')
+      })
+      .catch(() => {})
+  }
+
+  let filters = $state.raw<ColumnFilter[]>([])
+  let filterCounts = $state.raw<{ total: number; matching: number } | null>(null)
+  let filtering = $state(false)
+  /** Bumps when the displayed rows are narrowed differently (filters, show selected only). */
+  let narrowRevision = $state(0)
+  let selection = $state.raw<Selection>(EMPTY_SELECTION)
+  let showSelectedOnly = $state(false)
+  let fitRequest = $state.raw<{ bbox: [number, number, number, number]; seq: number } | null>(null)
+
+  /** After the rows were narrowed: new pages, a new view, the style and the count. */
+  async function narrowed(): Promise<void> {
+    const qs = querySession
+    tableRevision++
+    narrowRevision++
+    if (lastViewArgs) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
+    if (!qs || (!filters.some((f) => f.valid) && !showSelectedOnly)) {
+      filterCounts = null
+      filtering = false
+      return
+    }
+    const revision = narrowRevision
+    filtering = true
+    try {
+      const counts = await retryWhenBusy(qs, () => qs.filterCounts())
+      if (revision === narrowRevision) filterCounts = counts
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: filter count failed', err)
+    } finally {
+      if (revision === narrowRevision) filtering = false
+    }
+  }
+
+  function applyFilters(next: ColumnFilter[]): void {
+    const qs = querySession
+    filters = qs ? qs.setFilters(next) : next
+    // "All matching" follows the new filters; a list of ids stays as it is.
+    void narrowed()
   }
   // Spec 007 FR-012: styles are resolved by the engine over the whole result
   // (fetched values for small results, SQL statistics for big ones).
@@ -425,6 +527,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     $effect(() => {
       void style
       void displayedLayer
+      void narrowRevision
       void untrack(() => refreshStyle())
     })
   })
@@ -455,7 +558,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const layer = displayedLayer
     const facts = querySession?.lastResult
     if (!layer || !facts) return null
-    return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts })
+    const narrowedRows = filters.some((f) => f.valid) ? (filterCounts?.matching ?? null) : null
+    const selected = isEmptySelection(selection) ? null : selectionSize(selection, filterCounts?.matching ?? facts.totalRows)
+    return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts, scopes: { filtered: narrowedRows, selected } })
   })
   // Spec 007 T044: the opened file, to load it whole later, and its size.
   let openedRef: OpenedFileRef | null = null
@@ -742,6 +847,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       openedRef = ref
       currentFileName = ref.displayName
       historyStateKey = ref.stateKey
+      loadColumnView(ref.stateKey)
       history = []
       void loadHistory(hostAdapter, ref.stateKey).then((list) => {
         if (ref.stateKey === historyStateKey) history = list
@@ -798,6 +904,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void refreshCatalog()
       const layer = opened.layer
       initialLayer = layer
+      initialLayerState = layer
       setLayer(layer)
       session.loadState = 'ready'
       if (keptStyle) {
@@ -972,6 +1079,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return runStartedAt
     },
     get tableTotal() {
+      if (filters.some((f) => f.valid) || showSelectedOnly) return filterCounts?.matching ?? 0
       return displayedLayer?.totalRows ?? 0
     },
     get tableSort() {
@@ -1000,6 +1108,95 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         if (noteOutOfMemory(err)) return null
         throw err
       }
+    },
+    get hiddenColumns() {
+      return hiddenColumns
+    },
+    setHiddenColumns(hidden) {
+      if (showsSourceColumns) {
+        savedHidden = hidden
+        if (columnsKey) void hostAdapter.saveState(`columns:${columnsKey}`, { hidden }).catch(() => {})
+      } else resultHidden = hidden
+    },
+    get filters() {
+      return filters
+    },
+    setFilter(column, filter) {
+      applyFilters([...filters.filter((f) => f.column !== column), ...(filter ? [filter] : [])])
+    },
+    clearFilters() {
+      applyFilters([])
+    },
+    get filterCounts() {
+      return filterCounts
+    },
+    get filtering() {
+      return filtering
+    },
+    get selection() {
+      return selection
+    },
+    get selectedCount() {
+      return selectionSize(selection, filterCounts?.matching ?? displayedLayer?.totalRows ?? 0)
+    },
+    toggleSelected(id, selected) {
+      if (selection.kind === 'all-matching') {
+        // Unticking one row of "all matching" needs the list of ids: only for results small enough to list.
+        if (selected !== false) return
+        const total = filterCounts?.matching ?? displayedLayer?.totalRows ?? 0
+        if (total > 50_000) return
+        const qs = querySession
+        if (!qs) return
+        void retryWhenBusy(qs, () => qs.page({ offset: 0, limit: total, sort: null })).then((page) => {
+          // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
+          // eslint-disable-next-line svelte/prefer-svelte-reactivity
+          selection = { kind: 'ids', ids: new Set(page.rows.map((r) => r.id).filter((r) => r !== id)) }
+        })
+        return
+      }
+      // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const ids = new Set(selection.ids)
+      const on = selected ?? !ids.has(id)
+      if (on) ids.add(id)
+      else ids.delete(id)
+      selection = { kind: 'ids', ids }
+      if (showSelectedOnly) void querySession?.setShowSelectedOnly(selection).then(() => narrowed())
+    },
+    selectOnMap(id, add) {
+      if (id === null) {
+        if (!add) selection = EMPTY_SELECTION
+        return
+      }
+      if (add) this.toggleSelected(id)
+      // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      else selection = { kind: 'ids', ids: new Set([id]) }
+    },
+    selectAllMatching() {
+      selection = { kind: 'all-matching' }
+    },
+    clearSelection() {
+      selection = EMPTY_SELECTION
+      if (showSelectedOnly) this.setShowSelectedOnly(false)
+    },
+    get showSelectedOnly() {
+      return showSelectedOnly
+    },
+    setShowSelectedOnly(on) {
+      const qs = querySession
+      if (!qs || on === showSelectedOnly) return
+      showSelectedOnly = on
+      void qs.setShowSelectedOnly(on ? selection : null).then(() => narrowed())
+    },
+    async zoomToSelection() {
+      const qs = querySession
+      if (!qs || isEmptySelection(selection)) return
+      const bbox = await retryWhenBusy(qs, () => qs.selectionExtent(selection)).catch(() => null)
+      if (bbox) fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
+    },
+    get fitRequest() {
+      return fitRequest
     },
     get mapLayer() {
       return mapLayer
@@ -1053,7 +1250,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const startedAt = performance.now()
       exportProgress = { rows: null, startedAt }
       try {
-        const result = await qs.exportData(plan, { onProgress: (rows) => (exportProgress = { rows, startedAt }) })
+        const result = await qs.exportData(plan, { onProgress: (rows) => (exportProgress = { rows, startedAt }) }, selection)
         exportProgress = null
         const saved = await hostAdapter.saveFile(plan.fileName, result.bytes, { kind: 'data' })
         exportOutcome = saved.saved

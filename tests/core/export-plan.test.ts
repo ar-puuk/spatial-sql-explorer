@@ -191,3 +191,31 @@ describe('hidden columns (spec 007)', () => {
     }
   })
 })
+
+// T030 (spec 008 FR-014): all rows, the filtered rows, or the selected rows.
+describe('export scope', () => {
+  const base = () => ctx({ layer: { ...ctx().layer, rowCount: 22000 } })
+
+  it('offers only the scopes that apply, with their row counts', () => {
+    expect(planExport(request(), base()).scopes).toEqual([{ id: 'all', rows: 22000 }])
+    const p = planExport(request(), { ...base(), scopes: { filtered: 1204, selected: 3 } })
+    expect(p.scopes).toEqual([
+      { id: 'all', rows: 22000 },
+      { id: 'filtered', rows: 1204 },
+      { id: 'selected', rows: 3 },
+    ])
+  })
+
+  it('a chosen scope sets the row count; the select list is kept for the session to narrow', () => {
+    const p = planExport(request({ scope: 'selected' }), { ...base(), scopes: { filtered: 1204, selected: 3 } })
+    expect(p.scope).toBe('selected')
+    expect(p.rowCount).toBe(3)
+    expect(p.sql).toBe(`SELECT ${p.select} FROM "layer"`)
+  })
+
+  it('a scope that does not apply falls back to all rows', () => {
+    const p = planExport(request({ scope: 'filtered' }), base())
+    expect(p.scope).toBe('all')
+    expect(p.rowCount).toBe(22000)
+  })
+})

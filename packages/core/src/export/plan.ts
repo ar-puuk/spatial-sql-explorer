@@ -19,13 +19,23 @@ export interface ExportRequest {
   crs: 'result' | 'wgs84'
   /** CSV only; 'xy' only for point layers. */
   csvGeometry: 'wkt' | 'xy'
+  /**
+   * Spec 008 FR-014: every row of the result, the rows matching the table
+   * filters, or the selected rows. Default 'all'; a scope that doesn't apply
+   * falls back to 'all'.
+   */
+  scope?: ExportScope
 }
+
+export type ExportScope = 'all' | 'filtered' | 'selected'
 
 export interface ExportPlanContext {
   /** File name of the opened source, for the default output name. */
   sourceName: string
   layer: Pick<Layer, 'rowCount' | 'invalidGeometryCount' | 'columns'> & { geometryType: GeometryType }
   facts: ResultFacts
+  /** Spec 008: row counts of the narrower scopes, when they apply (filters active, rows selected). */
+  scopes?: { filtered: number | null; selected: number | null }
 }
 
 export interface ExportPlan {
@@ -42,7 +52,14 @@ export interface ExportPlan {
   xyAvailable: boolean
   geometryColumn: string | null
   notices: string[]
+  /** The statement the export runs: `SELECT <select> FROM <the source>`, for the 'all' scope. */
   sql: string
+  /** Spec 008: the SELECT list of `sql`, so a narrower scope can run it over its own rows. */
+  select: string
+  /** Spec 008 FR-014: the rows written (QuerySession narrows the source to it). */
+  scope: ExportScope
+  /** Scopes offered, with their row counts (only those that apply). */
+  scopes: Array<{ id: ExportScope; rows: number }>
   fileName: string
 }
 
@@ -95,7 +112,12 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
 
   // Rows (spec 007 FR-009): nothing is display-limited any more; export writes the whole result.
   const source: ExportPlan['source'] = facts.defaultView ? 'layer' : 'result'
-  const rowCount = facts.defaultView ? layer.rowCount : facts.totalRows
+  const allRows = facts.defaultView ? layer.rowCount : facts.totalRows
+  const scopes: ExportPlan['scopes'] = [{ id: 'all', rows: allRows }]
+  if (ctx.scopes?.filtered !== null && ctx.scopes?.filtered !== undefined) scopes.push({ id: 'filtered', rows: ctx.scopes.filtered })
+  if (ctx.scopes?.selected !== null && ctx.scopes?.selected !== undefined) scopes.push({ id: 'selected', rows: ctx.scopes.selected })
+  const scope = scopes.find((s) => s.id === (request.scope ?? 'all'))?.id ?? 'all'
+  const rowCount = scopes.find((s) => s.id === scope)?.rows ?? allRows
 
   // CRS (FR-006).
   const resultCrs = facts.resultCrs
@@ -157,7 +179,8 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   notices.push(...typeNotices(format, columns))
 
   const from = source === 'layer' ? quoteIdent('layer') : RESULT_TABLE
-  const sql = `SELECT ${select.join(', ') || '*'} FROM ${from}`
+  const selectList = select.join(', ') || '*'
+  const sql = `SELECT ${selectList} FROM ${from}`
 
   return {
     source,
@@ -171,6 +194,9 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     geometryColumn: g,
     notices,
     sql,
+    select: selectList,
+    scope,
+    scopes,
     fileName: `${baseName(ctx.sourceName)}-export${fmt.extension}`,
   }
 }

@@ -23,9 +23,10 @@
   const shown = $derived(columns.filter((c) => !query.trim() || c.name.toLowerCase().includes(query.trim().toLowerCase())))
   const visibleCount = $derived(columns.filter((c) => !hidden.has(c.name)).length)
 
-  function set(name: string, visible: boolean): void {
+  function set(name: string, visible: boolean, box: HTMLInputElement): void {
     if (!visible && visibleCount <= 1 && !hidden.has(name)) {
       message = 'At least one column stays visible.'
+      box.checked = true
       return
     }
     message = null
@@ -86,7 +87,7 @@
     {#each shown as c (c.name)}
       <li>
         <label title={`${c.name} · ${c.type}`}>
-          <input type="checkbox" checked={!hidden.has(c.name)} onchange={(e) => set(c.name, e.currentTarget.checked)} />
+          <input type="checkbox" aria-label={c.name} checked={!hidden.has(c.name)} onchange={(e) => set(c.name, e.currentTarget.checked, e.currentTarget)} />
           <span class="name">{c.name}</span>
           <span class="type">{c.type}</span>
         </label>

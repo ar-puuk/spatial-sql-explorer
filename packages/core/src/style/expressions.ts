@@ -11,7 +11,8 @@ import { parseColor, rendererOf, type CategorizedRenderer, type GraduatedRendere
 export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
 
-const selected = ['boolean', ['feature-state', 'selected'], false]
+// The focused feature (inspector, table cursor), or a ticked row (spec 008 FR-012): drawn alike.
+const selected = ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'ticked'], false]]
 const hovered = ['boolean', ['feature-state', 'hover'], false]
 
 /** Black or white, whichever contrasts with the selection color (research §6: the selection halo). */
