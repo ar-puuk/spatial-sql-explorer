@@ -191,3 +191,43 @@ test('SC-007 (spec 003): a thematic style on 50,000 rows never freezes the viewe
   results.style50kLongestTaskMs = Math.round(longest)
   expect(longest, 'SC-007: no task blocks the viewer for 1 s or more').toBeLessThan(1000)
 })
+
+test('SC-003 / SC-004 (spec 005): export 100,000 polygons to GeoParquet; cancel a large export', async ({ page }) => {
+  test.setTimeout(300000)
+  const { openFile, openQueryPanel, runQuery, writeParcels } = await import('./helpers')
+  await openFile(page, writeParcels(100_000, 'parcels-100k.geojson'))
+  const dialog = page.getByRole('dialog', { name: 'Export data' })
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await expect(dialog.getByRole('radio', { name: 'All 100,000 rows' })).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('radio', { name: 'GeoParquet', exact: true }).click()
+  await page.evaluate(() => {
+    const w = window as unknown as { __longTasks: number[] }
+    w.__longTasks = []
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__longTasks.push(e.duration)
+    }).observe({ type: 'longtask', buffered: false })
+  })
+  const t0 = Date.now()
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), dialog.getByRole('button', { name: 'Export…' }).click()])
+  results.export100kGeoParquetMs = Date.now() - t0
+  results.export100kGeoParquetBytes = fs.statSync(await download.path()).size
+  results.export100kLongestTaskMs = Math.round(await page.evaluate(() => Math.max(0, ...(window as unknown as { __longTasks: number[] }).__longTasks)))
+  expect(results.export100kGeoParquetMs as number, 'SC-003: 100,000 polygons exported in under 15 s').toBeLessThan(15000)
+  expect(results.export100kLongestTaskMs as number, 'SC-003: no task blocks the viewer for 1 s or more').toBeLessThan(1000)
+  await dialog.getByRole('button', { name: 'Done' }).click()
+
+  // SC-004: a 1,000,000-row GeoJSON export, cancelled while it writes.
+  await openQueryPanel(page)
+  await runQuery(page, 'SELECT a.* FROM layer a, range(10) b')
+  await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
+  await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Export…' }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
+  const t1 = Date.now()
+  await dialog.getByRole('button', { name: 'Cancel export' }).click()
+  await expect(dialog).toContainText('Export cancelled. Nothing was saved.', { timeout: 10000 })
+  results.exportCancelMs = Date.now() - t1
+  expect(results.exportCancelMs as number, 'SC-004: cancel takes effect in under 3 s').toBeLessThan(3000)
+})

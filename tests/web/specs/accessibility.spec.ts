@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeParcels } from './helpers'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(__dirname, '../../vscode-ext/fixtures/world-boundaries.geojson')
@@ -40,7 +41,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: 'Layer style' }).click()
     await audit(page, 'style panel')
-    await page.getByRole('button', { name: 'Export' }).click()
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
     await audit(page, 'export menu')
     await page.keyboard.press('Escape')
 
@@ -286,4 +287,88 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
   await expect(editor).toBeFocused()
+})
+
+// T028 (spec 005, Constitution Principle VII): the export dialog, for a
+// geometry result, a table result, display-limited rows and while running.
+const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export data' })
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the export dialog states (${scheme})`, async ({ page }) => {
+    test.setTimeout(240000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/')
+    await page.locator('input[type="file"]').setInputFiles(writeParcels(20_000, 'parcels-a11y.geojson'))
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+
+    await page.getByRole('button', { name: 'Export data…' }).click()
+    await expect(exportDialog(page)).toBeVisible()
+    await audit(page, 'export: geometry result, display-limited rows')
+    await exportDialog(page).getByRole('radio', { name: 'CSV', exact: true }).click()
+    await audit(page, 'export: CSV geometry options')
+    await page.keyboard.press('Escape')
+
+    await page.keyboard.press('Control+Shift+Q')
+    await runSql(page, 'SELECT zone, count(*) AS n FROM layer GROUP BY zone')
+    await expect(page.locator('.query-status')).toContainText('rows', { timeout: 60000 })
+    await page.getByRole('button', { name: 'Export data…' }).click()
+    await audit(page, 'export: table result')
+    await page.keyboard.press('Escape')
+
+    await runSql(page, 'SELECT a.* FROM layer a, range(10) b')
+    await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click()
+    await expect(page.locator('.query-status')).toContainText('Showing first 50,000', { timeout: 120000 })
+    await page.getByRole('button', { name: 'Export data…' }).click()
+    await exportDialog(page).getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await exportDialog(page).getByRole('button', { name: 'Export…' }).click()
+    await expect(exportDialog(page).getByRole('status').filter({ hasText: /rows written/ })).toBeVisible({ timeout: 30000 })
+    await audit(page, 'export: running')
+    await exportDialog(page).getByRole('button', { name: 'Cancel export' }).click()
+    await expect(exportDialog(page)).toContainText('Export cancelled')
+    await audit(page, 'export: cancelled')
+  })
+}
+
+test('keyboard: every export control is reachable, and Esc returns to the Export button', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles(writeParcels(2_000, 'parcels-kbd.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+
+  const button = page.getByRole('button', { name: 'Export data…' })
+  await button.focus()
+  await page.keyboard.press('Enter')
+  await expect(exportDialog(page)).toBeVisible()
+  // Focus starts on the first checked choice, inside the dialog.
+  await expect(exportDialog(page).getByRole('radio', { name: 'All 2,000 rows' })).toBeFocused()
+
+  // Format: arrows move and choose; choosing CSV adds the geometry group.
+  await exportDialog(page).getByRole('radio', { name: 'GeoParquet' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  await expect(exportDialog(page).getByRole('radio', { name: 'CSV', exact: true })).toHaveAttribute('aria-checked', 'true')
+
+  const reached: string[] = []
+  for (let i = 0; i < 16; i++) {
+    await page.keyboard.press('Tab')
+    reached.push(
+      await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null
+        if (!el) return ''
+        const id = el.getAttribute('id')
+        const label = id ? document.querySelector(`label[for="${id}"]`)?.textContent : null
+        return (el.getAttribute('aria-label') ?? label ?? el.textContent ?? '').trim()
+      })
+    )
+    expect(await exportDialog(page).evaluate((d) => d.contains(document.activeElement)), 'focus stays in the dialog').toBe(true)
+  }
+  for (const name of ['Close', 'All 2,000 rows', 'CSV', 'CRS', 'WKT text', 'Cancel', 'Export…']) {
+    expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
+  }
+
+  await page.keyboard.press('Escape')
+  await expect(exportDialog(page)).toHaveCount(0)
+  await expect(button).toBeFocused()
 })

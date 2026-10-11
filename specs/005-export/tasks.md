@@ -270,16 +270,18 @@ results save as Parquet (FR-004, FR-008).
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T028 [P] Extend `tests/web/specs/accessibility.spec.ts`:
+- [X] T028 [P] Extend `tests/web/specs/accessibility.spec.ts`:
   - axe in light and dark with the export dialog open (geometry result, table result, display-limited rows, and the running state);
   - keyboard: Tab reaches every radio group, the CRS select, Cancel and Export; Esc closes and returns focus to the Export button.
 
   Fix any violations.
-- [ ] T029 [P] Extend `tests/web/specs/performance.spec.ts`:
+  - *Done*: axe clean light/dark in 5 dialog states; keyboard + focus return pass; fixed a now-ambiguous 'Export' locator in the spec-001 a11y test
+- [X] T029 [P] Extend `tests/web/specs/performance.spec.ts`:
   - **SC-003**: 100,000 polygons → GeoParquet; time from Export to the download event is < 15 s, and no long task ≥ 1 s;
   - **SC-004**: cancel latency < 3 s.
 
   Record the numbers.
+  - *Done*: 100k polygons to GeoParquet 2,033 ms (18.6 MB), longest task 0 ms; cancel 93 ms
 - [ ] T030 [P] Extend `tests/vscode-ext/src/suite/export.test.ts` with:
   - a result of more than 32 MB exported as GeoJSON (e.g. 80,000 generated polygons), proving the chunked transfer (bytes on disk equal the reported size);
   - choosing the source path via `_saveNextExportTo(<source>)` is refused, with the reply `saved: false` and the message.
