@@ -553,3 +553,47 @@ Every format offered was written by the real web build, then read back:
   the app fully offline means bundling the extension (.duckdb_extension.wasm)
   with the app and pointing `custom_extension_repository` at it: a separate
   decision (size, both shells).
+
+## 15. Engine from a CDN, hash-checked (user decision, 2026-10-11)
+
+**Decision (user)**: don't bundle DuckDB-WASM (35 of the web build's 39 MB,
+and most of the 8.7 MB VSIX). Load it from jsDelivr at a pinned version,
+and check every downloaded piece of engine code against a SHA-256 recorded
+at build time: the DuckDB worker and wasm, the spatial, parquet and json
+extensions (until now fetched by DuckDB itself, unchecked), and sql.js.
+
+**Spike** (Chromium, the web preview server):
+- jsDelivr's `@duckdb/duckdb-wasm@1.32.0/dist` files are byte-identical to
+  the npm package (worker `f8ab72b6…`, wasm `4c221bfa…`), so their hashes
+  come from `node_modules` at build time.
+- The engine starts from verified bytes: `new Worker(blobUrl)` of the
+  checked worker text and `db.instantiate(blobUrl)` of the checked wasm
+  (~0.9 s here, downloads included).
+- Extensions: `LOAD '<blob url>'` fails (DuckDB names the extension after
+  the file: "expected entrypoint `<uuid>_duckdb_cpp_init`"); a registered
+  buffer fails too (extensions are fetched with XHR). `LOAD
+  '<blob url>#/spatial.duckdb_extension.wasm'` works: the fetch ignores the
+  fragment, DuckDB reads the name from it. Signature checks stay on
+  (`allow_unsigned_extensions` false). spatial 23.5 MB, `04b77694…`.
+- DuckDB's own autoload/autoinstall are turned off, so nothing else is
+  fetched behind the check.
+
+**Outcome** (implemented, constitution v1.2.0):
+- `scripts/engine-assets.mjs` writes `packages/core/src/engineAssets.json`
+  (URLs, SHA-256, sizes); a core test fails if it drifts from node_modules,
+  and the script refuses an extension whose bytes changed for the same
+  DuckDB release. `fetchVerified` (core `engineAssets.ts`) refuses a
+  mismatch with "refused to run its SQL engine: … does not match".
+- Sizes: web build 39 MB → 4.0 MB; VS Code webview 38 MB → 3.5 MB; VSIX
+  8.7 MB → 1.4 MB.
+- VS Code: works in the webview (75 tests, real CDNs): the worker reads
+  verified extension bytes from blob URLs (CSP `connect-src blob:` plus
+  `cdn.jsdelivr.net`).
+- Tests: web test builds serve the same files from `/engine-mirror`
+  (ENGINE_MIRROR=1, VITE_ENGINE_MIRROR); `engine-integrity.spec` checks a
+  tampered engine and extension are refused and that only the 5 pinned
+  files are fetched. The production build was also run against the real
+  CDNs (GeoPackage export through the CDN's sql.js, GeoParquet through the
+  parquet extension).
+- Offline: still needs a connection the first time (as before, for the
+  extensions); after that the browser's HTTP cache serves the pinned files.

@@ -28,6 +28,9 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 60000,
     cwd: '../..',
+    // Spec 008 research §15: the engine is downloaded and hash-checked; tests
+    // serve the same files from the app's own origin (no 60 MB per test).
+    env: { ENGINE_MIRROR: '1', VITE_ENGINE_MIRROR: '/engine-mirror' },
   },
   use: {
     baseURL: 'http://localhost:4173',

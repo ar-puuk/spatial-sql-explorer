@@ -19,17 +19,19 @@
 // worker's own `self.fetch` to resolve DuckDB-WASM's one wasm-module request
 // directly from bytes delivered via `postMessage`, so the worker never
 // performs a network fetch of its own at all.
+//
+// Spec 008 research §15: nothing of the engine is bundled. The worker, the
+// wasm and the extensions come from pinned URLs and are checked against the
+// SHA-256 recorded at build time before they run (engineAssets.ts).
 import * as duckdb from '@duckdb/duckdb-wasm'
 import { testOverrides } from './source/readModes.js'
+import { ENGINE_ASSETS, EngineLoadError, fetchVerified, type EngineSource, type ExtensionName } from './engineAssets.js'
 
-export interface DuckDbAssetUrls {
-  /** Fetchable URL for the `eh` bundle's worker script (e.g. a webview.asWebviewUri() result). */
-  workerUrl: string
-  /** Fetchable URL for the `eh` bundle's wasm module. */
-  wasmUrl: string
-  /** Spec 008: sql.js's wasm, fetched only when a GeoPackage is exported (research §3). */
-  sqlWasmUrl?: string
-}
+/**
+ * Where the shell's engine comes from. Spec 008: always the pinned CDNs,
+ * hash-checked; `mirror` (tests) serves the same files from the app's origin.
+ */
+export type DuckDbAssetUrls = EngineSource
 
 const SENTINEL_WASM_URL = 'https://duckdb-wasm.local/module.wasm'
 
@@ -39,7 +41,13 @@ const SENTINEL_WASM_URL = 'https://duckdb-wasm.local/module.wasm'
  * itself — see the module doc comment above.
  */
 export async function createDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> {
-  const workerScriptText = await (await fetch(assets.workerUrl)).text()
+  const { worker: workerFile, wasm: wasmFile } = ENGINE_ASSETS.duckdb
+  // Both downloads at once; neither runs unless its hash matches.
+  const [workerBytes, wasmVerified] = await Promise.all([
+    fetchVerified(workerFile.url, workerFile.sha256, 'DuckDB worker', assets),
+    fetchVerified(wasmFile.url, wasmFile.sha256, 'DuckDB wasm', assets),
+  ])
+  const workerScriptText = new TextDecoder().decode(workerBytes)
 
   // self.TransformStream = undefined forces DuckDB-WASM off its
   // progress-tracking instantiateStreaming branch, which reconstructs the
@@ -72,7 +80,7 @@ ${workerScriptText}
   const blobUrl = URL.createObjectURL(new Blob([patchedScript], { type: 'application/javascript' }))
   const worker = new Worker(blobUrl)
 
-  const wasmBytes = await (await fetch(assets.wasmUrl)).arrayBuffer()
+  const wasmBytes = wasmVerified
   worker.postMessage({ __duckdbWasmBytes: wasmBytes }, [wasmBytes])
 
   const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
@@ -87,21 +95,50 @@ ${workerScriptText}
 }
 
 /**
- * Loads the spatial extension over the real network (CDN). research.md §3
- * originally planned to bundle this extension for fully offline use, but
- * T007 found that extension loading is handled by a lower-level mechanism
- * inside the compiled Emscripten/WASM runtime, not a JS-level `fetch()` this
- * project can intercept the same way as the core module — so the
- * bundle-and-serve-locally approach proven for the core module does not
- * directly apply here. CLAUDE.md already permits network use for "the
- * DuckDB spatial extension, if needed", so this is an accepted interim
- * approach, not a principle violation. The caller's webview CSP
- * `connect-src` must allow the DuckDB extension CDN host
- * (`extensions.duckdb.org`) for this to succeed.
+ * Loads the extensions the app needs (spatial, parquet, json), each downloaded
+ * from its pinned URL and checked against its recorded SHA-256 (spec 008
+ * research §15). Shells' CSP `connect-src` must allow extensions.duckdb.org
+ * (and `blob:`, which the worker reads the verified bytes from).
  */
-export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
-  await conn.query('INSTALL spatial;')
-  await conn.query('LOAD spatial;')
+export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls = {}): Promise<void> {
+  await loadExtensions(conn, assets)
+}
+
+/**
+ * Spec 008 research §15: spatial, parquet and json, each downloaded and
+ * hash-checked here, then loaded from a blob URL. DuckDB names an extension
+ * after its file, so the URL carries the name as a fragment (the fetch
+ * ignores it). DuckDB's own autoinstall/autoload are off first, so nothing
+ * is fetched behind the check; its signature check stays on.
+ */
+async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls): Promise<void> {
+  await conn.query('SET autoinstall_known_extensions = false')
+  await conn.query('SET autoload_known_extensions = false')
+  const release = String((await conn.query('SELECT library_version AS v FROM pragma_version()')).toArray()[0]?.toJSON().v ?? '')
+  if (release !== ENGINE_ASSETS.extensions.duckdb) {
+    throw new EngineLoadError(`The SQL engine is DuckDB ${release}, but its extensions were recorded for ${ENGINE_ASSETS.extensions.duckdb}: run scripts/engine-assets.mjs.`, 'integrity')
+  }
+  const files = ENGINE_ASSETS.extensions.files
+  const names = Object.keys(files) as ExtensionName[]
+  // Downloads in parallel, loads in order.
+  const verified = names.map((name) => fetchVerified(files[name].url, files[name].sha256, `${name} extension`, assets))
+  verified.forEach((p) => p.catch(() => {}))
+  for (const [i, name] of names.entries()) {
+    let bytes: ArrayBuffer
+    try {
+      bytes = await verified[i]
+    } catch (err) {
+      // Spec 008: JSON only serves JSON export; the app works without it.
+      if (name === 'json') continue
+      throw err
+    }
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/wasm' }))
+    try {
+      await conn.query(`LOAD '${url}#/${name}.duckdb_extension.wasm'`)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
 }
 
 /** Every source file is registered under this directory (spec 002 research §2). */
@@ -122,16 +159,8 @@ export const SOURCE_DIR = '/se-source/'
  * and both before the configuration is locked.
  */
 async function lockDown(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
-  // Extensions DuckDB would otherwise autoload on first use must be loaded
-  // now: after the lockdown, autoloading is refused. `parquet` is
-  // autoloaded by read_parquet() (GeoParquet, FR-018), and the
-  // format-matrix suite failed without this.
-  await conn.query('INSTALL parquet')
-  await conn.query('LOAD parquet')
-  // Spec 008: JSON export is the engine's COPY ... (FORMAT JSON) (~230 ms
-  // here, during prewarm). Not fatal: without it only JSON export fails.
-  await conn.query('INSTALL json').catch(() => {})
-  await conn.query('LOAD json').catch(() => {})
+  // parquet (read_parquet, GeoParquet) and json (JSON export) were loaded with
+  // spatial (loadExtensions): after the lockdown, nothing more can be loaded.
   await conn.query(`SET allowed_directories = ['${SOURCE_DIR}']`)
   await conn.query('SET enable_external_access = false')
   await conn.query('SET lock_configuration = true')
@@ -159,7 +188,7 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
       try {
         const conn = await db.connect()
         try {
-          await loadSpatialExtension(conn)
+          await loadSpatialExtension(conn, assets)
           // e2e only (spec 007 out-of-memory tests): a smaller engine. Must
           // precede the lockdown, which locks the configuration.
           const memoryLimit = testOverrides().memoryLimit

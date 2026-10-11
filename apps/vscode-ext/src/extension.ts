@@ -425,17 +425,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
    * protocol (contracts/host-webview-protocol.md).
    */
   private async sendAssetsAndFile(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri, documentUri: vscode.Uri): Promise<void> {
-    const workerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js'))
-    const wasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm'))
+    // Spec 008 research §15: the SQL engine isn't shipped; the webview downloads it (hash-checked).
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
-    const sqlWasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'sqljs', 'sql-wasm.wasm'))
     const primaryName = path.basename(documentUri.fsPath)
     await panel.webview.postMessage({
       type: 'assets',
-      duckdbWorkerUrl: workerUri.toString(),
-      duckdbWasmUrl: wasmUri.toString(),
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
-      sqlWasmUrl: sqlWasmUri.toString(),
       placeSearchEnabled: placeSearchEnabled(),
       primaryFileName: primaryName,
       // Stable per-file key for persisted webview state (spec 002 history).
@@ -574,12 +569,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.css'))
     const csp = webview.cspSource
 
-    // connect-src allows extensions.duckdb.org: T007/T009 found extension
-    // loading bypasses JS-level fetch() entirely (handled inside the
-    // compiled Emscripten/WASM runtime), so the spatial extension is loaded
-    // from the real CDN rather than bundled locally — a considered, final
-    // decision (research.md §3). Extend this list later for basemap
-    // tile/style/sprite/glyph hosts per CLAUDE.md's basemap CSP notes
+    // connect-src: the SQL engine is downloaded, not shipped (spec 008
+    // research §15): DuckDB-WASM and sql.js from cdn.jsdelivr.net, extensions
+    // from extensions.duckdb.org, each checked against its recorded SHA-256;
+    // `blob:` is how the worker reads the verified extension bytes. Extend this
+    // list for basemap tile/style/sprite/glyph hosts per CLAUDE.md's basemap
+    // CSP notes
     // (spec 004). tiles.openfreemap.org serves every basemap resource in the
     // catalog (style JSON, vector + raster tiles, sprites, glyphs); a blocked
     // request degrades to blank + message (FR-016), never breaks the viewer.
@@ -587,7 +582,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://cdn.jsdelivr.net https://extensions.duckdb.org https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>

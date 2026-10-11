@@ -1,16 +1,8 @@
-// Copies the single-threaded "eh" (exception-handling) DuckDB-WASM bundle's
-// worker + wasm files into dist-webview/duckdb/ so extension.ts can serve
-// them to the webview via webview.asWebviewUri() — see research.md §3
-// (bundle, don't rely on the default CDN fetch, for offline/local-first use)
-// and §4/§1 (T005's worker-bootstrap spike and T006's format-support spike).
-// "eh" (not "mvp"): T006 found GDAL-driver format reads fail with
-// "ReferenceError: _setThrew is not defined" under the mvp bundle — GDAL's
-// C++ code relies on exceptions, and mvp's baseline-compatibility build
-// omits the WASM exception-handling runtime glue mvp code paths need. "eh"
-// still requires no SharedArrayBuffer (unlike "coi"), so it remains
-// compatible with VS Code webviews per CLAUDE.md. It is also smaller
-// (~35.9MB wasm + ~0.77MB worker vs mvp's ~41.3MB + ~0.84MB).
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs'
+// Copies MapLibre's worker into dist-webview/ for extension.ts to serve. The
+// SQL engine is NOT copied (spec 008 research §15, user decision): the webview
+// downloads DuckDB-WASM, its extensions and sql.js from pinned URLs and checks
+// each against its recorded SHA-256 (packages/core/src/engineAssets.ts).
+import { mkdirSync, copyFileSync, existsSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -25,16 +17,8 @@ const fromPackage = (workspace, pkg) => {
   if (!dir) throw new Error(`Cannot find ${pkg} from packages/${workspace}`)
   return join(dir, 'dist')
 }
-const srcDir = fromPackage('core', '@duckdb/duckdb-wasm')
-const destDir = join(__dirname, '..', 'dist-webview', 'duckdb')
-
-mkdirSync(destDir, { recursive: true })
-
-const files = ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm']
-for (const file of files) {
-  copyFileSync(join(srcDir, file), join(destDir, file))
-  console.log(`Copied ${file} -> dist-webview/duckdb/${file}`)
-}
+// Older builds copied the engine here; it must not ship in the VSIX.
+for (const old of ['duckdb', 'sqljs']) rmSync(join(__dirname, '..', 'dist-webview', old), { recursive: true, force: true })
 
 // MapLibre GL v6's worker: maplibre-gl derives its worker URL at runtime, so
 // no bundler emits it, and without a worker a GeoJSON source never tiles: the
@@ -47,11 +31,3 @@ const maplibreDestDir = join(__dirname, '..', 'dist-webview', 'maplibre')
 mkdirSync(maplibreDestDir, { recursive: true })
 copyFileSync(maplibreSrc, join(maplibreDestDir, 'maplibre-gl-worker.mjs'))
 console.log('Copied maplibre-gl-worker.mjs -> dist-webview/maplibre/maplibre-gl-worker.mjs')
-
-// Spec 008 (research §3): sql.js writes GeoPackage exports. Its wasm is loaded
-// only when a GeoPackage is exported, from this static copy (never a CDN).
-const sqljsSrc = join(fromPackage('core', 'sql.js'), 'sql-wasm.wasm')
-const sqljsDestDir = join(__dirname, '..', 'dist-webview', 'sqljs')
-mkdirSync(sqljsDestDir, { recursive: true })
-copyFileSync(sqljsSrc, join(sqljsDestDir, 'sql-wasm.wasm'))
-console.log(`Copied sql-wasm.wasm -> dist-webview/sqljs/sql-wasm.wasm`)

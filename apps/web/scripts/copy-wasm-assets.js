@@ -1,9 +1,9 @@
-// Copies the single-threaded "eh" (exception-handling) DuckDB-WASM bundle's
-// worker + wasm files into public/duckdb/ so they're served as static assets
-// at a stable URL. Mirrors apps/vscode-ext/scripts/copy-duckdb-wasm.js —
-// same bundle choice, for the same reason (research.md §1: the mvp bundle
-// fails GDAL-driver formats with "_setThrew is not defined").
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs'
+// Copies MapLibre's worker into public/ (served as a static file). The SQL
+// engine is NOT copied (spec 008 research §15): the app downloads DuckDB-WASM,
+// its extensions and sql.js from pinned URLs and checks their hashes. For
+// tests only (ENGINE_MIRROR=1), the same files are served from the app's own
+// origin at /engine-mirror (scripts/engine-assets.mjs --mirror fills the cache).
+import { mkdirSync, copyFileSync, existsSync, rmSync, cpSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -18,15 +18,14 @@ const fromPackage = (workspace, pkg) => {
   if (!dir) throw new Error(`Cannot find ${pkg} from packages/${workspace}`)
   return join(dir, 'dist')
 }
-const srcDir = fromPackage('core', '@duckdb/duckdb-wasm')
-const destDir = join(__dirname, '..', 'public', 'duckdb')
-
-mkdirSync(destDir, { recursive: true })
-
-const files = ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm']
-for (const file of files) {
-  copyFileSync(join(srcDir, file), join(destDir, file))
-  console.log(`Copied ${file} -> public/duckdb/${file}`)
+const publicDir = join(__dirname, '..', 'public')
+// Older builds copied the engine here; it must not ship.
+for (const old of ['duckdb', 'sqljs', 'engine-mirror']) rmSync(join(publicDir, old), { recursive: true, force: true })
+if (process.env.ENGINE_MIRROR === '1') {
+  const cache = join(__dirname, '..', '..', '..', 'scripts', '.engine-cache', 'mirror')
+  if (!existsSync(cache)) throw new Error('ENGINE_MIRROR=1 needs scripts/.engine-cache/mirror: run `node scripts/engine-assets.mjs --mirror` once.')
+  cpSync(cache, join(publicDir, 'engine-mirror'), { recursive: true })
+  console.log('Engine mirror (tests only) -> public/engine-mirror')
 }
 
 // maplibre-gl constructs its own worker internally via `new Worker(new
@@ -40,11 +39,3 @@ const maplibreDestDir = join(__dirname, '..', 'public', 'maplibre')
 mkdirSync(maplibreDestDir, { recursive: true })
 copyFileSync(join(maplibreSrcDir, 'maplibre-gl-worker.mjs'), join(maplibreDestDir, 'maplibre-gl-worker.mjs'))
 console.log('Copied maplibre-gl-worker.mjs -> public/maplibre/maplibre-gl-worker.mjs')
-
-// Spec 008 (research §3): sql.js writes GeoPackage exports. Its wasm is loaded
-// only when a GeoPackage is exported, from this static copy (never a CDN).
-const sqljsSrc = join(fromPackage('core', 'sql.js'), 'sql-wasm.wasm')
-const sqljsDestDir = join(__dirname, '..', 'public', 'sqljs')
-mkdirSync(sqljsDestDir, { recursive: true })
-copyFileSync(sqljsSrc, join(sqljsDestDir, 'sql-wasm.wasm'))
-console.log(`Copied sql-wasm.wasm -> public/sqljs/sql-wasm.wasm`)

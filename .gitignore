@@ -16,11 +16,13 @@ apps/vscode-ext/THIRD-PARTY-NOTICES.md
 # @vscode/test-electron's downloaded VS Code binary + test user profile
 .vscode-test/
 
-# apps/web's predev/prebuild-copied DuckDB-WASM + MapLibre worker assets
-# (copied from node_modules by apps/web/scripts/copy-wasm-assets.js)
+# apps/web's predev/prebuild-copied MapLibre worker, and the tests-only engine
+# mirror (apps/web/scripts/copy-wasm-assets.js). The engine itself is not
+# bundled (spec 008 research §15); duckdb/ and sqljs/ are old build leftovers.
 apps/web/public/duckdb/
 apps/web/public/maplibre/
 apps/web/public/sqljs/
+apps/web/public/engine-mirror/
 
 # Playwright test output + scripts/screenshots.mjs output
 screenshots/
@@ -44,3 +46,4 @@ Thumbs.db
 # Spec 007: generated multi-GB test files (scripts/large-data.sql)
 tests/.large-data/
 scripts/.crs-candidates.json
+scripts/.engine-cache/

@@ -9,8 +9,10 @@
   import ThemeMenu from './ThemeMenu.svelte'
   import Landing from './Landing.svelte'
 
-  // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
-  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
+  // Spec 008 research §15: the engine is downloaded from pinned URLs and
+  // hash-checked (core engineAssets.ts); test builds serve the same files
+  // from the app's own origin (VITE_ENGINE_MIRROR).
+  const duckdbAssets = { mirror: (import.meta.env.VITE_ENGINE_MIRROR as string | undefined) || undefined }
   const hostAdapter = createWebHostAdapter()
 
   // Spec 008 FR-022: the theme choice (System follows the OS), remembered.

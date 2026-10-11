@@ -73,9 +73,9 @@ function sqlValue(kind: WriterKind, v: unknown): string | number | null {
 
 let sqlJs: Promise<SqlJsStatic> | null = null
 
-/** sql.js, loaded once, with its wasm from the shell's own copy. */
-async function loadSqlJs(wasmUrl: string): Promise<SqlJsStatic> {
-  sqlJs ??= import('sql.js').then((m) => (m.default as unknown as (config: { locateFile: () => string }) => Promise<SqlJsStatic>)({ locateFile: () => wasmUrl }))
+/** sql.js, loaded once, with its wasm downloaded and hash-checked (spec 008 research §15). */
+async function loadSqlJs(loadWasm: () => Promise<ArrayBuffer>): Promise<SqlJsStatic> {
+  sqlJs ??= Promise.all([import('sql.js'), loadWasm()]).then(([m, wasmBinary]) => (m.default as unknown as (config: { wasmBinary: ArrayBuffer }) => Promise<SqlJsStatic>)({ wasmBinary }))
   return sqlJs
 }
 
@@ -87,11 +87,12 @@ export interface GeoPackageOptions {
   srid: number | null
   /** WKT of `srid`, for gpkg_spatial_ref_sys. */
   wkt: string | null
-  sqlWasmUrl: string
+  /** sql.js's wasm, verified (engineAssets.loadSqlWasm). */
+  loadSqlWasm: () => Promise<ArrayBuffer>
 }
 
 export async function geoPackageWriter(columns: readonly WriterColumn[], options: GeoPackageOptions): Promise<RowWriter> {
-  const SQL = await loadSqlJs(options.sqlWasmUrl)
+  const SQL = await loadSqlJs(options.loadSqlWasm)
   const db: Database = new SQL.Database()
   const srsId = options.srid ?? 0
   // An attribute named like the key or geometry column is renamed so the table stays valid.

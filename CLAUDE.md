@@ -23,6 +23,10 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
   (keywords in the display name; id/publisher TBD). Publish to VS Code Marketplace AND Open VSX.
 - DuckDB runs as DuckDB-WASM inside the webview (NOT native in the extension host).
   Use the single-threaded bundle (no SharedArrayBuffer; coi-serviceworker is not usable in VS Code webviews).
+  Not bundled (user decision 2026-10-11, constitution v1.2.0): DuckDB-WASM, its extensions (spatial, parquet,
+  json) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
+  scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package.
+  Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
   Known ceiling: the engine's memory limit is 3.1 GiB in both shells (measured, specs/007-viewport-loading/research.md §1;
   omx-viewer's ~512 MB OOM was likely JS-side copies, not the engine). After an OOM the registered file handle must be re-registered.
   Design for it (see performance rules).

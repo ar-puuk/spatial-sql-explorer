@@ -21,11 +21,8 @@ function post(msg: unknown): void {
   vscode.postMessage(JSON.parse(JSON.stringify(msg)))
 }
 
-export interface DuckDbAssets {
-  workerUrl: string
-  wasmUrl: string
-  sqlWasmUrl?: string
-}
+/** Spec 008 research §15: the engine comes from its pinned URLs (core engineAssets.ts); nothing to pass. */
+export type DuckDbAssets = Record<string, never>
 
 /** Spec 008: the `spatialExplorer.placeSearch.enabled` setting, as the host last sent it. */
 let placeSearchEnabled: boolean | undefined
@@ -214,10 +211,7 @@ new MutationObserver(notifyThemeChange).observe(document.body, { attributes: tru
 window.addEventListener('message', (event: MessageEvent) => {
   const msg = event.data as {
     type: string
-    duckdbWorkerUrl?: string
-    duckdbWasmUrl?: string
     maplibreWorkerUrl?: string
-    sqlWasmUrl?: string
     placeSearchEnabled?: boolean
     primaryFileName?: string
     primaryFileUri?: string
@@ -238,8 +232,8 @@ window.addEventListener('message', (event: MessageEvent) => {
     return
   }
 
-  if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
-    assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl, sqlWasmUrl: msg.sqlWasmUrl })
+  if (msg.type === 'assets') {
+    assetsResolve?.({})
     if (msg.placeSearchEnabled !== undefined) {
       placeSearchEnabled = msg.placeSearchEnabled
       preferenceListeners.forEach((cb) => cb())
