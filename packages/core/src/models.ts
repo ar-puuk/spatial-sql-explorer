@@ -49,6 +49,8 @@ export interface Layer {
   invalidGeometryCount: number
   /** True when this result is a subset: the default query's cap, or "Show first 50,000" (spec 002 FR-012). */
   truncated: boolean
+  /** Rows in the complete result: more than `rowCount` when truncated ("Showing 1,000 of N"). */
+  totalRows: number
   /** WGS84 extent to fit. For the initial view this is the whole file's extent, not just the loaded subset. */
   extent: Bbox | null
   /** All rows of the result. `geometry` is null when the row's geometry is missing or invalid. */

@@ -156,6 +156,7 @@ async function describeAndFetch(ctx: BuildContext): Promise<BuiltResult> {
       featureCount: mapped,
       invalidGeometryCount: primary ? features.length - mapped : 0,
       truncated: truncatedTo !== null,
+      totalRows: rowCount,
       extent,
       features,
       columns: columns.filter((c) => !isGeometryType(c.type)),

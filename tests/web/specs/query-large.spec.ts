@@ -32,3 +32,15 @@ test('a large result asks first: show the first 50,000, or cancel and keep the p
   await expect(dialog).toBeHidden()
   expect(await rowCount(page)).toBe(40_000)
 })
+
+test('a truncated result reports its own total, not the file\'s', async ({ page }) => {
+  test.setTimeout(180000)
+  await openFile(page, writePoints(1_000))
+  await openQueryPanel(page)
+  await setQuery(page, 'SELECT a.* FROM layer a, range(60) b')
+  await editor(page).press('Control+Enter')
+  await page.getByRole('dialog', { name: 'Large result' }).getByRole('button', { name: 'Show first 50,000' }).click({ timeout: 60000 })
+  await expect(status(page)).toContainText('Showing first 50,000 of 60,000', { timeout: 60000 })
+  await expect(page.locator('.count.truncated')).toHaveText('Showing 50,000 of 60,000 rows')
+  await expect(page.locator('.item.truncated')).toHaveText('Showing 50,000 of 60,000')
+})

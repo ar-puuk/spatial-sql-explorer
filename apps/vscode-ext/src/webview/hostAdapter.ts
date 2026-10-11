@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind } from '@spatial-explorer/core'
+import type { FileSource, HostAdapter, OpenedFileRef, SaveResult, StatusFields, ThemeKind, SaveOptions } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -81,6 +81,21 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 // (style save/export/import). The host answers each request with a
 // `<type>Result` message carrying the same requestId.
 let nextRequestId = 1
+let nextTransferId = 1
+
+/**
+ * Data exports (spec 005) can be large and binary. post() JSON-normalizes
+ * every message (no Svelte proxies across the bridge), so bytes travel as
+ * base64 chunks, as host->webview file transfers already do: 24 MB of raw
+ * bytes per chunk, about 32 MB of base64.
+ */
+const SAVE_CHUNK_BYTES = 24 * 1024 * 1024
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
 const pendingRequests = new Map<number, (result: unknown) => void>()
 
 function request<T>(msg: Record<string, unknown>): Promise<T> {
@@ -194,12 +209,20 @@ export function createVsCodeHostAdapter(): HostAdapter {
     async getFileSource(_ref: OpenedFileRef): Promise<FileSource> {
       return ensureFileSourcePromise()
     },
-    async saveFile(name: string, content: Uint8Array | string): Promise<SaveResult> {
-      const result = await request<SaveResult & { error?: string }>({
-        type: 'saveFile',
-        name,
-        text: typeof content === 'string' ? content : new TextDecoder().decode(content),
-      })
+    async saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult> {
+      if (options?.kind !== 'data' && typeof content === 'string') {
+        const result = await request<SaveResult & { error?: string }>({ type: 'saveFile', name, text: content })
+        if (result.error) throw new Error(result.error)
+        return result
+      }
+      // Binary / data: chunks first, then the request that saves them.
+      const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
+      const transferId = nextTransferId++
+      const count = Math.max(1, Math.ceil(bytes.length / SAVE_CHUNK_BYTES))
+      for (let index = 0; index < count; index++) {
+        post({ type: 'saveFileChunk', transferId, index, count, bytesBase64: bytesToBase64(bytes.subarray(index * SAVE_CHUNK_BYTES, (index + 1) * SAVE_CHUNK_BYTES)) })
+      }
+      const result = await request<SaveResult & { error?: string }>({ type: 'saveFileEnd', transferId, name, kind: options?.kind ?? 'data', totalBytes: bytes.length })
       if (result.error) throw new Error(result.error)
       return result
     },
@@ -283,6 +306,11 @@ export function reportViewState(state: { basemapId: string; appearance: string; 
 /** Query state for the extension's test hook (spec 002). */
 export function reportQueryState(state: unknown): void {
   post({ type: 'queryState', state })
+}
+
+/** Export state for the extension's test hook (spec 005). */
+export function reportExportState(state: unknown): void {
+  post({ type: 'exportState', state })
 }
 
 /** Resolved style for the extension's test hook (spec 003). */

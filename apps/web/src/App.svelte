@@ -31,6 +31,42 @@
         if (!qs) throw new Error('No file is open.')
         return qs.runRaw(sql)
       },
+      /**
+       * Spec 005 T014: reads an exported Parquet file back in the real
+       * engine (row count, column names, the `geo` metadata), then drops it.
+       */
+      inspectParquet: async (base64: string) => {
+        const { getDuckDb } = await import('@spatial-explorer/core')
+        const db = await getDuckDb(duckdbAssets)
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+        // A new name per call: re-registering one path keeps the first (transferred) buffer.
+        const path = `/se-source/__se_check-${Date.now()}-${Math.random().toString(36).slice(2)}.parquet`
+        await db.registerFileBuffer(path, bytes)
+        const conn = await db.connect()
+        try {
+          const n = await conn.query(`SELECT count(*)::INTEGER AS n FROM read_parquet('${path}')`)
+          const cols = await conn.query(`SELECT name FROM parquet_schema('${path}') WHERE name <> 'duckdb_schema'`)
+          const kv = await conn.query(`SELECT decode(key) AS k, decode(value) AS v FROM parquet_kv_metadata('${path}')`)
+          const geo = kv.toArray().map((r) => r.toJSON()).find((r) => r.k === 'geo')
+          return {
+            rows: Number(n.toArray()[0].toJSON().n),
+            columns: cols.toArray().map((r) => String(r.toJSON().name)),
+            geo: geo ? JSON.parse(String(geo.v)) : null,
+            geoKeys: kv.toArray().filter((r) => r.toJSON().k === 'geo').length,
+          }
+        } finally {
+          await conn.close()
+          await db.dropFile(path)
+        }
+      },
+      /** Spec 005 T023: export files still in the engine's memory (should be none). */
+      exportFiles: () => {
+        const qs = store.querySession
+        if (!qs) throw new Error('No file is open.')
+        return qs.runRaw(`SELECT file FROM glob('/se-source/__se_export*')`)
+      },
+      /** Spec 005 T003: what an export knows about the displayed result. */
+      resultFacts: () => JSON.parse(JSON.stringify(store.querySession?.lastResult ?? null)),
       /** Spec 003 T006: the displayed result's attribute columns and types. */
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }

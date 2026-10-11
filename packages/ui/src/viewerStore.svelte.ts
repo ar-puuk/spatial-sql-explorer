@@ -31,6 +31,11 @@ import {
   type CatalogSnapshot,
   type QuerySession,
   type RunOutcome,
+  planExport,
+  exportErrorMessage,
+  QueryCancelledError,
+  type ExportPlan,
+  type ExportRequest,
   type EngineError,
   type Layer,
   DEFAULT_QUERY,
@@ -41,6 +46,13 @@ import {
 } from '@spatial-explorer/core'
 
 /** A short-lived message shown in the style panel (save/import outcome, format caveats). */
+/** The result of the last export (spec 005 data-model ExportOutcome). */
+export type ExportOutcome =
+  | { kind: 'saved'; location: string; rows: number; bytes: number; notices: string[]; durationMs: number }
+  | { kind: 'notSaved' }
+  | { kind: 'cancelled'; durationMs: number }
+  | { kind: 'failed'; message: string }
+
 export interface StyleNotice {
   kind: 'info' | 'warning' | 'error'
   text: string
@@ -82,6 +94,22 @@ export interface ViewerStore {
   readonly mapDimmed: boolean
   /** Bumps after every finished run (test hooks wait on it). */
   readonly runCount: number
+  // --- Spec 005: export ---------------------------------------------------
+  readonly exportOpen: boolean
+  openExport(): void
+  closeExport(): void
+  readonly exportRequest: ExportRequest
+  setExportRequest(patch: Partial<ExportRequest>): void
+  /** What an export would do now, or null when there's nothing to export. */
+  readonly exportPlan: ExportPlan | null
+  /** Why Export is unavailable right now (a query is running, nothing open), or null. */
+  readonly exportDisabled: string | null
+  readonly exportPhase: 'idle' | 'running' | 'done' | 'failed' | 'cancelled'
+  /** Rows written (null while an engine COPY runs) and when the export started. */
+  readonly exportProgress: { rows: number | null; startedAt: number } | null
+  readonly exportOutcome: ExportOutcome | null
+  runExport(): Promise<void>
+  cancelExport(): Promise<void>
   /** Text of the last statement that actually ran. */
   readonly lastRunText: string | null
   /** The displayed result's mapped geometry column, or null for a table-only result. */
@@ -231,6 +259,32 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   const resolvedStyle = $derived.by(() => resolveStyle(style, displayedLayer))
   let mapDimmed = $state(false)
   let runCount = $state(0)
+
+  // --- Spec 005: export ------------------------------------------------------
+  const EXPORT_PREFS_KEY = 'export.prefs'
+  let exportOpen = $state(false)
+  let exportRequest = $state<ExportRequest>({ format: 'geoparquet', rows: 'all', crs: 'result', csvGeometry: 'wkt' })
+  void hostAdapter
+    .loadState<Partial<ExportRequest>>(EXPORT_PREFS_KEY)
+    .then((saved) => {
+      if (saved && typeof saved === 'object') exportRequest = { ...exportRequest, ...saved, rows: 'all' }
+    })
+    .catch(() => {})
+  let exportPhase = $state<'idle' | 'running' | 'done' | 'failed' | 'cancelled'>('idle')
+  let exportProgress = $state<{ rows: number | null; startedAt: number } | null>(null)
+  let exportOutcome = $state.raw<ExportOutcome | null>(null)
+  // The session's facts aren't reactive: runCount and the displayed layer
+  // change whenever they do, so the plan re-derives from those.
+  const exportPlan = $derived.by((): ExportPlan | null => {
+    void runCount
+    const layer = displayedLayer
+    const facts = querySession?.lastResult
+    if (!layer || !facts) return null
+    return planExport($state.snapshot(exportRequest), { sourceName: currentFileName ?? 'layer', layer, facts })
+  })
+  const exportDisabled = $derived(
+    !displayedLayer ? 'Open a file first.' : queryPhase === 'running' || queryPhase === 'awaitingConfirm' ? 'Wait for the running query to finish.' : (exportPlan?.blocked ?? null)
+  )
   let lastRun: { text: string; selection: { from: number; to: number } } | null = null
   let lastRunText = $state<string | null>(null)
   // The view as opened, restored by Reset (FR-011). Kept as the original
@@ -491,6 +545,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (queryPhase === 'running' || queryPhase === 'awaitingConfirm') await this.cancelQuery()
       const original = initialLayer
       resetQueryState()
+      querySession?.showDefaultView()
       if (original) {
         setLayer(original)
         session.selectedFeatureId = null
@@ -545,6 +600,73 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get mapDimmed() {
       return mapDimmed
+    },
+    get exportOpen() {
+      return exportOpen
+    },
+    openExport() {
+      exportOpen = true
+      if (exportPhase !== 'running') {
+        exportPhase = 'idle'
+        exportOutcome = null
+      }
+    },
+    closeExport() {
+      if (exportPhase === 'running') return
+      exportOpen = false
+    },
+    get exportRequest() {
+      return exportRequest
+    },
+    setExportRequest(patch) {
+      exportRequest = { ...exportRequest, ...patch }
+      const { format, crs, csvGeometry } = exportRequest
+      void hostAdapter.saveState(EXPORT_PREFS_KEY, { format, crs, csvGeometry }).catch(() => {})
+    },
+    get exportPlan() {
+      return exportPlan
+    },
+    get exportDisabled() {
+      return exportDisabled
+    },
+    get exportPhase() {
+      return exportPhase
+    },
+    get exportProgress() {
+      return exportProgress
+    },
+    get exportOutcome() {
+      return exportOutcome
+    },
+    async runExport() {
+      const plan = exportPlan
+      const qs = querySession
+      if (!plan || !qs || exportDisabled || exportPhase === 'running') return
+      exportPhase = 'running'
+      exportOutcome = null
+      const startedAt = performance.now()
+      exportProgress = { rows: null, startedAt }
+      try {
+        const result = await qs.exportData(plan, { onProgress: (rows) => (exportProgress = { rows, startedAt }) })
+        exportProgress = null
+        const saved = await hostAdapter.saveFile(plan.fileName, result.bytes, { kind: 'data' })
+        exportOutcome = saved.saved
+          ? { kind: 'saved', location: saved.location ?? plan.fileName, rows: result.rows, bytes: result.bytes.length, notices: result.notices, durationMs: Math.round(performance.now() - startedAt) }
+          : { kind: 'notSaved' }
+        exportPhase = saved.saved ? 'done' : 'idle'
+      } catch (err) {
+        exportProgress = null
+        if (err instanceof QueryCancelledError) {
+          exportOutcome = { kind: 'cancelled', durationMs: Math.round(performance.now() - startedAt) }
+          exportPhase = 'cancelled'
+        } else {
+          exportOutcome = { kind: 'failed', message: exportErrorMessage(err) }
+          exportPhase = 'failed'
+        }
+      }
+    },
+    async cancelExport() {
+      if (exportPhase === 'running') await querySession?.cancel()
     },
     get runCount() {
       return runCount

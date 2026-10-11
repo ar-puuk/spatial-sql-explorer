@@ -51,7 +51,7 @@ export interface HostAdapter {
    * defaulting to `name` next to the opened file; the web shell downloads it.
    * Resolves `{ saved: false }` if the user cancels.
    */
-  saveFile(name: string, content: Uint8Array | string): Promise<SaveResult>
+  saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult>
 
   /**
    * Writes `name` directly next to the opened data file (the QGIS style
@@ -91,6 +91,11 @@ export interface HostAdapter {
    * hosts without one omit it. Never carries file contents.
    */
   log?(line: string): void
+}
+
+/** Spec 005: data exports may be large and binary; hosts pick a dialog default and filters by kind. */
+export interface SaveOptions {
+  kind?: 'style' | 'data'
 }
 
 export interface SaveResult {

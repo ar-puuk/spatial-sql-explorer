@@ -1,0 +1,17 @@
+{
+ "rows": 100000,
+ "countMs": 1,
+ "parquetCopyMs": 253,
+ "parquetBufferMs": 17,
+ "parquetBytes": 18601851,
+ "geojsonMs": 553,
+ "geojsonRows": 100000,
+ "geojsonBytes": 47435376,
+ "csvMs": 604,
+ "csvBytes": 34335553,
+ "cancelResult": "rejected: query was canceled",
+ "cancelReturned": true,
+ "cancelMs": 169,
+ "afterCancel": 42,
+ "bigFileLeft": 4658837
+}

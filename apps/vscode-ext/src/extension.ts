@@ -35,13 +35,28 @@ type WebviewToHostMessage =
   | { type: 'reloadSource' }
   | { type: 'queryState'; state: unknown }
   | { type: 'styleState'; state: unknown }
+  | { type: 'exportState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
   | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
+  | { type: 'saveFileChunk'; transferId: number; index: number; count: number; bytesBase64: string }
+  | { type: 'saveFileEnd'; requestId: number; transferId: number; name: string; kind: 'style' | 'data'; totalBytes: number }
 
 const CHUNK_BYTES = 32 * 1024 * 1024
+
+/** Test hook (spec 005): the next data export is written here, without a dialog. */
+let nextExportPath: string | null = null
+
+/** Chunks of data exports in flight, per transfer (spec 005, contracts/host-and-ui.md). */
+const pendingSaves = new Map<number, string[]>()
+
+const DATA_FILTERS: Record<string, Record<string, string[]>> = {
+  '.geojson': { GeoJSON: ['geojson', 'json'] },
+  '.parquet': { Parquet: ['parquet'] },
+  '.csv': { CSV: ['csv'] },
+}
 
 /**
  * Latest reported load outcome. Exposed via the `spatialExplorer._getLoadState`
@@ -70,6 +85,7 @@ let lastSelection: string | number | null = null
 /** Latest query state, same rationale (spec 002 test hooks). */
 let lastQueryState: unknown = null
 let lastStyleState: unknown = null
+let lastExportState: unknown = null
 /** Last logged lines (spec 002 T037: tests assert what reached the output channel). */
 const recentLogLines: string[] = []
 
@@ -187,12 +203,20 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         lastQueryState = msg.state
       } else if (msg.type === 'styleState') {
         lastStyleState = msg.state
+      } else if (msg.type === 'exportState') {
+        lastExportState = msg.state
       } else if (msg.type === 'reloadSource') {
         log(`Reloading ${path.posix.basename(document.uri.path)} after it changed on disk.`)
         lastLoadState = null
         panel.webview.html = this.getHtml(panel.webview, webviewRoot) + `<!-- ${Date.now()} -->`
       } else if (msg.type === 'selectionChanged') {
         lastSelection = msg.id
+      } else if (msg.type === 'saveFileChunk') {
+        const chunks = pendingSaves.get(msg.transferId) ?? new Array<string>(msg.count)
+        chunks[msg.index] = msg.bytesBase64
+        pendingSaves.set(msg.transferId, chunks)
+      } else if (msg.type === 'saveFileEnd') {
+        void this.handleDataSave(panel, document.uri, msg)
       } else if (msg.type === 'saveFile' || msg.type === 'saveSidecar' || msg.type === 'pickTextFile') {
         void this.handleFileRequest(panel, document.uri, msg)
       } else if (msg.type === 'showInfo') {
@@ -261,6 +285,46 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       if (!uri) return void reply({ saved: false })
       await vscode.workspace.fs.writeFile(uri, content)
       return void reply({ saved: true, location: path.posix.basename(uri.path) })
+    } catch (err) {
+      return void reply({ error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /**
+   * Host side of a data export (spec 005): joins the chunks, asks where to
+   * save (next to the source by default), refuses the source itself
+   * (FR-012), and writes only once every byte has arrived, so a cancelled or
+   * failed export never leaves a file (FR-010).
+   */
+  private async handleDataSave(
+    panel: vscode.WebviewPanel,
+    documentUri: vscode.Uri,
+    msg: Extract<WebviewToHostMessage, { type: 'saveFileEnd' }>
+  ): Promise<void> {
+    const reply = (result: unknown): Thenable<boolean> => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+    const chunks = pendingSaves.get(msg.transferId) ?? []
+    pendingSaves.delete(msg.transferId)
+    try {
+      const bytes = Buffer.concat(chunks.map((c) => Buffer.from(c ?? '', 'base64')))
+      if (bytes.length !== msg.totalBytes) throw new Error(`The export arrived incomplete (${bytes.length} of ${msg.totalBytes} bytes).`)
+      let target: vscode.Uri | undefined
+      if (nextExportPath) {
+        target = vscode.Uri.file(nextExportPath)
+        nextExportPath = null
+      } else {
+        const ext = path.posix.extname(msg.name).toLowerCase()
+        target = await vscode.window.showSaveDialog({
+          title: 'Export data',
+          defaultUri: vscode.Uri.joinPath(documentUri, '..', msg.name),
+          filters: DATA_FILTERS[ext] ?? { 'All files': ['*'] },
+        })
+      }
+      if (!target) return void reply({ saved: false })
+      const same = process.platform === 'win32' ? target.toString().toLowerCase() === documentUri.toString().toLowerCase() : target.toString() === documentUri.toString()
+      if (same) return void reply({ saved: false, error: 'Choose a different file: this is the opened source.' })
+      await vscode.workspace.fs.writeFile(target, bytes)
+      log(`[export] saved ${target.fsPath} (${bytes.length.toLocaleString()} bytes)`)
+      return void reply({ saved: true, location: path.posix.basename(target.path) })
     } catch (err) {
       return void reply({ error: err instanceof Error ? err.message : String(err) })
     }
@@ -387,6 +451,20 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 </html>`
   }
 
+  /**
+   * Spec 005 FR-013: opens the export dialog in the ACTIVE viewer (never another
+   * one). Returns false, after a short message, when no viewer is active.
+   */
+  openExportInActive(): boolean {
+    const panel = [...this.panels].find((p) => p.active)
+    if (!panel) {
+      void vscode.window.showInformationMessage('Open a file in Spatial Explorer to export its data.')
+      return false
+    }
+    void panel.webview.postMessage({ type: 'openExport' })
+    return true
+  }
+
   /** Test-only: posts a message to whichever viewer is active (or the only one). */
   postToActive(message: unknown): void {
     const panel = [...this.panels].find((p) => p.active) ?? [...this.panels][0]
@@ -453,10 +531,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('spatialExplorer._runQuery', (sql: string, confirm?: 'all' | 'first' | 'cancel') =>
       provider.postToActive({ type: 'testRunQuery', sql, confirm })
     ),
+    vscode.commands.registerCommand('spatialExplorer.exportData', () => provider.openExportInActive()),
     vscode.commands.registerCommand('spatialExplorer._cancelQuery', () => provider.postToActive({ type: 'testCancelQuery' })),
     vscode.commands.registerCommand('spatialExplorer._getQueryState', () => lastQueryState),
     // Spec 003 test hooks: read the resolved style, apply a style, save it.
     vscode.commands.registerCommand('spatialExplorer._getStyleState', () => lastStyleState),
+    // Spec 005 test hooks: run an export, read its state.
+    vscode.commands.registerCommand('spatialExplorer._runExport', (request: unknown) => provider.postToActive({ type: 'testRunExport', request })),
+    vscode.commands.registerCommand('spatialExplorer._getExportState', () => lastExportState),
+    // Spec 005 test hook: write the next data export to this path (no dialog).
+    vscode.commands.registerCommand('spatialExplorer._saveNextExportTo', (fsPath: string) => {
+      nextExportPath = fsPath
+    }),
     vscode.commands.registerCommand('spatialExplorer._setStyle', (style: unknown) => provider.postToActive({ type: 'testSetStyle', style })),
     vscode.commands.registerCommand('spatialExplorer._saveStyle', () => provider.postToActive({ type: 'testSaveStyle' })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),

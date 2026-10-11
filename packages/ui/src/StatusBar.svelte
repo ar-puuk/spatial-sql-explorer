@@ -27,7 +27,7 @@
     {#if layer.truncated}
       <span class="sep" aria-hidden="true"></span>
       <span class="item truncated">
-        Showing {nf.format(layer.rowCount)} of {nf.format(layer.source.rows)}
+        Showing {nf.format(layer.rowCount)} of {nf.format(layer.totalRows)}
       </span>
     {/if}
     <span class="spacer"></span>

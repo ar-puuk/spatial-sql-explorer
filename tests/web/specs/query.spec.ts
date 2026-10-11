@@ -103,3 +103,21 @@ test('the result reports its attribute columns and types', async ({ page }) => {
     { name: 'n', type: 'BIGINT' },
   ])
 })
+
+// Spec 005 T003: facts an export relies on, across the default view, a
+// query, and Reset (which shows the default view without re-running it).
+test('the session reports which result is displayed (default view, query, Reset)', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const facts = () =>
+    page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { resultFacts: () => { defaultView: boolean; totalRows: number; geometryColumn: string | null; exportable: boolean } } }).__spatialExplorerE2E.resultFacts())
+  expect(await facts()).toMatchObject({ defaultView: true, totalRows: 180, geometryColumn: 'geom', exportable: true })
+  await openQueryPanel(page)
+  await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
+  expect(await facts()).toMatchObject({ defaultView: false, totalRows: 8 })
+  await runQuery(page, 'DESCRIBE layer')
+  expect(await facts()).toMatchObject({ exportable: false })
+  await page.getByRole('button', { name: 'Reset to the original view' }).click()
+  const discard = page.getByRole('button', { name: 'Discard' })
+  if (await discard.isVisible()) await discard.click()
+  await expect.poll(async () => (await facts()).defaultView).toBe(true)
+})

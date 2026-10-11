@@ -395,6 +395,7 @@ export async function openFile(ref: OpenedFileRef, deps: OpenFileDeps): Promise<
       sourceCrs: table.crs,
       crsAssumed: table.crsAssumed,
       truncated: rows > initial.layer.rowCount,
+      totalRows: rows,
       source: table.totals,
       styleSidecar,
       loadTimings: timings,

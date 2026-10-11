@@ -16,6 +16,7 @@ import {
   reportLoadState,
   reportQueryState,
   reportStyleState,
+  reportExportState,
   reportSelectionChanged,
   reportViewState,
   signalReady,
@@ -23,6 +24,7 @@ import {
 import { watchViewState } from './viewState.svelte.js'
 import { watchQueryState } from './queryState.svelte.js'
 import { watchStyleState } from './styleState.svelte.js'
+import { watchExportState } from './exportState.svelte.js'
 // The VS Code token file: maps the shared --se-* tokens onto VS Code theme
 // variables. Vite bundles it into main.css, which getHtml() links.
 import './theme.css'
@@ -57,6 +59,7 @@ async function main(): Promise<void> {
   watchViewState(store, reportViewState)
   watchQueryState(store, reportQueryState)
   watchStyleState(store, reportStyleState)
+  watchExportState(store, reportExportState)
 
   const started = performance.now()
   await store.load()
@@ -121,7 +124,7 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; confirm?: 'all' | 'first' | 'cancel'; style?: unknown }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; confirm?: 'all' | 'first' | 'cancel'; style?: unknown; request?: Record<string, unknown> }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
       // with the whole text selected, auto-answering the large-result dialog.
@@ -135,6 +138,13 @@ async function main(): Promise<void> {
     } else if (msg.type === 'testSetStyle' && msg.style && typeof msg.style === 'object') {
       // Test-only (spec 003 T013): the same store action the style panel uses.
       store.setStyle(msg.style as Parameters<typeof store.setStyle>[0])
+    } else if (msg.type === 'openExport') {
+      store.openExport()
+    } else if (msg.type === 'testRunExport') {
+      // Test-only (spec 005 T013): the same store actions the dialog uses.
+      store.openExport()
+      if (msg.request) store.setExportRequest(msg.request as Parameters<typeof store.setExportRequest>[0])
+      void store.runExport()
     } else if (msg.type === 'testSaveStyle') {
       void store.saveStyle()
     } else if (msg.type === 'testCancelQuery') {
