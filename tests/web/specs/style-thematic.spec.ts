@@ -1,7 +1,9 @@
 // Spec 003 (thematic styling), browser tests in the real web build.
 // T016: Categorized (US1; quickstart Scenario 1). T024: Graduated (US2; Scenario 2).
-// T030: Ramps and class edits (US3; Scenario 3).
+// T030: Ramps and class edits (US3; Scenario 3). T041: Styles follow query results (US5; Scenario 5).
 import { test, expect, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -183,5 +185,50 @@ test.describe('ramps and class edits (US3)', () => {
     await page.keyboard.type('Lowest')
     await page.keyboard.press('Enter')
     await expect(legendRows(page).first()).toContainText('Lowest')
+  })
+})
+
+test.describe('styles follow query results (US5)', () => {
+  test('saved style auto-applies, reclassifies on a filter, falls back and recovers, and Reset restores it', async ({ page }) => {
+    test.setTimeout(180000)
+    const data = writeParcels(2000)
+    await openFile(page, data)
+    await openStylePanel(page)
+    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await page.getByLabel('Column').selectOption('value')
+    // Web Save is a download: keep it next to the data, as a QGIS sidecar.
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download' }).click()])
+    const sidecar = path.join(path.dirname(data), 'parcels-2000.qml')
+    await download.saveAs(sidecar)
+    expect(fs.readFileSync(sidecar, 'utf8')).toContain('type="graduatedSymbol"')
+
+    // Reopen with the sidecar: the style applies by itself (FR-013).
+    await page.reload()
+    await page.locator('input[type="file"]').setInputFiles([data, sidecar])
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await expect(legend(page)).toContainText('value · Quantile, 5 classes')
+    expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(1000)
+
+    // A filter: reclassified over the new result (FR-011).
+    await openQueryPanel(page)
+    await runQuery(page, "SELECT * FROM layer WHERE zone = 'R1'")
+    await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(400)
+
+    // The column leaves: single symbol + the reason (FR-012).
+    await runQuery(page, 'SELECT parcel_id, geom FROM layer')
+    await expect(legend(page)).toContainText('value · not available')
+    await expect(legend(page)).toContainText('Column "value" is not in this result.')
+    // ... and comes back on its own.
+    await runQuery(page, 'SELECT * FROM layer')
+    await expect(legend(page)).toContainText('value · Quantile, 5 classes')
+
+    // An unsaved change, then Reset: the original view and the saved style.
+    await openStylePanel(page)
+    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await expect(legend(page)).toContainText('categories')
+    await page.getByRole('button', { name: 'Reset to the original view' }).click()
+    const discard = page.getByRole('button', { name: 'Discard' })
+    if (await discard.isVisible()) await discard.click()
+    await expect(legend(page)).toContainText('value · Quantile, 5 classes')
   })
 })

@@ -365,21 +365,24 @@ missing, recover automatically, and Reset restores the sidecar style.
 
 **Independent Test**: quickstart Scenario 5.
 
-- [ ] T040 [P] [US5] Extend `tests/core/style-resolve.test.ts`:
+- [X] T040 [P] [US5] Extend `tests/core/style-resolve.test.ts`:
   - a missing column gives `status 'fallback'` and the reason `Column "value" is not in this result.`;
   - a graduated column that is now VARCHAR gives `fallback` with a "not numeric" reason;
   - the same style on new features gives new counts and breaks (non-manual) or the same breaks (manual);
   - the style object itself is never changed by a fallback.
-- [ ] T041 [P] [US5] Extend `tests/web/specs/style-thematic.spec.ts` (queries), following quickstart Scenario 5 steps 1–4:
+  - *Done*: style-resolve.test.ts US5 (4): missing column gives single with reason; VARCHAR gives 'not numeric'; new results reclassify, index overrides survive, the style object is never mutated; the column coming back restores ok.
+- [X] T041 [P] [US5] Extend `tests/web/specs/style-thematic.spec.ts` (queries), following quickstart Scenario 5 steps 1–4:
   - reclassify on a filter;
   - `SELECT parcel_id, geom` gives the single symbol and the notice in the panel and legend header;
   - `SELECT *` restores the thematic style;
   - Reset restores the saved sidecar style (save one first in the web shell by importing a QML).
-- [ ] T042 [US5] Handle the fallback state in `packages/ui/src/viewerStore.svelte.ts` and `LayerStylePanel.svelte` / `MapLegend.svelte`:
+  - *Done*: style-thematic.spec US5: graduated, Download the QML (web Save), reopen data plus sidecar, and the style applies automatically (1,000 counted). A zone filter reclassifies over 400 rows; SELECT parcel_id, geom gives 'value · not available' with the reason; SELECT * returns it; an unsaved Categorized change, then Reset, restores the saved Quantile. This also covers FR-013 in the web shell.
+- [X] T042 [US5] Handle the fallback state in `packages/ui/src/viewerStore.svelte.ts` and `LayerStylePanel.svelte` / `MapLegend.svelte`:
   - `resolveStyle` already returns it; show the reason in the panel notice and the legend header;
   - check that Reset (`resetQuery`) re-applies the sidecar style, including thematic, through `applySidecar`.
 
   Make T040 and T041 pass. Commit.
+  - *Done*: No new code needed: fallback status and reason were already rendered by the panel (US1) and the legend header (T020), and resetQuery → applySidecar already re-imports the thematic sidecar (QML import from T037). Verified by T041.
 
 **Checkpoint**: styling and querying work together safely.
 
