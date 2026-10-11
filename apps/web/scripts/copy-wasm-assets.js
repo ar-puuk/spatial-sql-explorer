@@ -40,3 +40,11 @@ const maplibreDestDir = join(__dirname, '..', 'public', 'maplibre')
 mkdirSync(maplibreDestDir, { recursive: true })
 copyFileSync(join(maplibreSrcDir, 'maplibre-gl-worker.mjs'), join(maplibreDestDir, 'maplibre-gl-worker.mjs'))
 console.log('Copied maplibre-gl-worker.mjs -> public/maplibre/maplibre-gl-worker.mjs')
+
+// Spec 008 (research §3): sql.js writes GeoPackage exports. Its wasm is loaded
+// only when a GeoPackage is exported, from this static copy (never a CDN).
+const sqljsSrc = join(fromPackage('core', 'sql.js'), 'sql-wasm.wasm')
+const sqljsDestDir = join(__dirname, '..', 'public', 'sqljs')
+mkdirSync(sqljsDestDir, { recursive: true })
+copyFileSync(sqljsSrc, join(sqljsDestDir, 'sql-wasm.wasm'))
+console.log(`Copied sql-wasm.wasm -> public/sqljs/sql-wasm.wasm`)

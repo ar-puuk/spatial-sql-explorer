@@ -20,6 +20,7 @@ apps/vscode-ext/THIRD-PARTY-NOTICES.md
 # (copied from node_modules by apps/web/scripts/copy-wasm-assets.js)
 apps/web/public/duckdb/
 apps/web/public/maplibre/
+apps/web/public/sqljs/
 
 # Playwright test output + scripts/screenshots.mjs output
 screenshots/

@@ -60,23 +60,23 @@ task. Run lint, typecheck and the affected suites before moving on.
 
 **Purpose**: dependencies, fixtures and assets every later phase uses.
 
-- [ ] T001 Add `sql.js@1.14.2` and `fflate@0.8.3` as dependencies of `packages/core/package.json`. Copy `node_modules/sql.js/dist/sql-wasm.wasm` into the web build (`apps/web/public/sqljs/`, via the same copy step that serves `/duckdb/`) and into the extension bundle (`apps/vscode-ext/dist-webview/sqljs/`). Run `npm install` and commit the lockfile.
-- [ ] T002 [P] Add `scripts/fixtures-008.mjs` and `scripts/fixtures-008.bat`, following `specs/008-ux-parity/spikes/make-data.bat.txt`. They write into `tests/vscode-ext/fixtures/`:
+- [X] T001 Add `sql.js@1.14.2` and `fflate@0.8.3` as dependencies of `packages/core/package.json`. Copy `node_modules/sql.js/dist/sql-wasm.wasm` into the web build (`apps/web/public/sqljs/`, via the same copy step that serves `/duckdb/`) and into the extension bundle (`apps/vscode-ext/dist-webview/sqljs/`). Run `npm install` and commit the lockfile.
+- [X] T002 [P] Add `scripts/fixtures-008.mjs` and `scripts/fixtures-008.bat`, following `specs/008-ux-parity/spikes/make-data.bat.txt`. They write into `tests/vscode-ext/fixtures/`:
   - `three-layers.gpkg`: `countries` (polygons), `city points` (points), `lookup_table` (no geometry);
   - `wide-50.parquet`: 200 rows, 50 columns of mixed types, point geometry;
   - `buildings-10k.parquet`: 10,000 polygons with `height_m` (some null, zero and negative values);
   - `mixed-types.geojson`: points and polygons;
   - `two.gdb/`: a small 2-layer File Geodatabase, for the "not supported" message.
 
-  Commit the generated fixtures (each under 2 MB) and add a line to `tests/vscode-ext/fixtures/README-007.md`, renamed `README.md`.
-- [ ] T003 [P] Build the sample dataset `apps/web/public/sample/us-counties.parquet`:
+  Commit the generated fixtures (each under 2 MB) and document them in `tests/vscode-ext/fixtures/README.md` (renamed from `README-007.md`).
+- [X] T003 [P] Build the sample dataset `apps/web/public/sample/us-counties.parquet`:
   - Source: US Census cartographic boundary counties, 1:20m, public domain.
   - Columns: `name`, `state`, `population`, `area_km2`, `density`.
   - Format: GeoParquet, EPSG:4326, under 2 MB.
   - Script: `scripts/sample-data.mjs` (runs once, with the source URL in a comment).
 
   Copy the file to `apps/vscode-ext/sample/us-counties.parquet` and include `sample/` in the VSIX (`apps/vscode-ext/.vscodeignore`). Record the source and license in `THIRD-PARTY-NOTICES.md`.
-- [ ] T004 [P] Add `sql.js` (MIT) and `fflate` (MIT, now direct) to `THIRD-PARTY-NOTICES.md`.
+- [X] T004 [P] Add `sql.js` (MIT) and `fflate` (MIT, now direct) to `THIRD-PARTY-NOTICES.md`.
 
 ---
 
