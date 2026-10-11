@@ -20,6 +20,10 @@ export interface BasemapCatalogEntry {
    * style JSON. Null for the blank entry, which previews as the host background.
    */
   preview: { land: string; water: string } | null
+  /** Raster rows (spec 008): the highest zoom with tiles; MapLibre overzooms past it. */
+  maxzoom?: number
+  /** Raster rows: values for `{s}` in the URL template, spread across requests. */
+  subdomains?: string[]
 }
 
 export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
@@ -84,6 +88,43 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     requiresKey: false,
     region: 'global',
     preview: { land: '#45516e', water: '#38435c' },
+  },
+  // Spec 008 (research §7): keyless raster basemaps, URL templates from
+  // leaflet-providers as data. Each provider's usage policy applies: none is
+  // ever a default, and OSM's standard tiles discourage heavy use.
+  {
+    id: 'esri-imagery',
+    name: 'Satellite',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    requiresKey: false,
+    region: 'global',
+    preview: { land: '#4b5a3c', water: '#1d3150' },
+    maxzoom: 19,
+  },
+  {
+    id: 'opentopomap',
+    name: 'Topographic',
+    type: 'raster',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: 'Map data © OpenStreetMap contributors, SRTM | Map style © OpenTopoMap (CC-BY-SA)',
+    requiresKey: false,
+    region: 'global',
+    preview: { land: '#e8e4d0', water: '#97d2e3' },
+    maxzoom: 17,
+    subdomains: ['a', 'b', 'c'],
+  },
+  {
+    id: 'osm',
+    name: 'OpenStreetMap',
+    type: 'raster',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© OpenStreetMap contributors',
+    requiresKey: false,
+    region: 'global',
+    preview: { land: '#f2efe9', water: '#aad3df' },
+    maxzoom: 19,
   },
 ]
 

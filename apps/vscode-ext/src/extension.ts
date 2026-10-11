@@ -71,6 +71,14 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
   '.png': { 'PNG image': ['png'] },
 }
 
+/**
+ * Spec 008 (research §7–§8): hosts of the keyless raster basemaps in
+ * packages/core/src/basemapCatalog.ts (MapLibre fetches tiles, then decodes
+ * them as images, so both connect-src and img-src), plus the opt-out place
+ * search. Keep in sync with the catalog.
+ */
+const RASTER_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
+
 /** Spec 008: the setting the webview needs (contracts/host-and-shells.md). */
 function placeSearchEnabled(): boolean {
   return vscode.workspace.getConfiguration('spatialExplorer').get<boolean>('placeSearch.enabled', true)
@@ -555,7 +563,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>

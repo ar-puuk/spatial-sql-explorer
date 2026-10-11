@@ -42,6 +42,7 @@ export async function loadBasemapStyle(
   timeoutMs: number = BASEMAP_TIMEOUT_MS
 ): Promise<BasemapLoadResult> {
   if (entry.type === 'blank') return { ok: true, entry, style: null }
+  if (entry.type === 'raster') return { ok: true, entry, style: rasterStyle(entry) }
   if (entry.type !== 'vector') return { ok: false, entry, message: basemapFailureMessage(entry, 'unsupported basemap type') }
 
   const controller = new AbortController()
@@ -67,6 +68,22 @@ export async function loadBasemapStyle(
     return { ok: true, entry, style: style as BasemapStyle }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * A raster row's style, built here: there is no style document to fetch.
+ * `{s}` expands to one URL per subdomain (MapLibre spreads requests across
+ * them); `{r}` (retina) is dropped. Tile failures are caught by
+ * BasemapHealth like any other source.
+ */
+export function rasterStyle(entry: BasemapCatalogEntry): BasemapStyle {
+  const template = entry.url.replace('{r}', '')
+  const tiles = template.includes('{s}') ? (entry.subdomains ?? ['a']).map((s) => template.replace('{s}', s)) : [template]
+  return {
+    version: 8,
+    sources: { 'basemap-raster': { type: 'raster', tiles, tileSize: 256, maxzoom: entry.maxzoom ?? 19, attribution: entry.attribution } },
+    layers: [{ id: 'basemap-raster', type: 'raster', source: 'basemap-raster' }],
   }
 }
 
