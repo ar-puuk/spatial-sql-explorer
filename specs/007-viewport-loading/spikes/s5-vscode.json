@@ -1,0 +1,145 @@
+{
+  "mainThreadRange": {
+    "status": 206,
+    "bytes": 16,
+    "contentRange": "bytes 0-15/761830329",
+    "ms": 3
+  },
+  "workerSyncXhr": {
+    "[::1]": {
+      "statuses": "NetworkError: Failed to execute 'send' on 'XMLHttpRequest': Failed to load 'http://[::1]:52536/file.parquet'.",
+      "ms": 0
+    },
+    "localhost.": {
+      "statuses": "206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206",
+      "ms": 67
+    },
+    "127.0.0.2": {
+      "statuses": "206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206,206",
+      "ms": 62
+    }
+  },
+  "engineUrl": "http://localhost.:52536/file.parquet",
+  "count": {
+    "ms": 11,
+    "rows": 1,
+    "first": {
+      "n": 4000000
+    }
+  },
+  "viewCity": {
+    "ms": 41,
+    "rows": 1,
+    "first": {
+      "n": 49
+    }
+  },
+  "viewRegion": {
+    "ms": 87,
+    "rows": 1,
+    "first": {
+      "n": 50000
+    }
+  },
+  "filterCount": {
+    "ms": 243,
+    "rows": 1,
+    "first": {
+      "n": 1000166
+    }
+  },
+  "memoryLimit": {
+    "ms": 2,
+    "rows": 1,
+    "first": {
+      "m": "3.1 GiB"
+    }
+  },
+  "geojson172Materialize": {
+    "ms": 8612,
+    "rows": 1,
+    "first": {
+      "Count": 235295
+    }
+  },
+  "geojsonCount": {
+    "ms": 5,
+    "rows": 1,
+    "first": {
+      "n": 235295
+    }
+  },
+  "copy1": {
+    "ms": 7673,
+    "rows": 1,
+    "first": {
+      "Count": 4000000
+    }
+  },
+  "copy2": {
+    "ms": 7459,
+    "rows": 1,
+    "first": {
+      "Count": 4000000
+    }
+  },
+  "afterCopies": {
+    "ms": 2,
+    "rows": 1,
+    "first": {
+      "ok": 42
+    }
+  },
+  "drop": {
+    "ms": 10,
+    "rows": 0,
+    "first": null
+  },
+  "server": {
+    "requests": 415,
+    "bytes": 1983253131,
+    "log": [
+      "connection 54937",
+      "HEAD bytes=0-65535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl",
+      "GET bytes=100000-165535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=200000-265535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=300000-365535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=400000-465535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=500000-565535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=600000-665535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=700000-765535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=800000-865535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=900000-965535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1000000-1065535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1100000-1165535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1200000-1265535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1300000-1365535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1400000-1465535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1500000-1565535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1600000-1665535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1700000-1765535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1800000-1865535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=1900000-1965535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2000000-2065535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2100000-2165535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2200000-2265535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2300000-2365535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2400000-2465535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2500000-2565535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2600000-2665535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2700000-2765535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2800000-2865535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=2900000-2965535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3000000-3065535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3100000-3165535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3200000-3265535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3300000-3365535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3400000-3465535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3500000-3565535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3600000-3665535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3700000-3765535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed",
+      "GET bytes=3800000-3865535 origin=vscode-webview://16ids93oaubk85nmmmi0psb5luh9ru73d5jnclvo0em55o01f0hl finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed",
+      "connection 51686 finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed finished closed"
+    ]
+  }
+}
