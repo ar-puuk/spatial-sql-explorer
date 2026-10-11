@@ -105,6 +105,12 @@
         "title": "Export Data…",
         "category": "Spatial Explorer",
         "icon": "$(export)"
+      },
+      {
+        "command": "spatialExplorer.openSample",
+        "title": "Open Sample Data (US Counties)",
+        "category": "Spatial Explorer",
+        "icon": "$(map)"
       }
     ],
     "menus": {

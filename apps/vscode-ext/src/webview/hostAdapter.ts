@@ -29,6 +29,7 @@ export interface DuckDbAssets {
 
 /** Spec 008: the `spatialExplorer.placeSearch.enabled` setting, as the host last sent it. */
 let placeSearchEnabled: boolean | undefined
+const preferenceListeners = new Set<() => void>()
 
 let maplibreWorkerUrlResolve: ((url: string) => void) | null = null
 const maplibreWorkerUrlPromise = new Promise<string>((resolve) => {
@@ -239,7 +240,10 @@ window.addEventListener('message', (event: MessageEvent) => {
 
   if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
     assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl, sqlWasmUrl: msg.sqlWasmUrl })
-    if (msg.placeSearchEnabled !== undefined) placeSearchEnabled = msg.placeSearchEnabled
+    if (msg.placeSearchEnabled !== undefined) {
+      placeSearchEnabled = msg.placeSearchEnabled
+      preferenceListeners.forEach((cb) => cb())
+    }
     if (msg.maplibreWorkerUrl) maplibreWorkerUrlResolve?.(msg.maplibreWorkerUrl)
     if (msg.primaryFileUri) primaryFileUri = msg.primaryFileUri
     if (msg.primaryFileName && !primaryFileNameFromAssets) {
@@ -262,6 +266,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
   } else if (msg.type === 'preferences') {
     placeSearchEnabled = msg.placeSearchEnabled
+    preferenceListeners.forEach((cb) => cb())
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
@@ -283,6 +288,10 @@ export function createVsCodeHostAdapter(): HostAdapter {
     },
     getPreference(key: 'placeSearch.enabled'): boolean | undefined {
       return key === 'placeSearch.enabled' ? placeSearchEnabled : undefined
+    },
+    onPreferenceChange(cb: () => void): () => void {
+      preferenceListeners.add(cb)
+      return () => preferenceListeners.delete(cb)
     },
     onThemeChange(cb: (theme: ThemeKind) => void): () => void {
       themeListeners.add(cb)

@@ -9,6 +9,7 @@
   ```ts
   getPreference?(key: 'placeSearch.enabled'): boolean | undefined
   ```
+  Plus `onPreferenceChange?(cb): () => void`, called when a value changes.
   VS Code reads the `spatialExplorer.placeSearch.enabled` setting and
   reports changes through the existing `onThemeChange`-style messaging,
   re-reading on configuration change. Web: undefined, meaning enabled.

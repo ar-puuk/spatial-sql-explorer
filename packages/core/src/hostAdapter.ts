@@ -129,6 +129,9 @@ export interface HostAdapter {
    * omit it, and callers treat `undefined` as the default (enabled).
    */
   getPreference?(key: 'placeSearch.enabled'): boolean | undefined
+
+  /** Spec 008: called when a `getPreference` value changes (VS Code: the setting was edited). */
+  onPreferenceChange?(cb: () => void): () => void
 }
 
 /** Spec 005: data exports may be large and binary; hosts pick a dialog default and filters by kind. */

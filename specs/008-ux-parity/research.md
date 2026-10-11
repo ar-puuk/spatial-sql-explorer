@@ -532,3 +532,24 @@ Every format offered was written by the real web build, then read back:
   is ~1 KB. Applying waits for the result's fit before moving the camera;
   the hash is cleared once applied, so a reload doesn't ask again. A link
   made with another file warns and still applies; failed parts are listed.
+
+## Implementation outcomes (US8, 2026-10-11)
+
+- Place search: `packages/ui/src/placeSearch.ts` fetches
+  `nominatim.openstreetmap.org/search?q=<text>&format=jsonv2&limit=5` with no
+  credentials and an origin-only referrer: the typed text and nothing else.
+  Only on Enter or the button, at most one per second. The first search shows
+  the privacy notice (`saveState('placeSearchNoticeShown')`). Hidden when the
+  VS Code setting is off; the setting now notifies the webview live
+  (`HostAdapter.onPreferenceChange`).
+- Sample data: web (landing page, `/sample/us-counties.parquet`) and VS Code
+  (`spatialExplorer.openSample`, copied to the extension's global storage
+  first: the install folder may be read-only, and exports and styles save
+  next to the data). Draws in ~1 s (SC-008).
+- Open risk (SC-008 "with no network"): the engine downloads its spatial
+  extension from extensions.duckdb.org at start-up, so with no internet at
+  all the engine never becomes ready, for the sample or any file. The sample
+  test goes offline after the engine has loaded, as T086 specifies. Making
+  the app fully offline means bundling the extension (.duckdb_extension.wasm)
+  with the app and pointing `custom_extension_repository` at it: a separate
+  decision (size, both shells).

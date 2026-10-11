@@ -60,8 +60,10 @@
     /** Spec 002 FR-006: a table-only result keeps the last layer visible, dimmed. */
     dimmed?: boolean
     onBasemapFailure: (message: string) => void
-    openPanel: 'style' | 'basemap' | null
-    onTogglePanel: (panel: 'style' | 'basemap') => void
+    openPanel: 'style' | 'basemap' | 'search' | null
+    onTogglePanel: (panel: 'style' | 'basemap' | 'search') => void
+    /** Spec 008 US8: show the Search places button (the host's setting). */
+    placeSearch?: boolean
     /** `additive`: Ctrl/Cmd was held (spec 008 FR-012: add to the selection). */
     onSelectFeature: (id: string | number | null, additive?: boolean) => void
     /** Spec 008 FR-012: the ticked rows, highlighted like the selected feature ('all': every drawn feature). */
@@ -118,6 +120,7 @@
     onInspectTileFeature,
     styleUnavailable = null,
     extruded = false,
+    placeSearch = false,
     onCaptureReady,
     onExportImage,
   }: Props = $props()
@@ -870,6 +873,18 @@
       >
         <Icon name="paint" />
       </button>
+      {#if placeSearch}
+        <button
+          type="button"
+          title="Search places"
+          aria-label="Search places"
+          aria-pressed={openPanel === 'search'}
+          class:active={openPanel === 'search'}
+          onclick={() => onTogglePanel('search')}
+        >
+          <Icon name="search" />
+        </button>
+      {/if}
       <button
         type="button"
         title="Basemap: {basemap.name}"

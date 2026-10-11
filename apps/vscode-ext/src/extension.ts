@@ -675,6 +675,21 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       supportsMultipleEditorsPerDocument: false,
     }),
     // Explorer / editor-tab context menu (CLAUDE.md): "Open in Spatial Explorer".
+    // Spec 008 US8 (FR-032): the bundled sample, no workspace file needed. It is
+    // copied to the extension's own storage first: the install folder may be
+    // read-only, and exports and styles are saved next to the data.
+    vscode.commands.registerCommand('spatialExplorer.openSample', async () => {
+      const source = vscode.Uri.joinPath(context.extensionUri, 'sample', 'us-counties.parquet')
+      const dir = vscode.Uri.joinPath(context.globalStorageUri, 'sample')
+      const target = vscode.Uri.joinPath(dir, 'us-counties.parquet')
+      try {
+        await vscode.workspace.fs.stat(target)
+      } catch {
+        await vscode.workspace.fs.createDirectory(dir)
+        await vscode.workspace.fs.copy(source, target, { overwrite: true })
+      }
+      await vscode.commands.executeCommand('vscode.openWith', target, 'spatialExplorer.editorOption')
+    }),
     vscode.commands.registerCommand('spatialExplorer.openInViewer', async (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri
       if (!target) return
