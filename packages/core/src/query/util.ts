@@ -6,6 +6,15 @@ export function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`
 }
 
+/**
+ * A SQL string literal (spec 008): every value that comes from the user or a
+ * file (filter values, layer names) reaches SQL through here, never raw.
+ * DuckDB strings don't treat backslashes as escapes, so only `'` is doubled.
+ */
+export function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
 /** Normalizes a DuckDB spatial geometry-type string to this project's GeometryType. */
 export function normalizeGeometryType(raw: string): Exclude<GeometryType, 'Mixed'> | null {
   const upper = raw.toUpperCase()
