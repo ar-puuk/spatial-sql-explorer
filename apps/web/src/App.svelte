@@ -4,7 +4,7 @@
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
-  import { createWebHostAdapter, provideFiles } from './hostAdapter.js'
+  import { createWebHostAdapter, provideFiles, rangeReads } from './hostAdapter.js'
 
   // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
   const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm' }
@@ -67,6 +67,8 @@
       },
       /** Spec 005 T003: what an export knows about the displayed result. */
       resultFacts: () => JSON.parse(JSON.stringify(store.querySession?.lastResult ?? null)),
+      /** Spec 007 T053: range reads served by the host (PMTiles reads only parts). */
+      rangeReads: () => ({ ...rangeReads }),
       /** Spec 007 T018: the open's phase and whole-file facts. */
       openState: () =>
         JSON.parse(
@@ -130,7 +132,7 @@
     }
   }
 
-  const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML']
+  const FORMATS = ['GeoJSON', 'GeoPackage', 'FlatGeobuf', 'Shapefile', 'GeoParquet', 'CSV', 'GML', 'PMTiles']
 
   let isDragOver = $state(false)
   let fileName = $state<string | null>(null)

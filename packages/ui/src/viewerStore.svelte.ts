@@ -57,6 +57,8 @@ import {
   WorkPreemptedError,
   OutOfMemoryError,
 } from '@spatial-explorer/core'
+import { formatFromFileName } from '@spatial-explorer/core'
+import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 
 /** The attribute columns a style draws from (spec 007: map views read only these). */
 function styleColumns(style: LayerStyle): string[] {
@@ -199,6 +201,12 @@ export interface ViewerStore {
   readonly needsLoad: { sizeLabel: string } | null
   /** Re-opens the file whole into memory (progress and Cancel through the open). */
   loadWhole(): Promise<void>
+  /** Spec 007 US5: the open PMTiles archive (the map draws its tiles), or null. */
+  readonly tiles: TilesArchive | null
+  /** FR-009a: why SQL, the table, styling and export aren't available (PMTiles), or null. */
+  readonly tilesOnlyReason: string | null
+  /** A PMTiles feature clicked on the map: shown by the inspector. */
+  inspectTileFeature(feature: Feature | null): void
   /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
   readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
   answerWholeRead(open: boolean): void
@@ -416,10 +424,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
   const needsLoad = $derived(session.layer?.facts?.needsLoad && openedSize !== null ? { sizeLabel: sizeLabel(openedSize) } : null)
 
+  // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
+  let tilesArchive = $state.raw<TilesArchive | null>(null)
+  const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
   const exportDisabled = $derived(
     !displayedLayer
       ? 'Open a file first.'
-      : needsLoad
+      : tilesOnlyReason
+        ? tilesOnlyReason
+        : needsLoad
         ? `Load the whole file (${needsLoad.sizeLabel}) to export it.`
         : queryPhase === 'running'
           ? 'Wait for the running query to finish.'
@@ -694,8 +707,24 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       // go before the next file's `layer` view is created.
       await querySession?.dispose().catch(() => {})
       querySession = null
+      tilesArchive = null
       openStartedAt = performance.now()
       openPhase = 'registering'
+      if (formatFromFileName(ref.displayName) === 'pmtiles') {
+        // US5: the map reads the archive itself; the engine isn't involved.
+        const { layer, archive } = await openTilesArchive(ref, hostAdapter)
+        openPhase = null
+        openStartedAt = null
+        resetQueryState()
+        catalog = null
+        tilesArchive = archive
+        initialLayer = layer
+        setLayer(layer)
+        session.loadState = 'ready'
+        applySidecar(null)
+        hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: 'features' })
+        return
+      }
       const opened = await openFile(
         ref,
         { hostAdapter, duckdbAssets },
@@ -1120,6 +1149,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return wholeReadPrompt
     },
     answerWholeRead,
+    get tiles() {
+      return tilesArchive
+    },
+    get tilesOnlyReason() {
+      return tilesOnlyReason
+    },
+    inspectTileFeature(feature) {
+      detailFeature = feature
+      session.selectedFeatureId = feature?.id ?? null
+    },
     selectFeature(id) {
       session.selectedFeatureId = id
       // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.

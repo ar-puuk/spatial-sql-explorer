@@ -43,6 +43,9 @@ export function provideFiles(files: File[]): void {
   pendingOpenFilesResolve = null
 }
 
+/** e2e (spec 007 T053): range reads served, to show PMTiles is never read whole. */
+export const rangeReads = { count: 0, bytes: 0, largest: 0 }
+
 export function createWebHostAdapter(): HostAdapter {
   const themeListeners = new Set<(theme: ThemeKind) => void>()
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -93,7 +96,11 @@ export function createWebHostAdapter(): HostAdapter {
     async readRange(ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array> {
       const files = fileMap.get(ref.id)
       if (!files) throw new Error(`Unknown file reference: ${ref.id}`)
-      return new Uint8Array(await primaryOf(files).slice(offset, offset + length).arrayBuffer())
+      const bytes = new Uint8Array(await primaryOf(files).slice(offset, offset + length).arrayBuffer())
+      rangeReads.count++
+      rangeReads.bytes += bytes.byteLength
+      rangeReads.largest = Math.max(rangeReads.largest, bytes.byteLength)
+      return bytes
     },
     async saveFile(name: string, content: Uint8Array | string): Promise<SaveResult> {
       // The browser cannot write next to a picked file, so every save is a

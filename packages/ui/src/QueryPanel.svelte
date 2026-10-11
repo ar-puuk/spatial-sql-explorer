@@ -12,6 +12,7 @@
   import QueryHistory from './QueryHistory.svelte'
   import Icon from './Icon.svelte'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
+  import UnavailableNotice from './UnavailableNotice.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -139,7 +140,8 @@
       {#if busy}
         <button type="button" class="secondary" onclick={() => void store.cancelQuery()} title="Cancel (Esc)"><Icon name="close" size={14} />Cancel</button>
       {:else}
-        <button type="button" class="primary" onclick={() => run()} title={store.needsLoad ? 'Load the whole file to query it' : 'Run (Ctrl+Enter)'} disabled={!!store.needsLoad}
+        <button type="button" class="primary" onclick={() => run()} title={store.tilesOnlyReason ?? (store.needsLoad ? 'Load the whole file to query it' : 'Run (Ctrl+Enter)')}
+          disabled={!!store.needsLoad || !!store.tilesOnlyReason}
           ><Icon name="arrow-up" size={14} />Run</button
         >
       {/if}
@@ -165,7 +167,9 @@
     </div>
   {/if}
   <div class="body" id="query-body" hidden={collapsed}>
-    {#if store.needsLoad}
+    {#if store.tilesOnlyReason}
+      <UnavailableNotice text={store.tilesOnlyReason} />
+    {:else if store.needsLoad}
       <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} onLoad={() => void store.loadWhole()} />
     {/if}
     <div class="editor">

@@ -23,6 +23,8 @@ export interface Feature {
   attributes: Record<string, string | number | boolean | null>
   /** Spec 007: only the columns a map view needed; fetch by id for the full record. */
   partialAttributes?: boolean
+  /** PMTiles (US5): the archive layer the feature came from, shown by the inspector. */
+  sourceLayer?: string
 }
 
 /**
@@ -105,6 +107,8 @@ export interface DatasetFacts {
    * thematic styles and export wait until the user loads the whole file.
    */
   needsLoad: boolean
+  /** PMTiles (US5): the archive's zoom range and vector layers, from its header and metadata. */
+  tiles?: { minZoom: number; maxZoom: number; layers: string[] }
 }
 
 /** A map view to load (data-model.md). `bbox` is WGS84. */

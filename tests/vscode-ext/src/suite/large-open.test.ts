@@ -219,3 +219,34 @@ suite('Spec 007 US4: formats read whole in VS Code', () => {
     }
   })
 })
+
+// T054 (US5): PMTiles opens with the default custom editor, view-only, drawn from its tiles.
+suite('Spec 007 US5: PMTiles in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('sample.pmtiles opens in Spatial Explorer by default, read mode tiles, and renders', async function () {
+    this.timeout(90000)
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    // `vscode.open` (not openWith): the custom editor's default priority is what picks the viewer.
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(fixture('sample.pmtiles')))
+    const deadline = Date.now() + 60000
+    type TilesOpenState = { phase: string; facts: { readMode: string; tiles?: { minZoom: number; maxZoom: number; layers: string[] } } | null } | null
+    let s: TilesOpenState = null
+    for (;;) {
+      s = (await vscode.commands.executeCommand('spatialExplorer._getOpenState')) as TilesOpenState
+      if (s?.phase === 'ready' && s.facts?.readMode === 'tiles') break
+      assert.ok(Date.now() < deadline, `sample.pmtiles did not open: ${JSON.stringify(s)}`)
+      await sleep(200)
+    }
+    assert.deepStrictEqual(s?.facts?.tiles, { minZoom: 4, maxZoom: 10, layers: ['parcels-10k-nobbox'] })
+    let rendered = 0
+    for (let i = 0; i < 100 && rendered === 0; i++) {
+      const load = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { renderedFeatureCount?: number | null } | null
+      rendered = load?.renderedFeatureCount ?? 0
+      if (rendered === 0) await sleep(300)
+    }
+    assert.ok(rendered > 0, `rendered ${rendered}`)
+  })
+})

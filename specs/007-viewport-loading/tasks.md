@@ -553,22 +553,26 @@ they skip with a message, never pass silently.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T053 [P] [US5] Write `tests/web/specs/pmtiles.spec.ts`, using the Independent Test above, plus a check that `HostAdapter.readRange` was called with ranges smaller than the file (an e2e counter), i.e. no whole read.
-- [ ] T054 [P] [US5] Add a PMTiles case to `tests/vscode-ext/src/suite/large-open.test.ts`:
+- [X] T053 [P] [US5] Write `tests/web/specs/pmtiles.spec.ts`, using the Independent Test above, plus a check that `HostAdapter.readRange` was called with ranges smaller than the file (an e2e counter), i.e. no whole read.
+  - *Done*: pmtiles.spec.ts: renders at two zooms, header/metadata facts in the status bar, only partial reads (e2e rangeReads counter), the inspector shows a clicked feature and its layer, FR-009a in the table, query, style and export, and a normal file opens afterwards.
+- [X] T054 [P] [US5] Add a PMTiles case to `tests/vscode-ext/src/suite/large-open.test.ts`:
   - opens via the custom editor;
   - `_getOpenState` reports read mode `tiles`;
   - the map renders (`_getViewState.drawn > 0`).
 
 ### Implementation for User Story 5
 
-- [ ] T055 [US5] Register `*.pmtiles` in `apps/vscode-ext/package.json` `customEditors` (priority `default`, per CLAUDE.md), the `openInViewer` `when` clauses and `FORMATS` (`apps/web/src/App.svelte`). Add `pmtiles` to `ReadStrategy` detection in `packages/core/src/openFile.ts`. `tiles` mode skips the engine entirely.
-- [ ] T056 [US5] In `packages/ui/src/MapView.svelte` (plus a new `packages/ui/src/pmtilesSource.ts`):
+  - *Done*: large-open.test.ts: vscode.open picks Spatial Explorer (default priority), read mode tiles, zoom 4-10 and the layer, renderedFeatureCount > 0. No CSP change needed.
+- [X] T055 [US5] Register `*.pmtiles` in `apps/vscode-ext/package.json` `customEditors` (priority `default`, per CLAUDE.md), the `openInViewer` `when` clauses and `FORMATS` (`apps/web/src/App.svelte`). Add `pmtiles` to `ReadStrategy` detection in `packages/core/src/openFile.ts`. `tiles` mode skips the engine entirely.
+  - *Done*: *.pmtiles in customEditors (default) and the four when clauses; PMTiles in the web formats list and the unsupported-format message. The store branches before the engine (no DuckDB session).
+- [X] T056 [US5] In `packages/ui/src/MapView.svelte` (plus a new `packages/ui/src/pmtilesSource.ts`):
   - a `pmtiles` `Source` implementation calling `hostAdapter.readRange` (no `fetch` or File API in ui);
   - `maplibregl.addProtocol('pmtiles', …)` registered once;
   - a vector source for the archive, with one layer per `vector_layers` entry, styled with spec 001's single-symbol colors per geometry type;
   - the inspector shows the clicked feature's properties and its source layer;
   - facts (bounds, minzoom, maxzoom, layers) from the archive header and metadata go into `layer.facts`.
-- [ ] T057 [US5] Disable the other pillars for `tiles` layers, with the FR-009a reason ("PMTiles holds map tiles, not a table: SQL, table, styling and export aren't available."):
+  - *Done*: pmtilesSource.ts: Source over HostAdapter.readRange, one shared pmtiles:// protocol, raster archives refused; MapView: vector source, layers per archive layer, style rebuilt on archive/feature switches, click with 4 px tolerance to the inspector (Feature.sourceLayer); facts.tiles.
+- [X] T057 [US5] Disable the other pillars for `tiles` layers, with the FR-009a reason ("PMTiles holds map tiles, not a table: SQL, table, styling and export aren't available."):
   - `packages/ui/src/QueryPanel.svelte`;
   - `AttributeTable.svelte`;
   - `LayerStylePanel.svelte`;
@@ -576,6 +580,7 @@ they skip with a message, never pass silently.
   - the `spatialExplorer.exportData` command in `apps/vscode-ext/src/extension.ts`.
 
   T053 and T054 pass.
+  - *Done*: FR-009a reason (UnavailableNotice) in the table drawer and query panel (Run disabled), Layer style button disabled with the reason as its tooltip, Export disabled (the command opens the dialog with the reason).
 
 **Checkpoint**: all five stories are complete.
 

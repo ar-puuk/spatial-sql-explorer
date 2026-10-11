@@ -5,7 +5,6 @@
     ScaleControl,
     type GeoJSONSource,
     type MapGeoJSONFeature,
-    type MapLayerMouseEvent,
     type MapMouseEvent,
     type StyleSpecification,
   } from 'maplibre-gl'
@@ -27,6 +26,7 @@
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
+  import type { TilesArchive } from './pmtilesSource.js'
 
   interface Props {
     layer: Layer | null
@@ -61,6 +61,12 @@
     onTogglePanel: (panel: 'style' | 'basemap') => void
     onSelectFeature: (id: string | number | null) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
+    /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
+    tiles?: TilesArchive | null
+    /** A clicked PMTiles feature, for the inspector (tiles carry no table to look it up in). */
+    onInspectTileFeature?: (feature: Feature | null) => void
+    /** Why the Layer style button is unavailable (PMTiles), or null. */
+    styleUnavailable?: string | null
   }
   let {
     layer,
@@ -84,6 +90,9 @@
     onTogglePanel,
     onSelectFeature,
     onCursorMove,
+    tiles = null,
+    onInspectTileFeature,
+    styleUnavailable = null,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -100,7 +109,7 @@
   const POLYGON = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
   const LINE = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
   const POINT = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
-  const INTERACTIVE_LAYERS = ['fill', 'line', 'circle']
+  const INTERACTIVE_DEFS = ['fill', 'line', 'circle']
 
   /**
    * Canvas colors cannot use CSS variables (CLAUDE.md), so the selection
@@ -121,6 +130,22 @@
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'circle', type: 'circle', filter: POINT },
   ]
+
+  /**
+   * The map layers drawn now: LAYER_DEFS once over the view features, or (PMTiles,
+   * US5) once per archive layer, as `<def>::<source layer>`.
+   */
+  let styledTiles: TilesArchive | null = null
+  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string }> {
+    if (!styledTiles) return LAYER_DEFS.map((def) => ({ id: def.id, def }))
+    return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.map((def) => ({ id: `${def.id}::${sourceLayer}`, def, sourceLayer })))
+  }
+  function interactiveLayers(): string[] {
+    return layerInstances()
+      .filter((l) => INTERACTIVE_DEFS.includes(l.def.id))
+      .map((l) => l.id)
+      .filter((id) => map?.getLayer(id))
+  }
 
   function toFeatureCollection(features: Feature[]): GeoJSON.FeatureCollection {
     // A Point standing in for a polygon or line (under ~2 px, spec 007) is drawn as a small dot.
@@ -158,20 +183,25 @@
   function applyPaint(): void {
     if (!map || !mapReady) return
     const p = paintFor(style, resolved, selectionColor())
-    for (const def of LAYER_DEFS) {
-      if (map.getLayer(def.id)) map.setFilter(def.id, layerFilter(def) as Parameters<MapLibreMap['setFilter']>[1])
-    }
-    for (const [layerId, props] of Object.entries(p)) {
-      if (!map.getLayer(layerId)) continue // mid basemap switch; buildStyle carries the current paints
-      for (const [prop, value] of Object.entries(props)) {
-        map.setPaintProperty(layerId, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
+    for (const l of layerInstances()) {
+      if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
+      map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
+      for (const [prop, value] of Object.entries(p[l.def.id as keyof typeof p] ?? {})) {
+        map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
     }
   }
 
+  /** A PMTiles feature for the inspector: its properties and the archive layer it came from. */
+  function tileFeature(hit: MapGeoJSONFeature): Feature {
+    const attributes: Feature['attributes'] = {}
+    for (const [k, v] of Object.entries(hit.properties ?? {})) attributes[k] = v as Feature['attributes'][string]
+    return { id: hit.id ?? `${hit.sourceLayer}:${JSON.stringify(hit.properties)}`, geometry: null, attributes, sourceLayer: hit.sourceLayer }
+  }
+
   let hoveredId: string | number | null = null
   function setHover(id: string | number | null): void {
-    if (!map || id === hoveredId) return
+    if (!map || id === hoveredId || styledTiles) return
     if (hoveredId !== null) map.setFeatureState({ source: SOURCE_ID, id: hoveredId }, { hover: false })
     hoveredId = id
     if (id !== null) map.setFeatureState({ source: SOURCE_ID, id }, { hover: true })
@@ -205,10 +235,19 @@
       const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
       if (first && !first.attribution) first.attribution = entry.attribution
     }
-    doc.sources[SOURCE_ID] = { type: 'geojson', data: currentData, promoteId: ID_PROP }
+    styledTiles = tiles
+    doc.sources[SOURCE_ID] = styledTiles ? { type: 'vector', url: styledTiles.url } : { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paintFor(style, resolved, selectionColor())
-    for (const def of LAYER_DEFS) {
-      doc.layers.push({ id: def.id, type: def.type, source: SOURCE_ID, filter: layerFilter(def), layout: def.layout ?? {}, paint: p[def.id as keyof typeof p] } as never)
+    for (const l of layerInstances()) {
+      doc.layers.push({
+        id: l.id,
+        type: l.def.type,
+        source: SOURCE_ID,
+        ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
+        filter: layerFilter(l.def),
+        layout: l.def.layout ?? {},
+        paint: p[l.def.id as keyof typeof p],
+      } as never)
     }
     return doc
   }
@@ -217,14 +256,30 @@
     if (!map) return
     const m = map
     m.on('click', (e: MapMouseEvent) => {
-      const hit = m.queryRenderedFeatures(e.point, { layers: INTERACTIVE_LAYERS })[0]
+      if (styledTiles) {
+        // PMTiles: the tile feature itself is what the inspector shows. Tile
+        // features are often a pixel or two wide, so a click allows 4 px.
+        const { x, y } = e.point
+        const near = m.queryRenderedFeatures(
+          [
+            [x - 4, y - 4],
+            [x + 4, y + 4],
+          ],
+          { layers: interactiveLayers() }
+        )[0]
+        onInspectTileFeature?.(near ? tileFeature(near) : null)
+        return
+      }
+      const hit = m.queryRenderedFeatures(e.point, { layers: interactiveLayers() })[0]
       onSelectFeature(featureId(hit))
     })
-    for (const id of INTERACTIVE_LAYERS) {
-      m.on('mousemove', id, (e: MapLayerMouseEvent) => setHover(featureId(e.features?.[0])))
-      m.on('mouseleave', id, () => setHover(null))
-    }
-    m.on('mousemove', (e: MapMouseEvent) => onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat }))
+    m.on('mousemove', (e: MapMouseEvent) => {
+      onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
+      const layers = interactiveLayers()
+      const hit = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
+      else setHover(featureId(hit))
+    })
     // Spec 007 FR-007: load the new view once the map settles.
     m.on('moveend', scheduleViewChange)
     m.on('mouseout', () => onCursorMove(null))
@@ -248,7 +303,7 @@
       // Only meaningful once this layer's first view is drawn: an idle before
       // the data arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
-      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: INTERACTIVE_LAYERS }).length)
+      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: interactiveLayers() }).length)
       if (paintPending) {
         paintPending = false
         // Monotonic "view data was drawn" counter: unlike data-rendered-features
@@ -264,6 +319,7 @@
   }
 
   let activeBasemap: BasemapCatalogEntry | null = null
+  let activeBaseStyle: BasemapStyle | null = null
   let basemapHost = ''
   let health = new BasemapHealth()
   let basemapRequest = 0
@@ -277,6 +333,7 @@
       return
     }
     activeBasemap = entry
+    activeBaseStyle = result.style
     basemapHost = entry.url ? new URL(entry.url).host : ''
     health = new BasemapHealth()
     const m = map
@@ -423,6 +480,12 @@
     if (current === shownLayer) return
     const firstOfFile = !shownLayer || !current || shownLayer.id !== current.id
     shownLayer = current
+    // A PMTiles archive and view features need different sources: rebuild the style when that changes (US5).
+    const nextTiles = untrack(() => tiles)
+    if (nextTiles?.url !== styledTiles?.url && activeBasemap) {
+      hoveredId = null
+      map.setStyle(buildStyle(activeBaseStyle, activeBasemap), { diff: false })
+    }
     if (!current) {
       dataLoaded = false
       currentData = { type: 'FeatureCollection', features: [] }
@@ -430,6 +493,11 @@
       return
     }
     if (firstOfFile) dataLoaded = false
+    // Tiles draw themselves; their first idle reports what was drawn.
+    if (nextTiles) {
+      dataLoaded = true
+      delete container.dataset.renderedFeatures
+    }
     untrack(() => fitExtent(false))
     // fitBounds without animation still ends in a moveend; ask explicitly too, in case the camera didn't move.
     scheduleViewChange()
@@ -466,7 +534,7 @@
   $effect(() => {
     const id = selectedFeatureId
     void layer
-    if (!map || !mapReady) return
+    if (!map || !mapReady || styledTiles) return
     if (previousSelected !== null) map.setFeatureState({ source: SOURCE_ID, id: previousSelected }, { selected: false })
     if (id !== null && id !== undefined) map.setFeatureState({ source: SOURCE_ID, id }, { selected: true })
     previousSelected = id ?? null
@@ -517,11 +585,11 @@
     <div class="group">
       <button
         type="button"
-        title="Layer style"
+        title={styleUnavailable ?? 'Layer style'}
         aria-label="Layer style"
         aria-pressed={openPanel === 'style'}
         class:active={openPanel === 'style'}
-        disabled={!layer}
+        disabled={!layer || styleUnavailable !== null}
         onclick={() => onTogglePanel('style')}
       >
         <Icon name="paint" />

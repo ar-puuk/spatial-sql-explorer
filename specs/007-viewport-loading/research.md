@@ -558,6 +558,32 @@ What changed from §9–§12 while building, with the evidence behind each.
   `wholeBytes` override (default 64 MB) makes tests take the handle and
   loopback-URL paths with a small shapefile.
 
+## Implementation outcomes (US5, 2026-10-11)
+
+- **Verified against a real archive in both shells** (Constitution VI):
+  `sample.pmtiles`, written by GDAL 3.13 with MVT tiles at zooms 4–10 and
+  one vector layer. It draws at two zooms in both shells. The web build read
+  only parts of the file, checked by an e2e counter of `readRange` calls.
+  VS Code needed no CSP change, because the reads go to the webview
+  resource URI from the main thread.
+- **The store opens the archive, not the engine.** `load()` branches on the
+  `.pmtiles` extension to `openTilesArchive()` (`packages/ui/src/pmtilesSource.ts`),
+  which reads the header and metadata and registers the archive with one
+  shared `pmtiles://` protocol. No DuckDB session exists for the layer.
+  Facts come from the header (bounds, zoom range) and the metadata
+  (`vector_layers`; feature count and geometry type from GDAL's
+  `tilestats` when present). Raster archives are refused with a message.
+- **MapView** builds a vector source and one set of single-symbol layers per
+  archive layer, named `<def>::<source layer>`. It rebuilds the style when
+  switching between an archive and view features. Tile features carry no
+  stable id to highlight with feature-state, so there is no hover or
+  selection halo. A click hands the feature's properties and source layer
+  to the inspector, with a 4 px tolerance because parcels are a pixel or two
+  wide at low zooms.
+- **FR-009a**: the table, query panel, Layer style button and Export show
+  the reason, and the export command opens the dialog with it. The status
+  bar shows "PMTiles · Zoom 4–10 · bounds · 1 layer".
+
 ## Residual risks
 
 | Risk | Mitigation |

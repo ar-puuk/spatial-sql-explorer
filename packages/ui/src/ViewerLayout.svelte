@@ -19,6 +19,7 @@
   import ExportDialog from './ExportDialog.svelte'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
+  import UnavailableNotice from './UnavailableNotice.svelte'
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -267,6 +268,13 @@
         onTogglePanel={(panel) => (openPanel = openPanel === panel ? null : panel)}
         onSelectFeature={handleMapSelect}
         onCursorMove={(c) => store.setCursor(c)}
+        tiles={store.tiles}
+        onInspectTileFeature={(f) => {
+          store.inspectTileFeature(f)
+          inspectorOpen = f !== null
+          openPanel = null
+        }}
+        styleUnavailable={store.tilesOnlyReason}
       />
       {#if inspected}
         <div class="inspector-slot">
@@ -412,7 +420,9 @@
           {/if}
         </div>
         <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
-          {#if store.needsLoad}
+          {#if store.tilesOnlyReason}
+            <UnavailableNotice text={store.tilesOnlyReason} />
+          {:else if store.needsLoad}
             <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} purpose="list its rows" onLoad={() => void store.loadWhole()} />
           {:else}
           <AttributeTable

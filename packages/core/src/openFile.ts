@@ -330,7 +330,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   const format = formatFromFileName(source.name)
   if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
     throw new Error(
-      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, and GML.`
+      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, GML and PMTiles (view only).`
     )
   }
 
