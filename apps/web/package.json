@@ -1,0 +1,25 @@
+{
+  "name": "@spatial-explorer/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-wasm-assets.js",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-wasm-assets.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@spatial-explorer/core": "*",
+    "@spatial-explorer/ui": "*",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4"
+  }
+}

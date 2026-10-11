@@ -1,0 +1,8 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "A Point" }, "geometry": { "type": "Point", "coordinates": [-111.9, 40.76] } },
+    { "type": "Feature", "properties": { "name": "A Line" }, "geometry": { "type": "LineString", "coordinates": [[-111.9, 40.76], [-111.8, 40.7]] } },
+    { "type": "Feature", "properties": { "name": "A Polygon" }, "geometry": { "type": "Polygon", "coordinates": [[[-112.0, 40.6], [-111.7, 40.6], [-111.7, 40.9], [-112.0, 40.9], [-112.0, 40.6]]] } }
+  ]
+}

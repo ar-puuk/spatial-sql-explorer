@@ -1,0 +1,41 @@
+# Node / npm workspaces
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+dist-webview/
+out/
+*.vsix
+
+# Copied from the repo root at build time (apps/vscode-ext/scripts/copy-package-docs.js)
+apps/vscode-ext/LICENSE
+apps/vscode-ext/CHANGELOG.md
+apps/vscode-ext/THIRD-PARTY-NOTICES.md
+
+# @vscode/test-electron's downloaded VS Code binary + test user profile
+.vscode-test/
+
+# apps/web's predev/prebuild-copied DuckDB-WASM + MapLibre worker assets
+# (copied from node_modules by apps/web/scripts/copy-wasm-assets.js)
+apps/web/public/duckdb/
+apps/web/public/maplibre/
+
+# Playwright test output + scripts/screenshots.mjs output
+screenshots/
+test-results/
+playwright-report/
+
+# Env
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log

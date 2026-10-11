@@ -1,0 +1,187 @@
+/*
+ * VS Code token file: maps the shared `--se-*` design tokens used by
+ * packages/ui onto VS Code's own theme variables (CLAUDE.md "Theming";
+ * design-plan.md §4.2/§8.4). The brand palette is deliberately never used
+ * here: in VS Code the viewer must look like part of the workbench, under any
+ * light, dark or high-contrast theme the user picked.
+ *
+ * Where VS Code has a closer-matching widget, its tokens are used: the
+ * Keyboard Shortcuts editor's table colors for the grid, list selection
+ * (active vs inactive) for selected rows, sash/menu/button/editorWidget for
+ * the matching controls.
+ *
+ * The web shell maps the same token names to the brand palette in
+ * apps/web/src/theme.css. A token added to one file must be added to both.
+ */
+:root {
+  /* Surfaces */
+  --se-bg-base: var(--vscode-editor-background);
+  --se-bg-panel: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --se-bg-elevated: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --se-bg-hover: var(--vscode-list-hoverBackground);
+  --se-border: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+
+  /* Text */
+  --se-text-primary: var(--vscode-foreground);
+  /* Data swatches (legend, class list): a neutral edge that reads on any data color. */
+  --se-swatch-border: var(--vscode-contrastBorder, color-mix(in srgb, var(--vscode-foreground) 45%, transparent));
+  --se-text-secondary: var(--vscode-descriptionForeground);
+  --se-text-muted: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  --se-accent: var(--vscode-button-background);
+  --se-focus: var(--vscode-focusBorder);
+  --se-info: var(--vscode-editorInfo-foreground, var(--vscode-notificationsInfoIcon-foreground));
+
+  /* Type: never override the user's VS Code font choices. */
+  --se-font-ui: var(--vscode-font-family);
+  --se-font-mono: var(--vscode-editor-font-family);
+  --se-font-data: var(--vscode-font-family);
+  --se-font-size: var(--vscode-font-size, 13px);
+  --se-section-title-font: 700 11px var(--vscode-font-family);
+  --se-section-title-transform: uppercase;
+  --se-section-title-tracking: normal;
+  --se-section-title-fg: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+
+  /* Shape */
+  --se-radius-sm: 2px;
+  --se-radius: 4px;
+  --se-shadow-card: 0 0 4px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+  --se-shadow-elevated: 0 0 8px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  --se-overlay-blur: none;
+
+  /* Progress, sash */
+  --se-progress: var(--vscode-progressBar-background);
+  --se-sash-hover: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
+  --se-sash-grip-display: none;
+
+  /* Map. Canvas colors are read from these via getComputedStyle and
+     re-applied on theme change (MapView.svelte). The selection uses the
+     theme's orange chart color: themed, yet distinct from the blue data
+     default, which a blue focusBorder would not be. */
+  --se-map-bg: var(--vscode-editor-background);
+  --se-map-selection: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground, #d18616));
+  --se-map-bottom-inset: 0px;
+
+  /* Map controls (editorWidget, like the find widget) */
+  --se-control-bg: var(--vscode-editorWidget-background);
+  --se-control-border: var(--vscode-editorWidget-border, var(--vscode-widget-border, transparent));
+  --se-control-fg: var(--vscode-icon-foreground, var(--vscode-foreground));
+  --se-control-hover: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  --se-control-active-bg: var(--vscode-inputOption-activeBackground, var(--vscode-toolbar-activeBackground));
+  --se-control-active-fg: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
+
+  /* Table: Keyboard Shortcuts editor table tokens. The header color is
+     translucent by default, so it's layered over the editor background:
+     a sticky header must be opaque. */
+  --se-row-height: 22px;
+  --se-table-bg: var(--vscode-editor-background);
+  --se-table-header-bg: linear-gradient(var(--vscode-keybindingTable-headerBackground, transparent), var(--vscode-keybindingTable-headerBackground, transparent)),
+    var(--vscode-editor-background);
+  --se-table-header-fg: var(--vscode-foreground);
+  --se-table-header-border: 1px solid var(--vscode-tree-tableColumnsBorder, var(--se-border));
+  --se-table-header-font: 600 var(--vscode-font-size, 13px) var(--vscode-font-family);
+  --se-table-header-transform: none;
+  --se-table-header-tracking: normal;
+  --se-table-stripe: var(--vscode-keybindingTable-rowsBackground, var(--vscode-tree-tableOddRowsBackground, transparent));
+  --se-table-row-border: transparent;
+  --se-table-number-fg: var(--vscode-foreground);
+
+  /* Selection: list.activeSelection* while the grid has focus,
+     list.inactiveSelection* otherwise — VS Code's own list semantics. */
+  --se-selected-bg: var(--vscode-list-activeSelectionBackground);
+  --se-selected-fg: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  --se-selected-outline: var(--vscode-list-focusOutline, transparent);
+  --se-selected-inactive-bg: var(--vscode-list-inactiveSelectionBackground);
+  --se-selected-inactive-fg: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground));
+  --se-selected-indicator: transparent;
+
+  /* Inputs, buttons, menus */
+  --se-input-bg: var(--vscode-input-background);
+  --se-input-border: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+  --se-button-bg: var(--vscode-button-background);
+  --se-button-fg: var(--vscode-button-foreground);
+  --se-button-hover: var(--vscode-button-hoverBackground);
+  --se-button-border: var(--vscode-button-border, transparent);
+  --se-button-secondary-bg: var(--vscode-button-secondaryBackground);
+  --se-button-secondary-fg: var(--vscode-button-secondaryForeground);
+  --se-button-secondary-hover: var(--vscode-button-secondaryHoverBackground);
+  --se-menu-bg: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  --se-menu-border: var(--vscode-menu-border, var(--vscode-widget-border, transparent));
+  --se-menu-fg: var(--vscode-menu-foreground, var(--vscode-foreground));
+  --se-menu-hover-bg: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  --se-menu-hover-fg: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+
+  /* Feedback */
+  --se-warning: var(--vscode-editorWarning-foreground);
+  --se-warning-fg: var(--vscode-editorWarning-foreground);
+  --se-warning-bg: var(--vscode-inputValidation-warningBackground);
+  --se-warning-border: var(--vscode-inputValidation-warningBorder, transparent);
+  --se-error: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+  /* Text on --se-error-bg / panels (contrast-safe, unlike the squiggle color). */
+  --se-error-fg: var(--vscode-errorForeground, var(--vscode-foreground));
+  --se-error-bg: var(--vscode-inputValidation-errorBackground);
+  --se-error-border: var(--vscode-inputValidation-errorBorder, transparent);
+
+  /* Not rendered in VS Code (native status bar instead), defined for completeness. */
+  --se-statusbar-bg: var(--vscode-statusBar-background);
+  --se-statusbar-fg: var(--vscode-statusBar-foreground);
+  --se-statusbar-border: var(--vscode-statusBar-border, transparent);
+  --se-statusbar-accent: var(--vscode-statusBar-foreground);
+
+  /* SQL editor (spec 002). VS Code doesn't expose its syntax-token colors to
+     webviews. The debug-hover token colors (debugTokenExpression.*) are
+     syntax-like and defined by every built-in theme, light, dark and high
+     contrast. The symbol-icon colors are fallbacks only: in the Modern themes
+     most of them are plain #CCCCCC (spec 002 research §6). */
+  --se-sql-bg: var(--vscode-editor-background);
+  --se-sql-fg: var(--vscode-editor-foreground);
+  --se-sql-selection: var(--vscode-editor-selectionBackground);
+  --se-sql-cursor: var(--vscode-editorCursor-foreground, var(--vscode-editor-foreground));
+  --se-sql-gutter-fg: var(--vscode-editorLineNumber-foreground);
+  --se-sql-gutter-active-fg: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editor-foreground));
+  --se-sql-gutter-bg: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  --se-sql-active-line: var(--vscode-editor-lineHighlightBackground, transparent);
+  --se-sql-keyword: var(--vscode-debugTokenExpression-boolean, var(--vscode-symbolIcon-keywordForeground, var(--vscode-editor-foreground)));
+  --se-sql-string: var(--vscode-debugTokenExpression-string, var(--vscode-symbolIcon-stringForeground, var(--vscode-editor-foreground)));
+  --se-sql-number: var(--vscode-debugTokenExpression-number, var(--vscode-symbolIcon-numberForeground, var(--vscode-editor-foreground)));
+  --se-sql-function: var(--vscode-symbolIcon-functionForeground, var(--vscode-editor-foreground));
+  --se-sql-operator: var(--vscode-symbolIcon-operatorForeground, var(--vscode-editor-foreground));
+  --se-sql-comment: var(--vscode-descriptionForeground);
+  --se-sql-error: var(--vscode-editorError-foreground, var(--vscode-errorForeground));
+  --se-sql-font-size: var(--vscode-editor-font-size, 13px);
+}
+
+/* High contrast: every edge gets the contrast border, selections get the
+   active contrast outline, and shadows go (CLAUDE.md). */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --se-border: var(--vscode-contrastBorder);
+  --se-control-border: var(--vscode-contrastBorder);
+  --se-input-border: var(--vscode-contrastBorder);
+  --se-menu-border: var(--vscode-contrastBorder);
+  --se-button-border: var(--vscode-contrastBorder);
+  --se-table-header-border: 1px solid var(--vscode-contrastBorder);
+  --se-selected-outline: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  --se-selected-indicator: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  --se-shadow-card: none;
+  --se-shadow-elevated: none;
+  --se-sql-active-line: transparent;
+  /* High-contrast selections are solid (white on HC Dark), and VS Code paints
+     the text in editor.selectionForeground over them. The webview editor can't
+     recolor selected text, so the selection is toned down to keep it readable. */
+  --se-sql-selection: color-mix(in srgb, var(--vscode-editor-selectionBackground) 40%, transparent);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--se-bg-base);
+  color: var(--se-text-primary);
+  font-family: var(--se-font-ui);
+  font-size: var(--se-font-size);
+}
+#app {
+  height: 100%;
+}

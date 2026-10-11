@@ -1,0 +1,20 @@
+{
+  "name": "@spatial-explorer/tests-vscode-ext",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "pretest": "cd ../../apps/vscode-ext && npm run build && cd ../../tests/vscode-ext && tsc -p ./tsconfig.json",
+    "test": "node ./out/runTest.js"
+  },
+  "dependencies": {
+    "glob": "^13.0.6",
+    "mocha": "^12.0.3"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "typescript": "^7.0.2"
+  }
+}

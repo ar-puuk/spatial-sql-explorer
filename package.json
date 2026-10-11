@@ -1,0 +1,31 @@
+{
+  "name": "spatial-explorer",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tests/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web",
+    "preview": "npm run preview --workspace=apps/web",
+    "typecheck:core": "npm run typecheck --workspace=packages/core",
+    "typecheck:ui": "npm run typecheck --workspace=packages/ui",
+    "test:core": "npm run test --workspace=tests/core",
+    "test:web": "npm run test --workspace=tests/web",
+    "test:vscode-ext": "npm run test --workspace=tests/vscode-ext",
+    "screenshots": "npm run build --workspace=apps/web && npm run build --workspace=apps/vscode-ext && node scripts/screenshots.mjs",
+    "lint": "eslint packages apps"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.71.1",
+    "@typescript-eslint/parser": "^8.71.1",
+    "eslint": "^10.12.0",
+    "eslint-plugin-svelte": "^3.23.1",
+    "globals": "^17.13.0"
+  }
+}

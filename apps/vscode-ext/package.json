@@ -1,0 +1,142 @@
+{
+  "name": "spatial-explorer",
+  "displayName": "Spatial Explorer: Spatial SQL & Map Viewer",
+  "description": "Open a geospatial file and see it on a map and in a table, without opening a desktop GIS.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "publisher": "TBD",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ar-puuk/spatial-sql-explorer"
+  },
+  "homepage": "https://github.com/ar-puuk/spatial-sql-explorer",
+  "bugs": {
+    "url": "https://github.com/ar-puuk/spatial-sql-explorer/issues"
+  },
+  "categories": [
+    "Visualization",
+    "Data Science"
+  ],
+  "keywords": [
+    "gis",
+    "geospatial",
+    "geojson",
+    "geoparquet",
+    "spatial sql"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./out/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "spatialExplorer.editor",
+        "displayName": "Spatial Explorer",
+        "selector": [
+          {
+            "filenamePattern": "*.gpkg"
+          },
+          {
+            "filenamePattern": "*.fgb"
+          },
+          {
+            "filenamePattern": "*.flatgeobuf"
+          },
+          {
+            "filenamePattern": "*.shp"
+          },
+          {
+            "filenamePattern": "*.geoparquet"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "spatialExplorer.editorOption",
+        "displayName": "Spatial Explorer",
+        "selector": [
+          {
+            "filenamePattern": "*.geojson"
+          },
+          {
+            "filenamePattern": "*.csv"
+          },
+          {
+            "filenamePattern": "*.parquet"
+          },
+          {
+            "filenamePattern": "*.json"
+          },
+          {
+            "filenamePattern": "*.gml"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "spatialExplorer.openInViewer",
+        "title": "Open in Spatial Explorer",
+        "category": "Spatial Explorer",
+        "icon": "$(globe)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|geojson|json|csv|parquet|gml)$/i && !explorerResourceIsFolder",
+          "group": "navigation@20"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|geojson|json|csv|parquet|gml)$/i",
+          "group": "1_open@20"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|geojson|json|csv|parquet|gml)$/i && activeEditor == workbench.editors.files.textFileEditor",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|geojson|json|csv|parquet|gml)$/i"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build:extension": "node esbuild.js",
+    "build:webview": "vite build --config vite.webview.config.ts && node scripts/copy-duckdb-wasm.js",
+    "build": "node scripts/copy-package-docs.js && npm run build:extension && npm run build:webview",
+    "vscode:prepublish": "npm run build",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@spatial-explorer/core": "*",
+    "@spatial-explorer/ui": "*",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4"
+  }
+}
