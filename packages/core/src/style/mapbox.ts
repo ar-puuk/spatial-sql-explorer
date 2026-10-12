@@ -35,14 +35,15 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
   // Thematic: the same class-index expression the viewer draws with (null and
   // "" guarded, upper-inclusive ranges), so any MapLibre/Mapbox renderer
   // shows the same classes; hidden classes become a layer filter.
-  const { thematic, notes } = thematicForExport(style, resolved)
+  const { notes } = thematicForExport(style, resolved)
   // Per-class colors and sizes (size classes) as the viewer draws them.
-  const sym = thematic && resolved ? symbolExpressions(style, resolved) : null
+  // Spec 009: the size channel applies with any color channel, so the expressions come whenever the style is resolved.
+  const sym = resolved ? symbolExpressions(style, resolved) : null
   const roundSize = (v: unknown): unknown => (typeof v === 'number' ? round(v) : v)
   const pattern = dashPattern(style.lineDash)
   const dash = pattern ? { 'line-dasharray': pattern } : {}
   if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point')) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
-  const hidden = thematic && resolved ? visibilityFilter(style, resolved) : null
+  const hidden = resolved ? visibilityFilter(style, resolved) : null
   const filter = (f: unknown): unknown => (hidden ? ['all', f, hidden] : f)
   if (wants('Polygon')) {
     layers.push({
@@ -182,6 +183,15 @@ function rendererFromColor(e: unknown, notes: string[]): LayerStyle['renderer'] 
 
 // --- import ---------------------------------------------------------------
 
+/** `['interpolate', ['linear'], ['get', col], v0, s0, v1, s1]` (two stops) as a proportional size channel, or null. */
+function proportionalFrom(e: unknown, scale: 'linear' | 'area'): LayerStyle['size'] | null {
+  if (!Array.isArray(e) || e[0] !== 'interpolate' || !Array.isArray(e[1]) || e[1][0] !== 'linear' || e.length !== 7) return null
+  const column = columnOf(e[2])
+  const [, , , v0, s0, v1, s1] = e as unknown[]
+  if (!column || ![v0, s0, v1, s1].every((n) => typeof n === 'number' && Number.isFinite(n))) return null
+  return { column, mode: 'proportional', method: 'quantile', classCount: 5, classes: [], noValue: {}, sizeMin: s0 as number, sizeMax: s1 as number, scale }
+}
+
 interface StyleLayerJson {
   type?: string
   paint?: Record<string, unknown>
@@ -252,7 +262,10 @@ export function mapboxToStyle(text: string): StyleImportResult {
   if (lineLayer?.paint) {
     const c = renderer && !fillLayer && !circleLayer ? undefined : color(lineLayer.paint['line-color'])
     if (c) style.strokeColor = c.hex
-    const w = num(lineLayer.paint['line-width'])
+    // Spec 009: a two-stop linear width on a property is a proportional size channel.
+    const sizeChannel = proportionalFrom(lineLayer.paint['line-width'], 'linear')
+    if (sizeChannel) style.size = sizeChannel
+    const w = sizeChannel ? undefined : num(lineLayer.paint['line-width'])
     if (w !== undefined) style.strokeWidth = w
     const o = num(lineLayer.paint['line-opacity'])
     style.strokeOpacity = (o ?? 1) * (c?.a ?? 1)
@@ -268,7 +281,9 @@ export function mapboxToStyle(text: string): StyleImportResult {
     if (w !== undefined) style.strokeWidth = w
   }
   if (circleLayer?.paint) {
-    const r = num(circleLayer.paint['circle-radius'])
+    const sizeChannel = proportionalFrom(circleLayer.paint['circle-radius'], 'linear')
+    if (sizeChannel) style.size = sizeChannel
+    const r = sizeChannel ? undefined : num(circleLayer.paint['circle-radius'])
     if (r !== undefined) style.pointRadius = r
   }
   const extrusionLayer = first('fill-extrusion')

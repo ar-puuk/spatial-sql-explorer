@@ -85,7 +85,7 @@ function options(entries: Record<string, string>): string {
   return `          <Option type="Map">\n${rows.join('\n')}\n          </Option>`
 }
 
-function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0'): string {
+function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0', dataDefined = ''): string {
   let layerClass: string
   let props: Record<string, string>
   if (kind === 'fill') {
@@ -126,9 +126,111 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
   }
   return `      <symbol type="${kind}" name="${name}" alpha="1" clip_to_extent="1" force_rhr="0">
         <layer class="${layerClass}" enabled="1" locked="0" pass="0">
-${options(props)}
+${options(props)}${dataDefined}
         </layer>
       </symbol>`
+}
+
+// --- Spec 009: the size channel as a QGIS data-defined size (research §5) ---------
+
+/** A QGIS expression's quoted field name. */
+const qgisField = (column: string): string => `"${column.replace(/"/g, '""')}"`
+
+/** One data-defined property: QGIS's `<data_defined_properties>` block of a symbol layer. */
+function dataDefinedXml(key: string, entries: string[]): string {
+  const pad = (n: number) => ' '.repeat(n)
+  return `
+${pad(10)}<data_defined_properties>
+${pad(12)}<Option type="Map">
+${pad(14)}<Option name="name" type="QString" value=""/>
+${pad(14)}<Option name="properties" type="Map">
+${pad(16)}<Option name="${key}" type="Map">
+${entries.map((e) => pad(18) + e).join('\n')}
+${pad(16)}</Option>
+${pad(14)}</Option>
+${pad(14)}<Option name="type" type="QString" value="collection"/>
+${pad(12)}</Option>
+${pad(10)}</data_defined_properties>`
+}
+
+/**
+ * The size channel as a data-defined size on every symbol layer: a `CASE`
+ * expression over the size classes (classed; hidden classes are size 0), or
+ * QGIS's size assistant form, a field with a size scale transformer
+ * (proportional: Linear for lines, Area 0.5 for markers). QGIS sizes are
+ * marker diameters, in the symbol's Pixel unit. '' when no channel applies.
+ */
+function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+  const s = style.size
+  const r = resolved?.size
+  if (kind === 'fill' || !s || !r || r.status !== 'ok') return ''
+  const key = kind === 'marker' ? 'size' : 'outlineWidth'
+  const f = kind === 'marker' ? 2 : 1
+  const single = (kind === 'marker' ? style.pointRadius : style.strokeWidth) * f
+  const noValue = r.classes.find((c) => c.kind === 'noValue')
+  const nullSize = noValue && !noValue.visible ? 0 : single
+  if (s.mode === 'proportional' && r.domain) {
+    const area = (s.scale ?? 'linear') === 'area'
+    const d = { exponent: area ? 0.5 : 1, maxSize: s.sizeMax * f, maxValue: r.domain.max, minSize: s.sizeMin * f, minValue: r.domain.min, nullSize, scaleType: area ? 1 : 0 }
+    return dataDefinedXml(key, [
+      '<Option name="active" type="bool" value="true"/>',
+      `<Option name="field" type="QString" value="${escapeXml(s.column)}"/>`,
+      '<Option name="transformer" type="Map">',
+      '  <Option name="d" type="Map">',
+      ...Object.entries(d).map(([k, v]) => `    <Option name="${k}" type="${k === 'scaleType' ? 'int' : 'double'}" value="${round(v, 6)}"/>`),
+      '  </Option>',
+      '  <Option name="t" type="int" value="1"/>',
+      '</Option>',
+      '<Option name="type" type="int" value="2"/>',
+    ])
+  }
+  // Classed: our class rules (upper-inclusive, the first class including its lower bound).
+  const v = qgisField(s.column)
+  const ranges = r.classes.filter((c) => c.kind === 'range')
+  const arms = [`WHEN ${v} IS NULL THEN ${nullSize}`]
+  if (ranges.length) arms.push(`WHEN ${v} < ${ranges[0].lower} THEN ${single}`)
+  for (const c of ranges) arms.push(`WHEN ${v} <= ${c.upper} THEN ${c.visible ? round((c.size as number) * f, 6) : 0}`)
+  return dataDefinedXml(key, [
+    '<Option name="active" type="bool" value="true"/>',
+    `<Option name="expression" type="QString" value="${escapeXml(`CASE ${arms.join(' ')} ELSE ${single} END`)}"/>`,
+    '<Option name="type" type="int" value="3"/>',
+  ])
+}
+
+/** A size channel from a QGIS data-defined size this product didn't write (a size assistant transformer), or null. */
+function sizeFromQgis(layerEl: Element, kind: string, notes: string[]): LayerStyle['size'] | null {
+  const dd = Array.from(layerEl.children).find((c) => c.tagName === 'data_defined_properties')
+  const key = kind === 'SimpleMarker' ? 'size' : kind === 'SimpleLine' ? 'outlineWidth' : null
+  if (!dd || !key) return null
+  const prop = Array.from(dd.getElementsByTagName('Option')).find((o) => o.getAttribute('name') === key && o.getAttribute('type') === 'Map')
+  if (!prop) return null
+  const opt = (parent: Element, name: string) => Array.from(parent.children).find((c) => c.getAttribute('name') === name)
+  if (opt(prop, 'active')?.getAttribute('value') !== 'true') return null
+  const type = opt(prop, 'type')?.getAttribute('value')
+  const field = opt(prop, 'field')?.getAttribute('value')
+  const d = opt(opt(prop, 'transformer') ?? prop, 'd')
+  if (type !== '2' || !field || !d) {
+    notes.push('A data-defined size expression was not imported; every feature has the single size.')
+    return null
+  }
+  const num = (name: string) => Number(opt(d, name)?.getAttribute('value'))
+  const scaleType = num('scaleType')
+  if (scaleType !== 0 && scaleType !== 1) notes.push('Only linear and area size scales are supported; the sizes were imported as linear.')
+  const unitKey = kind === 'SimpleMarker' ? 'size_unit' : 'line_width_unit'
+  const unit = readProps(layerEl).get(unitKey)
+  const f = kind === 'SimpleMarker' ? 2 : 1
+  const px = (n: number) => (toPx(String(n), unit, notes, 'data-defined size') ?? n) / f
+  return {
+    column: field,
+    mode: 'proportional',
+    method: 'quantile',
+    classCount: 5,
+    classes: [],
+    noValue: {},
+    sizeMin: round(px(num('minSize')), 3),
+    sizeMax: round(px(num('maxSize')), 3),
+    scale: scaleType === 1 ? 'area' : 'linear',
+  }
 }
 
 /** QGIS's `layerGeometryType` enum: 0 point, 1 line, 2 polygon. */
@@ -155,10 +257,10 @@ function customProperties(entries: Record<string, string>): string {
   return rows.length ? `  <customproperties>\n    <Option type="Map">\n${rows.join('\n')}\n    </Option>\n  </customproperties>\n` : ''
 }
 
-function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined): { renderer: string; props: Record<string, string> } {
+function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined, dataDefined = ''): { renderer: string; props: Record<string, string> } {
   const r = th.renderer
-  // One symbol per class: the shared symbol with the class color (FR-006) or size.
-  const symbols = th.classes.map((c, i) => symbolXml(kind, classLayerStyle(style, kind, c), String(i))).join('\n')
+  // One symbol per class: the shared symbol with the class color (FR-006); spec 009: each sized by the size channel.
+  const symbols = th.classes.map((c, i) => symbolXml(kind, classLayerStyle(style, kind, c), String(i), dataDefined)).join('\n')
   const props: Record<string, string> = { 'spatialExplorer/ramp': r.ramp.id, 'spatialExplorer/rampReversed': String(r.ramp.reversed) }
   if (r.kind === 'categorized') {
     props['spatialExplorer/categories'] = r.manual ? 'manual' : 'auto'
@@ -279,15 +381,20 @@ export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?
   const kind = geom === 'Point' ? 'marker' : geom === 'LineString' ? 'line' : 'fill'
   const { thematic, notes: thematicNotes } = thematicForExport(style, resolved)
   notes.push(...thematicNotes)
+  // Spec 009: the size channel, a data-defined size on every symbol (research §5).
+  const sizeDd = sizeDataDefined(style, resolved, kind)
+  if (style.size && kind === 'fill') notes.push('QGIS polygons have no size: the size channel was left out.')
   let renderer = `  <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <symbols>
-${symbolXml(kind, style)}
+${symbolXml(kind, style, '0', sizeDd)}
     </symbols>
     <rotation/>
     <sizescale/>
   </renderer-v2>`
   let props: Record<string, string> = {}
-  if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType))
+  if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType, sizeDd))
+  // Our own size channel, kept whole for a lossless reload here.
+  if (style.size) props['spatialExplorer/size'] = JSON.stringify(style.size)
   // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
   const renderer3d = style.extrusion?.enabled && geom === 'Polygon' ? renderer3dXml(style) : ''
   // Spec 008: QGIS loads only the categories listed: layer opacity is in
@@ -519,6 +626,20 @@ export function qmlToStyle(text: string): StyleImportResult {
       }
       style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue, size })
     }
+  }
+
+  // Spec 009: the size channel. Ours from the custom property; otherwise QGIS's size assistant form.
+  const custom = readCustomProperties(doc)
+  const ownSize = custom.get('spatialExplorer/size')
+  if (ownSize) {
+    try {
+      style.size = JSON.parse(ownSize) as LayerStyle['size']
+    } catch {
+      notes.push('The saved size channel could not be read.')
+    }
+  } else {
+    const fromQgis = sizeFromQgis(layerEl, cls, notes)
+    if (fromQgis) style.size = fromQgis
   }
 
   // Spec 008: QGIS's layer opacity.

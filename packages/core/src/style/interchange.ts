@@ -78,6 +78,11 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  // Spec 009: the size channel in SLD.
+  if (format === 'sld' && style.size && resolved?.size?.status === 'ok') {
+    if (style.size.mode === 'proportional') items.push('Proportional sizes are written as 5 steps.')
+    if (thematic) items.push("Classes on two columns can't be read back from SLD; use QML or Mapbox GL to keep them.")
+  }
   if (thematic && format === 'sld') {
     if (thematic.renderer.kind === 'graduated') items.push("SLD can't store the classification method: the classes will import as fixed (Manual).")
     const hidden = thematic.classes.filter((c) => !c.visible).length

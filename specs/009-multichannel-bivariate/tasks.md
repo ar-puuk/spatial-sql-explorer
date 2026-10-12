@@ -365,16 +365,16 @@ and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
     and a foreign two-stop linear `interpolate` on `line-width` becomes
     Proportional;
   - `previewExportNotice` lists the losses in `interchange-mapping.md`.
-- [ ] T025 [US5] Implement QML in `packages/core/src/style/qml.ts`:
+- [X] T025 [US5] Implement QML in `packages/core/src/style/qml.ts`:
   - `symbolXml` gains optional data-defined size XML (both forms, per
     research §5 and the T023 key);
   - write the `spatialExplorer/size` custom property;
   - read the custom property first, then foreign transformers.
-- [ ] T026 [P] [US5] Implement SLD in `packages/core/src/style/sld.ts`:
+- [X] T026 [P] [US5] Implement SLD in `packages/core/src/style/sld.ts`:
   - cross-product rules for classed sizes;
   - 5-step proportional;
   - the import notice for two-column rules (shared with bivariate).
-- [ ] T027 [P] [US5] Implement Mapbox in `packages/core/src/style/mapbox.ts`:
+- [X] T027 [P] [US5] Implement Mapbox in `packages/core/src/style/mapbox.ts`:
   - the size expressions in `line-width` / `circle-radius`, and
     `icon-size` for shapes;
   - the foreign two-stop `interpolate` import.
