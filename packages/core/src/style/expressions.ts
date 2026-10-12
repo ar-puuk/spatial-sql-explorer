@@ -45,6 +45,9 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
       return categorizedIndex(r, resolved)
     case 'graduated':
       return graduatedIndex(r, resolved)
+    case 'bivariate':
+      // Spec 009 US4 draws the cells; until then a bivariate style resolves as a fallback.
+      return null
   }
 }
 

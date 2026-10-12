@@ -170,6 +170,7 @@
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
     if (needsLoad) return 'Load the whole file to style by its values.'
+    if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -331,7 +332,7 @@
       {/if}
     </section>
 
-    {#if renderer.kind !== 'single'}
+    {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
       <section aria-labelledby="style-sec-by">
         <h3 id="style-sec-by">{sizeMode ? 'Size by' : 'Color by'}</h3>
         <div class="row field">

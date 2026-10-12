@@ -54,12 +54,14 @@ export interface Thematic {
 export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined): { thematic: Thematic | null; notes: string[] } {
   const r = rendererOf(style)
   if (r.kind === 'single') return { thematic: null, notes: [] }
+  // Spec 009 US5 writes bivariate classes.
+  if (r.kind === 'bivariate') return { thematic: null, notes: ['Bivariate classes are not exported in this build; the single symbol was exported.'] }
   if (!resolved || resolved.status !== 'ok') {
     const why = resolved?.reason ?? 'The classes could not be computed.'
     return { thematic: null, notes: [`${why} The single symbol was exported instead of the ${r.kind} classes.`] }
   }
   const classes: ExportClass[] = resolved.classes.flatMap((c) =>
-    c.kind === 'single' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
+    c.kind === 'single' || c.kind === 'cell' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
   )
   return { thematic: { renderer: r, classes }, notes: [] }
 }

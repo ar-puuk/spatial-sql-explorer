@@ -576,7 +576,8 @@ export class QuerySession {
     const facts = this.facts
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
-    if (!facts || r.kind === 'single' || !r.column || !base.columns.some((c) => c.name === r.column) || this.utilityRows || this.needsLoad) {
+    // Spec 009: bivariate statistics come with US4 (resolved as a fallback until then).
+    if (!facts || r.kind === 'single' || r.kind === 'bivariate' || !r.column || !base.columns.some((c) => c.name === r.column) || this.utilityRows || this.needsLoad) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()

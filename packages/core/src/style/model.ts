@@ -40,11 +40,19 @@ export interface LayerStyle {
   markerShape?: MarkerShape
   /** Line and polygon outline pattern (./symbol.ts). Absent: solid. */
   lineDash?: LineDash
+  /**
+   * Spec 009: the size channel, an independent marker size (points) or line
+   * width (lines) by a numeric column. Absent: every feature uses
+   * `pointRadius` / `strokeWidth`. Not applied to polygons, nor with a
+   * bivariate color channel (kept, inactive).
+   */
+  size?: SizeChannel
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
 
-export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer
+/** The color channel. */
+export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer
 
 export interface SingleRenderer {
   kind: 'single'
@@ -105,13 +113,55 @@ export interface GraduatedRenderer {
   classes: RangeClassDef[]
   noValue: ClassOverride
   /**
-   * What the classes vary (QGIS `graduatedMethod`): the color (ramp), or the
-   * size: marker radius for points, line width for lines, from `sizeMin` to
-   * `sizeMax` px. Absent means color.
+   * LEGACY INPUT ONLY (2026-10-12 build, "Vary: Size"): read by
+   * `sanitizeStyle`, which migrates it to a `SizeChannel` (spec 009 FR-009),
+   * and never written again.
    */
   vary?: 'color' | 'size'
   sizeMin?: number
   sizeMax?: number
+}
+
+// --- Spec 009: the size channel and bivariate colors (data-model.md) ----------
+
+/** How the size channel turns values into sizes. */
+export type SizeMode = 'classed' | 'proportional'
+
+export interface SizeChannel {
+  /** A numeric column; may be the color channel's column. */
+  column: string
+  mode: SizeMode
+  /** Classed only (as graduated). */
+  method: GraduatedMethod
+  /** Classed only: 2..10. */
+  classCount: number
+  /** Classed only: as graduated (manual: the full list with bounds; otherwise overrides by index). Color overrides don't apply. */
+  classes: RangeClassDef[]
+  /** Label and visibility of features with no value. */
+  noValue: Omit<ClassOverride, 'color'>
+  /** px: marker radius (points) or line width (lines); sizeMin <= sizeMax. */
+  sizeMin: number
+  sizeMax: number
+}
+
+export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
+
+export interface BivariateAxis {
+  column: string
+  method: BivariateMethod
+}
+
+export interface BivariateRenderer {
+  kind: 'bivariate'
+  /** Axis 1: the legend's horizontal axis. */
+  x: BivariateAxis
+  /** Axis 2: the legend's vertical axis; a different column from x. */
+  y: BivariateAxis
+  /** A palette id (./bivariateData.ts); unknown ids use the default. */
+  palette: string
+  /** Hidden cells, `'<i>-<j>'` (i: x class, j: y class, 0-based). */
+  hidden: string[]
+  noValue: Omit<ClassOverride, 'color'>
 }
 
 /** What the map, legend and panel draw. Recomputed on every style or data change; never saved. */
@@ -125,12 +175,41 @@ export interface ResolvedStyle {
   classes: ResolvedClass[]
   /** e.g. 'Only 3 distinct values: 3 classes.' */
   notes: string[]
+  /** Spec 009, bivariate only: both axes' classes. */
+  grid?: { x: AxisInfo; y: AxisInfo }
+  /** Spec 009: the size channel, when one applies. */
+  size?: ResolvedSizeChannel
+}
+
+/** A bivariate axis as resolved. */
+export interface AxisInfo {
+  column: string
+  method: BivariateMethod
+  ranges: Array<{ lower: number; upper: number; label: string }>
+}
+
+/** The size channel as resolved (spec 009). Recomputed with the style; never saved. */
+export interface ResolvedSizeChannel {
+  /** 'fallback': the size column is missing or not numeric; the single size is drawn. */
+  status: 'ok' | 'fallback'
+  reason?: string
+  /** Legend group header, e.g. 'aadt · Quantile, 5 classes'. */
+  caption: string
+  mode: SizeMode
+  column: string
+  /** Classed: range classes with `size`, then "No value". Proportional: only "No value", when present. */
+  classes: ResolvedClass[]
+  /** Proportional: the column's range over the displayed result. */
+  domain?: { min: number; max: number }
+  /** Proportional: legend reference sizes, smallest first. */
+  samples?: Array<{ value: number; size: number; label: string }>
+  notes: string[]
 }
 
 export interface ResolvedClass {
-  /** Stable: the category value as `v:<value>`, `range:<i>`, `__other`, `__null`, or `single`. */
+  /** Stable: `v:<value>`, `range:<i>`, `cell:<i>-<j>`, `__other`, `__null`, or `single`. */
   key: string
-  kind: 'single' | 'value' | 'range' | 'other' | 'noValue'
+  kind: 'single' | 'value' | 'range' | 'other' | 'noValue' | 'cell'
   label: string
   color: string
   visible: boolean
@@ -143,8 +222,14 @@ export interface ResolvedClass {
   upper?: number
   /** kind 'other': how many distinct values it groups. */
   groups?: number
-  /** kind 'range' of a size-graduated renderer: marker radius or line width, px. */
+  /** Size channel classes: marker radius or line width, px. */
   size?: number
+  /** kind 'cell': the x class (column) and y class (row), 0-based. */
+  col?: number
+  row?: number
+  /** kind 'cell': the x and y value ranges (same rules as 'range'). */
+  x?: { lower: number; upper: number }
+  y?: { lower: number; upper: number }
 }
 
 /** Items not exported, not imported, or not applied (FR-015). */
@@ -157,6 +242,8 @@ export interface StyleNotice {
 export const OTHER_COLOR = '#bdbdbd'
 export const NO_VALUE_COLOR = '#8c8c8c'
 export const DEFAULT_CATEGORY_CAP = 12
+/** Spec 009: the bivariate palette new styles start with (./bivariateData.ts). */
+export const DEFAULT_BIVARIATE_PALETTE = 'orange-blue'
 export const DEFAULT_CLASS_COUNT = 5
 export const MIN_CLASS_COUNT = 2
 export const MAX_CLASS_COUNT = 10
@@ -166,6 +253,25 @@ const SINGLE: SingleRenderer = Object.freeze({ kind: 'single' }) as SingleRender
 /** The style's renderer; spec 001 styles (no renderer) are single. */
 export function rendererOf(style: Pick<LayerStyle, 'renderer'>): Renderer {
   return style.renderer ?? SINGLE
+}
+
+/** The columns the color channel reads: none, one, or both bivariate axes (spec 009). */
+export function rendererColumns(renderer: Renderer): string[] {
+  if (renderer.kind === 'single') return []
+  if (renderer.kind === 'bivariate') return [renderer.x.column, renderer.y.column].filter(Boolean)
+  return renderer.column ? [renderer.column] : []
+}
+
+/** Every attribute a style's channels read (color, then size), deduplicated. Map views fetch only these (spec 007). */
+export function styleDataColumns(style: Pick<LayerStyle, 'renderer' | 'size'>): string[] {
+  const cols = rendererColumns(rendererOf(style))
+  const size = style.size?.column
+  return size && !cols.includes(size) ? [...cols, size] : cols
+}
+
+/** A short title for the color channel's columns: `zone`, `poverty_rate × obesity_rate`, or '' (single). */
+export function rendererTitle(renderer: Renderer): string {
+  return rendererColumns(renderer).join(' × ')
 }
 
 /**

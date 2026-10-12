@@ -1,6 +1,7 @@
 // Style edits (spec 003 FR-009, data-model.md "Transitions"). Every function
 // returns a new LayerStyle; nothing is mutated.
 import {
+  DEFAULT_BIVARIATE_PALETTE,
   DEFAULT_CATEGORY_CAP,
   DEFAULT_CLASS_COUNT,
   DEFAULT_LAYER_STYLE,
@@ -45,6 +46,13 @@ function distinctCount(layer: ResolveInput | null, column: string, stopAt = Infi
  */
 export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null, column?: string): Renderer {
   if (kind === 'single') return { kind: 'single' }
+  // Spec 009: bivariate takes two numeric columns (the given one first).
+  if (kind === 'bivariate') {
+    const numeric = eligibleColumns(layer?.columns, 'graduated').map((c) => c.name)
+    const x = column ?? numeric[0] ?? ''
+    const y = numeric.find((c) => c !== x) ?? ''
+    return { kind: 'bivariate', x: { column: x, method: 'quantile' }, y: { column: y, method: 'quantile' }, palette: DEFAULT_BIVARIATE_PALETTE, hidden: [], noValue: {} }
+  }
   const columns = eligibleColumns(layer?.columns, kind)
   if (kind === 'categorized') {
     const pick =
@@ -70,7 +78,7 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
 /** Applies `patch` to the override of the class with `key` (`v:<value>`, `range:<i>`, `__other`, `__null`). */
 function patchClass(style: LayerStyle, key: string, patch: ClassOverride): LayerStyle {
   const r = rendererOf(style)
-  if (r.kind === 'single') return style
+  if (r.kind === 'single' || r.kind === 'bivariate') return style
   if (key === '__null') return { ...style, renderer: { ...r, noValue: { ...r.noValue, ...patch } } }
   if (r.kind === 'categorized') {
     if (key === '__other') return { ...style, renderer: { ...r, other: { ...r.other, ...patch } } }
@@ -124,7 +132,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
   const trimmed = label.trim()
   if (trimmed) return patchClass(style, key, { label: trimmed })
   const r = rendererOf(style)
-  if (r.kind === 'single') return style
+  if (r.kind === 'single' || r.kind === 'bivariate') return style
   const strip = <T extends ClassOverride>(o: T): T => {
     const rest = { ...o }
     delete rest.label
@@ -140,7 +148,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
 
 export function setRamp(style: LayerStyle, ramp: RampRef): LayerStyle {
   const r = rendererOf(style)
-  return r.kind === 'single' ? style : { ...style, renderer: { ...r, ramp } }
+  return r.kind === 'single' || r.kind === 'bivariate' ? style : { ...style, renderer: { ...r, ramp } }
 }
 
 /** A method recomputes the classes; color, label and visibility overrides by index are kept. */

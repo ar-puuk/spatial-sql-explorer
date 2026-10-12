@@ -69,7 +69,7 @@ moving on.
 
 **Purpose**: test data for both slices.
 
-- [ ] T001 [P] Write `scripts/fixtures-009.mjs`, modeled on
+- [X] T001 [P] Write `scripts/fixtures-009.mjs`, modeled on
   `scripts/fixtures-008.mjs`. It writes two seeded, deterministic files to
   `tests/vscode-ext/fixtures/`, and is described in the fixtures README:
   - `roads-traffic.geojson`: 2,000 LineStrings with `functional_class`
@@ -79,7 +79,7 @@ moving on.
     `poverty_rate` and `obesity_rate` (correlated, every 50th null in one or
     the other) and `name`.
   - Then generate both files and commit them.
-- [ ] T002 [P] Add a 2026-10-12 migration fixture,
+- [X] T002 [P] Add a 2026-10-12 migration fixture,
   `tests/core/fixtures/style/legacy-vary-size.json`. It is a `LayerStyle`
   with a graduated renderer, `vary: 'size'`, `sizeMin: 2`, `sizeMax: 10`, a
   label override on class 1 and a hidden class 3. Next to it, put its
@@ -93,7 +93,7 @@ moving on.
 
 **Purpose**: the model, resolve input and SQL builders both slices rely on.
 
-- [ ] T003 Extend the types in `packages/core/src/style/model.ts` as in
+- [X] T003 Extend the types in `packages/core/src/style/model.ts` as in
   `data-model.md`:
   - `SizeChannel`, `BivariateRenderer` (in the `Renderer` union) and
     `LayerStyle.size?`;

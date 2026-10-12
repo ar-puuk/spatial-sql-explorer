@@ -83,6 +83,9 @@ export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): Res
       return categorized(style, r, layer)
     case 'graduated':
       return graduated(style, r, layer)
+    case 'bivariate':
+      // Spec 009 US4.
+      return fallback(style, layer, 'Bivariate maps are not available in this build.')
   }
 }
 

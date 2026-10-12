@@ -5,7 +5,7 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, sidecarStyleFileName } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -50,7 +50,7 @@
   )
   // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
   const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
-  const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
+  const legendTitle = $derived(rendererTitle(legendRenderer))
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
     if (!layer || !showLegend) return null
