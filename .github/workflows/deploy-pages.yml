@@ -1,10 +1,10 @@
 name: Deploy web app to GitHub Pages
 
 # The web app (apps/web) at https://ar-puuk.github.io/spatial-sql-explorer/.
-# Same approach as omx-viewer: build, then push the static build to the
-# gh-pages branch (repo Settings > Pages > Source: Deploy from a branch,
-# gh-pages, / (root)). The SQL engine is not in the build: the app downloads
-# it from pinned URLs and checks its hashes (packages/core/src/engineAssets.ts).
+# Deployed by GitHub Actions (repo Settings > Pages > Source: GitHub Actions):
+# build, upload the static build as a Pages artifact, deploy it. No gh-pages
+# branch. The SQL engine is not in the build: the app downloads it from pinned
+# URLs and checks its hashes (packages/core/src/engineAssets.ts).
 
 on:
   push:
@@ -16,15 +16,20 @@ on:
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push queues behind a running deployment
+# instead of cancelling it halfway.
 concurrency:
-  group: gh-pages-deploy
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # peaceiris/actions-gh-pages pushes to the gh-pages branch
 
     steps:
       - name: Checkout
@@ -50,13 +55,19 @@ jobs:
           # The app is served under /<repo>/ (vite.config.ts reads BASE_PATH).
           BASE_PATH: /spatial-sql-explorer/
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./apps/web/dist
-          enable_jekyll: false
-          force_orphan: true
-          user_name: github-actions[bot]
-          user_email: github-actions[bot]@users.noreply.github.com
-          commit_message: 'deploy: ${{ github.sha }}'
+          path: ./apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
