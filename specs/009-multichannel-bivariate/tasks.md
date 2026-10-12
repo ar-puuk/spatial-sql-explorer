@@ -570,11 +570,11 @@ their notices (quickstart scenario 5).
 
 ## Phase 10: User Story 6 (bivariate) — Map image with the bivariate square (P3)
 
-- [ ] T049 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
+- [X] T049 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
   bivariate style, the PNG contains the 3×3 square. Sample the 9 cell
   centers against the palette colors, and check a hidden cell is drawn
   hollow.
-- [ ] T050 [US6] Draw the bivariate group in `packages/ui/src/mapImage.ts`:
+- [X] T050 [US6] Draw the bivariate group in `packages/ui/src/mapImage.ts`:
   - the square with axis labels (column names, arrows), and No value
     below;
   - built in `ViewerLayout.svelte` from `resolved.grid`.

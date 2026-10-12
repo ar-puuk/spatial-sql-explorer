@@ -67,6 +67,17 @@
       shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
       rows: r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      // Spec 009 US6: the bivariate square.
+      bivariate: r.grid && r.status === 'ok'
+        ? {
+            x: r.grid.x.column,
+            y: r.grid.y.column,
+            nx: r.grid.x.ranges.length,
+            ny: r.grid.y.ranges.length,
+            cells: r.classes.filter((c) => c.kind === 'cell').map((c) => ({ color: c.color, visible: c.visible })),
+            noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
+          }
+        : undefined,
       // Spec 009: the size channel's group (reference sizes, then visible classes).
       groups: legendSize
         ? [
