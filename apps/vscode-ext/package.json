@@ -2,7 +2,7 @@
   "name": "spatial-explorer",
   "displayName": "Spatial Explorer: Spatial SQL & Map Viewer",
   "description": "Open a geospatial file and see it on a map and in a table, without opening a desktop GIS.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "publisher": "arpuuk",

@@ -9,8 +9,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
 ### Added
 
+- **Bivariate maps** (spec 009).
+  - Color features by two numeric columns at once, from a 3×3 square. Each
+    column is split into 3 classes (quantile, equal interval or natural
+    breaks).
+  - Four color-blind-checked palettes. Swap the axes with one click.
+  - The legend is a keyboard grid: arrow keys move between cells, Enter
+    hides a cell's features, and each cell names both value ranges and its
+    count.
+  - Saved to QML as QGIS's rule-based renderer (one rule per cell), which
+    QGIS draws the same, and which reopens here as bivariate. SLD and
+    Mapbox GL export too.
+- **Size by a column** (spec 009).
+  - Set line width or marker size from a numeric column, next to any
+    single, categorized or graduated colors (for example, roads colored by
+    class and drawn wider with traffic).
+  - Classed (2–10 steps) or proportional (smooth). Proportional markers
+    follow QGIS's "Area" size scale.
+  - The legend shows the size classes as their own group, and the map
+    image includes it.
+  - Saved to QML as QGIS data-defined sizes, so QGIS draws the same widths.
+- **Marker shapes and line patterns.**
+  - Points can be circles, squares, triangles, diamonds, stars, crosses or
+    x's.
+  - Lines and polygon outlines can be solid, dashed, dotted, dash-dot or
+    dash-dot-dot.
+  - The legend and the map image draw them, and QML, SLD and Mapbox GL
+    keep them.
 - **SQLite and SpatiaLite databases** (`.sqlite`, `.db`), such as Bentley
   Cube 7 networks: spatial tables open as layers with their CRS, and
   attribute-only tables (transit modes, tolls, junctions) can be queried by
@@ -24,6 +53,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   now open.
 - **Feature ids are kept**: a GeoPackage's `fid` and a SQLite table's integer
   primary key (a Cube node's `n`) are columns again; they were dropped.
+
+### Changed
+
+- New bivariate maps and size channels start on measure columns: id-like
+  columns (`id`, `fid`, `objectid`, `*_id`) are offered last.
+- The style panel is slightly wider (344 px), to fit four style types.
 
 ## [0.1.0] - 2026-10-11
 
