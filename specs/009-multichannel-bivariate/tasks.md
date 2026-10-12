@@ -562,7 +562,7 @@ their notices (quickstart scenario 5).
   - QGIS lists 10 rules, with 9 active minus hidden;
   - each feature's rendered fill equals the expected cell color (SC-005).
   - Record the outcome in research §6.
-- [ ] T048 [US5] Add a VS Code suite test (same file as T029): save, close
+- [X] T048 [US5] Add a VS Code suite test (same file as T029): save, close
   and reopen a bivariate sidecar on `counties-bivariate.geojson`; it is
   still bivariate, with the same palette and hidden cells.
 
