@@ -519,8 +519,14 @@ hidden (quickstart scenario 4).
     section note;
   - `MapLegend.svelte`: render `BivariateLegend` for bivariate;
   - `viewerStore.svelte.ts`: route `cell:` keys to `setCellVisible`.
-- [ ] T043 [US4] Run T032–T034 to green, plus all style suites. Profile
+- [X] T043 [US4] Run T032–T034 to green, plus all style suites. Profile
   axis and palette changes on `counties-bivariate` at 6x CPU throttle.
+  - Done 2026-10-12: at 6x, an axis method change takes 258 ms, a palette
+    change 384 ms, and a swap 299 ms.
+  - Picking the other axis's column now swaps the two axes; it was refused
+    as "the same column" before.
+  - With four style types the panel is 344 px wide, and axis 2's label sits
+    above the square.
 
 **Checkpoint**: bivariate maps work and are testable on their own.
 

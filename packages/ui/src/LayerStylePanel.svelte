@@ -815,7 +815,7 @@
     display: flex;
     flex-direction: column;
     max-height: 100%;
-    width: 320px;
+    width: 344px;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -867,7 +867,7 @@
   }
   .renderers button {
     height: 24px;
-    padding: 0 6px;
+    padding: 0 4px;
     border: 0;
     border-left: 1px solid var(--se-input-border);
     background: var(--se-input-bg);

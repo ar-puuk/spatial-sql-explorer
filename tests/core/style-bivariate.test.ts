@@ -135,8 +135,11 @@ describe('bivariate classes (US4)', () => {
     expect(bivariateColor(palette, 1, 0, 2, 3)).toBe(palette.cells[2])
   })
 
-  it('the same column twice, or a text column, is refused', () => {
-    expect(validateStyle(setBivariateAxis(bivariate(), 'y', { column: 'poverty' }))).toContain('Choose two different numeric columns.')
+  it('the same column twice, or a text column, is refused; picking the other axis column swaps them', () => {
+    const same = { ...bivariate(), renderer: { ...(rendererOf(bivariate()) as Extract<ReturnType<typeof rendererOf>, { kind: 'bivariate' }>), y: { column: 'poverty', method: 'quantile' as const } } }
+    expect(validateStyle(same)).toContain('Choose two different numeric columns.')
+    const swapped = rendererOf(setBivariateAxis(bivariate(), 'y', { column: 'poverty' }))
+    expect(swapped.kind === 'bivariate' && [swapped.x.column, swapped.y.column]).toEqual(['obesity', 'poverty'])
     expect(resolveStyle(setBivariateAxis(bivariate(), 'x', { column: 'name' }), counties).status).toBe('fallback')
   })
 

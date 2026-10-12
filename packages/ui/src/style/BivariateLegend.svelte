@@ -99,25 +99,24 @@
 <style>
   .bivariate {
     display: grid;
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: auto 1fr;
     grid-template-areas:
-      'y square .'
-      '. x x'
-      'nv nv nv';
+      'y y'
+      'square .'
+      'x x'
+      'nv nv';
     align-items: center;
     gap: 2px 6px;
     padding: 2px 8px 6px;
     font-size: 0.92em;
   }
+  /* Axis 2 reads upward: its label sits above the square, horizontal, so long names fit. */
   .y-axis {
     grid-area: y;
-    max-height: calc(var(--cell) * 3 + 4px);
     overflow: hidden;
     color: var(--se-text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
   }
   .x-axis {
     grid-area: x;

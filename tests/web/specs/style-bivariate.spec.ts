@@ -36,7 +36,10 @@ test('a 3x3 bivariate map: the cells add up, and a cell hides by keyboard (US4)'
   await page.keyboard.press('ArrowRight')
   const focused = grid(page).locator('button:focus')
   await expect(focused).toHaveCount(1)
+  // The bivariate columns reload the view (spec 007): read the settled count.
+  await expect.poll(() => rendered(page)).not.toBeNull()
   const before = Number(await rendered(page))
+  expect(before).toBeGreaterThan(0)
   await page.keyboard.press('Enter')
   await expect(focused).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(async () => Number(await rendered(page))).toBeLessThan(before)
@@ -53,7 +56,8 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
   await expect(legend(page)).toContainText('obesity_rate × poverty_rate')
   await panel(page).getByRole('radiogroup', { name: 'Bivariate palette' }).getByRole('radio', { name: /Green/ }).click()
   await expect.poll(topRight).not.toBe(before)
-  await expect(panel(page)).toContainText('Bivariate maps have no size channel')
+  // Counties are polygons: no size channel either way (FR-006/FR-007; core tests cover points and lines).
+  await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)
   await panel(page).getByLabel('Axis 1 method').selectOption('equal')
   await expect(legend(page)).toContainText('Equal interval')
   const results = await new AxeBuilder({ page }).exclude('.maplibregl-canvas').analyze()

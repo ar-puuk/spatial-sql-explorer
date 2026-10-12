@@ -412,9 +412,17 @@ function withBivariate(style: LayerStyle, patch: (r: BivariateRenderer) => Bivar
   return r.kind === 'bivariate' ? { ...style, renderer: patch(r) } : style
 }
 
-/** An axis's column or method; only that axis is reclassified. */
+/**
+ * An axis's column or method; only that axis is reclassified. Choosing the
+ * column the other axis uses swaps the two columns (the axes stay different).
+ */
 export function setBivariateAxis(style: LayerStyle, axis: 'x' | 'y', patch: Partial<BivariateAxis>): LayerStyle {
-  return withBivariate(style, (r) => ({ ...r, [axis]: { ...r[axis], ...patch } }))
+  return withBivariate(style, (r) => {
+    const other = axis === 'x' ? 'y' : 'x'
+    const next = { ...r, [axis]: { ...r[axis], ...patch } }
+    if (patch.column !== undefined && patch.column === r[other].column && patch.column !== r[axis].column) next[other] = { ...r[other], column: r[axis].column }
+    return next
+  })
 }
 
 /** Swaps the axes; hidden cells follow (transposed). */
