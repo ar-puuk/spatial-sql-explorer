@@ -16,6 +16,7 @@ import {
   type BasemapChoice,
   sanitizeStyle,
   setClassVisible,
+  setSizeClassVisible,
   resolveStyle,
   type ResolvedStyle,
   type ResolveInput,
@@ -1597,7 +1598,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void hostAdapter.saveState(LEGEND_COLLAPSED_KEY, collapsed).catch(() => {})
     },
     setClassVisible(key, visible) {
-      style = setClassVisible(style, key, visible)
+      // Spec 009: size channel classes are keyed `size:…`.
+      style = key.startsWith('size:') ? setSizeClassVisible(style, key, visible) : setClassVisible(style, key, visible)
       styleDirty = true
     },
     get style() {

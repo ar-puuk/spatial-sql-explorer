@@ -378,6 +378,35 @@ export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
     ...(sanitizeExtrusion(style.extrusion) ? { extrusion: sanitizeExtrusion(style.extrusion) } : {}),
     ...(isMarkerShape(style.markerShape) && style.markerShape !== 'circle' ? { markerShape: style.markerShape } : {}),
     ...(isLineDash(style.lineDash) && style.lineDash !== 'solid' ? { lineDash: style.lineDash } : {}),
+    ...(sanitizeSizeChannel(style.size) ? { size: sanitizeSizeChannel(style.size) } : {}),
+  }
+}
+
+/** Spec 009: a stored or imported size channel made valid, or undefined (none). */
+export function sanitizeSizeChannel(raw: Partial<SizeChannel> | undefined | null): SizeChannel | undefined {
+  if (!raw || typeof raw !== 'object' || typeof raw.column !== 'string' || !raw.column) return undefined
+  const method: GraduatedMethod = raw.method === 'equal' || raw.method === 'quantile' || raw.method === 'jenks' || raw.method === 'manual' ? raw.method : 'quantile'
+  const sizes = sanitizeSizes({ sizeMin: raw.sizeMin, sizeMax: raw.sizeMax })
+  const noValue = sanitizeOverride(raw.noValue)
+  delete noValue.color
+  return {
+    column: raw.column,
+    mode: raw.mode === 'proportional' ? 'proportional' : 'classed',
+    method,
+    classCount: clamp(Math.round(Number(raw.classCount ?? DEFAULT_CLASS_COUNT)) || DEFAULT_CLASS_COUNT, MIN_CLASS_COUNT, MAX_CLASS_COUNT),
+    classes: (Array.isArray(raw.classes) ? raw.classes : [])
+      .filter((k) => k && Number.isInteger(k.index))
+      .map((k) => {
+        const o = sanitizeOverride(k)
+        delete o.color
+        const out: RangeClassDef = { index: k.index, ...o }
+        if (typeof k.lower === 'number' && Number.isFinite(k.lower)) out.lower = k.lower
+        if (typeof k.upper === 'number' && Number.isFinite(k.upper)) out.upper = k.upper
+        return out
+      }),
+    noValue,
+    sizeMin: sizes.sizeMin as number,
+    sizeMax: sizes.sizeMax as number,
   }
 }
 

@@ -250,7 +250,9 @@
 
   /** A layer's layout: its fixed part, plus what follows the style (dash caps, marker icons). */
   function layerLayout(def: (typeof LAYER_DEFS)[number], layouts: ReturnType<typeof layoutFor>): Record<string, unknown> {
-    return { ...(def.layout ?? {}), ...(layouts[def.id as keyof typeof layouts] ?? {}), visibility: layerVisibility(def.id) }
+    // Spec 009: `icon-size` follows the size channel; without one it is back to 1 (layoutFor leaves it out).
+    const defaults = def.id === 'marker' ? { 'icon-size': 1 } : {}
+    return { ...(def.layout ?? {}), ...defaults, ...(layouts[def.id as keyof typeof layouts] ?? {}), visibility: layerVisibility(def.id) }
   }
 
   /**
@@ -768,6 +770,7 @@
     void style.extrusion
     void style.markerShape
     void style.lineDash
+    void style.size
     void resolved
     void themeRevision
     void blankColor

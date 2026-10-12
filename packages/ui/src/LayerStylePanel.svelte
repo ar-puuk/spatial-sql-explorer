@@ -28,10 +28,15 @@
     setClassVisible,
     setMethod,
     setRamp,
-    setGraduatedVary,
+    setSizeChannel,
+    setSizeClassBound,
+    setSizeClassCount,
+    setSizeClassLabel,
+    setSizeClassVisible,
+    setSizeMethod,
     setSizeRange,
+    sizeSymbols as sizeSymbolsOf,
     baseSymbol,
-    classSymbols,
     LINE_DASHES,
     LINE_DASH_NAMES,
     MARKER_SHAPES,
@@ -229,20 +234,20 @@
   let hasLines = $derived(geometryType !== 'Point')
   let strokeLabel = $derived(geometryType === 'LineString' ? 'Line' : 'Outline')
 
-  // --- Size classes (QGIS GraduatedSize): marker size on points, line width on lines.
-  const sizeMode = $derived(renderer.kind === 'graduated' && renderer.vary === 'size')
-  const sizeUnavailable = $derived(geometryType === 'Polygon' ? 'Polygons have no size: size classes are for points and lines.' : null)
+  // --- Spec 009: the size channel (marker size on points, line width on lines; none on polygons).
   const sizeGeometry = $derived<'point' | 'line'>(geometryType === 'LineString' ? 'line' : 'point')
-  const sizeSymbols = $derived(sizeMode ? { symbols: classSymbols(style, resolved), kind: sizeGeometry } : null)
-  function chooseVary(vary: 'color' | 'size'): void {
-    if (vary === 'size' && sizeUnavailable) return
-    apply(setGraduatedVary(style, vary, sizeGeometry))
+  const size = $derived(style.size)
+  const sizeOn = $derived(!!size && renderer.kind !== 'bivariate')
+  const numericColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
+  const sizeSymbols = $derived(sizeOn && resolved.size?.status === 'ok' ? { symbols: sizeSymbolsOf(style, resolved), kind: sizeGeometry } : null)
+  function toggleSize(): void {
+    if (sizeOn) return apply(setSizeChannel(style, null, sizeGeometry))
+    const column = numericColumns[0]?.name
+    if (column) apply(setSizeChannel(style, column, sizeGeometry))
   }
   function chooseSize(side: 'min' | 'max', value: number): void {
-    if (renderer.kind !== 'graduated' || !Number.isFinite(value)) return
-    const min = side === 'min' ? value : (renderer.sizeMin ?? value)
-    const max = side === 'max' ? value : (renderer.sizeMax ?? value)
-    apply(setSizeRange(style, min, max))
+    if (!size || !Number.isFinite(value)) return
+    apply(setSizeRange(style, side === 'min' ? value : size.sizeMin, side === 'max' ? value : size.sizeMax))
   }
 
   // --- Marker shape and line pattern.
@@ -334,7 +339,7 @@
 
     {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
       <section aria-labelledby="style-sec-by">
-        <h3 id="style-sec-by">{sizeMode ? 'Size by' : 'Color by'}</h3>
+        <h3 id="style-sec-by">Color by</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
           <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
@@ -351,23 +356,6 @@
       {#if renderer.kind === 'graduated'}
         <section aria-labelledby="style-sec-classes">
           <h3 id="style-sec-classes">Classification</h3>
-          <div class="row field">
-            <span class="label" id="style-vary-label">Vary</span>
-            <div class="renderers two" role="radiogroup" aria-labelledby="style-vary-label">
-              <button type="button" role="radio" aria-checked={!sizeMode} tabindex={sizeMode ? -1 : 0} title="A color per class, from a ramp" onclick={() => chooseVary('color')}
-                >Color</button
-              >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={sizeMode}
-                tabindex={sizeMode ? 0 : -1}
-                aria-disabled={sizeUnavailable !== null}
-                title={sizeUnavailable ?? (sizeGeometry === 'line' ? 'A line width per class' : 'A marker size per class')}
-                onclick={() => chooseVary('size')}>Size</button
-              >
-            </div>
-          </div>
           <div class="pair">
             <div class="row field">
               <label class="label" for="style-method">Method</label>
@@ -396,52 +384,20 @@
       {/if}
 
       <section aria-labelledby="style-sec-colors">
-        <h3 id="style-sec-colors">{sizeMode ? 'Sizes' : 'Colors'}</h3>
+        <h3 id="style-sec-colors">Colors</h3>
         {#if resolved.status === 'fallback'}
           <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
         {:else}
-          {#if sizeMode && renderer.kind === 'graduated'}
-            <div class="row field">
-              <label class="label" for="style-size-min">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</label>
-              <span class="size-range">
-                <input
-                  id="style-size-min"
-                  class="number"
-                  type="number"
-                  aria-label="Smallest class size"
-                  min="0.5"
-                  max="100"
-                  step="0.5"
-                  value={renderer.sizeMin}
-                  onchange={(e) => chooseSize('min', Number(e.currentTarget.value))}
-                />
-                <span aria-hidden="true">to</span>
-                <input
-                  class="number"
-                  type="number"
-                  aria-label="Largest class size"
-                  min="0.5"
-                  max="100"
-                  step="0.5"
-                  value={renderer.sizeMax}
-                  onchange={(e) => chooseSize('max', Number(e.currentTarget.value))}
-                />
-                <span>px</span>
-              </span>
-            </div>
-          {:else}
-            <RampPicker
-              value={renderer.ramp}
-              renderer={renderer.kind}
-              classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
-              onChange={(ramp) => apply(setRamp(style, ramp))}
-              onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
-            />
-          {/if}
+          <RampPicker
+            value={renderer.ramp}
+            renderer={renderer.kind}
+            classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
+            onChange={(ramp) => apply(setRamp(style, ramp))}
+            onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
+          />
           <ClassList
             {resolved}
             kind={renderer.kind}
-            {sizeSymbols}
             manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
             onColor={(key, color) => apply(setClassColor(style, key, color))}
             onLabel={(key, label) => apply(setClassLabel(style, key, label))}
@@ -468,12 +424,106 @@
       </section>
     {/if}
 
+    <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
+    <section aria-labelledby="style-sec-size">
+      <h3 id="style-sec-size">Size</h3>
+      {#if geometryType === 'Polygon'}
+        <p class="inline-note" role="status"><Icon name="info" size={14} />Polygons have no size: the size channel is for points and lines.</p>
+      {:else if renderer.kind === 'bivariate'}
+        <p class="inline-note" role="status"><Icon name="info" size={14} />Bivariate maps have no size channel.</p>
+      {:else}
+        <div class="row field">
+          <span class="label" id="size-by-label">Size by</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            aria-label="Size by column"
+            aria-checked={sizeOn}
+            disabled={!sizeOn && (numericColumns.length === 0 || needsLoad !== null)}
+            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : needsLoad ? 'Load the whole file to size by its values.' : undefined}
+            onclick={toggleSize}
+          >
+            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+            <span class="state">{sizeOn ? 'On' : 'Off'}</span>
+          </button>
+        </div>
+        {#if sizeOn && size}
+          <div class="row field">
+            <span class="label" aria-hidden="true">Column</span>
+            <select id="style-size-column" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
+              {#if !numericColumns.some((c) => c.name === size.column)}
+                <option value={size.column}>{size.column || 'Choose…'}</option>
+              {/if}
+              {#each numericColumns as c (c.name)}
+                <option value={c.name}>{c.name} · {c.type}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="pair">
+            <div class="row field">
+              <span class="label" aria-hidden="true">Method</span>
+              <select id="style-size-method" aria-label="Size method" value={size.method} onchange={(e) => apply(setSizeMethod(style, e.currentTarget.value as Exclude<GraduatedMethod, 'manual'>))}>
+                {#each METHODS as m (m)}
+                  <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
+                {/each}
+                {#if size.method === 'manual'}
+                  <option value="manual">Manual</option>
+                {/if}
+              </select>
+            </div>
+            <div class="row field">
+              <span class="label" aria-hidden="true">Classes</span>
+              <select id="style-size-count" class="narrow" aria-label="Size class count" value={size.classCount} onchange={(e) => apply(setSizeClassCount(style, Number(e.currentTarget.value)))}>
+                {#each CLASS_COUNTS as n (n)}
+                  <option value={n}>{n}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <div class="row field">
+            <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
+            <span class="size-range">
+              <input id="style-size-min" class="number" type="number" aria-label="Smallest size" min="0.5" max="100" step="0.5" value={size.sizeMin} onchange={(e) => chooseSize('min', Number(e.currentTarget.value))} />
+              <span aria-hidden="true">to</span>
+              <input class="number" type="number" aria-label="Largest size" min="0.5" max="100" step="0.5" value={size.sizeMax} onchange={(e) => chooseSize('max', Number(e.currentTarget.value))} />
+              <span>px</span>
+            </span>
+          </div>
+          {#if resolved.size?.status === 'fallback'}
+            <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
+          {:else if resolved.size && sizeSymbols}
+            <ClassList
+              {resolved}
+              kind="graduated"
+              classes={resolved.size.classes}
+              caption={resolved.size.caption}
+              listLabel="Size classes"
+              canAdd={false}
+              {sizeSymbols}
+              manual={size.method === 'manual'}
+              onColor={() => {}}
+              onLabel={(key, label) => apply(setSizeClassLabel(style, key, label))}
+              onVisible={(key, visible) => apply(setSizeClassVisible(style, key, visible))}
+              onValue={() => {}}
+              onBound={(index, side, value) => apply(setSizeClassBound(style, resolved, index, side, value))}
+              onAdd={() => {}}
+              onDelete={() => {}}
+            />
+            {#each resolved.size.notes as note (note)}
+              <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+            {/each}
+          {/if}
+        {/if}
+      {/if}
+    </section>
+
     <section aria-labelledby="style-sec-look">
       <h3 id="style-sec-look">Appearance</h3>
       {#if hasFill}
         <div class="row">
           <span class="label" id="fill-label">Fill</span>
-          {#if thematic && !sizeMode}
+          {#if thematic}
             <span class="by-class" title="Class colors come from the classes above">·</span>
           {:else}
             <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />

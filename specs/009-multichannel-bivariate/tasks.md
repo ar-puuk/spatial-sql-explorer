@@ -217,12 +217,14 @@ widths, and two legend groups (quickstart scenario 1).
   - Remove `setGraduatedVary`/`setSizeRange` for graduated renderers.
   - `validateStyle` reports the size range and manual bounds.
   - Export them all from `packages/core/src/style/index.ts`.
-- [ ] T013 [P] [US1] Create `packages/ui/src/style/SizeClassList.svelte`:
+- [X] T013 [P] [US1] (Done as "ClassList with a size mode", the plan's
+  alternative: `listLabel`, `canAdd`, `classes`, `caption` props and
+  `size:`-prefixed keys, rather than a copy.) Create `packages/ui/src/style/SizeClassList.svelte`:
   rows of eye toggle, `SymbolSwatch` (to scale), label (F2 rename), count,
   and "Edit bounds" mode with lower/upper inputs, keyboard as in
   `ClassList.svelte` (factor shared helpers rather than copy them).
   Accessible names follow `contracts/ui.md`.
-- [ ] T014 [US1] In `packages/ui/src/LayerStylePanel.svelte`:
+- [X] T014 [US1] In `packages/ui/src/LayerStylePanel.svelte`:
   - remove the Graduated "Vary" radio and its size inputs;
   - add the **Size** section per `contracts/ui.md`: the switch, Column
     (numeric), Method, Classes, Smallest/Largest (px), and
@@ -230,7 +232,7 @@ widths, and two legend groups (quickstart scenario 1).
   - for polygon layers, show the note instead of the section;
   - wire everything to the `edit.ts` functions through `apply()`
     (validation messages as today).
-- [ ] T015 [US1] Make `packages/ui/src/MapLegend.svelte` show groups: the
+- [X] T015 [US1] Make `packages/ui/src/MapLegend.svelte` show groups: the
   color group as today, plus a size group (a heading with the size
   caption, then rows of `SymbolSwatch` to scale, with classed rows toggling
   visibility through `onToggleClass`).
@@ -238,7 +240,7 @@ widths, and two legend groups (quickstart scenario 1).
     `resolved.size`. Size class keys are `size:range:<i>` / `size:__null`.
   - Route `store.setClassVisible` for `size:` keys to `setSizeClassVisible`
     in `packages/ui/src/viewerStore.svelte.ts`.
-- [ ] T016 [US1] In `packages/ui/src/MapView.svelte`, apply `icon-size`
+- [X] T016 [US1] In `packages/ui/src/MapView.svelte`, apply `icon-size`
   from `layoutFor` for shaped markers. Re-run
   `tests/web/specs/style-symbols.spec.ts`: it must pass once its Vary steps
   are rewritten to use the Size section (update that spec in this task).

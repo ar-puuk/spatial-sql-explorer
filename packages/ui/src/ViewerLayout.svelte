@@ -5,7 +5,7 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -46,10 +46,13 @@
   const legendRenderer = $derived(rendererOf(store.style))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
+      store.resolvedStyle.size?.status === 'ok' ||
       (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
   const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
+  // Spec 009: the size channel's legend group, when it draws.
+  const legendSize = $derived(store.resolvedStyle.size?.status === 'ok' ? { channel: store.resolvedStyle.size, symbols: sizeSymbols(store.style, store.resolvedStyle) } : null)
   const legendTitle = $derived(rendererTitle(legendRenderer))
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
@@ -369,6 +372,7 @@
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
           symbols={legendSymbols}
+          size={legendSize}
         />
       {/if}
       {#if openPanel === 'style' && layer}

@@ -295,11 +295,8 @@ const SIZE = 'size:'
  * px for points, line width 1-6 px for lines (DEFAULT_SIZE_RANGE).
  */
 export function setSizeChannel(style: LayerStyle, column: string | null, geometry: 'point' | 'line'): LayerStyle {
-  if (column === null) {
-    const rest = { ...style }
-    delete rest.size
-    return rest
-  }
+  // Off: `size: undefined` (not a deleted key), so it also clears through a patch merge (store.setStyle).
+  if (column === null) return { ...style, size: undefined }
   const was = style.size
   if (was) return { ...style, size: { ...was, column, method: was.method === 'manual' ? 'quantile' : was.method, classes: [] } }
   const range = DEFAULT_SIZE_RANGE[geometry]

@@ -25,7 +25,7 @@ test.describe('categorized (US1)', () => {
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Categorized' }).click()
     // The suggested column is the text column with 2-12 values: zone.
-    await expect(page.getByLabel('Column')).toHaveValue('zone')
+    await expect(page.getByLabel('Column', { exact: true })).toHaveValue('zone')
     await expect(legend(page)).toContainText('zone · 5 categories')
     await expect(legendRows(page)).toHaveCount(5)
     // Spec 007 FR-012: classified over the whole file, not the rows first shown.
@@ -34,7 +34,7 @@ test.describe('categorized (US1)', () => {
     // The whole file, by owner (997 values): 12 classes + Other.
     await openQueryPanel(page)
     await runQuery(page, 'SELECT * FROM layer')
-    await page.getByLabel('Column').selectOption('owner')
+    await page.getByLabel('Column', { exact: true }).selectOption('owner')
     await expect(legendRows(page)).toHaveCount(13)
     await expect(legendRows(page).last()).toContainText('Other (985 values)')
     expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
@@ -48,7 +48,7 @@ test.describe('categorized (US1)', () => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Categorized' }).click()
-    await page.getByLabel('Column').selectOption('name')
+    await page.getByLabel('Column', { exact: true }).selectOption('name')
     // The style resolves in the engine: wait for this column's classes, not the previous one's.
     await expect(legendRows(page).locator('.label')).toHaveText([
       'Afghanistan',
@@ -72,7 +72,7 @@ test.describe('categorized (US1)', () => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Categorized' }).click()
-    await page.getByLabel('Column').selectOption('name')
+    await page.getByLabel('Column', { exact: true }).selectOption('name')
     const rendered = async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
     await expect.poll(rendered, { timeout: 10000 }).toBeGreaterThan(0)
     const before = await rendered()
@@ -91,20 +91,20 @@ test.describe('graduated (US2)', () => {
     await openFile(page, writeParcels(22_000))
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Graduated' }).click()
-    await page.getByLabel('Column').selectOption('value')
+    await page.getByLabel('Column', { exact: true }).selectOption('value')
     await expect(legend(page)).toContainText('value · Quantile, 5 classes')
     await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
     const counts = await legendCounts(page)
     expect(counts).toHaveLength(5)
     for (const n of counts) expect(Math.abs(n - 4400)).toBeLessThanOrEqual(10)
 
-    await page.getByLabel('Method').selectOption('equal')
+    await page.getByLabel('Method', { exact: true }).selectOption('equal')
     await expect(legend(page)).toContainText('value · Equal interval, 5 classes')
-    await page.getByLabel('Method').selectOption('jenks')
+    await page.getByLabel('Method', { exact: true }).selectOption('jenks')
     await expect(legend(page)).toContainText('value · Natural breaks, 5 classes')
-    await page.getByLabel('Classes').selectOption('3')
+    await page.getByLabel('Classes', { exact: true }).selectOption('3')
     await expect(legendRows(page)).toHaveCount(3)
-    await page.getByLabel('Classes').selectOption('10')
+    await page.getByLabel('Classes', { exact: true }).selectOption('10')
     await expect(legendRows(page)).toHaveCount(10)
     await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
   })
@@ -113,7 +113,7 @@ test.describe('graduated (US2)', () => {
     await openFile(page, writeSquares())
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Graduated' }).click()
-    await expect(page.getByLabel('Column')).toHaveValue('value')
+    await expect(page.getByLabel('Column', { exact: true })).toHaveValue('value')
     await expect.poll(() => legendRows(page).locator('.label').allTextContents()).toEqual(SQUARES_QUANTILE_LABELS)
     expect(await legendCounts(page)).toEqual([20, 20, 20, 20, 20])
   })
@@ -159,7 +159,7 @@ test.describe('ramps and class edits (US3)', () => {
     // One class's color; the method stays Quantile.
     await page.getByLabel('Color of 6,273 – 9,801').fill('#ff00ff')
     await expect.poll(() => swatchColor(page, 4)).toBe('#ff00ff')
-    await expect(page.getByLabel('Method')).toHaveValue('quantile')
+    await expect(page.getByLabel('Method', { exact: true })).toHaveValue('quantile')
 
     // Hide a class from the legend: 20 fewer points on the map.
     await expect.poll(() => rendered(page), { timeout: 10000 }).toBe(100)
@@ -171,7 +171,7 @@ test.describe('ramps and class edits (US3)', () => {
     const upper = page.getByLabel('Upper bound of 0 – 392')
     await upper.fill('100')
     await upper.press('Tab')
-    await expect(page.getByLabel('Method')).toHaveValue('manual')
+    await expect(page.getByLabel('Method', { exact: true })).toHaveValue('manual')
     await expect(legend(page)).toContainText('value · Manual, 5 classes')
     await expect(legendRows(page).first()).toContainText('0 – 100')
     await openQueryPanel(page)
@@ -196,7 +196,7 @@ test.describe('styles follow query results (US5)', () => {
     await openFile(page, data)
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Graduated' }).click()
-    await page.getByLabel('Column').selectOption('value')
+    await page.getByLabel('Column', { exact: true }).selectOption('value')
     // Web Save is a download: keep it next to the data, as a QGIS sidecar.
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
     const sidecar = path.join(path.dirname(data), 'parcels-2000.qml')

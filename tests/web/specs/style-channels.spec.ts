@@ -20,7 +20,10 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await page.getByRole('radio', { name: 'Categorized' }).click()
   await panel(page).getByLabel('Column', { exact: true }).selectOption('functional_class')
   const colorRows = await legend(page).getByRole('group', { name: /^functional_class · / }).locator('li').count()
-  const drawn = await rendered(page)
+  // A new style column reloads the view (spec 007): wait for the count of the drawn view.
+  await expect.poll(() => rendered(page)).not.toBeNull()
+  const drawn = (await rendered(page)) as string
+  expect(Number(drawn)).toBeGreaterThan(0)
 
   const toggle = panel(page).getByRole('switch', { name: 'Size by column' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
@@ -34,7 +37,7 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await expect.poll(() => rendered(page)).toBe(drawn)
 
   // Live edits.
-  await panel(page).getByLabel('Size classes').selectOption('3')
+  await panel(page).getByLabel('Size class count').selectOption('3')
   await expect(sizeGroup(page)).toHaveAccessibleName('aadt · Quantile, 3 classes')
   await panel(page).getByLabel('Size method').selectOption('equal')
   await expect(sizeGroup(page)).toHaveAccessibleName('aadt · Equal interval, 3 classes')

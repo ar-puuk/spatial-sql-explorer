@@ -5,7 +5,7 @@
   // store. Bottom-left, above the scale bar (research §8, amended): the style
   // panel opens on the right and must not cover it, and the feature
   // inspector (top-left) is transient.
-  import { markerExtent, type GeometryType, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
+  import { markerExtent, type GeometryType, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
 
@@ -19,17 +19,23 @@
     onToggleClass: (key: string, visible: boolean) => void
     /** Each class's symbol (core `classSymbols`), so swatches look like the map: color, opacity, shape, size, pattern. */
     symbols: SymbolSpec[]
+    /** Spec 009: the size channel's group: its classes and their symbols (core `sizeSymbols`), drawn to scale. */
+    size?: { channel: ResolvedSizeChannel; symbols: SymbolSpec[] } | null
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, size = null }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
   const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
   // Markers keep their relative sizes; big ones shrink together to fit a row.
   const SWATCH = 22
-  const reach = $derived(Math.max(1, ...symbols.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2)))
+  // Markers in both groups share one scale, so sizes compare across them.
+  const reach = $derived(Math.max(1, ...[...symbols, ...(size?.symbols ?? [])].map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2)))
   const scale = $derived(Math.min(1, (SWATCH / 2 - 1) / reach))
   const swatchSize = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : 18)
+  // Size rows: markers to scale on point layers, line widths on line and mixed layers.
+  const sizeKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
+  const sizeSwatch = $derived(sizeKind === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : SWATCH)
 </script>
 
 <section class="legend" aria-label="Legend" style:--swatch-size="{swatchSize}px">
@@ -41,6 +47,8 @@
     {#if resolved.status === 'fallback'}
       <p class="reason">{resolved.reason} Showing the single symbol.</p>
     {/if}
+    <!-- Spec 009: one group per channel (contracts/ui.md "Legend"). -->
+    <div role="group" aria-label={heading} class="group">
     <ul>
       {#each resolved.classes as c, i (c.key)}
         <li class:hidden={!c.visible}>
@@ -64,6 +72,31 @@
         </li>
       {/each}
     </ul>
+    </div>
+    {#if size}
+      <h4 class="group-title" title={size.channel.caption}>{size.channel.caption}</h4>
+      <div role="group" aria-label={size.channel.caption} class="group">
+      <ul>
+        {#each size.channel.classes as c, i (c.key)}
+          <li class:hidden={!c.visible}>
+            <button
+              type="button"
+              class="swatch"
+              style:--swatch={c.color}
+              aria-pressed={!c.visible}
+              aria-label={`${c.visible ? 'Hide' : 'Show'} size class ${c.label}`}
+              title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
+              onclick={() => onToggleClass(c.key, !c.visible)}
+            >
+              <SymbolSwatch symbol={size.symbols[i]} kind={sizeKind} {scale} size={sizeSwatch} hollow={!c.visible} />
+            </button>
+            <span class="label" title={c.label}>{c.label}</span>
+            <span class="count">{nf.format(c.count)}</span>
+          </li>
+        {/each}
+      </ul>
+      </div>
+    {/if}
   {/if}
 </section>
 
@@ -110,6 +143,12 @@
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }
+  /* Spec 009: one group per channel; the group, not the list, takes the space. */
+  .group {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
   ul {
     margin: 0;
     padding: 0 6px 6px;
@@ -139,6 +178,15 @@
   }
   button.swatch {
     cursor: pointer;
+  }
+  .group-title {
+    margin: 4px 8px 2px;
+    overflow: hidden;
+    font: inherit;
+    font-weight: 600;
+    color: var(--se-section-title-fg);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .label {
     overflow: hidden;
