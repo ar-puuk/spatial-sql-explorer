@@ -345,7 +345,7 @@ and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
   `<data_defined_properties>`. Append the result to
   `specs/009-multichannel-bivariate/research.md` §5, and save the script
   in `spikes/`.
-- [ ] T024 [P] [US5] Add interchange tests in
+- [X] T024 [P] [US5] Add interchange tests in
   `tests/core/style-channels.test.ts`:
   - QML for classed size: each class symbol layer has
     `<data_defined_properties>` with `outlineWidth` (lines) or the T023 key

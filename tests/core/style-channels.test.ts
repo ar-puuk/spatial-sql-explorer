@@ -15,6 +15,7 @@ import {
   markerIconIds,
   paintFor,
   parseMarkerIconId,
+  previewExportNotice,
   resolveStyle,
   setClassVisible,
   setSizeChannel,
@@ -298,5 +299,98 @@ describe('proportional sizes (US2)', () => {
   it('switching back to classed restores stepped classes', () => {
     const back = setSizeMode(prop('line'), 'classed')
     expect(resolveStyle(back, roads).size?.classes.filter((c) => c.kind === 'range')).toHaveLength(5)
+  })
+})
+
+describe('style files keep the size channel (US5)', () => {
+  const ext = (f: 'qml' | 'sld' | 'mapbox') => (f === 'mapbox' ? 'x.json' : `x.${f}`)
+  const roundTrip = (style: LayerStyle, format: 'qml' | 'sld' | 'mapbox', geometry: 'Point' | 'LineString') => {
+    const out = exportStyle(style, format, geometry, 'roads.geojson', resolveStyle(style, roads), roads.columns)
+    return { out, back: importStyle(ext(format), out.text) }
+  }
+  /** The `<data_defined_properties>` size entry of every symbol layer in a QML. */
+  const ddSizes = (qml: string, key: 'outlineWidth' | 'size') =>
+    [...qml.matchAll(new RegExp(`<Option name="${key}" type="Map">([\\s\\S]*?)<Option name="type" type="int" value="(\\d)"/>`, 'g'))].map((m) => `${m[1]}type=${m[2]}`)
+
+  it('QML, classed: each class symbol sizes by a CASE expression over the size classes (QGIS expression, type 3)', () => {
+    for (const [geometry, key, factor] of [['LineString', 'outlineWidth', 1], ['Point', 'size', 2]] as const) {
+      const style = withSize(categorized, geometry === 'Point' ? 'point' : 'line')
+      const r = resolveStyle(style, roads)
+      const qml = exportStyle(style, 'qml', geometry, 'roads.geojson', r, roads.columns).text
+      const dds = ddSizes(qml, key)
+      expect(dds.length, geometry).toBe(r.classes.length) // one per color class symbol
+      for (const dd of dds) {
+        expect(dd).toContain('type=3')
+        for (const c of r.size?.classes.filter((k) => k.kind === 'range') ?? []) expect(dd).toContain(`THEN ${(c.size as number) * factor}`)
+        expect(dd).toContain('CASE WHEN &quot;aadt&quot; IS NULL THEN')
+      }
+      expect(qml).toContain('name="spatialExplorer/size"')
+    }
+  })
+
+  it('QML, proportional: the size assistant form (field + size scale transformer: Linear for lines, Area 0.5 for markers)', () => {
+    const lineStyle = setSizeMode(withSize(categorized, 'line'), 'proportional')
+    const dd = ddSizes(exportStyle(lineStyle, 'qml', 'LineString', 'roads.geojson', resolveStyle(lineStyle, roads), roads.columns).text, 'outlineWidth')[0]
+    expect(dd).toContain('type=2')
+    expect(dd).toContain('<Option name="field" type="QString" value="aadt"/>')
+    expect(dd).toContain('<Option name="scaleType" type="int" value="0"/>')
+    expect(dd).toContain('<Option name="minSize" type="double" value="1"/>')
+    expect(dd).toContain('<Option name="maxSize" type="double" value="6"/>')
+    const pts = setSizeMode(withSize(categorized, 'point'), 'proportional')
+    const dp = ddSizes(exportStyle(pts, 'qml', 'Point', 'roads.geojson', resolveStyle(pts, roads), roads.columns).text, 'size')[0]
+    expect(dp).toContain('<Option name="scaleType" type="int" value="1"/>')
+    expect(dp).toContain('<Option name="exponent" type="double" value="0.5"/>')
+    expect(dp).toContain('<Option name="maxSize" type="double" value="20"/>') // a 10 px radius is a 20 px QGIS size
+  })
+
+  it('round trips: QML and Mapbox GL restore the channel exactly; SLD keeps single-column size classes', () => {
+    for (const geometry of ['Point', 'LineString'] as const) {
+      for (const mode of ['classed', 'proportional'] as const) {
+        const style = setSizeMode(setSizeRange(withSize(categorized, geometry === 'Point' ? 'point' : 'line'), 2, 9), mode)
+        for (const format of ['qml', 'mapbox'] as const) expect(roundTrip(style, format, geometry).back.style.size, `${format} ${geometry} ${mode}`).toEqual(style.size)
+      }
+    }
+    const sizeOnly = withSize(base, 'line')
+    const sld = roundTrip(sizeOnly, 'sld', 'LineString').back
+    expect(sld.style.size?.column).toBe('aadt')
+    const sizesOf = (s: LayerStyle) => resolveStyle(s, roads).size?.classes.filter((c) => c.kind === 'range').map((c) => c.size)
+    expect(sizesOf(sld.style)).toEqual(sizesOf(sizeOnly))
+  })
+
+  it('SLD: one rule per (color class x size class), each with both filters and that class color and width', () => {
+    const style = withSize(categorized)
+    const r = resolveStyle(style, roads)
+    const sld = exportStyle(style, 'sld', 'LineString', 'roads.geojson', r, roads.columns).text
+    const rules = sld.match(/<Rule>/g)?.length ?? 0
+    expect(rules).toBe(r.classes.length * (r.size?.classes.length ?? 0))
+    expect(sld).toMatch(/<ogc:And><ogc:PropertyIsEqualTo><ogc:PropertyName>cls<\/ogc:PropertyName>/)
+    const back = importStyle('x.sld', sld)
+    expect(back.notes.join()).toMatch(/Classes on two columns can.t be read from SLD/)
+    expect(previewExportNotice(style, 'sld', r).items.join()).toMatch(/Classes on two columns can.t be read back from SLD/)
+    const prop = setSizeMode(style, 'proportional')
+    expect(previewExportNotice(prop, 'sld', resolveStyle(prop, roads)).items.join()).toMatch(/Proportional sizes are written as 5 steps/)
+  })
+
+  it('Mapbox GL: the paint is the viewer expression; a foreign two-stop linear width is a proportional channel', () => {
+    const style = withSize(categorized)
+    const r = resolveStyle(style, roads)
+    const doc = JSON.parse(exportStyle(style, 'mapbox', 'LineString', 'roads.geojson', r, roads.columns).text)
+    const line = doc.layers.find((l: { type: string }) => l.type === 'line')
+    const viewer = paintFor(style, r, '#000').line['line-width']
+    for (const f of roads.features) {
+      const unselected = evaluate(viewer, f.attributes, 'layers[0].paint.line-width')
+      expect(evaluate(line.paint['line-width'], f.attributes, 'layers[0].paint.line-width')).toBe(unselected)
+    }
+    const foreign = JSON.stringify({ version: 8, sources: {}, layers: [{ id: 'l', type: 'line', paint: { 'line-color': '#ff0000', 'line-width': ['interpolate', ['linear'], ['get', 'aadt'], 100, 1, 4000, 8] } }] })
+    expect(importStyle('x.json', foreign).style.size).toMatchObject({ column: 'aadt', mode: 'proportional', sizeMin: 1, sizeMax: 8, scale: 'linear' })
+  })
+
+  it('QML from QGIS: a size assistant transformer imports as proportional; an expression size gives a note', () => {
+    const spikes = `${import.meta.dirname}/../../specs/009-multichannel-bivariate/spikes`
+    const t = importStyle('a.qml', readFileSync(`${spikes}/qgis-dd-linear.qml`, 'utf8'))
+    expect(t.style.size).toMatchObject({ column: 'v', mode: 'proportional', scale: 'linear' })
+    const e = importStyle('a.qml', readFileSync(`${spikes}/qgis-dd-steps.qml`, 'utf8'))
+    expect(e.style.size).toBeUndefined()
+    expect(e.notes.join()).toMatch(/data-defined size expression/)
   })
 })
