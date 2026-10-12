@@ -583,7 +583,7 @@ their notices (quickstart scenario 5).
 
 ## Phase 11: Polish & Cross-Cutting
 
-- [ ] T051 [P] Update `CLAUDE.md` "Styling and export": the renderers are
+- [X] T051 [P] Update `CLAUDE.md` "Styling and export": the renderers are
   now single, categorized, graduated or bivariate, plus an optional size
   channel (classed or proportional); and the QML forms (data-defined size,
   rule-based bivariate). Update the in-app or README feature list if there

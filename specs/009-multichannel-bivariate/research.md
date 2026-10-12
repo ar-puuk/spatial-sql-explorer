@@ -258,6 +258,19 @@ low/low to high/high.
 The default, Orange–Blue, is the most color-blind safe. The 2-class forms
 (FR-015) take the grid's corner and middle rows and columns.
 
+**Implemented (T035, 2026-10-12)**: `scripts/bivariate-palettes.mjs`.
+- The spike's hand-picked high/high corners were replaced by a rule:
+  high/high is the CIELAB average of the two high corners' a and b, at
+  lightness 28.
+- Only vendored ColorBrewer schemes can be used: `rampData.ts` has no PuBu
+  or RdPu. So Red–Blue takes YlGnBu's dark end (`#2c7fb8`), and Pink–Blue
+  takes PiYG's darkest pink (`#c51b7d`).
+- The generator refuses a palette under ΔE 15, and adds a note under 12 for
+  deuteranopes.
+- Final scores (plain / deuteranope): Orange–Blue 27.6 / 27.9, Red–Blue
+  27.2 / 24.8, Green–Purple 26.5 / 19.6, Pink–Blue 21.1 / 13.6. None
+  needs the note.
+
 **Rejected**: multiply-blending two ramps (Stevens' manual method). It
 scored well (ΔE up to 27), but the high/high corner was near-black
 (`#26161b`), which is unreadable on dark basemaps.

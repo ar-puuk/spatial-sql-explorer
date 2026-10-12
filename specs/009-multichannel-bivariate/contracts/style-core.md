@@ -47,11 +47,11 @@ paintFor / layoutFor / visibilityFilter              // read both channels
 
 ```ts
 startStyle(style, 'bivariate', layer, column?)          // picks two numeric columns (column first)
-setBivariateAxis(style, 'x' | 'y', { column?, method? })
+setBivariateAxis(style, 'x' | 'y', { column?, method? })   // the other axis's column swaps the two
 swapBivariateAxes(style)
 setBivariatePalette(style, id)
 setCellVisible(style, key, visible)                     // 'cell:i-j' or '__null'
-setSizeChannel(style, size: SizeChannel | null, geometry: 'point' | 'line')   // null = off; defaults by geometry
+setSizeChannel(style, column: string | null, geometry: 'point' | 'line')       // null = off (size: undefined, so it clears through a patch merge); defaults and scale by geometry
 setSizeMode / setSizeMethod / setSizeClassCount / setSizeRange / setSizeClassBound / setSizeClassLabel / setSizeClassVisible
 ```
 

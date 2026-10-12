@@ -99,6 +99,10 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 
 ## Styling and export
 - Styling: single, categorized, graduated (equal/quantile/jenks), inline color-ramp picker with previews, legend.
+  Spec 009: plus bivariate (two numeric columns, generated 3x3 palettes, keyboard legend square) and an
+  optional size channel (marker size / line width by its own numeric column, classed or proportional) next to
+  any color style but bivariate. QML writes the size channel as QGIS data-defined sizes and bivariate as a
+  RuleRenderer; both ride along in spatialExplorer/* custom properties. Marker shapes and line patterns too.
 - Style persistence: DECIDED (2026-10-10, specs/001-quick-look/design-plan.md §8.5). The sidecar is QGIS QML
   (`<basename>.qml` next to the data, which QGIS auto-loads too). Export and import QML, OGC SLD and Mapbox GL style JSON.
   Serializers live in packages/core/src/style/.

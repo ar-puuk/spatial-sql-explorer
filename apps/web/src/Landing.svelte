@@ -206,7 +206,7 @@
         </article>
         <article>
           <header><span class="num">03</span>Style</header>
-          <p>Categorized and graduated styles, with a legend. Reads and writes QGIS QML.</p>
+          <p>Categorized, graduated and bivariate styles, sizes by a column, with a legend. Reads and writes QGIS QML.</p>
           <div class="demo ramp" aria-hidden="true">
             <span class="bar">{#each RAMP as c (c)}<i style="background: {c}"></i>{/each}</span><span class="cap">Graduated · Jenks</span>
           </div>

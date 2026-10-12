@@ -25,6 +25,14 @@ apply live (FR-020). Chrome uses theme tokens; data colors are fixed.
     - Classed: Method, Classes (2–10), and a size class list (eye toggle,
       size swatch, label, count, bound editing like `ClassList`);
     - Smallest and Largest size inputs (px).
+  - Implemented accessible names:
+    - "Size by column" (switch);
+    - "Size column", "Size scale" (radio group: Classed / Proportional),
+      "Size method", "Size class count";
+    - "Smallest size", "Largest size", and "Size classes" (the list);
+    - the visible words Column, Method and Classes are not `<label>`s,
+      so they don't clash with the color controls.
+  - The panel is 344 px wide, so four style types fit.
   - With Bivariate chosen, the section reads "Bivariate maps have no size
     channel."
 - The Graduated **Vary: Color | Size** radio from 2026-10-12 is removed.
@@ -47,6 +55,11 @@ apply live (FR-020). Chrome uses theme tokens; data colors are fixed.
   - Roving tabindex; the arrow keys move one cell at a time; Enter or Space
     toggles.
   - Axis labels: the column names with "→" (horizontal) and "↑" (vertical).
+    The vertical axis's label sits above the square, horizontal, so long
+    names fit.
+  - The grid is named "Bivariate cells". In the panel: the selects
+    "Axis 1" and "Axis 2" with "Axis 1 method" and "Axis 2 method", the
+    button "Swap axes", and the radio group "Bivariate palette".
   - "No value" is a row under the square.
 
 ## Map (`MapView.svelte`)
