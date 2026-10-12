@@ -18,6 +18,7 @@
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import MapImageDialog from './MapImageDialog.svelte'
+  import PlaceSearch from './PlaceSearch.svelte'
   import type { LegendSpec } from './mapImage.js'
   import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
@@ -72,7 +73,7 @@
   let panesHeight = $state(0)
   let panes: HTMLDivElement
   /** One map popover at a time. */
-  let openPanel = $state<'style' | 'basemap' | null>(null)
+  let openPanel = $state<'style' | 'basemap' | 'search' | null>(null)
   let exportButton = $state<HTMLButtonElement>()
   /** Opened by a map click (FR-010); then follows the selection until closed. */
   let inspectorOpen = $state(false)
@@ -163,7 +164,7 @@
     const inPopover = !active || active === document.body || !!active.closest('.style-popover')
     openPanel = null
     if (!which || !inPopover) return
-    const label = which === 'style' ? 'Layer style' : 'Basemap'
+    const label = which === 'style' ? 'Layer style' : which === 'search' ? 'Search places' : 'Basemap'
     void tick().then(() => panes?.querySelector<HTMLButtonElement>(`.map-pane button[aria-label="${label}"]`)?.focus())
   }
 
@@ -303,6 +304,7 @@
         }}
         styleUnavailable={store.tilesOnlyReason}
         extruded={store.extruded}
+        placeSearch={store.placeSearchEnabled}
         onCaptureReady={(capture) => store.setMapCapture(capture)}
         onExportImage={() => store.openMapImage()}
       />
@@ -315,6 +317,11 @@
           {#if inspected}
             <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorOpen = false)} />
           {/if}
+        </div>
+      {/if}
+      {#if openPanel === 'search' && store.placeSearchEnabled}
+        <div class="style-popover">
+          <PlaceSearch {store} onClose={closePanel} />
         </div>
       {/if}
       {#if openPanel === 'basemap'}

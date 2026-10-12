@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -21,14 +21,12 @@ function post(msg: unknown): void {
   vscode.postMessage(JSON.parse(JSON.stringify(msg)))
 }
 
-export interface DuckDbAssets {
-  workerUrl: string
-  wasmUrl: string
-  sqlWasmUrl?: string
-}
+/** Spec 008 research §15: the engine comes from its pinned URLs (core engineAssets.ts); nothing to pass. */
+export type DuckDbAssets = Record<string, never>
 
 /** Spec 008: the `spatialExplorer.placeSearch.enabled` setting, as the host last sent it. */
 let placeSearchEnabled: boolean | undefined
+const preferenceListeners = new Set<() => void>()
 
 let maplibreWorkerUrlResolve: ((url: string) => void) | null = null
 const maplibreWorkerUrlPromise = new Promise<string>((resolve) => {
@@ -213,10 +211,7 @@ new MutationObserver(notifyThemeChange).observe(document.body, { attributes: tru
 window.addEventListener('message', (event: MessageEvent) => {
   const msg = event.data as {
     type: string
-    duckdbWorkerUrl?: string
-    duckdbWasmUrl?: string
     maplibreWorkerUrl?: string
-    sqlWasmUrl?: string
     placeSearchEnabled?: boolean
     primaryFileName?: string
     primaryFileUri?: string
@@ -237,9 +232,12 @@ window.addEventListener('message', (event: MessageEvent) => {
     return
   }
 
-  if (msg.type === 'assets' && msg.duckdbWorkerUrl && msg.duckdbWasmUrl) {
-    assetsResolve?.({ workerUrl: msg.duckdbWorkerUrl, wasmUrl: msg.duckdbWasmUrl, sqlWasmUrl: msg.sqlWasmUrl })
-    if (msg.placeSearchEnabled !== undefined) placeSearchEnabled = msg.placeSearchEnabled
+  if (msg.type === 'assets') {
+    assetsResolve?.({})
+    if (msg.placeSearchEnabled !== undefined) {
+      placeSearchEnabled = msg.placeSearchEnabled
+      preferenceListeners.forEach((cb) => cb())
+    }
     if (msg.maplibreWorkerUrl) maplibreWorkerUrlResolve?.(msg.maplibreWorkerUrl)
     if (msg.primaryFileUri) primaryFileUri = msg.primaryFileUri
     if (msg.primaryFileName && !primaryFileNameFromAssets) {
@@ -262,6 +260,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
   } else if (msg.type === 'preferences') {
     placeSearchEnabled = msg.placeSearchEnabled
+    preferenceListeners.forEach((cb) => cb())
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
@@ -281,8 +280,25 @@ export function createVsCodeHostAdapter(): HostAdapter {
     getTheme(): ThemeKind {
       return detectTheme()
     },
+    // Spec 008 research §15: the extension host downloads each engine file once
+    // (from the same pinned URL), checks its hash and keeps it in its global
+    // storage; the webview reads the local copy. The core checks the hash again.
+    async engineFile(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer> {
+      const result = await request<{ uri?: string; error?: string }>({ type: 'engineFile', name: file.name, url: file.url, sha256: file.sha256, refresh: options?.refresh === true })
+      if (!result.uri) throw new Error(result.error ?? 'the extension could not download it')
+      const res = await fetch(result.uri)
+      if (!res.ok) throw new Error(`the local copy could not be read (${res.status})`)
+      return res.arrayBuffer()
+    },
+    async pruneEngineFiles(keep: string[]): Promise<void> {
+      post({ type: 'pruneEngineFiles', keep })
+    },
     getPreference(key: 'placeSearch.enabled'): boolean | undefined {
       return key === 'placeSearch.enabled' ? placeSearchEnabled : undefined
+    },
+    onPreferenceChange(cb: () => void): () => void {
+      preferenceListeners.add(cb)
+      return () => preferenceListeners.delete(cb)
     },
     onThemeChange(cb: (theme: ThemeKind) => void): () => void {
       themeListeners.add(cb)

@@ -27,7 +27,8 @@ export interface ExportHooks {
 /** Spec 008: what JS writers need from the shell. */
 export interface ExportAssets {
   /** sql.js's wasm, for GeoPackage (research §3). */
-  sqlWasmUrl?: string
+  /** Spec 008 research §15: sql.js's wasm, downloaded and hash-checked on first use. */
+  loadSqlWasm?: () => Promise<ArrayBuffer>
 }
 
 export interface ExportResult {
@@ -117,13 +118,13 @@ async function writerFor(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: Exp
     case 'xlsx':
       return xlsxWriter(columns)
     case 'geopackage': {
-      if (!assets.sqlWasmUrl) throw new Error('GeoPackage export is not available in this build (sql.js is missing).')
+      if (!assets.loadSqlWasm) throw new Error('GeoPackage export is not available in this build (sql.js is missing).')
       return geoPackageWriter(columns, {
         table: baseOf(plan),
         geometryColumn: plan.geometryColumn ?? 'geom',
         srid,
         wkt: await wktFor(db, conn, srid, isCancelled).catch(() => null),
-        sqlWasmUrl: assets.sqlWasmUrl,
+        loadSqlWasm: assets.loadSqlWasm,
       })
     }
     default:

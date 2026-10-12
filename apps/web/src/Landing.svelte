@@ -159,7 +159,7 @@
         <div class="preview" aria-hidden="true">
           <span class="caption">World population · estimated per 450 km hexagon</span>
           <div class="map">
-            <img src="/landing/world-population.svg" alt="" decoding="async" />
+            <img src={`${import.meta.env.BASE_URL}landing/world-population.svg`} alt="" decoding="async" />
           </div>
           <span class="legend"><small>{LEGEND_LOW}</small>{#each RAMP as c (c)}<i style="background: {c}"></i>{/each}<small>{LEGEND_HIGH}</small></span>
         </div>

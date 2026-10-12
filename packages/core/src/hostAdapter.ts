@@ -129,6 +129,31 @@ export interface HostAdapter {
    * omit it, and callers treat `undefined` as the default (enabled).
    */
   getPreference?(key: 'placeSearch.enabled'): boolean | undefined
+
+  /** Spec 008: called when a `getPreference` value changes (VS Code: the setting was edited). */
+  onPreferenceChange?(cb: () => void): () => void
+
+  /**
+   * Spec 008 research §15: a local copy of a piece of the SQL engine, so it
+   * works offline after the first use. Returns the file's bytes from the
+   * host's copy, downloading it once from `file.url` (the pinned jsDelivr or
+   * DuckDB URL) when there is none, or when `refresh` asks for a new one.
+   * VS Code: the extension host downloads into its global storage. Web: the
+   * browser's Cache Storage. The core checks the SHA-256 of whatever comes
+   * back. Hosts without it omit it: the core downloads every time.
+   */
+  engineFile?(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer>
+
+  /** Drops local engine copies other than these SHA-256s (an upgrade's leftovers). */
+  pruneEngineFiles?(keep: string[]): Promise<void>
+}
+
+/** One piece of the SQL engine: where it comes from and what it must hash to. */
+export interface EngineFileRef {
+  /** e.g. `duckdb-eh.wasm`, `spatial.duckdb_extension.wasm`. */
+  name: string
+  url: string
+  sha256: string
 }
 
 /** Spec 005: data exports may be large and binary; hosts pick a dialog default and filters by kind. */

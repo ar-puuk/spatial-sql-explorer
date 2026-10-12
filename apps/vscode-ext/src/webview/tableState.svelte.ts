@@ -13,6 +13,8 @@ export interface TableStateReport {
   layers: Array<{ name: string; geometryType: string | null; featureCount: number | null }>
   activeLayer: string | null
   rowCount: number | null
+  /** Spec 008 T088: the Search places button is shown (the setting). */
+  placeSearch: boolean
 }
 
 export function watchTableState(store: ViewerStore, report: (state: TableStateReport) => void): () => void {
@@ -27,6 +29,7 @@ export function watchTableState(store: ViewerStore, report: (state: TableStateRe
         layers: store.fileLayers.map((l) => ({ ...l })),
         activeLayer: store.activeLayer,
         rowCount: store.session.layer?.rowCount ?? null,
+        placeSearch: store.placeSearchEnabled,
       })
     })
   })

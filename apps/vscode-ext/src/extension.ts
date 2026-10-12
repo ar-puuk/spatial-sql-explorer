@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import * as vscode from 'vscode'
 import * as sourceServer from './sourceServer'
 import * as path from 'path'
@@ -42,6 +43,8 @@ type WebviewToHostMessage =
   | { type: 'tableState'; state: unknown }
   | { type: 'exportState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
+  | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
+  | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
@@ -147,6 +150,67 @@ function log(line: string): void {
   if (recentLogLines.length > 50) recentLogLines.shift()
 }
 
+// --- Spec 008 research §15: the SQL engine's local copy ---------------------
+// The engine isn't shipped. Each file (DuckDB-WASM, its extensions, sql.js) is
+// downloaded once by the extension host from its pinned URL (jsDelivr,
+// extensions.duckdb.org), checked against the SHA-256 the webview sends (from
+// the build-time record), and kept in global storage, named by its hash. The
+// webview reads it from there: offline after the first use.
+const engineDir = (context: vscode.ExtensionContext): vscode.Uri => vscode.Uri.joinPath(context.globalStorageUri, 'engine')
+const engineDownloads = new Map<string, Promise<vscode.Uri>>()
+/** Test hook (_getEngineDownloads): the engine files downloaded in this session. */
+const engineDownloadLog: string[] = []
+
+async function ensureEngineFile(context: vscode.ExtensionContext, file: { name: string; url: string; sha256: string }, refresh: boolean): Promise<vscode.Uri> {
+  if (!/^[0-9a-f]{64}$/.test(file.sha256) || !/^[\w.@-]+$/.test(file.name)) throw new Error('not an engine file')
+  if (!/^https:\/\/(cdn\.jsdelivr\.net|extensions\.duckdb\.org)\//.test(file.url)) throw new Error(`not an engine download URL: ${file.url}`)
+  const target = vscode.Uri.joinPath(engineDir(context), `${file.sha256}-${file.name}`)
+  if (!refresh) {
+    try {
+      await vscode.workspace.fs.stat(target)
+      return target
+    } catch {
+      // not downloaded yet
+    }
+  }
+  const running = engineDownloads.get(file.sha256)
+  if (running && !refresh) return running
+  const download = (async () => {
+    const res = await fetch(file.url)
+    if (!res.ok) throw new Error(`${new URL(file.url).host} answered ${res.status}`)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const got = createHash('sha256').update(bytes).digest('hex')
+    if (got !== file.sha256) throw new Error(`the download does not match the expected file (SHA-256 ${got.slice(0, 12)}…, expected ${file.sha256.slice(0, 12)}…)`)
+    await vscode.workspace.fs.createDirectory(engineDir(context))
+    // Written next to the target, then renamed: a half-written file never has the final name.
+    const partial = vscode.Uri.joinPath(engineDir(context), `${file.sha256}-${file.name}.part`)
+    await vscode.workspace.fs.writeFile(partial, bytes)
+    await vscode.workspace.fs.rename(partial, target, { overwrite: true })
+    engineDownloadLog.push(file.name)
+    log(`SQL engine: downloaded ${file.name} (${(bytes.length / 1024 / 1024).toFixed(1)} MB) from ${new URL(file.url).host}`)
+    return target
+  })()
+  engineDownloads.set(file.sha256, download)
+  try {
+    return await download
+  } finally {
+    engineDownloads.delete(file.sha256)
+  }
+}
+
+async function pruneEngineFiles(context: vscode.ExtensionContext, keep: string[]): Promise<void> {
+  let entries: Array<[string, vscode.FileType]>
+  try {
+    entries = await vscode.workspace.fs.readDirectory(engineDir(context))
+  } catch {
+    return
+  }
+  for (const [name] of entries) {
+    const sha = name.slice(0, 64)
+    if (!keep.includes(sha) && !engineDownloads.has(sha)) await vscode.workspace.fs.delete(vscode.Uri.joinPath(engineDir(context), name)).then(undefined, () => {})
+  }
+}
+
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
   /** Spec 007: each viewer's loopback-server registration, and the files a whole-transfer fallback would send. */
@@ -207,7 +271,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [webviewRoot, documentDir],
+      // Spec 008 research §15: plus the engine's local copy.
+      localResourceRoots: [webviewRoot, documentDir, engineDir(this.context)],
     }
 
     // Register the message listener BEFORE setting .html — if the webview
@@ -239,6 +304,17 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else if (msg.type === 'viewState') {
         lastViewState = { basemapId: msg.basemapId, appearance: msg.appearance, basemapNotice: msg.basemapNotice, sourceChanged: msg.sourceChanged }
         if (msg.basemapNotice) log(`${path.posix.basename(document.uri.path)}: ${msg.basemapNotice}`)
+      } else if (msg.type === 'engineFile') {
+        const reply = (result: unknown) => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+        void ensureEngineFile(this.context, msg, msg.refresh).then(
+          (uri) => reply({ uri: panel.webview.asWebviewUri(uri).toString() }),
+          (err: unknown) => {
+            log(`SQL engine: ${msg.name}: ${err instanceof Error ? err.message : String(err)}`)
+            void reply({ error: err instanceof Error ? err.message : String(err) })
+          }
+        )
+      } else if (msg.type === 'pruneEngineFiles') {
+        void pruneEngineFiles(this.context, msg.keep)
       } else if (msg.type === 'loadState') {
         // Global, not per-workspace: a preference like the blank basemap
         // color should follow the user to every file and window.
@@ -425,17 +501,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
    * protocol (contracts/host-webview-protocol.md).
    */
   private async sendAssetsAndFile(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri, documentUri: vscode.Uri): Promise<void> {
-    const workerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-browser-eh.worker.js'))
-    const wasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'duckdb', 'duckdb-eh.wasm'))
+    // Spec 008 research §15: the SQL engine isn't shipped; the webview downloads it (hash-checked).
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
-    const sqlWasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'sqljs', 'sql-wasm.wasm'))
     const primaryName = path.basename(documentUri.fsPath)
     await panel.webview.postMessage({
       type: 'assets',
-      duckdbWorkerUrl: workerUri.toString(),
-      duckdbWasmUrl: wasmUri.toString(),
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
-      sqlWasmUrl: sqlWasmUri.toString(),
       placeSearchEnabled: placeSearchEnabled(),
       primaryFileName: primaryName,
       // Stable per-file key for persisted webview state (spec 002 history).
@@ -574,12 +645,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.css'))
     const csp = webview.cspSource
 
-    // connect-src allows extensions.duckdb.org: T007/T009 found extension
-    // loading bypasses JS-level fetch() entirely (handled inside the
-    // compiled Emscripten/WASM runtime), so the spatial extension is loaded
-    // from the real CDN rather than bundled locally — a considered, final
-    // decision (research.md §3). Extend this list later for basemap
-    // tile/style/sprite/glyph hosts per CLAUDE.md's basemap CSP notes
+    // connect-src: the SQL engine is downloaded by the extension host (spec 008
+    // research §15) and read from its local copy (${csp}), so the webview never
+    // contacts jsDelivr or extensions.duckdb.org; `blob:` is how the worker
+    // reads the verified extension bytes. Extend this
+    // list for basemap tile/style/sprite/glyph hosts per CLAUDE.md's basemap
+    // CSP notes
     // (spec 004). tiles.openfreemap.org serves every basemap resource in the
     // catalog (style JSON, vector + raster tiles, sprites, glyphs); a blocked
     // request degrades to blank + message (FR-016), never breaks the viewer.
@@ -587,7 +658,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} http://localhost.:* https://extensions.duckdb.org https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>
@@ -675,6 +746,21 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       supportsMultipleEditorsPerDocument: false,
     }),
     // Explorer / editor-tab context menu (CLAUDE.md): "Open in Spatial Explorer".
+    // Spec 008 US8 (FR-032): the bundled sample, no workspace file needed. It is
+    // copied to the extension's own storage first: the install folder may be
+    // read-only, and exports and styles are saved next to the data.
+    vscode.commands.registerCommand('spatialExplorer.openSample', async () => {
+      const source = vscode.Uri.joinPath(context.extensionUri, 'sample', 'us-counties.parquet')
+      const dir = vscode.Uri.joinPath(context.globalStorageUri, 'sample')
+      const target = vscode.Uri.joinPath(dir, 'us-counties.parquet')
+      try {
+        await vscode.workspace.fs.stat(target)
+      } catch {
+        await vscode.workspace.fs.createDirectory(dir)
+        await vscode.workspace.fs.copy(source, target, { overwrite: true })
+      }
+      await vscode.commands.executeCommand('vscode.openWith', target, 'spatialExplorer.editorOption')
+    }),
     vscode.commands.registerCommand('spatialExplorer.openInViewer', async (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri
       if (!target) return
@@ -738,6 +824,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // Spec 008 US7 T081: export the map image (pair with _saveNextExportTo).
     vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number) => provider.postToActive({ type: 'testExportMapImage', scale })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
+    // Spec 008 research §15: where the engine's local copy lives, and what was downloaded this session.
+    vscode.commands.registerCommand('spatialExplorer._getEngineDownloads', () => ({ dir: engineDir(context).fsPath, downloaded: [...engineDownloadLog] })),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null
       provider.testSelectFeature(id)

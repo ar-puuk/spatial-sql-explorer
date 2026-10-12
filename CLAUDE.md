@@ -6,8 +6,8 @@ extension from one codebase. Goal: never open QGIS for basic GIS work.
 Scope is exactly: LOOK (open + view), QUERY (SQL), STYLE (thematic), EXPORT.
 The VS Code extension is the priority target; the web app is the secondary shell.
 
-The repo currently contains the legacy single-page app (tag `legacy-v1`).
-It is being rebuilt, not patched. Use the legacy app only as a feature reference.
+The pre-rebuild single-page app is preserved at tag `legacy-v1` (no longer in the tree).
+Use it only as a feature reference (`git show legacy-v1:js/app.js`, or check out the tag).
 
 ## Explicitly out of scope
 Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb
@@ -20,9 +20,17 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
 
 ## Product decisions (already made)
 - Name: Spatial Explorer. Marketplace display name pattern: "Spatial Explorer: Spatial SQL & Map Viewer"
-  (keywords in the display name; id/publisher TBD). Publish to VS Code Marketplace AND Open VSX.
+  (keywords in the display name). Extension ID `arpuuk.spatial-explorer` (publisher `arpuuk`, as omx-viewer).
+  Publish to VS Code Marketplace AND Open VSX (.github/workflows/publish-extension.yml, manual run only).
+  Logo: a globe in SQL square brackets, apps/vscode-ext/icon.svg (icon.png rendered from it; web favicon).
 - DuckDB runs as DuckDB-WASM inside the webview (NOT native in the extension host).
   Use the single-threaded bundle (no SharedArrayBuffer; coi-serviceworker is not usable in VS Code webviews).
+  Not bundled (user decision 2026-10-11, constitution v1.2.0): DuckDB-WASM, its extensions (spatial, parquet,
+  json) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
+  scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package.
+  Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
+  Each shell keeps a local copy through HostAdapter.engineFile (VS Code: extension host global storage;
+  web: Cache Storage), so it works offline after the first start.
   Known ceiling: the engine's memory limit is 3.1 GiB in both shells (measured, specs/007-viewport-loading/research.md §1;
   omx-viewer's ~512 MB OOM was likely JS-side copies, not the engine). After an OOM the registered file handle must be re-registered.
   Design for it (see performance rules).

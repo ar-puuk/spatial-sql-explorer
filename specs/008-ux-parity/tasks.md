@@ -467,22 +467,22 @@ QML and Mapbox GL (FR-025–FR-027).
 
 ### Tests for US8
 
-- [ ] T086 [P] [US8] Web test `tests/web/specs/sample.spec.ts`: offline (`context.setOffline(true)` after the app and engine load), `Try sample data` draws within 3 s (SC-008) and runs the default query; styling and export work.
-- [ ] T087 [P] [US8] Web test `tests/web/specs/place-search.spec.ts`, with Nominatim stubbed via `page.route`:
+- [X] T086 [P] [US8] Web test `tests/web/specs/sample.spec.ts`: offline (`context.setOffline(true)` after the app and engine load), `Try sample data` draws within 3 s (SC-008) and runs the default query; styling and export work.
+- [X] T087 [P] [US8] Web test `tests/web/specs/place-search.spec.ts`, with Nominatim stubbed via `page.route`:
   - first use shows the `Place search` notice dialog, and only once;
   - Enter searches; no request goes out while typing (request count);
   - results form the `Places` listbox, and picking one moves the map;
   - "No places found";
   - offline shows "can't reach the place search service";
   - the only request is to `nominatim.openstreetmap.org` with `q=<typed text>` and nothing else.
-- [ ] T088 [P] [US8] VS Code test `tests/vscode-ext/src/suite/sample-search.test.ts`: the `spatialExplorer.openSample` command opens the sample in the custom editor with no workspace file; with `spatialExplorer.placeSearch.enabled = false`, the search box is absent.
+- [X] T088 [P] [US8] VS Code test `tests/vscode-ext/src/suite/sample-search.test.ts`: the `spatialExplorer.openSample` command opens the sample in the custom editor with no workspace file; with `spatialExplorer.placeSearch.enabled = false`, the search box is absent.
 
 ### Implementation for US8
 
-- [ ] T089 [US8] Sample data:
+- [X] T089 [US8] Sample data:
   - web: `Try sample data` in the empty state (`apps/web/src/App.svelte`) opens `/sample/us-counties.parquet` as a `bytes` source;
   - VS Code: a `spatialExplorer.openSample` command in `apps/vscode-ext/package.json` and `src/extension.ts`, opening `sample/us-counties.parquet` with the custom editor.
-- [ ] T090 [US8] Create `packages/ui/src/PlaceSearch.svelte`:
+- [X] T090 [US8] Create `packages/ui/src/PlaceSearch.svelte`:
   - a `search` landmark with the `Search places` searchbox and a button;
   - a request only on Enter or click, at most 1 per second;
   - the `Places` listbox (up to 5 results), with Escape to close;
@@ -491,7 +491,7 @@ QML and Mapbox GL (FR-025–FR-027).
   - the first-use notice dialog, stored via `saveState('placeSearchNoticeShown')`;
   - hidden when `getPreference('placeSearch.enabled') === false`;
   - network fetches go through a `HostAdapter`-independent `fetch` in `packages/ui` (allowed: not the File API). If the lint rule objects, add a `searchPlaces` HostAdapter method instead and note it in contracts.
-- [ ] T091 [US8] Add the `spatialExplorer.placeSearch.enabled` setting in `apps/vscode-ext/package.json`, forwarded on configuration change. Add the Nominatim host to the CSP `connect-src` (if not done in T007).
+- [X] T091 [US8] Add the `spatialExplorer.placeSearch.enabled` setting in `apps/vscode-ext/package.json`, forwarded on configuration change. Add the Nominatim host to the CSP `connect-src` (if not done in T007).
 
 **Checkpoint**: US8 tests green.
 

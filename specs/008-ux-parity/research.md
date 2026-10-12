@@ -532,3 +532,91 @@ Every format offered was written by the real web build, then read back:
   is ~1 KB. Applying waits for the result's fit before moving the camera;
   the hash is cleared once applied, so a reload doesn't ask again. A link
   made with another file warns and still applies; failed parts are listed.
+
+## Implementation outcomes (US8, 2026-10-11)
+
+- Place search: `packages/ui/src/placeSearch.ts` fetches
+  `nominatim.openstreetmap.org/search?q=<text>&format=jsonv2&limit=5` with no
+  credentials and an origin-only referrer: the typed text and nothing else.
+  Only on Enter or the button, at most one per second. The first search shows
+  the privacy notice (`saveState('placeSearchNoticeShown')`). Hidden when the
+  VS Code setting is off; the setting now notifies the webview live
+  (`HostAdapter.onPreferenceChange`).
+- Sample data: web (landing page, `/sample/us-counties.parquet`) and VS Code
+  (`spatialExplorer.openSample`, copied to the extension's global storage
+  first: the install folder may be read-only, and exports and styles save
+  next to the data). Draws in ~1 s (SC-008).
+- Open risk (SC-008 "with no network"): the engine downloads its spatial
+  extension from extensions.duckdb.org at start-up, so with no internet at
+  all the engine never becomes ready, for the sample or any file. The sample
+  test goes offline after the engine has loaded, as T086 specifies. Making
+  the app fully offline means bundling the extension (.duckdb_extension.wasm)
+  with the app and pointing `custom_extension_repository` at it: a separate
+  decision (size, both shells).
+
+## 15. Engine from a CDN, hash-checked (user decision, 2026-10-11)
+
+**Decision (user)**: don't bundle DuckDB-WASM (35 of the web build's 39 MB,
+and most of the 8.7 MB VSIX). Load it from jsDelivr at a pinned version,
+and check every downloaded piece of engine code against a SHA-256 recorded
+at build time: the DuckDB worker and wasm, the spatial, parquet and json
+extensions (until now fetched by DuckDB itself, unchecked), and sql.js.
+
+**Spike** (Chromium, the web preview server):
+- jsDelivr's `@duckdb/duckdb-wasm@1.32.0/dist` files are byte-identical to
+  the npm package (worker `f8ab72b6…`, wasm `4c221bfa…`), so their hashes
+  come from `node_modules` at build time.
+- The engine starts from verified bytes: `new Worker(blobUrl)` of the
+  checked worker text and `db.instantiate(blobUrl)` of the checked wasm
+  (~0.9 s here, downloads included).
+- Extensions: `LOAD '<blob url>'` fails (DuckDB names the extension after
+  the file: "expected entrypoint `<uuid>_duckdb_cpp_init`"); a registered
+  buffer fails too (extensions are fetched with XHR). `LOAD
+  '<blob url>#/spatial.duckdb_extension.wasm'` works: the fetch ignores the
+  fragment, DuckDB reads the name from it. Signature checks stay on
+  (`allow_unsigned_extensions` false). spatial 23.5 MB, `04b77694…`.
+- DuckDB's own autoload/autoinstall are turned off, so nothing else is
+  fetched behind the check.
+
+**Outcome** (implemented, constitution v1.2.0):
+- `scripts/engine-assets.mjs` writes `packages/core/src/engineAssets.json`
+  (URLs, SHA-256, sizes); a core test fails if it drifts from node_modules,
+  and the script refuses an extension whose bytes changed for the same
+  DuckDB release. `fetchVerified` (core `engineAssets.ts`) refuses a
+  mismatch with "refused to run its SQL engine: … does not match".
+- Sizes: web build 39 MB → 4.0 MB; VS Code webview 38 MB → 3.5 MB; VSIX
+  8.7 MB → 1.4 MB.
+- VS Code: works in the webview (75 tests, real CDNs): the worker reads
+  verified extension bytes from blob URLs (CSP `connect-src blob:` plus
+  `cdn.jsdelivr.net`).
+- Tests: web test builds serve the same files from `/engine-mirror`
+  (ENGINE_MIRROR=1, VITE_ENGINE_MIRROR); `engine-integrity.spec` checks a
+  tampered engine and extension are refused and that only the 5 pinned
+  files are fetched. The production build was also run against the real
+  CDNs (GeoPackage export through the CDN's sql.js, GeoParquet through the
+  parquet extension).
+- Offline: still needs a connection the first time (as before, for the
+  extensions); after that the browser's HTTP cache serves the pinned files.
+
+**Local copy, offline after first use** (user request, 2026-10-11): the
+files still come from jsDelivr and extensions.duckdb.org, but each shell
+keeps them, so later starts need no network.
+- `HostAdapter.engineFile(file, { refresh })` returns a file's bytes from the
+  host's copy, downloading it once from its pinned URL; the core checks the
+  SHA-256 of whatever comes back and asks for a fresh download once on a
+  mismatch. `pruneEngineFiles(keep)` drops other versions after the engine
+  starts.
+- VS Code: the extension host downloads (Node `fetch`, hash-checked, written
+  as `.part` then renamed) into `globalStorage/engine/<sha256>-<name>`; the
+  webview reads it as a local resource, and its CSP no longer lists the
+  CDNs. VS Code's `http.fetchAdditionalSupport` (default on; checked in the
+  1.141 build) gives that `fetch` the editor's proxy and system-certificate
+  settings. Remote: the copy lives where the extension host runs.
+- Web: Cache Storage (`spatial-explorer-engine`, keyed by hash), not the
+  HTTP cache (which the browser evicts freely); `navigator.storage.persist()`
+  is requested. The page itself still needs the network to load (no service
+  worker).
+- Tested: web, with the engine servers unreachable after the first start
+  (0 requests, opens fine) and a damaged cached wasm (only that file is
+  downloaded again); VS Code, a second open downloads nothing and a damaged
+  copy on disk is replaced.

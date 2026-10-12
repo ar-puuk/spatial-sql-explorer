@@ -12,6 +12,7 @@
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { getDuckDb, resetDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
+import { loadSqlWasm } from './engineAssets.js'
 import { isOutOfMemory, outOfMemoryMessage } from './outOfMemory.js'
 import { FgbReader } from './source/fgbReader.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
@@ -411,7 +412,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // The initial view IS the default query's result (FR-003, SC-002).
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
-    session.setExportAssets({ sqlWasmUrl: duckdbAssets.sqlWasmUrl })
+    session.setExportAssets({ loadSqlWasm: () => loadSqlWasm(duckdbAssets) })
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
     if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null)
     const initial = await session.runDefault()

@@ -3,6 +3,7 @@
 // and QGIS read-backs are in tests/web/specs/export-formats.spec.ts and
 // tests/qgis/read_back.py.
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { unzipSync, strFromU8 } from 'fflate'
 import { geojson as fgb } from 'flatgeobuf'
@@ -157,7 +158,7 @@ describe('Excel workbook', () => {
 
 describe('GeoPackage', () => {
   it('reads back with sql.js: the required tables, the features, the geometry blobs', async () => {
-    const bytes = await write(geoPackageWriter(columns, { table: 'cities', geometryColumn: 'geom', srid: 4326, wkt: 'GEOGCS["WGS 84"]', sqlWasmUrl: sqlWasm }))
+    const bytes = await write(geoPackageWriter(columns, { table: 'cities', geometryColumn: 'geom', srid: 4326, wkt: 'GEOGCS["WGS 84"]', loadSqlWasm: async () => { const b = fs.readFileSync(sqlWasm); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) } }))
     const SQL = await initSqlJs({ locateFile: () => sqlWasm })
     const db = new SQL.Database(bytes)
     const one = (sql: string) => db.exec(sql)[0]?.values ?? []

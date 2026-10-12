@@ -1,0 +1,73 @@
+name: Package and publish the VS Code extension
+
+# A push to main builds and packages a .vsix (a downloadable artifact, for
+# sideloading and checks). Publishing to the VS Code Marketplace and Open VSX
+# is a public, hard-to-undo action, so it only happens on a manual run with
+# "publish" ticked (Actions > this workflow > Run workflow), as in omx-viewer.
+# Secrets: VSCE_PAT (Marketplace), OVSX_PAT (Open VSX).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'apps/vscode-ext/**'
+      - 'package-lock.json'
+      - 'CHANGELOG.md'
+      - '.github/workflows/publish-extension.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to the VS Code Marketplace and Open VSX'
+        type: boolean
+        default: false
+
+concurrency:
+  group: vscode-ext-package
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint, typecheck and core tests
+        run: |
+          npm run lint
+          npm run typecheck --workspace=apps/vscode-ext
+          npm run test:core
+
+      - name: Build and package .vsix
+        working-directory: apps/vscode-ext
+        run: |
+          npm run build
+          npx --yes @vscode/vsce package --no-dependencies --out spatial-explorer.vsix
+
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial-explorer-vsix
+          path: apps/vscode-ext/spatial-explorer.vsix
+
+      # Only on a manual run with publish ticked.
+      - name: Publish to the VS Code Marketplace
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        working-directory: apps/vscode-ext
+        run: npx --yes @vscode/vsce publish --no-dependencies --packagePath spatial-explorer.vsix -p "${{ secrets.VSCE_PAT }}"
+
+      - name: Publish to Open VSX
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        working-directory: apps/vscode-ext
+        run: npx --yes ovsx publish spatial-explorer.vsix -p "${{ secrets.OVSX_PAT }}"

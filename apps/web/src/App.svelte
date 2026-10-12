@@ -9,9 +9,12 @@
   import ThemeMenu from './ThemeMenu.svelte'
   import Landing from './Landing.svelte'
 
-  // Served from public/duckdb/ — see scripts/copy-wasm-assets.js.
-  const duckdbAssets = { workerUrl: '/duckdb/duckdb-browser-eh.worker.js', wasmUrl: '/duckdb/duckdb-eh.wasm', sqlWasmUrl: '/sqljs/sql-wasm.wasm' }
+  // Spec 008 research §15: the engine is downloaded from pinned URLs and
+  // hash-checked (core engineAssets.ts); test builds serve the same files
+  // from the app's own origin (VITE_ENGINE_MIRROR).
   const hostAdapter = createWebHostAdapter()
+  // The host keeps a local copy (Cache Storage): offline after the first start.
+  const duckdbAssets = { mirror: (import.meta.env.VITE_ENGINE_MIRROR as string | undefined) || undefined, host: hostAdapter }
 
   // Spec 008 FR-022: the theme choice (System follows the OS), remembered.
   let themePreference = $state<ThemePreference>('system')
@@ -252,7 +255,7 @@
   // `#v1=…` holds the query, style, basemap, projection and view, and the
   // file's name and size; never data or paths. Opening one asks for that
   // file (or opens the sample), then applies what it holds.
-  const SAMPLE_URL = '/sample/us-counties.parquet'
+  const SAMPLE_URL = `${import.meta.env.BASE_URL}sample/us-counties.parquet`
   let sampleFile: File | null = null
   let isSample = false
   let pendingShare = $state.raw<{ state: Partial<ShareState>; dropped: string[] } | null>(null)
@@ -379,7 +382,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="shell" ondragover={handleDragOver} ondragleave={() => (isDragOver = false)} ondrop={handleDrop}>
   <header class="app-header">
-    <h1 class="brand"><span class="glyph" aria-hidden="true">⬡</span>Spatial Explorer</h1>
+    <h1 class="brand"><img class="glyph" src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width="20" height="20" />Spatial Explorer</h1>
     {#if fileName && !idleState}
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
@@ -469,8 +472,10 @@
     white-space: nowrap;
   }
   .glyph {
-    font-size: 16px;
-    letter-spacing: 0;
+    display: block;
+    width: 20px;
+    height: 20px;
+    flex: none;
   }
   .file {
     display: inline-flex;

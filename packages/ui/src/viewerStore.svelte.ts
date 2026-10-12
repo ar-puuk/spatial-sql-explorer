@@ -182,6 +182,15 @@ export interface ViewerStore {
   readonly runCount: number
   // --- Spec 005: export ---------------------------------------------------
   readonly exportOpen: boolean
+  /** Spec 008 US8: place search is on (VS Code: the `spatialExplorer.placeSearch.enabled` setting). */
+  readonly placeSearchEnabled: boolean
+  /** The host has a setting to turn place search off (VS Code), so the notice can point to it. */
+  readonly placeSearchConfigurable: boolean
+  /** Whether the place search privacy notice was already shown (asked once per user). */
+  placeSearchNoticeShown(): Promise<boolean>
+  markPlaceSearchNoticeShown(): void
+  /** Fits the map to a WGS84 box (a found place). */
+  fitTo(bbox: [number, number, number, number]): void
   /** Spec 008 US7: the map image dialog. */
   readonly mapImageOpen: boolean
   openMapImage(): void
@@ -473,6 +482,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let selection = $state.raw<Selection>(EMPTY_SELECTION)
   let showSelectedOnly = $state(false)
   let fitRequest = $state.raw<{ bbox: [number, number, number, number]; seq: number } | null>(null)
+  // Spec 008 US8: follows the host's setting live.
+  let placeSearchEnabled = $state(hostAdapter.getPreference?.('placeSearch.enabled') !== false)
+  hostAdapter.onPreferenceChange?.(() => (placeSearchEnabled = hostAdapter.getPreference?.('placeSearch.enabled') !== false))
+  const PLACE_NOTICE_KEY = 'placeSearchNoticeShown'
   // The map always opens flat; the globe is a view for this session, not
   // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
@@ -1372,6 +1385,21 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get fitRequest() {
       return fitRequest
+    },
+    fitTo(bbox) {
+      fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
+    },
+    get placeSearchEnabled() {
+      return placeSearchEnabled
+    },
+    get placeSearchConfigurable() {
+      return typeof hostAdapter.getPreference === 'function'
+    },
+    async placeSearchNoticeShown() {
+      return (await hostAdapter.loadState<boolean>(PLACE_NOTICE_KEY).catch(() => null)) === true
+    },
+    markPlaceSearchNoticeShown() {
+      void hostAdapter.saveState(PLACE_NOTICE_KEY, true).catch(() => {})
     },
     get projection() {
       return projection

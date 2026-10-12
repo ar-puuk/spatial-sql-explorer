@@ -1,0 +1,62 @@
+name: Deploy web app to GitHub Pages
+
+# The web app (apps/web) at https://ar-puuk.github.io/spatial-sql-explorer/.
+# Same approach as omx-viewer: build, then push the static build to the
+# gh-pages branch (repo Settings > Pages > Source: Deploy from a branch,
+# gh-pages, / (root)). The SQL engine is not in the build: the app downloads
+# it from pinned URLs and checks its hashes (packages/core/src/engineAssets.ts).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'apps/web/**'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # peaceiris/actions-gh-pages pushes to the gh-pages branch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint and core tests
+        run: |
+          npm run lint
+          npm run test:core
+
+      - name: Build
+        run: npm run build --workspace=apps/web
+        env:
+          # The app is served under /<repo>/ (vite.config.ts reads BASE_PATH).
+          BASE_PATH: /spatial-sql-explorer/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apps/web/dist
+          enable_jekyll: false
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
+          commit_message: 'deploy: ${{ github.sha }}'

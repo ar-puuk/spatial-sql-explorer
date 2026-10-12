@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Spatial Explorer">
+  <!-- A globe held in SQL square brackets: spatial data, selected by a query. -->
+  <rect width="128" height="128" rx="28" fill="#0e171e"/>
+  <path d="M38 28 H25 V100 H38" fill="none" stroke="#fbbf24" stroke-width="9" stroke-linejoin="miter"/>
+  <path d="M90 28 H103 V100 H90" fill="none" stroke="#fbbf24" stroke-width="9" stroke-linejoin="miter"/>
+  <circle cx="64" cy="64" r="25" fill="#15242f" stroke="#fff4d6" stroke-width="5"/>
+  <g fill="none" stroke="#fff4d6" stroke-width="3">
+    <ellipse cx="64" cy="64" rx="10" ry="25"/>
+    <line x1="39" y1="64" x2="89" y2="64"/>
+    <path d="M43 51 Q64 57 85 51"/>
+    <path d="M43 77 Q64 71 85 77"/>
+  </g>
+</svg>
