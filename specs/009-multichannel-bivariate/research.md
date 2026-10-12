@@ -146,6 +146,15 @@ the same shape.
   (a foreign QML), a transformer imports as Proportional with its
   parameters, and an expression size imports with a notice
   ("data-defined size expression not imported").
+- **Marker key, confirmed (T023, 2026-10-12;
+  [spikes/qgis-marker-dd.py.txt](./spikes/qgis-marker-dd.py.txt))**:
+  - A marker's data-defined size is the symbol layer property `size`,
+    holding a field plus a transformer. `QgsMarkerSymbol.setDataDefinedSize`
+    writes it, and the expression form works the same way.
+  - In the transformer, `scaleType` is 1 for Area (0 Linear) and `t` is 1.
+  - QGIS reloads it active, as
+    `coalesce(scale_polynomial("v", 0, 100, 4, 20, 0.5), 2)`: exactly our
+    point formula with `nullSize` as the fallback.
 - **Render check**: evaluating the property outside a render returned
   placeholder values in the spike. The implementation therefore includes a
   QGIS render comparison: draw the QML in QGIS and compare widths per

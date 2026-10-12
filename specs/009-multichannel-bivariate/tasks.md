@@ -339,7 +339,7 @@ and QGIS draws it natively.
 and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
 5).
 
-- [ ] T023 [US5] **Spike-confirm** the QGIS marker data-defined size key
+- [X] T023 [US5] **Spike-confirm** the QGIS marker data-defined size key
   (research §5) with PyQGIS: set `setDataDefinedSize` on a
   `QgsMarkerSymbol`, save the QML, and record the property name under
   `<data_defined_properties>`. Append the result to
