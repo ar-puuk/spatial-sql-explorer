@@ -109,6 +109,20 @@ counts). Bivariate is 1 combined totals pass, 2 order-statistics passes and
 1 joint counts pass: 4 passes, under the 2x budget. Color plus size is
 the same shape.
 
+**Measured (T053, 2026-10-12)**: `scale.spec.ts` "spec 009 SC-007" ran
+alone on the 1,000,166-row result of `parcels-4m.parquet`, as centroid
+points so the size channel applies:
+
+| Style | Time | vs graduated |
+|---|---|---|
+| Graduated `value` | 2,359 ms | 1.0x |
+| Bivariate `value` x `acres` | 2,917 ms | 1.24x |
+| Color + size (`value`, size by `acres`) | 3,426 ms | 1.45x |
+
+Run it with `npx playwright test --project=performance --no-deps -g "spec 009 SC-007"`.
+Without `--no-deps`, the performance project first runs the whole chromium
+suite.
+
 ## 5. QGIS QML: color + size
 
 **Spike** ([spikes/qgis-dd-size.py.txt](./spikes/qgis-dd-size.py.txt),

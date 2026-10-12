@@ -276,7 +276,8 @@ test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated colu
   await expect(statusBar(page)).toContainText('4,000,000', { timeout: 60000 })
   await page.keyboard.press('Control+Shift+Q')
   const { runQuery } = await import('./helpers')
-  await runQuery(page, 'SELECT * FROM layer WHERE value > 1500000')
+  // Points (centroids), so the size channel applies: the same 1,000,166 rows for all three styles.
+  await runQuery(page, 'SELECT parcel_id, acres, value, year_built, ST_Centroid(geom) AS geom FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('1,000,166 rows', { timeout: 120000 })
   await page.getByRole('button', { name: 'Layer style' }).click()
   const panel = page.getByRole('dialog', { name: 'Layer style' })
