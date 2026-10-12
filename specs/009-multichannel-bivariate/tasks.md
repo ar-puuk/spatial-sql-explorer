@@ -501,10 +501,10 @@ hidden (quickstart scenario 4).
   - `validateStyle`: two different numeric columns.
   - `sanitizeRenderer`: bivariate fields, with an unknown palette falling
     back to the default.
-- [ ] T040 [P] [US4] Create `packages/ui/src/style/BivariatePicker.svelte`:
+- [X] T040 [P] [US4] Create `packages/ui/src/style/BivariatePicker.svelte`:
   the Axis 1 / Axis 2 selects (numeric only), a Swap button, Method selects
   per axis, and a palette radio group with 3×3 SVG previews and notes.
-- [ ] T041 [P] [US4] Create `packages/ui/src/style/BivariateLegend.svelte`
+- [X] T041 [P] [US4] Create `packages/ui/src/style/BivariateLegend.svelte`
   per `contracts/ui.md`:
   - `role="grid"`, rows high-to-low;
   - cell buttons with `aria-pressed` and full accessible names and
@@ -513,7 +513,7 @@ hidden (quickstart scenario 4).
   - axis labels with arrows; a No value row;
   - theme tokens for chrome, fixed palette colors.
   - It is used by both `MapLegend.svelte` and the style panel ("Cells").
-- [ ] T042 [US4] Integrate:
+- [X] T042 [US4] Integrate:
   - `LayerStylePanel.svelte`: the fourth Style radio, with the
     unavailable reason; `BivariatePicker`; the "Cells" legend; the Size
     section note;
