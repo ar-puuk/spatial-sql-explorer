@@ -379,7 +379,7 @@ and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
     `icon-size` for shapes;
   - the foreign two-stop `interpolate` import.
   - Extend `previewExportNotice` in `interchange.ts`.
-- [ ] T028 [P] [US5] Create `tests/qgis/check_009.py` (documented in
+- [X] T028 [P] [US5] Create `tests/qgis/check_009.py` (documented in
   `tests/qgis/README.md`), following `check_sidecar.py`'s CLI. It loads each
   QML the app saved for this spec, renders with
   `QgsMapRendererParallelJob` or symbol evaluation inside a render context,

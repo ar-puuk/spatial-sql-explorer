@@ -155,7 +155,16 @@ the same shape.
   - QGIS reloads it active, as
     `coalesce(scale_polynomial("v", 0, 100, 4, 20, 0.5), 2)`: exactly our
     point formula with `nullSize` as the fallback.
-- **Render check**: evaluating the property outside a render returned
+- **Render parity, verified (T028, 2026-10-12)**: `tests/qgis/check_009.py`
+  ran on the 4 cases from `tests/core/qgis-cases.test.ts`:
+  - the cases: categorized + classed line widths; categorized +
+    proportional markers (area); graduated + classed markers with a hidden
+    size class; single + proportional lines;
+  - QGIS 4.2.3's renderer, in a render context, gave the same color, size
+    and drawn/hidden as the app for 240 of 240 features;
+  - a mutation run (one expected size and one color changed) was caught,
+    with exit 1 and the feature named.
+- **Render check (spike, superseded by the parity run above)**: evaluating the property outside a render returned
   placeholder values in the spike. The implementation therefore includes a
   QGIS render comparison: draw the QML in QGIS and compare widths per
   feature (SC-005).
