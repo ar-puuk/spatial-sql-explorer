@@ -272,7 +272,7 @@ single color + classed size channel.
 `tests/core/fixtures/style/symbols/pt_gradsize.qml` QML. Expect identical
 sizes and labels, with a Size section shown.
 
-- [ ] T018 [P] [US3] Add migration tests in
+- [X] T018 [P] [US3] Add migration tests in
   `tests/core/style-channels.test.ts`:
   - `sanitizeStyle(legacy-vary-size.json)` gives `renderer: single` +
     `size` with the same column, method, classCount, overrides and

@@ -8,6 +8,9 @@ import { expression } from '@maplibre/maplibre-gl-style-spec'
 import {
   DEFAULT_LAYER_STYLE,
   classSizes,
+  exportStyle,
+  importStyle,
+  sanitizeStyle,
   layoutFor,
   markerIconIds,
   paintFor,
@@ -176,4 +179,62 @@ describe('styles without a size channel are unchanged (pre-009 snapshot)', () =>
       expect(JSON.parse(JSON.stringify(now))).toEqual(snapshot[name])
     })
   }
+})
+
+describe('styles saved with Graduated "Vary: Size" open unchanged (US3, FR-009)', () => {
+  const legacy = JSON.parse(fixture('legacy-vary-size.json')) as LayerStyle
+  const expected = JSON.parse(fixture('legacy-vary-size.expected.json')) as {
+    layer: { values: Array<number | null>; columns: Array<{ name: string; type: string }> }
+    labels: string[]
+    features: Array<{ v: number | null; radius: number; visible: boolean }>
+  }
+  const layer = { features: expected.layer.values.map((v, i) => ({ id: i, geometry: null, attributes: { v } })), columns: expected.layer.columns }
+
+  it('migrates to a single color with a classed size channel on the same column', () => {
+    const style = sanitizeStyle(legacy)
+    expect(style.renderer).toEqual({ kind: 'single' })
+    expect(style.size).toEqual({
+      column: 'v',
+      mode: 'classed',
+      method: 'quantile',
+      classCount: 5,
+      classes: [
+        { index: 1, label: 'Medium-low' },
+        { index: 3, visible: false },
+      ],
+      noValue: {},
+      sizeMin: 2,
+      sizeMax: 10,
+    })
+    expect(JSON.stringify(style.renderer)).not.toMatch(/vary|sizeMin|sizeMax/)
+  })
+
+  it('draws every feature at the same radius, with the same labels and hidden class', () => {
+    const style = sanitizeStyle(legacy)
+    const r = resolveStyle(style, layer)
+    expect(r.size?.classes.map((c) => c.label)).toEqual(expected.labels)
+    const p = paintFor(style, r, '#f59e0b')
+    const filter = visibilityFilter(style, r)
+    for (const f of expected.features) {
+      expect(evaluate(p.circle['circle-radius'], { v: f.v }, 'layers[0].paint.circle-radius', 'Point'), `v=${f.v}`).toBe(f.radius)
+      expect(filter ? evaluate(filter, { v: f.v }, 'layers[0].filter', 'Point') : true, `v=${f.v}`).toBe(f.visible)
+    }
+  })
+
+  it('a QGIS GraduatedSize file imports as a size channel (sizes in pixels)', () => {
+    const { style } = importStyle('a.qml', readFileSync(`${import.meta.dirname}/fixtures/style/symbols/pt_gradsize.qml`, 'utf8'))
+    const mm = 96 / 25.4
+    expect(style.renderer).toEqual({ kind: 'single' })
+    expect(style.size?.column).toBe('v')
+    expect(style.size?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
+    expect(style.size?.sizeMax).toBeCloseTo(5 * mm, 1)
+  })
+
+  it('the old fields are never written again', () => {
+    const style = sanitizeStyle(legacy)
+    for (const format of ['qml', 'sld', 'mapbox'] as const) {
+      const text = exportStyle(style, format, 'Point', 'x.geojson', resolveStyle(style, layer), layer.columns).text
+      expect(text, format).not.toMatch(/"vary"|graduatedMethod="GraduatedSize"/)
+    }
+  })
 })
