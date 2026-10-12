@@ -166,6 +166,7 @@ export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { m
     ramp,
     classes,
     noValue: nv ? override(nv.color, undefined, nv.label, (l) => l === 'No value', nv.visible) : {},
+    // Spec 009: size classes leave here in the legacy "Vary: Size" shape; sanitizeStyle makes them a size channel.
     ...(opts.size ? { vary: 'size' as const, sizeMin: opts.size.min, sizeMax: opts.size.max } : {}),
   }
 }

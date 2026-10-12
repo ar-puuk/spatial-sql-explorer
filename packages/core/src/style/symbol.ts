@@ -7,7 +7,7 @@
 // the marker's half-size = 1): a square's half-side equals a circle's
 // radius, as in QGIS. Dash patterns are Qt's pen styles, which QGIS's
 // `line_style` names, in line widths (MapLibre's `line-dasharray` unit).
-import { rendererOf, withLayerOpacity, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
+import { withLayerOpacity, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 
 export const MARKER_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'star', 'cross', 'x'] as const
 export type MarkerShape = (typeof MARKER_SHAPES)[number]
@@ -156,12 +156,6 @@ export interface SymbolSpec {
   dash: LineDash
 }
 
-/** True when a graduated renderer varies the symbol size instead of the color (QGIS GraduatedSize). */
-export function variesSize(style: LayerStyle, resolved?: ResolvedStyle): boolean {
-  const r = rendererOf(style)
-  return r.kind === 'graduated' && r.vary === 'size' && (!resolved || resolved.status === 'ok')
-}
-
 /** The single symbol (no classes, or a fallback). */
 export function baseSymbol(style: LayerStyle): SymbolSpec {
   const s = withLayerOpacity(style)
@@ -180,17 +174,13 @@ export function baseSymbol(style: LayerStyle): SymbolSpec {
 }
 
 /**
- * The symbol of one resolved class. Thematic colors replace the fill (polygons,
- * points) and the line color (lines); polygon outlines keep the stroke (FR-006).
- * Size classes keep the single symbol's colors and set the marker size or the
- * line width; "Other" and "No value" keep their colors at the single size.
+ * The symbol of one resolved color class. Thematic colors replace the fill
+ * (polygons, points) and the line color (lines); polygon outlines keep the
+ * stroke (FR-006). Sizes come from the size channel (`sizeSymbols`).
  */
 export function classSymbol(style: LayerStyle, resolved: ResolvedStyle, c: ResolvedClass): SymbolSpec {
   const base = baseSymbol(style)
   if (resolved.status !== 'ok' || c.kind === 'single') return base
-  if (variesSize(style, resolved) && c.kind === 'range') {
-    return c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }
-  }
   return { ...base, fillColor: c.color, lineColor: c.color }
 }
 

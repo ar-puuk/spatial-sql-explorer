@@ -226,16 +226,14 @@ describe('files written by QGIS 4.2.3', () => {
 
   it('reads GraduatedSize: point sizes 2..10 mm and line widths 1..5 mm, in pixels', () => {
     const mm = 96 / 25.4
-    const pts = rendererOf(importStyle('a.qml', fixture('pt_gradsize.qml')).style)
-    expect(pts.kind === 'graduated' && pts.vary).toBe('size')
-    if (pts.kind === 'graduated') {
-      expect(pts.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
-      expect(pts.sizeMax).toBeCloseTo(5 * mm, 1)
-    }
-    const lns = rendererOf(importStyle('a.qml', fixture('ln_gradsize.qml')).style)
-    if (lns.kind !== 'graduated') throw new Error('not graduated')
-    expect([lns.vary, lns.sizeMin, lns.sizeMax].map((v) => (typeof v === 'number' ? Math.round(v * 10) / 10 : v))).toEqual(['size', Math.round(mm * 10) / 10, Math.round(5 * mm * 10) / 10])
-    const sld = rendererOf(importStyle('a.sld', fixture('pt_gradsize.sld')).style)
-    expect(sld.kind === 'graduated' && [sld.vary, sld.sizeMin, sld.sizeMax]).toEqual(['size', 3.5, 18])
+    // Spec 009: as a size channel on a single color.
+    const pts = importStyle('a.qml', fixture('pt_gradsize.qml')).style.size
+    expect(pts?.mode).toBe('classed')
+    expect(pts?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
+    expect(pts?.sizeMax).toBeCloseTo(5 * mm, 1)
+    const lns = importStyle('a.qml', fixture('ln_gradsize.qml')).style.size
+    expect([lns?.sizeMin, lns?.sizeMax].map((v) => Math.round((v ?? 0) * 10) / 10)).toEqual([Math.round(mm * 10) / 10, Math.round(5 * mm * 10) / 10])
+    const sld = importStyle('a.sld', fixture('pt_gradsize.sld')).style.size
+    expect([sld?.sizeMin, sld?.sizeMax]).toEqual([3.5, 18])
   })
 })

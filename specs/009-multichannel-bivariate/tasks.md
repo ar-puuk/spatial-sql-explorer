@@ -282,7 +282,7 @@ sizes and labels, with a Size section shown.
     converted, as today);
   - the old fields are never written by `exportStyle` (any format) or
     `sanitizeStyle`.
-- [ ] T019 [US3] Implement the migration in `sanitizeStyle`
+- [X] T019 [US3] Implement the migration in `sanitizeStyle`
   (`packages/core/src/style/model.ts`): graduated `vary: 'size'` becomes
   single + `size` (drop color overrides; keep label, visible and bounds).
   - Update the QML (`qml.ts`), SLD (`sld.ts`) and Mapbox (`mapbox.ts`)

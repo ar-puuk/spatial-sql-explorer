@@ -359,7 +359,35 @@ export function round(n: number, digits = 3): number {
   return Math.round(n * f) / f
 }
 
-export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
+/**
+ * Spec 009 FR-009: a graduated renderer saved with "Vary: Size" (2026-10-12
+ * build; also what the QML/SLD importers read from QGIS GraduatedSize) is a
+ * single color plus a classed size channel on the same column.
+ */
+function migrateVarySize(style: Partial<LayerStyle>): Partial<LayerStyle> {
+  const r = style.renderer as Partial<GraduatedRenderer> | undefined
+  if (!r || r.kind !== 'graduated' || r.vary !== 'size') return style
+  if (style.size) return { ...style, renderer: { kind: 'single' } }
+  const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  const size: Partial<SizeChannel> = {
+    column: r.column,
+    mode: 'classed',
+    method: r.method,
+    classCount: r.classCount,
+    classes: (r.classes ?? []).map((c) => {
+      const o = { ...c }
+      delete o.color
+      return o
+    }),
+    noValue: { ...(r.noValue?.label !== undefined ? { label: r.noValue.label } : {}), ...(r.noValue?.visible === false ? { visible: false } : {}) },
+    sizeMin: n(r.sizeMin, 2),
+    sizeMax: n(r.sizeMax, 10),
+  }
+  return { ...style, renderer: { kind: 'single' }, size: size as SizeChannel }
+}
+
+export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
+  const style = migrateVarySize(raw)
   const pick = (c: string | undefined, fallback: string): string => {
     const rgba = parseColor(c)
     return rgba ? rgbToHex(rgba) : fallback
@@ -405,8 +433,8 @@ export function sanitizeSizeChannel(raw: Partial<SizeChannel> | undefined | null
         return out
       }),
     noValue,
-    sizeMin: sizes.sizeMin as number,
-    sizeMax: sizes.sizeMax as number,
+    sizeMin: sizes.sizeMin,
+    sizeMax: sizes.sizeMax,
   }
 }
 
@@ -431,12 +459,12 @@ function sanitizeRamp(r: RampRef | undefined, fallback: string): RampRef {
 const SIZE_LO = 0.5
 const SIZE_HI = 100
 
-/** A size-graduated renderer's range, made valid (min <= max, both within 0.5..100 px). */
-function sanitizeSizes(g: Partial<GraduatedRenderer>): Pick<GraduatedRenderer, 'vary' | 'sizeMin' | 'sizeMax'> {
+/** A size range made valid (min <= max, both within 0.5..100 px). */
+function sanitizeSizes(g: { sizeMin?: unknown; sizeMax?: unknown }): { sizeMin: number; sizeMax: number } {
   const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, SIZE_LO, SIZE_HI) : fallback)
   const min = n(g.sizeMin, 2)
   const max = n(g.sizeMax, Math.max(min, 10))
-  return { vary: 'size', sizeMin: Math.min(min, max), sizeMax: Math.max(min, max) }
+  return { sizeMin: Math.min(min, max), sizeMax: Math.max(min, max) }
 }
 
 /**
@@ -478,7 +506,6 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
           return out
         }),
       noValue: sanitizeOverride(g.noValue),
-      ...(g.vary === 'size' ? sanitizeSizes(g) : {}),
     }
   }
   return { kind: 'single' }

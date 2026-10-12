@@ -196,7 +196,7 @@ ${symbols}
   }
   return {
     props,
-    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="${r.vary === 'size' ? 'GraduatedSize' : 'GraduatedColor'}" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <ranges>
 ${ranges.join('\n')}
     </ranges>
