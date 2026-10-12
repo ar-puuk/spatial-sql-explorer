@@ -39,8 +39,8 @@ renderer, in a render context, the same per feature. It exits 1 on any
 mismatch.
 
 ```
-SE_QGIS_CASES=C:	mp\qgis009 npx vitest run qgis-cases      (in tests/core)
-C:\OSGeo4Win\python-qgis.bat tests\qgis\check_009.py C:	mp\qgis009
+SE_QGIS_CASES=C:\tmp\qgis009 npx vitest run qgis-cases      (in tests/core)
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_009.py C:\tmp\qgis009
 ```
 
 Last run: see `specs/009-multichannel-bivariate/research.md` §5.
