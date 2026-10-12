@@ -1,0 +1,32 @@
+{
+  "fillColor": "#3b82f6",
+  "fillOpacity": 0.75,
+  "strokeColor": "#4b5563",
+  "strokeOpacity": 0.8,
+  "strokeWidth": 0.75,
+  "pointRadius": 5,
+  "renderer": {
+    "kind": "graduated",
+    "column": "v",
+    "method": "quantile",
+    "classCount": 5,
+    "ramp": {
+      "id": "viridis",
+      "reversed": false
+    },
+    "classes": [
+      {
+        "index": 1,
+        "label": "Medium-low"
+      },
+      {
+        "index": 3,
+        "visible": false
+      }
+    ],
+    "noValue": {},
+    "vary": "size",
+    "sizeMin": 2,
+    "sizeMax": 10
+  }
+}

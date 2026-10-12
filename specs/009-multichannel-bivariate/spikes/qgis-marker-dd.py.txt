@@ -1,0 +1,26 @@
+import os, sys
+from qgis.core import *
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False); app.initQgis()
+out = sys.argv[1]
+log = open(os.path.join(out, 'marker_dd.log'), 'w', buffering=1)
+lyr = QgsVectorLayer('Point?crs=EPSG:4326&field=v:double', 'p', 'memory')
+s = QgsMarkerSymbol.createSimple({'name': 'star', 'size': '4', 'size_unit': 'Pixel'})
+prop = QgsProperty.fromField('v'); prop.setTransformer(QgsSizeScaleTransformer(QgsSizeScaleTransformer.Area, 0, 100, 4, 20, 2, 0.5))
+s.setDataDefinedSize(prop)
+lyr.setRenderer(QgsSingleSymbolRenderer(s))
+lyr.saveNamedStyle(os.path.join(out, 'marker_dd.qml'))
+# reload
+chk = QgsVectorLayer('Point?crs=EPSG:4326&field=v:double', 'c', 'memory')
+chk.loadNamedStyle(os.path.join(out, 'marker_dd.qml'))
+sym = chk.renderer().symbol()
+dd = sym.dataDefinedSize()
+log.write('symbol dataDefinedSize active=%s type=%s field=%s\n' % (dd.isActive(), dd.propertyType(), dd.field()))
+p2 = sym.symbolLayer(0).dataDefinedProperties().property(QgsSymbolLayer.Property.Size)
+log.write('layer Size property active=%s field=%s transformer=%s\n' % (p2.isActive(), p2.field(), p2.transformer().toExpression('"v"') if p2.transformer() else None))
+# expression form on the layer
+s3 = QgsMarkerSymbol.createSimple({'size': '4', 'size_unit': 'Pixel'})
+s3.symbolLayer(0).setDataDefinedProperty(QgsSymbolLayer.Property.Size, QgsProperty.fromExpression('CASE WHEN "v" <= 10 THEN 4 ELSE 8 END'))
+lyr.setRenderer(QgsSingleSymbolRenderer(s3))
+lyr.saveNamedStyle(os.path.join(out, 'marker_dd_expr.qml'))
+log.close(); os._exit(0)

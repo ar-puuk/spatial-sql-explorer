@@ -23,8 +23,33 @@
     onDelete: (key: string) => void
     /** Size classes: each class's symbol, shown (with its size) in place of a color for the ranges. */
     sizeSymbols?: { symbols: SymbolSpec[]; kind: 'point' | 'line' } | null
+    /** Spec 009: the list's accessible name (the size channel's is "Size classes"). */
+    listLabel?: string
+    /** False for the size channel: its classes come from the method, with no add or delete (FR-008). */
+    canAdd?: boolean
+    /** Spec 009: the classes shown, when not `resolved.classes` (the size channel's). */
+    classes?: ResolvedStyle['classes']
+    /** The caption above the list, when not `resolved.caption`. */
+    caption?: string
   }
-  let { resolved, kind, manual, onColor, onLabel, onVisible, onValue, onBound, onAdd, onDelete, sizeSymbols = null }: Props = $props()
+  let {
+    resolved,
+    kind,
+    manual,
+    onColor,
+    onLabel,
+    onVisible,
+    onValue,
+    onBound,
+    onAdd,
+    onDelete,
+    sizeSymbols = null,
+    listLabel = 'Class list',
+    canAdd = true,
+    classes: shownClasses,
+    caption,
+  }: Props = $props()
+  const list = $derived(shownClasses ?? resolved.classes)
   const sizeScale = $derived(
     sizeSymbols ? Math.min(1, 10 / Math.max(1, ...sizeSymbols.symbols.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2))) : 1
   )
@@ -35,8 +60,9 @@
   let draft = $state('')
   let root = $state<HTMLUListElement>()
 
-  const editable = (k: string) => k.startsWith('v:') || k.startsWith('range:')
-  const rangeIndex = (k: string) => Number(k.slice(6))
+  // Spec 009: size channel keys carry a `size:` prefix (`size:range:<i>`).
+  const editable = (k: string) => canAdd && (k.startsWith('v:') || /^(size:)?range:/.test(k))
+  const rangeIndex = (k: string) => Number(k.slice(k.indexOf('range:') + 6))
 
   async function startLabel(key: string, label: string): Promise<void> {
     editingLabel = key
@@ -57,7 +83,7 @@
     if (e.key === 'F2' && !(target instanceof HTMLInputElement && target.type === 'text')) {
       const row = target.closest('li')
       const key = row?.dataset.key
-      const c = resolved.classes.find((x) => x.key === key)
+      const c = list.find((x) => x.key === key)
       if (c) {
         e.preventDefault()
         void startLabel(c.key, c.label)
@@ -78,7 +104,7 @@
 </script>
 
 <div class="head">
-  <span class="caption">{resolved.caption}</span>
+  <span class="caption">{caption ?? resolved.caption}</span>
   <button type="button" class="link" aria-pressed={editingValues} onclick={() => (editingValues = !editingValues)}>
     {editingValues ? 'Done' : kind === 'graduated' ? 'Edit bounds' : 'Edit values'}
   </button>
@@ -88,8 +114,8 @@
 {/if}
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<ul class="classes" aria-label="Class list" bind:this={root} onkeydown={rowKeydown}>
-  {#each resolved.classes as c (c.key)}
+<ul class="classes" aria-label={listLabel} bind:this={root} onkeydown={rowKeydown}>
+  {#each list as c (c.key)}
     <li data-key={c.key} class:hidden={!c.visible}>
       <button
         type="button"
@@ -103,7 +129,7 @@
         <Icon name={c.visible ? 'eye' : 'eye-off'} size={14} />
       </button>
       {#if sizeSymbols && c.size !== undefined}
-        {@const i = resolved.classes.indexOf(c)}
+        {@const i = list.indexOf(c)}
         <span class="size-swatch" title="{c.size} px" role="img" aria-label="{c.label}: {c.size} px">
           <SymbolSwatch symbol={sizeSymbols.symbols[i]} kind={sizeSymbols.kind} scale={sizeScale} size={22} />
         </span>
@@ -170,7 +196,9 @@
     </li>
   {/each}
 </ul>
-<button type="button" class="link add" onclick={onAdd}><Icon name="plus" size={12} />Add class</button>
+{#if canAdd}
+  <button type="button" class="link add" onclick={onAdd}><Icon name="plus" size={12} />Add class</button>
+{/if}
 
 <style>
   .head {

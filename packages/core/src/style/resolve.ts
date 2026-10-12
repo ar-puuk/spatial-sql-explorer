@@ -3,10 +3,10 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { NO_VALUE_COLOR, OTHER_COLOR, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
+import { NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
-import { DEFAULT_SIZE_RANGE, classSizes } from './symbol.js'
+import { classSizes, proportionalSize } from './symbol.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -30,6 +30,11 @@ export interface ResolveInput {
   features?: Feature[]
   rowCount?: number
   data?: ColumnData | null
+  /**
+   * Spec 009: the engine's data for every channel column (color, bivariate
+   * axes, size), keyed by column. `data` stays as an alias for one column.
+   */
+  dataByColumn?: Record<string, ColumnData>
   /** Distinct-value counts per column, when known (renderer suggestions). */
   distinct?: Record<string, number>
 }
@@ -39,10 +44,24 @@ export function rowsOf(input: ResolveInput | null): number {
   return input?.rowCount ?? input?.features?.length ?? 0
 }
 
+/**
+ * Spec 009: where the engine puts the size channel's data. A size channel on
+ * the color channel's own column needs its own statistics (other classes, or
+ * numbers for a categorized column), under `size:<column>`.
+ */
+export const sizeDataKey = (column: string, shared: boolean): string => (shared ? `size:${column}` : column)
+
+/** The engine's data for `column`, if it was fetched (spec 009: per channel column). */
+export function columnData(input: ResolveInput, column: string): ColumnData | null {
+  const byColumn = input.dataByColumn?.[column]
+  if (byColumn) return byColumn
+  return input.data && input.data.column === column ? input.data : null
+}
+
 /** Every value of `column`, from the fetched data or the features. */
 export function valuesOf(input: ResolveInput, column: string): Array<Feature['attributes'][string] | undefined> {
-  const d = input.data
-  if (d?.kind === 'values' && d.column === column) return d.values
+  const d = columnData(input, column)
+  if (d?.kind === 'values') return d.values
   return (input.features ?? []).map((f) => f.attributes[column])
 }
 
@@ -75,6 +94,13 @@ export function fallback(style: LayerStyle, layer: ResolveInput | null, reason: 
 }
 
 export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
+  const color = resolveColor(style, layer)
+  // Spec 009: the size channel, next to any color channel but bivariate.
+  const size = resolveSizeChannel(style, layer)
+  return size ? { ...color, size } : color
+}
+
+function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
   const r = rendererOf(style)
   switch (r.kind) {
     case 'single':
@@ -83,6 +109,9 @@ export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): Res
       return categorized(style, r, layer)
     case 'graduated':
       return graduated(style, r, layer)
+    case 'bivariate':
+      // Spec 009 US4.
+      return fallback(style, layer, 'Bivariate maps are not available in this build.')
   }
 }
 
@@ -107,7 +136,8 @@ function categorized(style: LayerStyle, r: CategorizedRenderer, layer: ResolveIn
   const counts = new Map<string, number>()
   let nulls = 0
   // Spec 007: a big result's exact counts from SQL (the top categories, plus totals).
-  const sql = layer.data?.kind === 'categories' && layer.data.column === r.column ? layer.data : null
+  const known = columnData(layer, r.column)
+  const sql = known?.kind === 'categories' ? known : null
   if (sql) {
     for (const c of sql.top) counts.set(c.value, c.count)
     nulls = sql.nulls
@@ -206,25 +236,51 @@ function rangesFrom(sorted: number[], breaks: number[]): Array<{ lower: number; 
  * manual ranges); upper-inclusive classes (research §2); nulls and
  * non-numbers are "No value"; values outside manual ranges are "Other".
  */
-function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput | null): ResolvedStyle {
-  const missing = missingColumn(style, layer, r.column)
-  if (missing || !layer) return missing ?? single(style, layer)
-  const type = layer.columns.find((c) => c.name === r.column)?.type ?? ''
-  if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
+/** A numeric column split into ranges, with counts (shared by graduated colors, the size channel and bivariate axes). */
+interface Classified {
+  ranges: Array<{ lower: number; upper: number }>
+  counts: number[]
+  nulls: number
+  outside: number
+  /** Fewer distinct values than classes: one class per value, labeled by it. */
+  perValue: boolean
+  /** Natural breaks computed on a sample. */
+  estimated: boolean
+  /** From SQL statistics (counts arrive afterwards, QuerySession.resolveStyle). */
+  fromStats: boolean
+  sampleSize: number
+  notes: string[]
+  /** The label a range gets unless overridden. */
+  label: (range: { lower: number; upper: number }) => string
+}
 
+/**
+ * Spec 003 FR-004 / spec 009: a numeric column split by a method (or manual
+ * ranges): upper-inclusive classes, the first including its lower bound
+ * (research §2); nulls and non-numbers are "No value"; values outside
+ * manual ranges are "outside".
+ */
+export function classifyRanges(
+  column: string,
+  method: GraduatedMethod,
+  classCount: number,
+  manual: ReadonlyArray<{ index: number; lower?: number; upper?: number }>,
+  layer: ResolveInput,
+  dataKey = column
+): Classified {
   // Spec 007: a big result's order statistics from SQL (counts filled in afterwards).
-  const stats = layer.data?.kind === 'numbers' && layer.data.column === r.column ? layer.data : null
-  const numbers: Array<number | null> = stats ? [] : valuesOf(layer, r.column).map((v) => toNumber(v))
+  const known = columnData(layer, dataKey)
+  const stats = known?.kind === 'numbers' ? known : null
+  const numbers: Array<number | null> = stats ? [] : valuesOf(layer, column).map((v) => toNumber(v))
   const sorted = stats ? stats.sample : numbers.filter((v): v is number => v !== null).sort((a, b) => a - b)
   const total = stats ? stats.n : sorted.length
   const notes: string[] = []
   let estimated = false
-  // Fewer distinct values than classes: one class per value, labeled by it.
   let perValue = false
 
   let ranges: Array<{ lower: number; upper: number }> = []
-  if (r.method === 'manual') {
-    ranges = [...r.classes]
+  if (method === 'manual') {
+    ranges = [...manual]
       .filter((c) => c.lower !== undefined && c.upper !== undefined)
       .sort((a, b) => a.index - b.index)
       .map((c) => ({ lower: c.lower as number, upper: c.upper as number }))
@@ -233,25 +289,25 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
     if (distinct.length === 1) {
       ranges = [{ lower: distinct[0], upper: distinct[0] }]
       notes.push(`Every value is ${distinct[0]}: the range can't be divided.`)
-    } else if (distinct.length < r.classCount) {
+    } else if (distinct.length < classCount) {
       perValue = true
       ranges = distinct.map((v, i) => ({ lower: i === 0 ? v : distinct[i - 1], upper: v }))
       notes.push(`Only ${distinct.length} distinct values: ${distinct.length} classes.`)
     } else {
       const breaks =
-        r.method === 'equal'
-          ? equalIntervalBreaks(sorted, r.classCount)
-          : r.method === 'quantile'
+        method === 'equal'
+          ? equalIntervalBreaks(sorted, classCount)
+          : method === 'quantile'
             ? stats?.quantileStats
-              ? quantileFromStats(total, r.classCount, stats.quantileStats)
-              : quantileBreaks(sorted, r.classCount)
-            : jenksBreaks(sorted, r.classCount)
-      estimated = r.method === 'jenks' && (stats ? stats.sample.length < total : total > JENKS_EXACT_LIMIT)
+              ? quantileFromStats(total, classCount, stats.quantileStats)
+              : quantileBreaks(sorted, classCount)
+            : jenksBreaks(sorted, classCount)
+      estimated = method === 'jenks' && (stats ? stats.sample.length < total : total > JENKS_EXACT_LIMIT)
       ranges = rangesFrom(sorted, breaks)
-      if (ranges.length < r.classCount) notes.push(`${r.classCount - ranges.length} of ${r.classCount} classes merged: many values are identical.`)
+      if (ranges.length < classCount) notes.push(`${classCount - ranges.length} of ${classCount} classes merged: many values are identical.`)
     }
   } else {
-    notes.push(`Column "${r.column}" has no numeric values in this result.`)
+    notes.push(`Column "${column}" has no numeric values in this result.`)
   }
 
   const counts = ranges.map(() => 0)
@@ -265,27 +321,121 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
       else counts[i]++
     }
   }
-
   const fmt = labelFormat(ranges[0]?.lower ?? 0, ranges[ranges.length - 1]?.upper ?? 0, ranges.length)
-  // Size classes (QGIS GraduatedSize) share the single symbol's color; the ramp isn't used.
-  const bySize = r.vary === 'size'
-  const colors = bySize ? ranges.map(() => style.fillColor) : rampColors(r.ramp, ranges.length)
-  const sizes = bySize ? classSizes(ranges.length, r.sizeMin ?? DEFAULT_SIZE_RANGE.point.min, r.sizeMax ?? DEFAULT_SIZE_RANGE.point.max) : []
-  const overrides = new Map(r.classes.map((c) => [c.index, c]))
-  const classes: ResolvedClass[] = ranges.map((range, i) => {
+  const label = (range: { lower: number; upper: number }) =>
+    perValue || range.lower === range.upper ? fmt.format(range.upper) : `${fmt.format(range.lower)} – ${fmt.format(range.upper)}`
+  return { ranges, counts, nulls, outside, perValue, estimated, fromStats: !!stats, sampleSize: stats ? stats.sample.length : JENKS_EXACT_LIMIT, notes, label }
+}
+
+/** The legend caption of a classified column: `value · Quantile, 5 classes` (+ an estimate note). */
+function rangesCaption(column: string, method: GraduatedMethod, c: Classified): string {
+  const n = c.ranges.length
+  let caption = `${column} · ${METHOD_NAMES[method]}, ${n} ${n === 1 ? 'class' : 'classes'}`
+  if (c.estimated) caption += ` (estimated from ${nf.format(c.sampleSize)} values)`
+  return caption
+}
+
+/** Why a column can't be classified as numbers, or null. */
+function notNumeric(layer: ResolveInput, column: string): string | null {
+  if (!column) return 'Choose a column to style by.'
+  const col = layer.columns.find((c) => c.name === column)
+  if (!col) return `Column "${column}" is not in this result.`
+  return isNumericType(col.type) ? null : `Column "${column}" is not numeric in this result.`
+}
+
+/**
+ * Graduated (FR-004): a numeric column split into classes by a method (or
+ * manual ranges); upper-inclusive classes (research §2); nulls and
+ * non-numbers are "No value"; values outside manual ranges are "Other".
+ */
+function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput | null): ResolvedStyle {
+  const missing = missingColumn(style, layer, r.column)
+  if (missing || !layer) return missing ?? single(style, layer)
+  const type = layer.columns.find((c) => c.name === r.column)?.type ?? ''
+  if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
+
+  const c = classifyRanges(r.column, r.method, r.classCount, r.classes, layer)
+  const colors = rampColors(r.ramp, c.ranges.length)
+  const overrides = new Map(r.classes.map((o) => [o.index, o]))
+  const classes: ResolvedClass[] = c.ranges.map((range, i) => {
     const o = overrides.get(i)
-    const label = perValue || range.lower === range.upper ? fmt.format(range.upper) : `${fmt.format(range.lower)} – ${fmt.format(range.upper)}`
-    const color = bySize ? colors[i] : (o?.color ?? colors[i])
-    return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? label, color, visible: o?.visible !== false, count: counts[i], ...(bySize ? { size: sizes[i] } : {}) }
+    return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? c.label(range), color: o?.color ?? colors[i], visible: o?.visible !== false, count: c.counts[i] }
   })
   // A big result's class counts arrive from SQL afterwards (QuerySession.resolveStyle), "Other" included.
-  if (outside > 0 || (stats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: outside })
-  if (nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: nulls })
+  if (c.outside > 0 || (c.fromStats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: c.outside })
+  if (c.nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: c.nulls })
+  return { status: 'ok', caption: rangesCaption(r.column, r.method, c), classes, notes: c.notes }
+}
 
-  const n = ranges.length
-  let caption = `${r.column} · ${METHOD_NAMES[r.method]}, ${n} ${n === 1 ? 'class' : 'classes'}`
-  if (estimated) caption += ` (estimated from ${nf.format(stats ? stats.sample.length : JENKS_EXACT_LIMIT)} values)`
-  return { status: 'ok', caption, classes, notes }
+/** Size channel class keys: `size:range:<i>`, `size:__other`, `size:__null` (legend and edits). */
+export const SIZE_KEY_PREFIX = 'size:'
+
+/**
+ * Spec 009: the size channel, classified like a graduated renderer whose
+ * class colors are replaced by sizes from `sizeMin` to `sizeMax`. Features
+ * with no value (or outside manual classes) keep the single size.
+ */
+export function resolveSizeChannel(style: LayerStyle, layer: ResolveInput | null): ResolvedSizeChannel | undefined {
+  const s = style.size
+  if (!s || rendererOf(style).kind === 'bivariate') return undefined
+  const off = (reason: string): ResolvedSizeChannel => ({ status: 'fallback', reason, caption: `${s.column} · not available`, mode: s.mode, column: s.column, classes: [], notes: [] })
+  if (!layer) return off('No data to size by.')
+  const why = notNumeric(layer, s.column)
+  if (why) return off(`${why} Every feature has the single size.`)
+  const shared = rendererColumns(rendererOf(style)).includes(s.column)
+  if (s.mode === 'proportional') return proportionalChannel(style, layer, sizeDataKey(s.column, shared))
+  const c = classifyRanges(s.column, s.method, s.classCount, s.classes, layer, sizeDataKey(s.column, shared))
+  const sizes = classSizes(c.ranges.length, s.sizeMin, s.sizeMax)
+  const overrides = new Map(s.classes.map((o) => [o.index, o]))
+  const classes: ResolvedClass[] = c.ranges.map((range, i) => {
+    const o = overrides.get(i)
+    return { key: `${SIZE_KEY_PREFIX}range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? c.label(range), color: style.fillColor, visible: o?.visible !== false, count: c.counts[i], size: sizes[i] }
+  })
+  if (c.outside > 0 || (c.fromStats && s.method === 'manual')) classes.push({ key: `${SIZE_KEY_PREFIX}__other`, kind: 'other', label: 'Other (outside the classes)', color: style.fillColor, visible: true, count: c.outside })
+  if (c.nulls > 0) classes.push({ key: `${SIZE_KEY_PREFIX}__null`, kind: 'noValue', label: s.noValue.label ?? 'No value', color: style.fillColor, visible: s.noValue.visible !== false, count: c.nulls })
+  return { status: 'ok', caption: rangesCaption(s.column, s.method, c), mode: 'classed', column: s.column, classes, notes: c.notes }
+}
+
+/**
+ * Spec 009 US2: proportional sizes. The domain is the column's range over the
+ * displayed result (SQL min/max for big results); the legend gets 3-5
+ * reference sizes, the ends exact and the middle ones at round values.
+ */
+function proportionalChannel(style: LayerStyle, layer: ResolveInput, dataKey: string): ResolvedSizeChannel {
+  const s = style.size as SizeChannel
+  const known = columnData(layer, dataKey)
+  const stats = known?.kind === 'numbers' ? known : null
+  let min = Infinity
+  let max = -Infinity
+  let nulls = stats ? stats.nulls : 0
+  if (stats) {
+    if (stats.sample.length) {
+      min = stats.sample[0]
+      max = stats.sample[stats.sample.length - 1]
+    }
+  } else {
+    for (const raw of valuesOf(layer, s.column)) {
+      const v = toNumber(raw)
+      if (v === null) nulls++
+      else {
+        if (v < min) min = v
+        if (v > max) max = v
+      }
+    }
+  }
+  const caption = `${s.column} · Proportional`
+  if (!(min <= max)) {
+    return { status: 'fallback', reason: `Column "${s.column}" has no numeric values in this result. Every feature has the single size.`, caption, mode: 'proportional', column: s.column, classes: [], notes: [] }
+  }
+  const domain = { min, max }
+  const scale = s.scale ?? 'linear'
+  const fmt = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 3 })
+  const round2 = (v: number) => Number(v.toPrecision(2))
+  const values = max > min ? [...new Set([min, round2(min + (max - min) / 3), round2(min + ((max - min) * 2) / 3), max])].filter((v) => v >= min && v <= max).sort((a, b) => a - b) : [min]
+  const samples = values.map((value) => ({ value, size: proportionalSize(value, domain, s.sizeMin, s.sizeMax, scale), label: fmt.format(value) }))
+  const classes: ResolvedClass[] = nulls > 0 ? [{ key: `${SIZE_KEY_PREFIX}__null`, kind: 'noValue', label: s.noValue.label ?? 'No value', color: style.fillColor, visible: s.noValue.visible !== false, count: nulls }] : []
+  const notes = max > min ? [] : [`Every value is ${fmt.format(min)}: every feature has the largest size.`]
+  return { status: 'ok', caption, mode: 'proportional', column: s.column, classes, domain, samples, notes }
 }
 
 /** QGIS's quantile from just the order statistics around each break (stats.ts quantilePositions). */

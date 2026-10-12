@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   categorySql,
+  cellCountsSql,
   classCountsSql,
+  multiTotalsSql,
   evenPositions,
   jenksBreaks,
   JENKS_EXACT_LIMIT,
@@ -75,6 +77,26 @@ describe('class counts', () => {
     ])
     expect(sql).toContain('CASE WHEN v IS NULL THEN -2 WHEN v < 0 THEN -1 WHEN v <= 10 THEN 0 WHEN v <= 20 THEN 1 ELSE -1 END')
     expect(sql).toMatch(/GROUP BY cls$/)
+  })
+
+  // Spec 009 T005. Executed against DuckDB by the browser specs (bivariate cell
+  // counts must add up to the feature count); here, the shape.
+  it('bivariate cells use the same class rules on each axis, grouped by both', () => {
+    const sql = cellCountsSql('__se_layer', 'a', [{ lower: 0, upper: 1 }, { lower: 1, upper: 2 }], 'b"x', [{ lower: 5, upper: 9 }])
+    expect(sql).toContain('CASE WHEN vx IS NULL THEN -2 WHEN vx < 0 THEN -1 WHEN vx <= 1 THEN 0 WHEN vx <= 2 THEN 1 ELSE -1 END AS cx')
+    expect(sql).toContain('CASE WHEN vy IS NULL THEN -2 WHEN vy < 5 THEN -1 WHEN vy <= 9 THEN 0 ELSE -1 END AS cy')
+    expect(sql).toContain('TRY_CAST("b""x" AS DOUBLE)')
+    expect(sql).toMatch(/GROUP BY cx, cy$/)
+  })
+})
+
+describe('totals of several columns (spec 009)', () => {
+  it('one pass, each column aliased by position', () => {
+    const sql = multiTotalsSql('__se_layer', ['aadt', 'lanes'])
+    expect(sql).toContain('count(v0) AS n_0, count(*) - count(v0) AS nulls_0, min(v0) AS min_0, max(v0) AS max_0')
+    expect(sql).toContain('max(v1) AS max_1')
+    expect(sql).toContain(`${'CASE WHEN isfinite(TRY_CAST("lanes" AS DOUBLE))'}`)
+    expect(sql.match(/FROM __se_layer/g)).toHaveLength(1)
   })
 })
 

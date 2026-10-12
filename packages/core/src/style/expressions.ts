@@ -7,7 +7,7 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
+import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 
 /**
@@ -45,6 +45,9 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
       return categorizedIndex(r, resolved)
     case 'graduated':
       return graduatedIndex(r, resolved)
+    case 'bivariate':
+      // Spec 009 US4 draws the cells; until then a bivariate style resolves as a fallback.
+      return null
   }
 }
 
@@ -59,11 +62,20 @@ const NOT_A_NUMBER = -Number.MAX_VALUE
  * first class also including its lower bound; anything else is "Other".
  */
 function graduatedIndex(r: GraduatedRenderer, resolved: ResolvedStyle): unknown {
-  const noValue = indexOf(resolved, '__null')
-  const other = indexOf(resolved, '__other')
+  return rangeIndex(r.column, resolved.classes)
+}
+
+/**
+ * A feature's position in `classes` (range classes, then "Other" and "No
+ * value", keyed `…__other` / `…__null`) for a numeric column: graduated's
+ * rules, shared by the size channel (spec 009).
+ */
+function rangeIndex(column: string, classes: ResolvedClass[]): unknown {
+  const noValue = classes.findIndex((c) => c.kind === 'noValue')
+  const other = classes.findIndex((c) => c.kind === 'other')
   const v = ['var', 'v']
   const n = ['var', 'n']
-  const ranges = resolved.classes.flatMap((c, i) => (c.kind === 'range' && c.lower !== undefined && c.upper !== undefined ? [{ i, lower: c.lower, upper: c.upper }] : []))
+  const ranges = classes.flatMap((c, i) => (c.kind === 'range' && c.lower !== undefined && c.upper !== undefined ? [{ i, lower: c.lower, upper: c.upper }] : []))
   const tests: unknown[] = []
   if (ranges.length) tests.push(['<', n, ranges[0].lower], other)
   for (const range of ranges) tests.push(['<=', n, range.upper], range.i)
@@ -71,7 +83,7 @@ function graduatedIndex(r: GraduatedRenderer, resolved: ResolvedStyle): unknown 
   return [
     'let',
     'v',
-    ['get', r.column],
+    ['get', column],
     [
       'case',
       ['==', v, null],
@@ -126,19 +138,74 @@ function perClassSize(index: unknown, symbols: SymbolSpec[], pick: (s: SymbolSpe
 const plus = (e: number | unknown[], n: number): number | unknown[] => (typeof e === 'number' ? e + n : ['+', e, n])
 const atLeast1 = (e: number | unknown[]): number | unknown[] => (typeof e === 'number' ? Math.max(e, 1) : ['max', e, 1])
 
+/** Spec 009: the size channel drawn on the map, or null (none, a fallback, or a bivariate color channel). */
+function activeSize(style: LayerStyle, resolved: ResolvedStyle): ResolvedSizeChannel | null {
+  const size = resolved.size
+  return style.size && size?.status === 'ok' && rendererOf(style).kind !== 'bivariate' ? size : null
+}
+
+/** The size channel's class position per feature (classed), or null. */
+export function sizeIndexExpression(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  const size = activeSize(style, resolved)
+  return size && size.mode === 'classed' ? rangeIndex(size.column, size.classes) : null
+}
+
+/** A value that counts as "No value" (graduated's rules: null, boolean, "", non-numeric), as an expression. */
+function noValueTest(column: string): unknown {
+  const v = ['var', 'v']
+  return ['let', 'v', ['get', column], ['any', ['==', v, null], ['==', ['typeof', v], 'boolean'], ['==', ['to-string', v], ''], ['>=', ['abs', ['to-number', v, NOT_A_NUMBER]], Number.MAX_VALUE]]]
+}
+
+/** Spec 009 US2: the proportional size per feature (research §3); no value gets `fallback`. */
+function proportionalExpression(style: LayerStyle, size: ResolvedSizeChannel, fallback: number): unknown {
+  const s = style.size as NonNullable<LayerStyle['size']>
+  const domain = size.domain as { min: number; max: number }
+  const span = domain.max - domain.min
+  const n = ['var', 'n']
+  const t = ['min', 1, ['max', 0, ['/', ['-', n, domain.min], span]]]
+  const scaled = !(span > 0) ? s.sizeMax : ['+', s.sizeMin, ['*', s.sizeMax - s.sizeMin, (s.scale ?? 'linear') === 'area' ? ['sqrt', t] : t]]
+  return ['case', noValueTest(size.column), fallback, ['let', 'n', ['to-number', ['get', size.column], NOT_A_NUMBER], scaled]]
+}
+
+/** The size per feature from the size channel (`fallback` for no value / outside), or null. */
+function channelSize(style: LayerStyle, resolved: ResolvedStyle, fallback: number): number | unknown[] | null {
+  const size = activeSize(style, resolved)
+  if (!size) return null
+  if (size.mode === 'proportional') return size.domain ? (proportionalExpression(style, size, fallback) as unknown[]) : null
+  const index = sizeIndexExpression(style, resolved)
+  if (index === null) return null
+  const arms: unknown[] = []
+  size.classes.forEach((c, i) => arms.push(i, c.size ?? fallback))
+  return arms.length ? ['match', index, ...arms, fallback] : fallback
+}
+
+/** The largest marker radius the style draws: shaped-marker icons are drawn at it and scaled down (never up). */
+function largestRadius(style: LayerStyle, resolved: ResolvedStyle): number | null {
+  const size = activeSize(style, resolved)
+  if (!size) return null
+  return Math.max(baseSymbol(style).radius, ...size.classes.map((c) => c.size ?? 0), ...(size.samples ?? []).map((x) => x.size))
+}
+
 /** The class symbols as expressions (unselected): what `paintFor` draws and the Mapbox GL export writes. */
 export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
   const index = classIndexExpression(style, resolved)
   const base = baseSymbol(style)
   const symbols = classSymbols(style, resolved)
+  // Spec 009: a size channel sets marker radius and line width per feature, on its own column.
+  const radius = channelSize(style, resolved, base.radius) ?? perClassSize(index, symbols, (x) => x.radius, base.radius)
+  const lineWidth = channelSize(style, resolved, base.lineWidth) ?? perClassSize(index, symbols, (x) => x.lineWidth, base.lineWidth)
+  const iconRadius = largestRadius(style, resolved)
+  const icon = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
   return {
     index,
     fillColor: perClass(index, symbols, (x) => x.fillColor, base.fillColor),
     lineColor: perClass(index, symbols, (x) => x.lineColor, base.lineColor),
-    radius: perClassSize(index, symbols, (x) => x.radius, base.radius),
-    lineWidth: perClassSize(index, symbols, (x) => x.lineWidth, base.lineWidth),
+    radius: radius as number | unknown[],
+    lineWidth: lineWidth as number | unknown[],
     /** Marker icon per feature (shapes other than the circle). */
-    icon: perClass(index, symbols, markerIconId, markerIconId(base)),
+    icon: perClass(index, symbols, icon, icon(base)),
+    /** Spec 009: icons are drawn at the largest radius and scaled per feature by the size channel; null = 1. */
+    iconSize: iconRadius === null ? null : typeof radius === 'number' ? radius / iconRadius : ['/', radius, iconRadius],
     /** In line widths, for MapLibre `line-dasharray`; null when solid. */
     dash: dashPattern(style.lineDash),
   }
@@ -146,7 +213,9 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
 
 /** Every marker icon the style draws (the map makes the missing ones and drops the rest). */
 export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
-  return [...new Set([markerIconId(baseSymbol(style)), ...classSymbols(style, resolved).map(markerIconId)])]
+  const iconRadius = largestRadius(style, resolved)
+  const id = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
+  return [...new Set([id(baseSymbol(style)), ...classSymbols(style, resolved).map(id)])]
 }
 
 /**
@@ -155,9 +224,10 @@ export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): strin
  */
 export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, Record<string, unknown>>> {
   const dashed = (style.lineDash ?? 'solid') !== 'solid'
+  const { icon, iconSize } = symbolExpressions(style, resolved)
   return {
     line: { 'line-cap': dashed ? 'butt' : 'round' },
-    marker: { 'icon-image': symbolExpressions(style, resolved).icon },
+    marker: { 'icon-image': icon, ...(iconSize !== null ? { 'icon-size': iconSize } : {}) },
   }
 }
 
@@ -233,11 +303,22 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
   }
 }
 
-/** Hides features of hidden classes (FR-009); null = everything visible. */
+/** Hides features of hidden classes (FR-009), in the color or (spec 009) the size channel; null = everything visible. */
 export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  const tests: unknown[] = []
   const index = classIndexExpression(style, resolved)
-  if (index === null) return null
-  const hidden = resolved.classes.flatMap((c, i) => (c.visible ? [] : [i]))
-  if (!hidden.length) return null
-  return ['!', ['in', index, ['literal', hidden]]]
+  if (index !== null) {
+    const hidden = resolved.classes.flatMap((c, i) => (c.visible ? [] : [i]))
+    if (hidden.length) tests.push(['!', ['in', index, ['literal', hidden]]])
+  }
+  const sizeIndex = sizeIndexExpression(style, resolved)
+  const size = activeSize(style, resolved)
+  if (sizeIndex !== null && size) {
+    const hidden = size.classes.flatMap((c, i) => (c.visible ? [] : [i]))
+    if (hidden.length) tests.push(['!', ['in', sizeIndex, ['literal', hidden]]])
+  } else if (size?.mode === 'proportional' && size.classes.some((c) => c.kind === 'noValue' && !c.visible)) {
+    // Proportional: only "No value" can be hidden.
+    tests.push(['!', noValueTest(size.column)])
+  }
+  return tests.length === 0 ? null : tests.length === 1 ? tests[0] : ['all', ...tests]
 }

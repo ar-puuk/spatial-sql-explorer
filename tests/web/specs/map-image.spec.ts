@@ -8,8 +8,8 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export map imag
 const pngSize = (b: Buffer) => ({ width: b.readUInt32BE(16), height: b.readUInt32BE(20), png: b.subarray(1, 4).toString('latin1') === 'PNG' })
 
 type Shot = { width: number; height: number; notes: string[]; base64: string }
-const capture = (page: Page, scale: 1 | 2, legend: boolean) =>
-  page.evaluate(([s, l]) => (window as unknown as { __spatialExplorerE2E: { captureMap(s: 1 | 2, l: boolean): Promise<Shot> } }).__spatialExplorerE2E.captureMap(s, l), [scale, legend] as const)
+const capture = (page: Page, scale: 1 | 2, legend: boolean | object) =>
+  page.evaluate(([s, l]) => (window as unknown as { __spatialExplorerE2E: { captureMap(s: 1 | 2, l: boolean | object): Promise<Shot> } }).__spatialExplorerE2E.captureMap(s, l), [scale, legend] as const)
 /** One pixel of a PNG, decoded by the browser. */
 const pixel = (page: Page, base64: string, x: number, y: number) =>
   page.evaluate(
@@ -97,4 +97,30 @@ test('a raster basemap whose tiles can not be read: the image is still made, and
   const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
   expect(pngSize(fs.readFileSync((await download.path())!)).png).toBe(true)
   await expect(dialog(page)).toContainText('basemap could not be loaded')
+})
+
+// Spec 009 T030 (US6): a second legend group (the size channel) is drawn under the first, with its own title.
+test('the size channel group is drawn into the image, under the color group', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const symbol = { fillColor: '#0000ff', fillOpacity: 1, strokeColor: '#0000ff', strokeOpacity: 1, strokeWidth: 0, lineColor: '#0000ff', lineWidth: 3, radius: 6, shape: 'circle', dash: 'solid' }
+  const legend = {
+    title: 'Legend',
+    shape: 'area',
+    alpha: 1,
+    rows: [{ color: '#ff0000', label: 'A' }],
+    groups: [{ title: 'aadt · Quantile, 2 classes', shape: 'point', alpha: 1, rows: [{ color: '#0000ff', label: 'Small', symbol: { ...symbol, radius: 3 } }, { color: '#0000ff', label: 'Large', symbol }] }],
+  }
+  const shot = await capture(page, 1, legend)
+  // Lines: title, A, group title, Small, Large. Each line is 18 px; the box sits 28 px above the bottom.
+  const lines = 5
+  const top = shot.height - (lines * 18 + 14) - 28
+  const centerOf = (line: number) => top + 8 + 12 + 18 * line - 5
+  const [r, g, b] = await pixel(page, shot.base64, 25, centerOf(4))
+  expect(b).toBeGreaterThan(200)
+  expect(r).toBeLessThan(60)
+  expect(g).toBeLessThan(60)
+  // The color group's swatch is still red, above.
+  const red = await pixel(page, shot.base64, 24, centerOf(1))
+  expect(red[0]).toBeGreaterThan(200)
 })

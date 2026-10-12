@@ -1,0 +1,19 @@
+import os, sys
+from qgis.core import *
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False); app.initQgis()
+d = sys.argv[1]
+log = open(os.path.join(d, 'reload.log'), 'w', buffering=1)
+chk = QgsVectorLayer('LineString?crs=EPSG:4326&field=cls:string&field=v:double&field=w:double', 'c', 'memory')
+for name in ('dd_linear.qml', 'dd_steps.qml'):
+    chk.loadNamedStyle(os.path.join(d, name))
+    cats = chk.renderer().categories()
+    s = cats[0].symbol()
+    p = s.symbolLayer(0).dataDefinedProperties().property(QgsSymbolLayer.Property.StrokeWidth)
+    ctx = QgsExpressionContext(); f = QgsFeature(chk.fields()); f.setAttributes(['a', 50, 2]); ctx.setFeature(f)
+    log.write('%s: active=%s type=%s value(v=50,w=2)=%s\n' % (name, p.isActive(), p.propertyType(), p.value(ctx, -1)[0]))
+g = QgsVectorLayer('Polygon?crs=EPSG:4326&field=a:double&field=b:double', 'g', 'memory')
+g.loadNamedStyle(os.path.join(d, 'bivariate.qml'))
+rules = g.renderer().rootRule().children()
+log.write('bivariate: %s rules=%d first=%s custom=%s\n' % (type(g.renderer()).__name__, len(rules), rules[0].filterExpression(), g.customProperty('spatialExplorer/bivariate')))
+log.close(); os._exit(0)

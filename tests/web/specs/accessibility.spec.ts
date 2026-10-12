@@ -303,7 +303,7 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   }
 
   // Esc closes the panel and returns focus to its button.
-  await page.getByLabel('Method').focus()
+  await page.getByLabel('Method', { exact: true }).focus()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
   await expect(styleButton).toBeFocused()

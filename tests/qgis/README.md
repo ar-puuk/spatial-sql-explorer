@@ -28,3 +28,19 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\read_back.py out.gpkg out.fgb out.shp.
 ```
 
 Last run: see `specs/008-ux-parity/research.md`, "Implementation outcomes (US4)".
+
+## Size channel parity (`check_009.py`, spec 009)
+
+`tests/core/qgis-cases.test.ts` writes QGIS parity cases when
+`SE_QGIS_CASES` names a directory: the data (GeoJSON), the QML the app saves,
+and what the map draws per feature (color, line width or marker diameter,
+drawn or hidden). `check_009.py` loads each case into QGIS and asks QGIS's
+renderer, in a render context, the same per feature. It exits 1 on any
+mismatch.
+
+```
+SE_QGIS_CASES=C:\tmp\qgis009 npx vitest run qgis-cases      (in tests/core)
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_009.py C:\tmp\qgis009
+```
+
+Last run: see `specs/009-multichannel-bivariate/research.md` §5.

@@ -7,7 +7,7 @@
 // the marker's half-size = 1): a square's half-side equals a circle's
 // radius, as in QGIS. Dash patterns are Qt's pen styles, which QGIS's
 // `line_style` names, in line widths (MapLibre's `line-dasharray` unit).
-import { rendererOf, withLayerOpacity, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
+import { withLayerOpacity, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 
 export const MARKER_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'star', 'cross', 'x'] as const
 export type MarkerShape = (typeof MARKER_SHAPES)[number]
@@ -156,12 +156,6 @@ export interface SymbolSpec {
   dash: LineDash
 }
 
-/** True when a graduated renderer varies the symbol size instead of the color (QGIS GraduatedSize). */
-export function variesSize(style: LayerStyle, resolved?: ResolvedStyle): boolean {
-  const r = rendererOf(style)
-  return r.kind === 'graduated' && r.vary === 'size' && (!resolved || resolved.status === 'ok')
-}
-
 /** The single symbol (no classes, or a fallback). */
 export function baseSymbol(style: LayerStyle): SymbolSpec {
   const s = withLayerOpacity(style)
@@ -180,18 +174,27 @@ export function baseSymbol(style: LayerStyle): SymbolSpec {
 }
 
 /**
- * The symbol of one resolved class. Thematic colors replace the fill (polygons,
- * points) and the line color (lines); polygon outlines keep the stroke (FR-006).
- * Size classes keep the single symbol's colors and set the marker size or the
- * line width; "Other" and "No value" keep their colors at the single size.
+ * The symbol of one resolved color class. Thematic colors replace the fill
+ * (polygons, points) and the line color (lines); polygon outlines keep the
+ * stroke (FR-006). Sizes come from the size channel (`sizeSymbols`).
  */
 export function classSymbol(style: LayerStyle, resolved: ResolvedStyle, c: ResolvedClass): SymbolSpec {
   const base = baseSymbol(style)
   if (resolved.status !== 'ok' || c.kind === 'single') return base
-  if (variesSize(style, resolved) && c.kind === 'range') {
-    return c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }
-  }
   return { ...base, fillColor: c.color, lineColor: c.color }
+}
+
+/**
+ * Spec 009: the size channel's legend symbols, in the single symbol's colors,
+ * one per size class (its size; "No value" and "Other" at the single size).
+ */
+export function sizeSymbols(style: LayerStyle, resolved: ResolvedStyle): SymbolSpec[] {
+  const base = baseSymbol(style)
+  const size = resolved.size
+  if (!size || size.status !== 'ok') return []
+  // Proportional: the reference sizes first (legend rows that aren't classes), then "No value".
+  const samples = (size.samples ?? []).map((x) => ({ ...base, radius: x.size, lineWidth: x.size }))
+  return [...samples, ...size.classes.map((c) => (c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }))]
 }
 
 /** `classSymbol` for every class, in legend order (the class-index expression's positions). */
@@ -199,7 +202,19 @@ export function classSymbols(style: LayerStyle, resolved: ResolvedStyle): Symbol
   return resolved.classes.map((c) => classSymbol(style, resolved, c))
 }
 
-/** Default size ranges for a size-graduated renderer: marker radius or line width, px. */
+/**
+ * Spec 009 US2: a proportional size. `t` is the value's place in the domain
+ * (clamped to 0..1); lines scale linearly, markers by area (QGIS size
+ * assistant "Area": min + (max - min)·√t, research §3). A domain of one
+ * value gives the largest size.
+ */
+export function proportionalSize(value: number, domain: { min: number; max: number }, sizeMin: number, sizeMax: number, scale: 'line' | 'point' | 'linear' | 'area'): number {
+  if (!(domain.max > domain.min)) return sizeMax
+  const t = Math.min(1, Math.max(0, (value - domain.min) / (domain.max - domain.min)))
+  return sizeMin + (sizeMax - sizeMin) * (scale === 'point' || scale === 'area' ? Math.sqrt(t) : t)
+}
+
+/** Default size ranges for a size channel: marker radius or line width, px. */
 export const DEFAULT_SIZE_RANGE = Object.freeze({ point: { min: 2, max: 10 }, line: { min: 1, max: 6 } })
 
 /** Class sizes from `min` to `max`, evenly spaced (QGIS's `setSymbolSizes`). */

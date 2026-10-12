@@ -1,0 +1,44 @@
+import os, sys
+from qgis.core import *
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False); app.initQgis()
+out = sys.argv[1]
+log = open(os.path.join(out, 'ddsize2.log'), 'w', buffering=1)
+
+lyr = QgsVectorLayer('LineString?crs=EPSG:4326&field=cls:string&field=v:double&field=w:double', 'l', 'memory')
+
+def sym(color, prop):
+    s = QgsLineSymbol.createSimple({'line_color': color, 'line_width_unit': 'Pixel'})
+    s.setDataDefinedWidth(prop)
+    return s
+
+# continuous (size assistant form): field + size scale transformer
+prop = QgsProperty.fromField('v')
+prop.setTransformer(QgsSizeScaleTransformer(QgsSizeScaleTransformer.Linear, 0, 100, 1, 6, 0.5, 1))
+r = QgsCategorizedSymbolRenderer('cls', [QgsRendererCategory('a', sym('255,0,0,255', prop), 'a'), QgsRendererCategory('b', sym('0,0,255,255', prop), 'b')])
+lyr.setRenderer(r)
+lyr.saveNamedStyle(os.path.join(out, 'dd_linear.qml'))
+lyr.saveSldStyle(os.path.join(out, 'dd_linear.sld'))
+log.write('saved linear\n')
+
+# classed: CASE expression
+expr = 'CASE WHEN "w" IS NULL THEN 0.5 WHEN "w" <= 1 THEN 1 WHEN "w" <= 2 THEN 3.5 ELSE 6 END'
+r2 = QgsCategorizedSymbolRenderer('cls', [QgsRendererCategory('a', sym('255,0,0,255', QgsProperty.fromExpression(expr)), 'a'), QgsRendererCategory('b', sym('0,0,255,255', QgsProperty.fromExpression(expr)), 'b')])
+lyr.setRenderer(r2)
+lyr.saveNamedStyle(os.path.join(out, 'dd_steps.qml'))
+lyr.saveSldStyle(os.path.join(out, 'dd_steps.sld'))
+log.write('saved steps\n')
+
+# reload
+chk = QgsVectorLayer('LineString?crs=EPSG:4326&field=cls:string&field=v:double&field=w:double', 'c', 'memory')
+chk.loadNamedStyle(os.path.join(out, 'dd_linear.qml'))
+p = chk.renderer().categories()[0].symbol().dataDefinedWidth()
+log.write('reload linear: active=%s type=%s field=%s expr=%s\n' % (p.isActive(), p.propertyType(), p.field(), p.asExpression()))
+chk.loadNamedStyle(os.path.join(out, 'dd_steps.qml'))
+p = chk.renderer().categories()[0].symbol().dataDefinedWidth()
+log.write('reload steps: active=%s expr=%s\n' % (p.isActive(), p.asExpression()))
+# evaluate the steps expression for a feature
+ctx = QgsExpressionContext(); f = QgsFeature(chk.fields()); f.setAttributes(['a', 50, 2]); ctx.setFeature(f)
+log.write('steps value for w=2: %s\n' % p.value(ctx, -1)[0])
+log.close()
+os._exit(0)

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-webview/
+out/
+build/
+coverage/
+package-lock.json
+*.min.js
+# Generated color data
+packages/core/src/style/rampData.ts
+packages/core/src/style/bivariateData.ts

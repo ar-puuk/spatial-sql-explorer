@@ -5,7 +5,7 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, sidecarStyleFileName } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -46,11 +46,18 @@
   const legendRenderer = $derived(rendererOf(store.style))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
+      store.resolvedStyle.size?.status === 'ok' ||
       (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
-  const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
-  const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
+  // Spec 009: with a size channel, color swatches are drawn at one readable width (sizes have their own group).
+  const legendSymbols = $derived.by(() => {
+    const symbols = classSymbols(store.style, store.resolvedStyle)
+    return store.resolvedStyle.size?.status === 'ok' ? symbols.map((s) => ({ ...s, lineWidth: Math.max(s.lineWidth, 3), radius: Math.max(s.radius, 5) })) : symbols
+  })
+  // Spec 009: the size channel's legend group, when it draws.
+  const legendSize = $derived(store.resolvedStyle.size?.status === 'ok' ? { channel: store.resolvedStyle.size, symbols: sizeSymbols(store.style, store.resolvedStyle) } : null)
+  const legendTitle = $derived(rendererTitle(legendRenderer))
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
     if (!layer || !showLegend) return null
@@ -60,6 +67,22 @@
       shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
       rows: r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      // Spec 009: the size channel's group (reference sizes, then visible classes).
+      groups: legendSize
+        ? [
+            {
+              title: legendSize.channel.caption,
+              shape: layer.geometryType === 'Point' ? ('point' as const) : ('line' as const),
+              alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+              rows: [
+                ...(legendSize.channel.samples ?? []).map((x, i) => ({ color: store.style.fillColor, label: x.label, symbol: legendSize.symbols[i] })),
+                ...legendSize.channel.classes.flatMap((c, i) =>
+                  c.visible ? [{ color: c.color, label: c.label, count: c.count, symbol: legendSize.symbols[(legendSize.channel.samples?.length ?? 0) + i] }] : []
+                ),
+              ],
+            },
+          ]
+        : undefined,
     }
   })
   const loading = $derived(session.loadState === 'loading')
@@ -369,6 +392,7 @@
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
           symbols={legendSymbols}
+          size={legendSize}
         />
       {/if}
       {#if openPanel === 'style' && layer}

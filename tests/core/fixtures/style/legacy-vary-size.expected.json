@@ -1,0 +1,214 @@
+{
+  "layer": {
+    "values": [
+      0,
+      2,
+      4,
+      6,
+      null,
+      10,
+      12,
+      14,
+      16,
+      18,
+      20,
+      22,
+      24,
+      26,
+      28,
+      30,
+      32,
+      34,
+      36,
+      38,
+      40,
+      42,
+      44,
+      46,
+      48,
+      50,
+      52,
+      54,
+      56,
+      58
+    ],
+    "columns": [
+      {
+        "name": "v",
+        "type": "DOUBLE"
+      },
+      {
+        "name": "kind",
+        "type": "VARCHAR"
+      }
+    ]
+  },
+  "labels": [
+    "0 – 13",
+    "Medium-low",
+    "24 – 36",
+    "36 – 47",
+    "47 – 58",
+    "No value"
+  ],
+  "sizes": [
+    2,
+    4,
+    6,
+    8,
+    10,
+    null
+  ],
+  "features": [
+    {
+      "v": 0,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": 2,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": 4,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": 6,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": null,
+      "radius": 5,
+      "visible": true
+    },
+    {
+      "v": 10,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": 12,
+      "radius": 2,
+      "visible": true
+    },
+    {
+      "v": 14,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 16,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 18,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 20,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 22,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 24,
+      "radius": 4,
+      "visible": true
+    },
+    {
+      "v": 26,
+      "radius": 6,
+      "visible": true
+    },
+    {
+      "v": 28,
+      "radius": 6,
+      "visible": true
+    },
+    {
+      "v": 30,
+      "radius": 6,
+      "visible": true
+    },
+    {
+      "v": 32,
+      "radius": 6,
+      "visible": true
+    },
+    {
+      "v": 34,
+      "radius": 6,
+      "visible": true
+    },
+    {
+      "v": 36,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 38,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 40,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 42,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 44,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 46,
+      "radius": 8,
+      "visible": false
+    },
+    {
+      "v": 48,
+      "radius": 10,
+      "visible": true
+    },
+    {
+      "v": 50,
+      "radius": 10,
+      "visible": true
+    },
+    {
+      "v": 52,
+      "radius": 10,
+      "visible": true
+    },
+    {
+      "v": 54,
+      "radius": 10,
+      "visible": true
+    },
+    {
+      "v": 56,
+      "radius": 10,
+      "visible": true
+    },
+    {
+      "v": 58,
+      "radius": 10,
+      "visible": true
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
   DEFAULT_LAYER_STYLE,
   MARKER_SHAPES,
   classSymbols,
+  sizeSymbols,
   dashFromPattern,
   exportStyle,
   importStyle,
@@ -25,7 +26,7 @@ import {
   rendererOf,
   resolveStyle,
   sanitizeStyle,
-  setGraduatedVary,
+  setSizeChannel,
   setSizeRange,
   startStyle,
   validateStyle,
@@ -50,10 +51,9 @@ const layer = {
   ],
 }
 
-/** Points by `v`, five quantile classes, sized 2..10 px. */
+/** Spec 009: a single color with a size channel on `v`, five quantile classes, sized 2..10 px (points) or 1..6 px (lines). */
 function sizeStyle(geometry: 'point' | 'line' = 'point'): LayerStyle {
-  const graduated = { ...startStyle(DEFAULT_LAYER_STYLE as LayerStyle, 'graduated', layer, 'v') }
-  return setGraduatedVary(graduated, 'size', geometry)
+  return setSizeChannel(DEFAULT_LAYER_STYLE as LayerStyle, 'v', geometry)
 }
 
 describe('shapes and line patterns', () => {
@@ -95,29 +95,29 @@ describe('shapes and line patterns', () => {
   })
 })
 
-describe('size classes (graduated by size)', () => {
+// Spec 009: size classes are the size channel (style-channels.test.ts has the full coverage).
+describe('size classes (the size channel)', () => {
   it('runs class sizes evenly from the smallest to the largest, in the single color', () => {
     const style = { ...sizeStyle(), fillColor: '#112233' }
     const resolved = resolveStyle(style, layer)
-    const ranges = resolved.classes.filter((c) => c.kind === 'range')
+    const ranges = resolved.size?.classes.filter((c) => c.kind === 'range') ?? []
     expect(ranges.map((c) => c.size)).toEqual([2, 4, 6, 8, 10])
     expect(new Set(ranges.map((c) => c.color))).toEqual(new Set(['#112233']))
-    // "No value" keeps its own color and the single size.
-    const nv = resolved.classes.find((c) => c.kind === 'noValue')
+    // "No value" keeps the single size.
+    const nv = resolved.size?.classes.find((c) => c.kind === 'noValue')
     expect(nv?.size).toBeUndefined()
-    expect(classSymbols(style, resolved).at(-1)?.radius).toBe(style.pointRadius)
+    expect(sizeSymbols(style, resolved).at(-1)?.radius).toBe(style.pointRadius)
   })
 
-  it('switching back to color keeps the classes and drops the sizes', () => {
-    const back = setGraduatedVary(sizeStyle(), 'color', 'point')
-    const r = rendererOf(back)
-    expect(r.kind === 'graduated' && [r.vary, r.sizeMin, r.sizeMax]).toEqual([undefined, undefined, undefined])
-    expect(resolveStyle(back, layer).classes.some((c) => c.size !== undefined)).toBe(false)
+  it('turning the channel off drops the sizes', () => {
+    const off = setSizeChannel(sizeStyle(), null, 'point')
+    expect(off.size).toBeUndefined()
+    expect(resolveStyle(off, layer).size).toBeUndefined()
   })
 
   it('line layers start from thinner widths', () => {
-    const r = rendererOf(sizeStyle('line'))
-    expect(r.kind === 'graduated' && [r.sizeMin, r.sizeMax]).toEqual([1, 6])
+    const s = sizeStyle('line').size
+    expect([s?.sizeMin, s?.sizeMax]).toEqual([1, 6])
   })
 
   it('validates the range', () => {
@@ -148,7 +148,7 @@ describe('map paint', () => {
       const expr = (p[layerId] as Record<string, unknown>)[prop]
       for (const f of layer.features) {
         const v = f.attributes.v
-        const cls = resolved.classes.find((c) => (c.kind === 'range' ? v !== null && v <= (c.upper as number) : c.kind === 'noValue' && v === null))
+        const cls = resolved.size?.classes.find((c) => (c.kind === 'range' ? v !== null && v <= (c.upper as number) : c.kind === 'noValue' && v === null))
         const want = cls?.size ?? (geometry === 'point' ? style.pointRadius : style.strokeWidth)
         expect(evaluate(expr, f.attributes, `layers[0].paint.${prop}`, geometry === 'point' ? 'Point' : 'LineString'), `v=${v}`).toBe(want)
       }
@@ -188,21 +188,9 @@ describe('style files', () => {
     }
   })
 
-  it.each(formats)('%s keeps size classes', (format) => {
-    const style = sizeStyle()
-    const resolved = resolveStyle(style, layer)
-    const out = exportStyle(style, format, 'Point', 'x.geojson', resolved, layer.columns)
-    const back = importStyle(`x${format === 'mapbox' ? '.json' : '.' + format}`, out.text).style
-    const r = rendererOf(back)
-    expect(r.kind === 'graduated' && [r.vary, r.sizeMin, r.sizeMax]).toEqual(['size', 2, 10])
-    expect(resolveStyle(back, layer).classes.map((c) => c.size)).toEqual(resolved.classes.map((c) => c.size))
-  })
-
-  it('QML: QGIS names, a 45° cross_fill for the x, the pen style and GraduatedSize', () => {
+  it('QML: QGIS names, a 45° cross_fill for the x, and the pen style', () => {
     expect(exportStyle({ ...shaped, markerShape: 'x' }, 'qml', 'Point', 'x.geojson').text).toMatch(/name="angle" type="QString" value="45"[\s\S]*name="name" type="QString" value="cross_fill"/)
     expect(exportStyle({ ...dashed, lineDash: 'dash-dot' }, 'qml', 'LineString', 'x.geojson').text).toContain('name="line_style" type="QString" value="dash dot"')
-    const style = sizeStyle()
-    expect(exportStyle(style, 'qml', 'Point', 'x.geojson', resolveStyle(style, layer)).text).toContain('graduatedMethod="GraduatedSize"')
   })
 
   it('SLD: dashes in pixels, and the diamond as a square turned 45°', () => {
@@ -212,14 +200,11 @@ describe('style files', () => {
     expect(diamond).toContain('<Rotation>45</Rotation>')
   })
 
-  it('Mapbox GL: shaped markers are flagged (no sprite), and dashes and sizes are written', () => {
+  it('Mapbox GL: shaped markers are flagged (no sprite), and dashes are written', () => {
     expect(previewExportNotice(shaped, 'mapbox', undefined).items.join()).toMatch(/no diamond marker without a sprite/)
     expect(previewExportNotice(shaped, 'qml', undefined).items).toEqual([])
     const doc = JSON.parse(exportStyle(dashed, 'mapbox', 'LineString', 'x.geojson').text)
     expect(doc.layers[0].paint['line-dasharray']).toEqual([1, 2])
-    const style = sizeStyle()
-    const sized = JSON.parse(exportStyle(style, 'mapbox', 'Point', 'x.geojson', resolveStyle(style, layer)).text)
-    expect(sized.layers[0].paint['circle-radius'][0]).toBe('match')
   })
 })
 
@@ -241,16 +226,14 @@ describe('files written by QGIS 4.2.3', () => {
 
   it('reads GraduatedSize: point sizes 2..10 mm and line widths 1..5 mm, in pixels', () => {
     const mm = 96 / 25.4
-    const pts = rendererOf(importStyle('a.qml', fixture('pt_gradsize.qml')).style)
-    expect(pts.kind === 'graduated' && pts.vary).toBe('size')
-    if (pts.kind === 'graduated') {
-      expect(pts.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
-      expect(pts.sizeMax).toBeCloseTo(5 * mm, 1)
-    }
-    const lns = rendererOf(importStyle('a.qml', fixture('ln_gradsize.qml')).style)
-    if (lns.kind !== 'graduated') throw new Error('not graduated')
-    expect([lns.vary, lns.sizeMin, lns.sizeMax].map((v) => (typeof v === 'number' ? Math.round(v * 10) / 10 : v))).toEqual(['size', Math.round(mm * 10) / 10, Math.round(5 * mm * 10) / 10])
-    const sld = rendererOf(importStyle('a.sld', fixture('pt_gradsize.sld')).style)
-    expect(sld.kind === 'graduated' && [sld.vary, sld.sizeMin, sld.sizeMax]).toEqual(['size', 3.5, 18])
+    // Spec 009: as a size channel on a single color.
+    const pts = importStyle('a.qml', fixture('pt_gradsize.qml')).style.size
+    expect(pts?.mode).toBe('classed')
+    expect(pts?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
+    expect(pts?.sizeMax).toBeCloseTo(5 * mm, 1)
+    const lns = importStyle('a.qml', fixture('ln_gradsize.qml')).style.size
+    expect([lns?.sizeMin, lns?.sizeMax].map((v) => Math.round((v ?? 0) * 10) / 10)).toEqual([Math.round(mm * 10) / 10, Math.round(5 * mm * 10) / 10])
+    const sld = importStyle('a.sld', fixture('pt_gradsize.sld')).style.size
+    expect([sld?.sizeMin, sld?.sizeMax]).toEqual([3.5, 18])
   })
 })

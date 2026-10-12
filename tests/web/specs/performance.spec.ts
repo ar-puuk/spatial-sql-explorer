@@ -154,11 +154,11 @@ test('SC-001 (spec 003): categorize and graduate the ~10 MB file in under 1 s ea
   results.styleCategorizeMs = Date.now() - t0
 
   await page.getByRole('radio', { name: 'Graduated' }).click()
-  await page.getByLabel('Column').selectOption('value')
+  await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(legend).toContainText('value · Quantile')
   t0 = Date.now()
-  await page.getByLabel('Method').selectOption('jenks')
-  await page.getByLabel('Classes').selectOption('10')
+  await page.getByLabel('Method', { exact: true }).selectOption('jenks')
+  await page.getByLabel('Classes', { exact: true }).selectOption('10')
   await expect(legend).toContainText('value · Natural breaks, 10 classes')
   await frames(page)
   results.styleJenks10Ms = Date.now() - t0
@@ -183,8 +183,8 @@ test('SC-007 (spec 003): a thematic style on 50,000 rows never freezes the viewe
   })
   const t0 = Date.now()
   await page.getByRole('radio', { name: 'Graduated' }).click()
-  await page.getByLabel('Column').selectOption('value')
-  await page.getByLabel('Method').selectOption('jenks')
+  await page.getByLabel('Column', { exact: true }).selectOption('value')
+  await page.getByLabel('Method', { exact: true }).selectOption('jenks')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Natural breaks, 5 classes', { timeout: 30000 })
   await frames(page)
   results.style50kJenksMs = Date.now() - t0

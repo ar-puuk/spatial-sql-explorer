@@ -16,6 +16,7 @@ import {
   type BasemapChoice,
   sanitizeStyle,
   setClassVisible,
+  setSizeClassVisible,
   resolveStyle,
   type ResolvedStyle,
   type ResolveInput,
@@ -70,14 +71,14 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName } from '@spatial-explorer/core'
+import { formatFromFileName, styleDataColumns } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 
 /** The attribute columns a style draws from (spec 007: map views read only these). */
 function styleColumns(style: LayerStyle): string[] {
-  const r = style.renderer
-  const cols = r && r.kind !== 'single' && r.column ? [r.column] : []
+  // Spec 009: every channel's columns (color, bivariate axes, size).
+  const cols = styleDataColumns(style)
   // Spec 008 US6: the extrusion's height column.
   const h = extrusionColumn(style)
   return h && !cols.includes(h) ? [...cols, h] : cols
@@ -1597,7 +1598,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void hostAdapter.saveState(LEGEND_COLLAPSED_KEY, collapsed).catch(() => {})
     },
     setClassVisible(key, visible) {
-      style = setClassVisible(style, key, visible)
+      // Spec 009: size channel classes are keyed `size:…`.
+      style = key.startsWith('size:') ? setSizeClassVisible(style, key, visible) : setClassVisible(style, key, visible)
       styleDirty = true
     },
     get style() {

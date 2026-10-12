@@ -40,11 +40,19 @@ export interface LayerStyle {
   markerShape?: MarkerShape
   /** Line and polygon outline pattern (./symbol.ts). Absent: solid. */
   lineDash?: LineDash
+  /**
+   * Spec 009: the size channel, an independent marker size (points) or line
+   * width (lines) by a numeric column. Absent: every feature uses
+   * `pointRadius` / `strokeWidth`. Not applied to polygons, nor with a
+   * bivariate color channel (kept, inactive).
+   */
+  size?: SizeChannel
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
 
-export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer
+/** The color channel. */
+export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer
 
 export interface SingleRenderer {
   kind: 'single'
@@ -105,13 +113,61 @@ export interface GraduatedRenderer {
   classes: RangeClassDef[]
   noValue: ClassOverride
   /**
-   * What the classes vary (QGIS `graduatedMethod`): the color (ramp), or the
-   * size: marker radius for points, line width for lines, from `sizeMin` to
-   * `sizeMax` px. Absent means color.
+   * LEGACY INPUT ONLY (2026-10-12 build, "Vary: Size"): read by
+   * `sanitizeStyle`, which migrates it to a `SizeChannel` (spec 009 FR-009),
+   * and never written again.
    */
   vary?: 'color' | 'size'
   sizeMin?: number
   sizeMax?: number
+}
+
+// --- Spec 009: the size channel and bivariate colors (data-model.md) ----------
+
+/** How the size channel turns values into sizes. */
+export type SizeMode = 'classed' | 'proportional'
+
+export interface SizeChannel {
+  /** A numeric column; may be the color channel's column. */
+  column: string
+  mode: SizeMode
+  /** Classed only (as graduated). */
+  method: GraduatedMethod
+  /** Classed only: 2..10. */
+  classCount: number
+  /** Classed only: as graduated (manual: the full list with bounds; otherwise overrides by index). Color overrides don't apply. */
+  classes: RangeClassDef[]
+  /** Label and visibility of features with no value. */
+  noValue: Omit<ClassOverride, 'color'>
+  /** px: marker radius (points) or line width (lines); sizeMin <= sizeMax. */
+  sizeMin: number
+  sizeMax: number
+  /**
+   * Proportional only: how sizes follow values. `linear` (lines: width) or
+   * `area` (markers: QGIS's size assistant "Area", r = min + (max - min)·√t).
+   * Set from the geometry when the channel starts; absent means linear.
+   */
+  scale?: 'linear' | 'area'
+}
+
+export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
+
+export interface BivariateAxis {
+  column: string
+  method: BivariateMethod
+}
+
+export interface BivariateRenderer {
+  kind: 'bivariate'
+  /** Axis 1: the legend's horizontal axis. */
+  x: BivariateAxis
+  /** Axis 2: the legend's vertical axis; a different column from x. */
+  y: BivariateAxis
+  /** A palette id (./bivariateData.ts); unknown ids use the default. */
+  palette: string
+  /** Hidden cells, `'<i>-<j>'` (i: x class, j: y class, 0-based). */
+  hidden: string[]
+  noValue: Omit<ClassOverride, 'color'>
 }
 
 /** What the map, legend and panel draw. Recomputed on every style or data change; never saved. */
@@ -125,12 +181,41 @@ export interface ResolvedStyle {
   classes: ResolvedClass[]
   /** e.g. 'Only 3 distinct values: 3 classes.' */
   notes: string[]
+  /** Spec 009, bivariate only: both axes' classes. */
+  grid?: { x: AxisInfo; y: AxisInfo }
+  /** Spec 009: the size channel, when one applies. */
+  size?: ResolvedSizeChannel
+}
+
+/** A bivariate axis as resolved. */
+export interface AxisInfo {
+  column: string
+  method: BivariateMethod
+  ranges: Array<{ lower: number; upper: number; label: string }>
+}
+
+/** The size channel as resolved (spec 009). Recomputed with the style; never saved. */
+export interface ResolvedSizeChannel {
+  /** 'fallback': the size column is missing or not numeric; the single size is drawn. */
+  status: 'ok' | 'fallback'
+  reason?: string
+  /** Legend group header, e.g. 'aadt · Quantile, 5 classes'. */
+  caption: string
+  mode: SizeMode
+  column: string
+  /** Classed: range classes with `size`, then "No value". Proportional: only "No value", when present. */
+  classes: ResolvedClass[]
+  /** Proportional: the column's range over the displayed result. */
+  domain?: { min: number; max: number }
+  /** Proportional: legend reference sizes, smallest first. */
+  samples?: Array<{ value: number; size: number; label: string }>
+  notes: string[]
 }
 
 export interface ResolvedClass {
-  /** Stable: the category value as `v:<value>`, `range:<i>`, `__other`, `__null`, or `single`. */
+  /** Stable: `v:<value>`, `range:<i>`, `cell:<i>-<j>`, `__other`, `__null`, or `single`. */
   key: string
-  kind: 'single' | 'value' | 'range' | 'other' | 'noValue'
+  kind: 'single' | 'value' | 'range' | 'other' | 'noValue' | 'cell'
   label: string
   color: string
   visible: boolean
@@ -143,8 +228,14 @@ export interface ResolvedClass {
   upper?: number
   /** kind 'other': how many distinct values it groups. */
   groups?: number
-  /** kind 'range' of a size-graduated renderer: marker radius or line width, px. */
+  /** Size channel classes: marker radius or line width, px. */
   size?: number
+  /** kind 'cell': the x class (column) and y class (row), 0-based. */
+  col?: number
+  row?: number
+  /** kind 'cell': the x and y value ranges (same rules as 'range'). */
+  x?: { lower: number; upper: number }
+  y?: { lower: number; upper: number }
 }
 
 /** Items not exported, not imported, or not applied (FR-015). */
@@ -157,6 +248,8 @@ export interface StyleNotice {
 export const OTHER_COLOR = '#bdbdbd'
 export const NO_VALUE_COLOR = '#8c8c8c'
 export const DEFAULT_CATEGORY_CAP = 12
+/** Spec 009: the bivariate palette new styles start with (./bivariateData.ts). */
+export const DEFAULT_BIVARIATE_PALETTE = 'orange-blue'
 export const DEFAULT_CLASS_COUNT = 5
 export const MIN_CLASS_COUNT = 2
 export const MAX_CLASS_COUNT = 10
@@ -166,6 +259,25 @@ const SINGLE: SingleRenderer = Object.freeze({ kind: 'single' }) as SingleRender
 /** The style's renderer; spec 001 styles (no renderer) are single. */
 export function rendererOf(style: Pick<LayerStyle, 'renderer'>): Renderer {
   return style.renderer ?? SINGLE
+}
+
+/** The columns the color channel reads: none, one, or both bivariate axes (spec 009). */
+export function rendererColumns(renderer: Renderer): string[] {
+  if (renderer.kind === 'single') return []
+  if (renderer.kind === 'bivariate') return [renderer.x.column, renderer.y.column].filter(Boolean)
+  return renderer.column ? [renderer.column] : []
+}
+
+/** Every attribute a style's channels read (color, then size), deduplicated. Map views fetch only these (spec 007). */
+export function styleDataColumns(style: Pick<LayerStyle, 'renderer' | 'size'>): string[] {
+  const cols = rendererColumns(rendererOf(style))
+  const size = style.size?.column
+  return size && !cols.includes(size) ? [...cols, size] : cols
+}
+
+/** A short title for the color channel's columns: `zone`, `poverty_rate × obesity_rate`, or '' (single). */
+export function rendererTitle(renderer: Renderer): string {
+  return rendererColumns(renderer).join(' × ')
 }
 
 /**
@@ -253,7 +365,35 @@ export function round(n: number, digits = 3): number {
   return Math.round(n * f) / f
 }
 
-export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
+/**
+ * Spec 009 FR-009: a graduated renderer saved with "Vary: Size" (2026-10-12
+ * build; also what the QML/SLD importers read from QGIS GraduatedSize) is a
+ * single color plus a classed size channel on the same column.
+ */
+function migrateVarySize(style: Partial<LayerStyle>): Partial<LayerStyle> {
+  const r = style.renderer as Partial<GraduatedRenderer> | undefined
+  if (!r || r.kind !== 'graduated' || r.vary !== 'size') return style
+  if (style.size) return { ...style, renderer: { kind: 'single' } }
+  const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  const size: Partial<SizeChannel> = {
+    column: r.column,
+    mode: 'classed',
+    method: r.method,
+    classCount: r.classCount,
+    classes: (r.classes ?? []).map((c) => {
+      const o = { ...c }
+      delete o.color
+      return o
+    }),
+    noValue: { ...(r.noValue?.label !== undefined ? { label: r.noValue.label } : {}), ...(r.noValue?.visible === false ? { visible: false } : {}) },
+    sizeMin: n(r.sizeMin, 2),
+    sizeMax: n(r.sizeMax, 10),
+  }
+  return { ...style, renderer: { kind: 'single' }, size: size as SizeChannel }
+}
+
+export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
+  const style = migrateVarySize(raw)
   const pick = (c: string | undefined, fallback: string): string => {
     const rgba = parseColor(c)
     return rgba ? rgbToHex(rgba) : fallback
@@ -272,6 +412,36 @@ export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
     ...(sanitizeExtrusion(style.extrusion) ? { extrusion: sanitizeExtrusion(style.extrusion) } : {}),
     ...(isMarkerShape(style.markerShape) && style.markerShape !== 'circle' ? { markerShape: style.markerShape } : {}),
     ...(isLineDash(style.lineDash) && style.lineDash !== 'solid' ? { lineDash: style.lineDash } : {}),
+    ...(sanitizeSizeChannel(style.size) ? { size: sanitizeSizeChannel(style.size) } : {}),
+  }
+}
+
+/** Spec 009: a stored or imported size channel made valid, or undefined (none). */
+export function sanitizeSizeChannel(raw: Partial<SizeChannel> | undefined | null): SizeChannel | undefined {
+  if (!raw || typeof raw !== 'object' || typeof raw.column !== 'string' || !raw.column) return undefined
+  const method: GraduatedMethod = raw.method === 'equal' || raw.method === 'quantile' || raw.method === 'jenks' || raw.method === 'manual' ? raw.method : 'quantile'
+  const sizes = sanitizeSizes({ sizeMin: raw.sizeMin, sizeMax: raw.sizeMax })
+  const noValue = sanitizeOverride(raw.noValue)
+  delete noValue.color
+  return {
+    column: raw.column,
+    mode: raw.mode === 'proportional' ? 'proportional' : 'classed',
+    method,
+    classCount: clamp(Math.round(Number(raw.classCount ?? DEFAULT_CLASS_COUNT)) || DEFAULT_CLASS_COUNT, MIN_CLASS_COUNT, MAX_CLASS_COUNT),
+    classes: (Array.isArray(raw.classes) ? raw.classes : [])
+      .filter((k) => k && Number.isInteger(k.index))
+      .map((k) => {
+        const o = sanitizeOverride(k)
+        delete o.color
+        const out: RangeClassDef = { index: k.index, ...o }
+        if (typeof k.lower === 'number' && Number.isFinite(k.lower)) out.lower = k.lower
+        if (typeof k.upper === 'number' && Number.isFinite(k.upper)) out.upper = k.upper
+        return out
+      }),
+    noValue,
+    sizeMin: sizes.sizeMin,
+    sizeMax: sizes.sizeMax,
+    ...(raw.scale === 'area' || raw.scale === 'linear' ? { scale: raw.scale } : {}),
   }
 }
 
@@ -296,12 +466,12 @@ function sanitizeRamp(r: RampRef | undefined, fallback: string): RampRef {
 const SIZE_LO = 0.5
 const SIZE_HI = 100
 
-/** A size-graduated renderer's range, made valid (min <= max, both within 0.5..100 px). */
-function sanitizeSizes(g: Partial<GraduatedRenderer>): Pick<GraduatedRenderer, 'vary' | 'sizeMin' | 'sizeMax'> {
+/** A size range made valid (min <= max, both within 0.5..100 px). */
+function sanitizeSizes(g: { sizeMin?: unknown; sizeMax?: unknown }): { sizeMin: number; sizeMax: number } {
   const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, SIZE_LO, SIZE_HI) : fallback)
   const min = n(g.sizeMin, 2)
   const max = n(g.sizeMax, Math.max(min, 10))
-  return { vary: 'size', sizeMin: Math.min(min, max), sizeMax: Math.max(min, max) }
+  return { sizeMin: Math.min(min, max), sizeMax: Math.max(min, max) }
 }
 
 /**
@@ -343,7 +513,6 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
           return out
         }),
       noValue: sanitizeOverride(g.noValue),
-      ...(g.vary === 'size' ? sanitizeSizes(g) : {}),
     }
   }
   return { kind: 'single' }
@@ -380,10 +549,20 @@ export function validateStyle(style: LayerStyle): string[] {
       })
     }
     for (const o of [...r.classes, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
-    if (r.vary === 'size') {
-      const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
-      if (!ok(r.sizeMin) || !ok(r.sizeMax)) errors.push(`Sizes must be between ${SIZE_LO} and ${SIZE_HI} px.`)
-      else if ((r.sizeMin as number) > (r.sizeMax as number)) errors.push('The smallest size must not be larger than the largest.')
+  }
+  // Spec 009: the size channel.
+  const size = style.size
+  if (size) {
+    const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
+    if (!size.column) errors.push('Choose a column to size by.')
+    if (!ok(size.sizeMin) || !ok(size.sizeMax)) errors.push(`Sizes must be between ${SIZE_LO} and ${SIZE_HI} px.`)
+    else if (size.sizeMin > size.sizeMax) errors.push('The smallest size must not be larger than the largest.')
+    if (size.mode === 'classed' && size.method === 'manual') {
+      const ranges = [...size.classes].sort((a, b) => a.index - b.index)
+      ranges.forEach((k, i) => {
+        if (k.lower === undefined || k.upper === undefined) errors.push(`Size class ${i + 1} needs both bounds.`)
+        else if (!(k.lower < k.upper)) errors.push(`Size class ${i + 1}: the lower bound must be below the upper bound.`)
+      })
     }
   }
   return errors

@@ -21,7 +21,8 @@ import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMem
 import {
   categoryTotalsSql,
   classCountsSql,
-  columnValuesSql,
+  columnsValuesSql,
+  multiTotalsSql,
   evenPositions,
   numberTotalsSql,
   HISTOGRAM_BINS,
@@ -33,8 +34,8 @@ import {
   STYLE_VALUES_CAP,
   topCategoriesSql,
 } from '../view/stats.js'
-import { resolveStyle as resolveStyleFrom, type ResolveInput } from '../style/resolve.js'
-import { rendererOf, type LayerStyle, type ResolvedStyle } from '../style/model.js'
+import { resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
+import { rendererOf, type GraduatedMethod, type LayerStyle, type ResolvedStyle } from '../style/model.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
@@ -576,61 +577,90 @@ export class QuerySession {
     const facts = this.facts
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
-    if (!facts || r.kind === 'single' || !r.column || !base.columns.some((c) => c.name === r.column) || this.utilityRows || this.needsLoad) {
+    const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
+    // Spec 009: every channel column the style classifies. Bivariate statistics come with US4.
+    const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
+    const size = style.size && r.kind !== 'bivariate' && has(style.size.column) ? style.size : null
+    if (!facts || r.kind === 'bivariate' || (!colorColumn && !size) || this.utilityRows || this.needsLoad) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()
-    const column = r.column
+    const columns = [...new Set([colorColumn, size?.column].filter((c): c is string => !!c))]
     return this.exclusive(async (isCancelled) => {
       const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
       const cap = jenksSample()
+      const dataByColumn: Record<string, ColumnData> = {}
       if (n <= cap) {
-        const values: Array<Feature['attributes'][string]> = []
-        await streamRows(this.conn, columnValuesSql(relation, column), isCancelled, (batch) => {
-          for (const row of batch) values.push(sanitizeAttributes({ v: row.v }).v)
+        // Small results: every needed column's values in one pass, classified exactly as spec 003 did.
+        const values = columns.map(() => [] as Array<Feature['attributes'][string]>)
+        await streamRows(this.conn, columnsValuesSql(relation, columns), isCancelled, (batch) => {
+          for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
         })
-        return resolveStyleFrom(style, { ...base, data: { kind: 'values', column, values } })
+        columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
+        return resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
       }
-      if (r.kind === 'categorized') {
+      if (r.kind === 'categorized' && colorColumn) {
         const top: Array<{ value: string; count: number }> = []
-        await streamRows(this.conn, topCategoriesSql(relation, column, r.manual ? r.classes.map((c) => c.value) : []), isCancelled, (batch) => {
+        await streamRows(this.conn, topCategoriesSql(relation, colorColumn, r.manual ? r.classes.map((c) => c.value) : []), isCancelled, (batch) => {
           for (const row of batch) top.push({ value: String(row.cat), count: Number(row.n) })
         })
-        const totals = await singleRow<{ distinct_n: bigint | number; non_null: bigint | number; nulls: bigint | number }>(this.conn, categoryTotalsSql(relation, column), isCancelled)
-        return resolveStyleFrom(style, {
-          ...base,
-          data: { kind: 'categories', column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls) },
-        })
+        const totals = await singleRow<{ distinct_n: bigint | number; non_null: bigint | number; nulls: bigint | number }>(this.conn, categoryTotalsSql(relation, colorColumn), isCancelled)
+        dataByColumn[colorColumn] = { kind: 'categories', column: colorColumn, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls) }
       }
-      // Graduated: natural breaks' own order statistics, exact quantile positions, then exact counts.
-      const totals = await singleRow<{ n: bigint | number; nulls: bigint | number }>(this.conn, numberTotalsSql(relation, column), isCancelled)
-      const count = Number(totals.n)
-      const even = evenPositions(count, cap)
-      const around = r.method === 'quantile' ? quantilePositions(count, r.classCount) : []
-      const atPos = new Map<number, number>()
-      if (count > 0) {
-        await streamRows(this.conn, orderStatisticsSql(relation, column, [...even, ...around]), isCancelled, (batch) => {
-          for (const row of batch) atPos.set(Number(row.pos), Number(row.v))
-        })
+      // Numeric channels: one totals pass for all, then the order statistics each classification
+      // needs (natural breaks' own sample, exact quantile positions). A proportional size needs only
+      // min and max. A size channel on the categorized color column gets its own numbers.
+      const numeric: Array<{ key: string; column: string; method?: GraduatedMethod; classCount?: number }> = []
+      if (r.kind === 'graduated' && colorColumn) numeric.push({ key: colorColumn, column: colorColumn, method: r.method, classCount: r.classCount })
+      if (size && !(r.kind === 'graduated' && size.column === colorColumn && size.mode === 'proportional')) {
+        const key = sizeDataKey(size.column, size.column === colorColumn)
+        numeric.push(size.mode === 'classed' ? { key, column: size.column, method: size.method, classCount: size.classCount } : { key, column: size.column })
       }
-      const sample = even.map((p) => atPos.get(p)).filter((v): v is number => v !== undefined)
-      const quantileStats = Object.fromEntries(around.map((p) => [p, atPos.get(p) ?? 0]))
-      const resolved = resolveStyleFrom(style, { ...base, data: { kind: 'numbers', column, sample, n: count, nulls: Number(totals.nulls), quantileStats } })
-      const ranges = resolved.classes.filter((c) => c.kind === 'range').map((c) => ({ lower: c.lower ?? 0, upper: c.upper ?? 0 }))
-      const byClass = new Map<number, number>()
-      await streamRows(this.conn, classCountsSql(relation, column, ranges), isCancelled, (batch) => {
-        for (const row of batch) byClass.set(Number(row.cls), Number(row.n))
-      })
-      let i = 0
-      const classes = resolved.classes
-        .map((c) => {
-          if (c.kind === 'range') return { ...c, count: byClass.get(i++) ?? 0 }
-          if (c.kind === 'other') return { ...c, count: byClass.get(-1) ?? 0 }
-          if (c.kind === 'noValue') return { ...c, count: byClass.get(-2) ?? 0 }
-          return c
+      if (numeric.length) {
+        const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, numeric.map((c) => c.column)), isCancelled)
+        for (const [k, c] of numeric.entries()) {
+          const count = Number(totals[`n_${k}`])
+          const nulls = Number(totals[`nulls_${k}`])
+          if (!c.method) {
+            const ends = count > 0 ? [Number(totals[`min_${k}`]), Number(totals[`max_${k}`])] : []
+            dataByColumn[c.key] = { kind: 'numbers', column: c.column, sample: ends, n: count, nulls }
+            continue
+          }
+          const even = evenPositions(count, cap)
+          const around = c.method === 'quantile' ? quantilePositions(count, c.classCount ?? 0) : []
+          const atPos = new Map<number, number>()
+          if (count > 0) {
+            await streamRows(this.conn, orderStatisticsSql(relation, c.column, [...even, ...around]), isCancelled, (batch) => {
+              for (const row of batch) atPos.set(Number(row.pos), Number(row.v))
+            })
+          }
+          const sample = even.map((pos) => atPos.get(pos)).filter((v): v is number => v !== undefined)
+          const quantileStats = Object.fromEntries(around.map((pos) => [pos, atPos.get(pos) ?? 0]))
+          dataByColumn[c.key] = { kind: 'numbers', column: c.column, sample, n: count, nulls, quantileStats }
+        }
+      }
+      const resolved = resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
+      // Exact class counts, filled in after classifying (as graduated has since spec 007).
+      const counted = async (column: string, classes: ResolvedStyle['classes']): Promise<ResolvedStyle['classes']> => {
+        const ranges = classes.filter((c) => c.kind === 'range').map((c) => ({ lower: c.lower ?? 0, upper: c.upper ?? 0 }))
+        const byClass = new Map<number, number>()
+        await streamRows(this.conn, classCountsSql(relation, column, ranges), isCancelled, (batch) => {
+          for (const row of batch) byClass.set(Number(row.cls), Number(row.n))
         })
-        .filter((c) => c.kind !== 'other' || c.count > 0)
-      return { ...resolved, classes }
+        let k = 0
+        return classes
+          .map((c) => {
+            if (c.kind === 'range') return { ...c, count: byClass.get(k++) ?? 0 }
+            if (c.kind === 'other') return { ...c, count: byClass.get(-1) ?? 0 }
+            if (c.kind === 'noValue') return { ...c, count: byClass.get(-2) ?? 0 }
+            return c
+          })
+          .filter((c) => c.kind !== 'other' || c.count > 0)
+      }
+      let out: ResolvedStyle = resolved
+      if (r.kind === 'graduated' && colorColumn && resolved.status === 'ok') out = { ...out, classes: await counted(colorColumn, resolved.classes) }
+      if (size && size.mode === 'classed' && out.size?.status === 'ok') out = { ...out, size: { ...out.size, classes: await counted(size.column, out.size.classes) } }
+      return out
     }, 'background')
   }
 

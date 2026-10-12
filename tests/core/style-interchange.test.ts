@@ -184,8 +184,10 @@ describe('foreign files import with notices for what is left out', () => {
 
   it('QGIS size-graduated ranges import as size classes (style-symbols.test.ts has the details)', () => {
     const qml = fixture('graduated.qml').replace('graduatedMethod="GraduatedColor"', 'graduatedMethod="GraduatedSize"')
-    const r = rendererOf(importStyle('x.qml', qml).style)
-    expect(r.kind === 'graduated' && r.vary).toBe('size')
+    // Spec 009: size classes are a size channel on a single color.
+    const { style } = importStyle('x.qml', qml)
+    expect(rendererOf(style).kind).toBe('single')
+    expect(style.size?.column).toBe('value')
   })
 
   it('a GeoLibre-shaped SLD: the "< first value" guard rule is skipped', () => {

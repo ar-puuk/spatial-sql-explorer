@@ -49,24 +49,22 @@ test('a line pattern dashes polygon outlines and the legend, and is saved', asyn
   expect(await savedQml(page)).toContain('name="outline_style" type="QString" value="dash dot"')
 })
 
-test('graduated by size: classes grow from the smallest to the largest size', async ({ page }) => {
+// Spec 009: size classes are the size channel (style-channels.spec.ts covers its controls and files).
+test('size classes on points: markers grow class by class, in the legend to scale', async ({ page }) => {
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Layer style' }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
-  await expect(legendRows(page)).toHaveCount(5)
-  await panel(page).getByRole('radio', { name: 'Size', exact: true }).click()
-  const headings = await panel(page).locator('section h3').allTextContents()
-  expect(headings).toEqual(['Style', 'Size by', 'Classification', 'Sizes', 'Appearance', '3D'])
-  // No ramp while classes vary by size; the single fill color is editable again.
-  await expect(panel(page).getByRole('button', { name: /^Colors:/ })).toHaveCount(0)
-  await expect(panel(page).getByLabel('Smallest class size')).toHaveValue('2')
-  await expect(panel(page).getByLabel('Largest class size')).toHaveValue('10')
+  await panel(page).getByRole('switch', { name: 'Size by column' }).click()
+  await expect(panel(page).getByLabel('Size column')).toHaveValue('value')
+  await expect(panel(page).getByLabel('Smallest size')).toHaveValue('2')
+  await expect(panel(page).getByLabel('Largest size')).toHaveValue('10')
+  const sizeRows = page.getByRole('region', { name: 'Legend' }).getByRole('group', { name: /^value · / }).locator('li')
+  await expect(sizeRows).toHaveCount(5)
 
   // Legend markers grow class by class (shrunk together to fit, relative sizes kept).
   const widths = async () =>
     Promise.all(
       Array.from({ length: 5 }, (_, i) =>
-        legendRows(page)
+        sizeRows
           .nth(i)
           .locator('svg path')
           .evaluate((el) => (el as SVGPathElement).getBBox().width)
@@ -75,23 +73,11 @@ test('graduated by size: classes grow from the smallest to the largest size', as
   await expect.poll(async () => (await widths()).every((w, i, a) => i === 0 || w > a[i - 1])).toBe(true)
   await expect.poll(() => rendered(page)).toBe('100')
 
-  await panel(page).getByLabel('Largest class size').fill('16')
-  await panel(page).getByLabel('Largest class size').press('Enter')
-  await expect(panel(page).getByRole('list', { name: 'Class list' }).locator('li').last().getByRole('img')).toHaveAttribute('aria-label', /16 px$/)
-  expect(await savedQml(page)).toContain('graduatedMethod="GraduatedSize"')
+  // Shaped markers are sized too (icons scaled per feature), and still drawn.
+  await panel(page).getByRole('radiogroup', { name: 'Shape' }).getByRole('radio', { name: 'Triangle' }).click()
+  await expect.poll(() => rendered(page)).toBe('100')
 
-  // Back to color: the ramp returns.
-  await panel(page).getByRole('radio', { name: 'Color', exact: true }).click()
-  await expect(panel(page).getByRole('button', { name: /^Colors:/ })).toBeVisible()
-})
-
-test('polygons cannot vary by size', async ({ page }) => {
-  await openFile(page, writeParcels(50))
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
-  const size = panel(page).getByRole('radio', { name: 'Size', exact: true })
-  await expect(size).toHaveAttribute('aria-disabled', 'true')
-  await expect(size).toHaveAttribute('title', /Polygons have no size/)
-  await size.dispatchEvent('click')
-  await expect(size).toHaveAttribute('aria-checked', 'false')
+  await panel(page).getByLabel('Largest size').fill('16')
+  await panel(page).getByLabel('Largest size').press('Enter')
+  await expect(panel(page).getByRole('list', { name: 'Size classes' }).locator('li').last().getByRole('img')).toHaveAttribute('aria-label', /16 px$/)
 })

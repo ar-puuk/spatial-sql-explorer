@@ -54,12 +54,14 @@ export interface Thematic {
 export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined): { thematic: Thematic | null; notes: string[] } {
   const r = rendererOf(style)
   if (r.kind === 'single') return { thematic: null, notes: [] }
+  // Spec 009 US5 writes bivariate classes.
+  if (r.kind === 'bivariate') return { thematic: null, notes: ['Bivariate classes are not exported in this build; the single symbol was exported.'] }
   if (!resolved || resolved.status !== 'ok') {
     const why = resolved?.reason ?? 'The classes could not be computed.'
     return { thematic: null, notes: [`${why} The single symbol was exported instead of the ${r.kind} classes.`] }
   }
   const classes: ExportClass[] = resolved.classes.flatMap((c) =>
-    c.kind === 'single' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
+    c.kind === 'single' || c.kind === 'cell' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
   )
   return { thematic: { renderer: r, classes }, notes: [] }
 }
@@ -76,6 +78,11 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  // Spec 009: the size channel in SLD.
+  if (format === 'sld' && style.size && resolved?.size?.status === 'ok') {
+    if (style.size.mode === 'proportional') items.push('Proportional sizes are written as 5 steps.')
+    if (thematic) items.push("Classes on two columns can't be read back from SLD; use QML or Mapbox GL to keep them.")
+  }
   if (thematic && format === 'sld') {
     if (thematic.renderer.kind === 'graduated') items.push("SLD can't store the classification method: the classes will import as fixed (Manual).")
     const hidden = thematic.classes.filter((c) => !c.visible).length
@@ -164,6 +171,7 @@ export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { m
     ramp,
     classes,
     noValue: nv ? override(nv.color, undefined, nv.label, (l) => l === 'No value', nv.visible) : {},
+    // Spec 009: size classes leave here in the legacy "Vary: Size" shape; sanitizeStyle makes them a size channel.
     ...(opts.size ? { vary: 'size' as const, sizeMin: opts.size.min, sizeMax: opts.size.max } : {}),
   }
 }

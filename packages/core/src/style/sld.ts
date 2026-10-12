@@ -7,6 +7,7 @@ import {
   DEFAULT_LAYER_STYLE,
   escapeXml,
   parseColor,
+  rendererOf,
   rgbToHex,
   round,
   sanitizeStyle,
@@ -17,7 +18,7 @@ import {
 } from './model.js'
 import type { StyleExport } from './qml.js'
 import { categorizedFrom, classLayerStyle, graduatedFrom, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange } from './interchange.js'
-import { dashFromPattern, dashPattern, type MarkerShape } from './symbol.js'
+import { dashFromPattern, dashPattern, proportionalSize, type MarkerShape } from './symbol.js'
 
 function param(name: string, value: string | number): string {
   return `<CssParameter name="${name}">${escapeXml(String(value))}</CssParameter>`
@@ -106,11 +107,86 @@ function thematicRules(style: LayerStyle, geometry: StyleGeometry, column: strin
   return rules.join('\n')
 }
 
+/**
+ * Spec 009: the size channel's classes for SLD: the size classes (classed), or
+ * 5 equal steps over the domain at their midpoint sizes (proportional, with a
+ * notice). "Other" (outside manual classes) has no rule.
+ */
+function sizeExportClasses(style: LayerStyle, resolved: ResolvedStyle | undefined): ExportClass[] | null {
+  const s = style.size
+  const r = resolved?.size
+  if (!s || !r || r.status !== 'ok' || rendererOf(style).kind === 'bivariate') return null
+  const noValue = r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ kind: 'noValue' as const, color: c.color, label: c.label, visible: c.visible }))
+  if (s.mode === 'proportional') {
+    if (!r.domain) return null
+    const { min, max } = r.domain
+    const step = (max - min) / 5
+    const steps: ExportClass[] = Array.from({ length: max > min ? 5 : 1 }, (_, i) => {
+      const lower = min + step * i
+      const upper = i === 4 || !(max > min) ? max : min + step * (i + 1)
+      return { kind: 'range', lower, upper, color: style.fillColor, label: `${round(lower, 3)} – ${round(upper, 3)}`, visible: true, size: proportionalSize((lower + upper) / 2, r.domain as { min: number; max: number }, s.sizeMin, s.sizeMax, s.scale ?? 'linear') }
+    })
+    return [...steps, ...noValue]
+  }
+  return [
+    ...r.classes.flatMap((c) => (c.kind === 'range' ? [{ kind: 'range' as const, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, size: c.size }] : [])),
+    ...noValue,
+  ]
+}
+
+/**
+ * Spec 009: one rule per (color class x size class), the filter ANDing both
+ * tests, on point and line families; polygons keep the color rules.
+ */
+function channelRules(style: LayerStyle, geometry: StyleGeometry, color: { column: string; classes: ExportClass[] } | null, size: { column: string; classes: ExportClass[] }): string {
+  const families = geometry === 'Mixed' ? MIXED_RULES : [{ geom: geometry, types: [] as string[] }]
+  const colors: ExportClass[] = color?.classes ?? [{ kind: 'other', color: style.fillColor, label: '', visible: true }]
+  const firstColorRange = colors.findIndex((c) => c.kind === 'range')
+  const firstSizeRange = size.classes.findIndex((c) => c.kind === 'range')
+  const rules: string[] = []
+  for (const f of families) {
+    const geom = f.geom as Exclude<StyleGeometry, 'Mixed'>
+    const geomTest = f.types.length ? geometryTypeFilter(f.types).replace(/^<ogc:Filter>|<\/ogc:Filter>$/g, '') : ''
+    const sized = geom !== 'Polygon'
+    colors.forEach((c, i) => {
+      if (!c.visible) return
+      // "Other" colors (all other values) have no filter of their own here: it is what no listed value matches.
+      const colorTest = color && c.kind !== 'other' ? classFilter(color.column, c, i === firstColorRange) : color ? otherFilter(color.column, colors) : ''
+      for (const [j, k] of (sized ? size.classes : [null]).entries()) {
+        if (k && !k.visible) continue
+        const sizeTest = k ? classFilter(size.column, k, j === firstSizeRange) : ''
+        const tests = [colorTest, sizeTest, geomTest].filter(Boolean)
+        const filter = tests.length === 0 ? '' : `<ogc:Filter>${tests.length === 1 ? tests[0] : `<ogc:And>${tests.join('')}</ogc:And>`}</ogc:Filter>`
+        const label = [color ? c.label : '', k?.label ?? ''].filter(Boolean).join(' · ')
+        let look = color ? classStyle(style, geom, c) : style
+        if (k?.size !== undefined) look = geom === 'LineString' ? { ...look, strokeWidth: k.size } : { ...look, pointRadius: k.size }
+        rules.push(`          <Rule>
+            <Name>${escapeXml(label)}</Name>
+            <Title>${escapeXml(label)}</Title>
+            ${filter}
+            ${symbolizer(geom, look)}
+          </Rule>`)
+      }
+    })
+  }
+  return rules.join('\n')
+}
+
+/** "All other values" of a categorized color channel, as a filter: none of the listed values (combined with a size test, ElseFilter can't be used). */
+function otherFilter(column: string, classes: ExportClass[]): string {
+  const listed = classes.filter((c) => c.kind === 'value').map((c) => `<ogc:PropertyIsNotEqualTo>${prop(column)}${literal(c.value ?? '')}</ogc:PropertyIsNotEqualTo>`)
+  const notNull = `<ogc:Not><ogc:PropertyIsNull>${prop(column)}</ogc:PropertyIsNull></ogc:Not>`
+  return `<ogc:And>${listed.join('')}${notNull}</ogc:And>`
+}
+
 export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName: string, resolved?: ResolvedStyle): StyleExport {
   const style = sanitizeStyle(input)
   const { thematic } = thematicForExport(style, resolved)
   const notes = previewExportNotice(style, 'sld', resolved).items
-  const rules = thematic
+  const sizeClasses = geometry === 'Polygon' ? null : sizeExportClasses(style, resolved)
+  const rules = sizeClasses && style.size
+    ? channelRules(style, geometry, thematic ? { column: thematic.renderer.column, classes: thematic.classes } : null, { column: style.size.column, classes: sizeClasses })
+    : thematic
     ? thematicRules(style, geometry, thematic.renderer.column, thematic.classes)
     : geometry === 'Mixed'
       ? MIXED_RULES.map(
@@ -271,6 +347,7 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
     if (thematic.length < 2) return null
   }
   const columns = new Set(thematic.flatMap((r) => (r.cls && 'column' in r.cls ? [r.cls.column] : [])))
+  // Classes on two columns (spec 009) get their note in sldToStyle.
   if (columns.size !== 1) return null
   const column = [...columns][0]
   const seen = new Set<string>()
@@ -322,7 +399,11 @@ export function sldToStyle(text: string): StyleImportResult {
   if (!polygon && !line && !point) throw new Error('This SLD file has no polygon, line or point symbolizer.')
 
   const distinctFamilies = [polygon, line, point].filter(Boolean).length
-  if (!renderer && rules.length > distinctFamilies) {
+  // Spec 009: rules that test two columns (color and size classes, or bivariate cells).
+  const twoColumns = rules.some((r) => new Set(byLocal(r, 'PropertyName').map((p) => p.textContent?.trim()).filter((n) => n && n !== 'geometry')).size > 1)
+  if (!renderer && twoColumns) {
+    notes.push("Classes on two columns can't be read from SLD; use QML or Mapbox GL to keep them. The single symbol was imported.")
+  } else if (!renderer && rules.length > distinctFamilies) {
     notes.push(`This SLD has ${rules.length} rules; only the first symbolizer of each geometry type was imported (rule-based styles are not supported yet).`)
   }
 

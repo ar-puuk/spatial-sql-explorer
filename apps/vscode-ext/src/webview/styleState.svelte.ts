@@ -2,7 +2,7 @@
 // changes, for the spatialExplorer._getStyleState test hook (spec 003 T013).
 // @vscode/test-electron can't see inside the webview, so this is how tests
 // compare classes and counts with the web build (FR-020).
-import { rendererOf } from '@spatial-explorer/core'
+import { rendererOf, rendererTitle } from '@spatial-explorer/core'
 import type { ViewerStore } from '@spatial-explorer/ui'
 
 export interface StyleStateReport {
@@ -16,6 +16,15 @@ export interface StyleStateReport {
   dirty: boolean
   source: string | null
   classes: Array<{ key: string; label: string; color: string; visible: boolean; count: number }>
+  /** Spec 009: the size channel, when one applies. */
+  size?: {
+    column: string
+    mode: string
+    status: string
+    caption: string
+    classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>
+    samples?: Array<{ value: number; size: number }>
+  }
 }
 
 export function watchStyleState(store: ViewerStore, report: (state: StyleStateReport) => void): () => void {
@@ -25,7 +34,7 @@ export function watchStyleState(store: ViewerStore, report: (state: StyleStateRe
       const resolved = store.resolvedStyle
       report({
         renderer: r.kind,
-        column: r.kind === 'single' ? undefined : r.column,
+        column: rendererTitle(r) || undefined,
         method: r.kind === 'graduated' ? r.method : undefined,
         classCount: r.kind === 'graduated' ? r.classCount : undefined,
         status: resolved.status,
@@ -34,6 +43,16 @@ export function watchStyleState(store: ViewerStore, report: (state: StyleStateRe
         dirty: store.styleDirty,
         source: store.styleSource,
         classes: resolved.classes.map((c) => ({ key: c.key, label: c.label, color: c.color, visible: c.visible, count: c.count })),
+        size: resolved.size
+          ? {
+              column: resolved.size.column,
+              mode: resolved.size.mode,
+              status: resolved.size.status,
+              caption: resolved.size.caption,
+              classes: resolved.size.classes.map((c) => ({ key: c.key, label: c.label, size: c.size, visible: c.visible, count: c.count })),
+              samples: resolved.size.samples?.map((x) => ({ value: x.value, size: x.size })),
+            }
+          : undefined,
       })
     })
   })

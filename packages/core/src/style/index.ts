@@ -57,7 +57,7 @@ export function exportStyle(
   switch (format) {
     case 'qml': {
       const r = style.renderer
-      const column = r && r.kind !== 'single' ? r.column : ''
+      const column = r && (r.kind === 'categorized' || r.kind === 'graduated') ? r.column : ''
       return styleToQml(style, geometry, resolved, columns?.find((c) => c.name === column)?.type)
     }
     // Neither has a layer-level opacity: it is folded into the symbol opacities.
