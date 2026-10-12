@@ -620,3 +620,63 @@ keeps them, so later starts need no network.
   (0 requests, opens fine) and a damaged cached wasm (only that file is
   downloaded again); VS Code, a second open downloads nothing and a damaged
   copy on disk is replaced.
+
+## 16. GeoPackage feature ids and SQLite databases (bug fix, 2026-10-11)
+
+**Report (user)**: in VS Code, some GeoPackages left the map grey or showed
+the basemap without data. Reproduced in both shells with a TAZ layer:
+`Invalid Error: thread constructor failed: Resource temporarily unavailable`.
+
+**Cause**: GDAL's GeoPackage reader (`OGRGeoPackageTableLayer::GetNextArrowArray`)
+streams a layer from its own thread unless the feature ids run exactly 1..N
+(`MIN(fid) = 1` and `MAX(fid) = feature count`). The failing file's ids ran
+37896..41457 (a subset exported with its ids). This engine is single-threaded
+(no SharedArrayBuffer in webviews), so `std::thread` fails. Renumbering the
+ids made the same file open; in one GeoPackage, a 1..27 layer read and a
+gapped one failed. GDAL's switch (`OGR_GPKG_STREAM_BASE_IMPL`) is a config
+option, which DuckDB 1.4.3 can't set from SQL. The engine survives the error.
+
+**Spike** (real engine, both shells):
+- GDAL VRT wrapper: the `OGR_VRT` driver is built in, but a registered
+  `.vrt` is "not recognized". GeoPackage `PRELUDE_STATEMENTS` with a temp
+  view: GDAL sees the view but loses the key, so it still streams. Dropped.
+- DuckDB's `sqlite_scanner` (published for v1.4.3/wasm_eh): loads, but opens
+  files through SQLite's own VFS, which can't see registered files ("unable
+  to open database file", as in §3 for ATTACH). Dropped.
+- GDAL's SQLite driver refuses GeoPackages by their application id (header
+  bytes 68–71, `GPKG`). With it cleared in an in-memory copy (registered as
+  `.sqlite`), it reads every layer without a thread; geometry comes back as
+  the GeoPackage blob, decoded in SQL (8-byte header plus the envelope its
+  flags announce, then WKB; BLOB slices are 1-based, inclusive). Bikeways
+  (102,807 lines): identical geometries to the GeoPackage reader (`ST_Equals`
+  on every row), 330 vs 190 ms; date and boolean columns keep their types.
+- SQLite / SpatiaLite (a Bentley Cube 7 network, 38 MB): GDAL's SQLite
+  driver lists the node and link layers with their CRS (EPSG:26912); 21,921
+  nodes in 85 ms, 58,087 links in 593 ms. Attribute-only tables (transit,
+  tolls, junctions) open with `LIST_ALL_TABLES=YES` but `ST_Read_Meta`
+  doesn't list them.
+- `ST_Read` never returns the feature id. GeoPackage `fid` was silently
+  dropped (spec 001 says it's kept), and Cube's node number `n` (its INTEGER
+  PRIMARY KEY) too, which links (`a`, `b`) refer to.
+
+**Decision (user)**: SQLite support through GDAL (`.sqlite` and `.db`), the
+GeoPackage fallback through the SQLite driver, and sql.js for the primary-key
+column only (the engine provably can't return it).
+
+**Outcome** (`packages/core/src/source/sqlite.ts`):
+- Each GeoPackage layer is checked with `SELECT 1 FROM ST_Read(…) LIMIT 1`
+  (~17 ms); layers that need a thread are read from the cleared copy.
+- sql.js reads the file once: the single INTEGER PRIMARY KEY of each table,
+  in rowid order (GDAL reads in that order), and a SQLite file's attribute
+  tables. Keys are joined by position (`POSITIONAL JOIN`), only when their
+  count matches the layer's; `OGC_FID` (GDAL's own id) isn't added. Files
+  over 512 MB keep today's behavior (no key).
+- A file already in memory is copied before the engine takes it, instead of
+  being fetched again (150–210 ms of the 41 MB file over the loopback server).
+  Cost of the step in VS Code (warm): 41 MB / 102,807 rows ~180 ms;
+  5,502 rows ~90 ms; the 38 MB Cube network ~300 ms (three tables of keys).
+- VS Code: `.sqlite` and `.db` open under **Open With…** only (priority
+  "option"), so SQLite viewers keep them.
+- Tests: `gapped-ids.gpkg` and `cube-network.sqlite` (scripts/fixtures-008.mjs),
+  tests/web/specs/sqlite-sources.spec.ts, the VS Code layers suite, and
+  tests/core/sqlite-source.test.ts.

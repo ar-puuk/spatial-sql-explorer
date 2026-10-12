@@ -98,3 +98,57 @@ if (!exists('two.gdb')) {
   ogr2ogr(['-f', 'OpenFileGDB', '-update', gdb, path.join(dir, 'mixed-types.geojson'), '-nln', 'cities', '-where', "kind = 'city'", '-nlt', 'POINT'])
   console.log('wrote two.gdb/')
 }
+
+// Research §16 (bug fix, 2026-10-11): GeoPackage layers whose feature ids
+// don't run 1..N (GDAL streams them through a thread this engine can't start),
+// and a SQLite / SpatiaLite network shaped like a Bentley Cube 7 export.
+const tmpGeoJson = (name, features) => {
+  const file = path.join(dir, `.${name}.geojson`)
+  fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features }))
+  return file
+}
+const square = (x, y, d) => ({ type: 'Polygon', coordinates: [[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]] })
+
+if (!exists('gapped-ids.gpkg')) {
+  // `zones`: 12 polygons, ids 101, 103, ... (a subset exported with its ids); `stops`: 5 points, ids 1..5;
+  // `notes`: no geometry, ids 7, 9, 11.
+  const gpkg = path.join(dir, 'gapped-ids.gpkg')
+  const zones = tmpGeoJson('zones', Array.from({ length: 12 }, (_, i) => ({
+    type: 'Feature', id: 101 + 2 * i,
+    properties: { zone: `Z${i + 1}`, households: 100 + i * 7, opened: `2020-0${(i % 9) + 1}-15`, active: i % 3 !== 0 },
+    geometry: square(-112 + (i % 4) * 0.05, 40.6 + Math.floor(i / 4) * 0.05, 0.04),
+  })))
+  const stops = tmpGeoJson('stops', Array.from({ length: 5 }, (_, i) => ({
+    type: 'Feature', id: i + 1, properties: { stop: `S${i + 1}` }, geometry: { type: 'Point', coordinates: [-111.98 + i * 0.03, 40.65] },
+  })))
+  const notes = tmpGeoJson('notes', [7, 9, 11].map((id) => ({ type: 'Feature', id, properties: { note: `note ${id}` }, geometry: null })))
+  try {
+    ogr2ogr(['-f', 'GPKG', gpkg, zones, '-nln', 'zones', '-preserve_fid', '-a_srs', 'EPSG:4326'])
+    ogr2ogr(['-f', 'GPKG', '-update', gpkg, stops, '-nln', 'stops', '-preserve_fid', '-a_srs', 'EPSG:4326'])
+    ogr2ogr(['-f', 'GPKG', '-update', gpkg, notes, '-nln', 'notes', '-preserve_fid', '-nlt', 'NONE'])
+  } finally {
+    for (const f of [zones, stops, notes]) fs.rmSync(f, { force: true })
+  }
+  console.log('wrote gapped-ids.gpkg')
+}
+
+if (!exists('cube-network.sqlite')) {
+  // SpatiaLite, NAD83 / UTM 12N, like a Cube 7 network: nodes keyed by `n` (the INTEGER PRIMARY KEY,
+  // numbered with gaps), links from `a` to `b`, and an attribute-only `cubedb__BY__transit_mode`.
+  const db = path.join(dir, 'cube-network.sqlite')
+  const ids = [1, 2, 3, 10, 11, 12, 105, 106]
+  const xy = (i) => [420000 + (i % 4) * 1500, 4500000 + Math.floor(i / 4) * 1500]
+  const nodes = tmpGeoJson('nodes', ids.map((n, i) => ({ type: 'Feature', id: n, properties: { nodename: `node ${n}`, tazid: i < 4 ? i + 1 : null }, geometry: { type: 'Point', coordinates: xy(i) } })))
+  const pairs = [[0, 1], [1, 2], [2, 3], [4, 5], [5, 6], [6, 7], [0, 4], [3, 7]]
+  const links = tmpGeoJson('links', pairs.map(([p, q]) => ({ type: 'Feature', properties: { a: ids[p], b: ids[q], distance: 0.93, lanes: 2 }, geometry: { type: 'LineString', coordinates: [xy(p), xy(q)] } })))
+  const modes = tmpGeoJson('modes', [4, 5, 6].map((id) => ({ type: 'Feature', id, properties: { name: ['Local bus', 'Core bus', 'Light rail'][id - 4] }, geometry: null })))
+  try {
+    const layer = ['-lco', 'LAUNDER=NO', '-lco', 'GEOMETRY_NAME=geom']
+    ogr2ogr(['-f', 'SQLite', '-dsco', 'SPATIALITE=YES', '-dsco', 'INIT_WITH_EPSG=NO', db, nodes, '-nln', 'cubedb__BY__node', ...layer, '-lco', 'FID=n', '-preserve_fid', '-a_srs', 'EPSG:26912'])
+    ogr2ogr(['-f', 'SQLite', '-update', db, links, '-nln', 'cubedb__BY__link', ...layer, '-a_srs', 'EPSG:26912'])
+    ogr2ogr(['-f', 'SQLite', '-update', db, modes, '-nln', 'cubedb__BY__transit_mode', '-lco', 'LAUNDER=NO', '-lco', 'FID=mode', '-preserve_fid', '-nlt', 'NONE'])
+  } finally {
+    for (const f of [nodes, links, modes]) fs.rmSync(f, { force: true })
+  }
+  console.log('wrote cube-network.sqlite')
+}

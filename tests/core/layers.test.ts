@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, mayHaveLayers, readLayerSql, type FileLayer } from '@spatial-explorer/core'
 
-const L = (name: string, geometryType: FileLayer['geometryType']): FileLayer => ({ name, geometryType, featureCount: 1, srid: 4326, sqlName: `"${name}"` })
+const L = (name: string, geometryType: FileLayer['geometryType']): FileLayer => ({ name, geometryType, geometryColumn: geometryType ? 'geom' : null, featureCount: 1, srid: 4326, sqlName: `"${name}"` })
 const layers = [L('lookup', null), L('roads', 'LineString'), L('parcels', 'Polygon')]
 
 describe('activeLayerOf', () => {
@@ -22,8 +22,9 @@ describe('reading a layer', () => {
     expect(readLayerSql('/se-source/a.gpkg', "city's points")).toBe(`ST_Read('/se-source/a.gpkg', layer = 'city''s points')`)
     expect(readLayerSql('/se-source/a.gpkg', null)).toBe(`ST_Read('/se-source/a.gpkg')`)
   })
-  it('only GeoPackage and GML are listed (their catalog is cheap to read)', () => {
+  it('only GeoPackage, SQLite and GML are listed (their catalog is cheap to read)', () => {
     expect(mayHaveLayers('geopackage')).toBe(true)
+    expect(mayHaveLayers('sqlite')).toBe(true)
     expect(mayHaveLayers('geojson')).toBe(false)
   })
   it('names that would shadow layer, an alias or internals are not views', () => {

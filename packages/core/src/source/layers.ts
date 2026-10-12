@@ -13,6 +13,8 @@ export interface FileLayer {
   name: string
   /** null: an attribute-only table (no geometry field). */
   geometryType: GeometryType | null
+  /** The geometry field's name, null for an attribute-only table. */
+  geometryColumn: string | null
   featureCount: number | null
   /** EPSG code of the layer's geometry, when the file states one. */
   srid: number | null
@@ -22,7 +24,7 @@ export interface FileLayer {
 
 /** A format GDAL may hold several layers in (ST_Read_Meta applies). */
 export function mayHaveLayers(format: string): boolean {
-  return format === 'geopackage' || format === 'gml'
+  return format === 'geopackage' || format === 'gml' || format === 'sqlite'
 }
 
 /** The message for a File Geodatabase (FR-018: not readable in this runtime). */
@@ -52,16 +54,19 @@ export async function listLayers(conn: AsyncDuckDBConnection, path: string): Pro
   const res = await conn.query(`
     SELECT l.name AS name, l.feature_count AS n,
            l.geometry_fields[1].type AS gtype,
+           l.geometry_fields[1].name AS gname,
            l.geometry_fields[1].crs.auth_name AS auth_name,
            l.geometry_fields[1].crs.auth_code AS auth_code,
            len(l.geometry_fields) AS gcount
     FROM (SELECT unnest(layers) AS l FROM ST_Read_Meta(${quoteLiteral(path)}))`)
   return res.toArray().map((r) => {
-    const j = r.toJSON() as { name: string; n: bigint | number | null; gtype: string | null; auth_name: string | null; auth_code: string | null; gcount: bigint | number | null }
+    const j = r.toJSON() as { name: string; n: bigint | number | null; gtype: string | null; gname: string | null; auth_name: string | null; auth_code: string | null; gcount: bigint | number | null }
     const code = j.auth_name === 'EPSG' && j.auth_code ? Number(j.auth_code) : null
+    const hasGeometry = Number(j.gcount ?? 0) > 0
     return {
       name: String(j.name),
-      geometryType: Number(j.gcount ?? 0) > 0 ? geometryTypeOf(j.gtype) : null,
+      geometryType: hasGeometry ? geometryTypeOf(j.gtype) : null,
+      geometryColumn: hasGeometry && j.gname ? String(j.gname) : null,
       featureCount: j.n === null || j.n === undefined || Number(j.n) < 0 ? null : Number(j.n),
       srid: code !== null && Number.isFinite(code) ? code : null,
       sqlName: quoteIdent(String(j.name)),

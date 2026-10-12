@@ -18,6 +18,7 @@
     csv: 'CSV',
     gml: 'GML',
     geopackage: 'GeoPackage',
+    sqlite: 'SQLite',
     geoparquet: 'GeoParquet',
     flatgeobuf: 'FlatGeobuf',
   }

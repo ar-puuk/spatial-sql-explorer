@@ -4,7 +4,7 @@
 // through `?e2e=1` (setTestOverrides), never in production.
 import type { ReadModeKind } from '../models.js'
 
-export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'gml' | 'csv' | 'pmtiles'
+export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'pmtiles'
 
 const MB = 1024 * 1024
 
@@ -53,6 +53,8 @@ export const READ_MODES: readonly ReadModeRow[] = [
   { format: 'geojson', mode: 'whole', extensions: ['.geojson', '.json'] },
   { format: 'shapefile', mode: 'whole', extensions: ['.shp'] },
   { format: 'geopackage', mode: 'whole', extensions: ['.gpkg'] },
+  // SQLite / SpatiaLite databases, e.g. Bentley Cube 7 networks (research §16).
+  { format: 'sqlite', mode: 'whole', extensions: ['.sqlite', '.db'] },
   { format: 'gml', mode: 'whole', extensions: ['.gml'] },
   { format: 'csv', mode: 'whole', extensions: ['.csv'] },
   { format: 'pmtiles', mode: 'tiles', extensions: ['.pmtiles'] },
