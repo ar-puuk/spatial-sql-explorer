@@ -103,7 +103,7 @@ moving on.
   - Keep `GraduatedRenderer.vary/sizeMin/sizeMax` as read-only legacy input,
     documented as such.
   - No behavior change yet. Typecheck passes.
-- [ ] T004 Extend `ResolveInput` in `packages/core/src/style/resolve.ts`
+- [X] T004 Extend `ResolveInput` in `packages/core/src/style/resolve.ts`
   with `dataByColumn?: Record<string, ColumnData>`. Add a helper
   `columnData(input, column)` that prefers `dataByColumn[column]`, then
   falls back to `data` when `data.column === column`.

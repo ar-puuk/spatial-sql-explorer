@@ -30,6 +30,11 @@ export interface ResolveInput {
   features?: Feature[]
   rowCount?: number
   data?: ColumnData | null
+  /**
+   * Spec 009: the engine's data for every channel column (color, bivariate
+   * axes, size), keyed by column. `data` stays as an alias for one column.
+   */
+  dataByColumn?: Record<string, ColumnData>
   /** Distinct-value counts per column, when known (renderer suggestions). */
   distinct?: Record<string, number>
 }
@@ -39,10 +44,17 @@ export function rowsOf(input: ResolveInput | null): number {
   return input?.rowCount ?? input?.features?.length ?? 0
 }
 
+/** The engine's data for `column`, if it was fetched (spec 009: per channel column). */
+export function columnData(input: ResolveInput, column: string): ColumnData | null {
+  const byColumn = input.dataByColumn?.[column]
+  if (byColumn) return byColumn
+  return input.data && input.data.column === column ? input.data : null
+}
+
 /** Every value of `column`, from the fetched data or the features. */
 export function valuesOf(input: ResolveInput, column: string): Array<Feature['attributes'][string] | undefined> {
-  const d = input.data
-  if (d?.kind === 'values' && d.column === column) return d.values
+  const d = columnData(input, column)
+  if (d?.kind === 'values') return d.values
   return (input.features ?? []).map((f) => f.attributes[column])
 }
 
@@ -110,7 +122,8 @@ function categorized(style: LayerStyle, r: CategorizedRenderer, layer: ResolveIn
   const counts = new Map<string, number>()
   let nulls = 0
   // Spec 007: a big result's exact counts from SQL (the top categories, plus totals).
-  const sql = layer.data?.kind === 'categories' && layer.data.column === r.column ? layer.data : null
+  const known = columnData(layer, r.column)
+  const sql = known?.kind === 'categories' ? known : null
   if (sql) {
     for (const c of sql.top) counts.set(c.value, c.count)
     nulls = sql.nulls
@@ -216,7 +229,8 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
 
   // Spec 007: a big result's order statistics from SQL (counts filled in afterwards).
-  const stats = layer.data?.kind === 'numbers' && layer.data.column === r.column ? layer.data : null
+  const known = columnData(layer, r.column)
+  const stats = known?.kind === 'numbers' ? known : null
   const numbers: Array<number | null> = stats ? [] : valuesOf(layer, r.column).map((v) => toNumber(v))
   const sorted = stats ? stats.sample : numbers.filter((v): v is number => v !== null).sort((a, b) => a - b)
   const total = stats ? stats.n : sorted.length
