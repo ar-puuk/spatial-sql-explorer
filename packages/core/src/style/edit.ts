@@ -17,6 +17,8 @@ import {
   type RangeClassDef,
   type Renderer,
   type ResolvedStyle,
+  type SizeChannel,
+  type SizeMode,
 } from './model.js'
 import { toCategory } from './classify.js'
 import { defaultRamp } from './ramps.js'
@@ -282,28 +284,111 @@ export function deleteClass(style: LayerStyle, resolved: ResolvedStyle, key: str
   return style
 }
 
+// --- Spec 009: the size channel (data-model.md SizeChannel, contracts/style-core.md) ------
+
+/** Class keys of the size channel: `size:range:<i>`, `size:__other`, `size:__null`. */
+const SIZE = 'size:'
+
 /**
- * A graduated renderer's classes vary the color (ramp) or the size (QGIS
- * GraduatedSize): marker radius on point layers, line width on line layers,
- * from a default range that suits the geometry. The classes are kept.
+ * Turns the size channel on for `column` (keeping its other settings when it
+ * was on), or off with null. Defaults suit the geometry: marker radius 2-10
+ * px for points, line width 1-6 px for lines (DEFAULT_SIZE_RANGE).
  */
-export function setGraduatedVary(style: LayerStyle, vary: 'color' | 'size', geometry: 'point' | 'line'): LayerStyle {
-  const r = rendererOf(style)
-  if (r.kind !== 'graduated' || (r.vary ?? 'color') === vary) return style
-  if (vary === 'color') {
-    const rest = { ...r }
-    delete rest.vary
-    delete rest.sizeMin
-    delete rest.sizeMax
-    return { ...style, renderer: rest }
+export function setSizeChannel(style: LayerStyle, column: string | null, geometry: 'point' | 'line'): LayerStyle {
+  if (column === null) {
+    const rest = { ...style }
+    delete rest.size
+    return rest
   }
+  const was = style.size
+  if (was) return { ...style, size: { ...was, column, method: was.method === 'manual' ? 'quantile' : was.method, classes: [] } }
   const range = DEFAULT_SIZE_RANGE[geometry]
-  return { ...style, renderer: { ...r, vary: 'size', sizeMin: r.sizeMin ?? range.min, sizeMax: r.sizeMax ?? range.max } }
+  const size: SizeChannel = { column, mode: 'classed', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, sizeMin: range.min, sizeMax: range.max }
+  return { ...style, size }
 }
 
-/** The smallest and largest class size of a size-graduated renderer, px. */
+function withSize(style: LayerStyle, patch: (s: SizeChannel) => SizeChannel): LayerStyle {
+  return style.size ? { ...style, size: patch(style.size) } : style
+}
+
+/** Classed or proportional (US2). Proportional has no classes: their overrides are dropped. */
+export function setSizeMode(style: LayerStyle, mode: SizeMode): LayerStyle {
+  return withSize(style, (s) => (s.mode === mode ? s : { ...s, mode, classes: [], method: s.method === 'manual' ? 'quantile' : s.method }))
+}
+
+/** A method recomputes the size classes; label and visibility overrides by index are kept. */
+export function setSizeMethod(style: LayerStyle, method: Exclude<GraduatedMethod, 'manual'>): LayerStyle {
+  return withSize(style, (s) => ({
+    ...s,
+    method,
+    classes: s.classes.map((c) => {
+      const o = { ...c }
+      delete o.lower
+      delete o.upper
+      return o
+    }),
+  }))
+}
+
+export function setSizeClassCount(style: LayerStyle, classCount: number): LayerStyle {
+  const n = Math.max(MIN_CLASS_COUNT, Math.min(MAX_CLASS_COUNT, Math.round(classCount)))
+  return withSize(style, (s) => ({ ...s, classCount: n, method: s.method === 'manual' ? 'quantile' : s.method, classes: [] }))
+}
+
+/** The smallest and largest class size, px (validateStyle checks them). */
 export function setSizeRange(style: LayerStyle, sizeMin: number, sizeMax: number): LayerStyle {
-  const r = rendererOf(style)
-  if (r.kind !== 'graduated' || r.vary !== 'size') return style
-  return { ...style, renderer: { ...r, sizeMin, sizeMax } }
+  return withSize(style, (s) => ({ ...s, sizeMin, sizeMax }))
+}
+
+/** Applies `patch` to a size class (`size:range:<i>`) or to No value (`size:__null`). */
+function patchSizeClass(style: LayerStyle, key: string, patch: { label?: string; visible?: boolean }, drop?: 'label'): LayerStyle {
+  return withSize(style, (s) => {
+    const apply = <T extends { label?: string; visible?: boolean }>(o: T): T => {
+      const next = { ...o, ...patch }
+      if (drop) delete next[drop]
+      if (next.visible === true) delete next.visible
+      return next
+    }
+    if (key === `${SIZE}__null`) return { ...s, noValue: apply(s.noValue) }
+    if (!key.startsWith(`${SIZE}range:`)) return s
+    const index = Number(key.slice(`${SIZE}range:`.length))
+    const found = s.classes.some((c) => c.index === index)
+    const classes = found ? s.classes.map((c) => (c.index === index ? apply(c) : c)) : [...s.classes, apply({ index } as RangeClassDef)]
+    return { ...s, classes }
+  })
+}
+
+/** A size class's label; an empty label goes back to the generated one. */
+export function setSizeClassLabel(style: LayerStyle, key: string, label: string): LayerStyle {
+  const trimmed = label.trim()
+  return trimmed ? patchSizeClass(style, key, { label: trimmed }) : patchSizeClass(style, key, {}, 'label')
+}
+
+/** Hides or shows a size class (and its features) on the map. */
+export function setSizeClassVisible(style: LayerStyle, key: string, visible: boolean): LayerStyle {
+  return patchSizeClass(style, key, { visible })
+}
+
+/** A size class bound (switches to Manual); the neighbouring class moves with it, as graduated bounds do. */
+export function setSizeClassBound(style: LayerStyle, resolved: ResolvedStyle, index: number, side: 'lower' | 'upper', value: number): LayerStyle {
+  const s = style.size
+  if (!s || s.mode !== 'classed' || !Number.isFinite(value)) return style
+  let classes: RangeClassDef[] = s.classes
+  if (s.method !== 'manual') {
+    const byIndex = new Map(s.classes.map((c) => [c.index, c]))
+    classes = []
+    for (const c of resolved.size?.classes ?? []) {
+      if (c.kind !== 'range' || c.lower === undefined || c.upper === undefined) continue
+      const i = classes.length
+      const o = byIndex.get(i)
+      classes.push({ index: i, lower: c.lower, upper: c.upper, ...(o?.label !== undefined ? { label: o.label } : {}), ...(o?.visible === false ? { visible: false } : {}) })
+    }
+  }
+  const next = classes.map((c) => ({ ...c }))
+  const target = next.find((c) => c.index === index)
+  if (!target) return style
+  target[side] = value
+  const neighbour = next.find((c) => c.index === (side === 'lower' ? index - 1 : index + 1))
+  if (neighbour) neighbour[side === 'lower' ? 'upper' : 'lower'] = value
+  return { ...style, size: { ...s, method: 'manual', classCount: Math.max(next.length, MIN_CLASS_COUNT), classes: next } }
 }

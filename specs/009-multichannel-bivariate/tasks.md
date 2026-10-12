@@ -193,13 +193,13 @@ widths, and two legend groups (quickstart scenario 1).
     numeric.
   - `resolveStyle` sets `resolved.size` when `style.size` is present and
     the renderer is not bivariate.
-- [ ] T010 [US1] In `packages/core/src/style/symbol.ts`:
+- [X] T010 [US1] In `packages/core/src/style/symbol.ts`:
   - add `sizeSymbols(style, resolved)`: one `SymbolSpec` per size class,
     in single colors, with `radius` (points) and `lineWidth` (lines) set to
     the class size;
   - remove the size handling from `classSymbol`, since color classes no
     longer carry sizes (the graduated `vary` path is migrated in US3).
-- [ ] T011 [US1] In `packages/core/src/style/expressions.ts`:
+- [X] T011 [US1] In `packages/core/src/style/expressions.ts`:
   - add `sizeIndexExpression(style, resolved)`: the graduated index rules on
     the size column;
   - `symbolExpressions` gains `size`: a number when no channel applies,
@@ -208,7 +208,7 @@ widths, and two legend groups (quickstart scenario 1).
   - `visibilityFilter` combines the hidden color and size classes;
   - shaped markers: `layoutFor` sets `icon-size`, and `markerIconIds` /
     `markerIconId` draw the icon at the largest radius in use.
-- [ ] T012 [US1] Add the size-channel edits in
+- [X] T012 [US1] Add the size-channel edits in
   `packages/core/src/style/edit.ts`: `setSizeChannel` (on with geometry
   defaults: points 2–10, lines 1–6; off deletes `size`), `setSizeColumn`,
   `setSizeMethod`, `setSizeClassCount`, `setSizeRange`,

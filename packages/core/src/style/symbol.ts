@@ -194,6 +194,17 @@ export function classSymbol(style: LayerStyle, resolved: ResolvedStyle, c: Resol
   return { ...base, fillColor: c.color, lineColor: c.color }
 }
 
+/**
+ * Spec 009: the size channel's legend symbols, in the single symbol's colors,
+ * one per size class (its size; "No value" and "Other" at the single size).
+ */
+export function sizeSymbols(style: LayerStyle, resolved: ResolvedStyle): SymbolSpec[] {
+  const base = baseSymbol(style)
+  const size = resolved.size
+  if (!size || size.status !== 'ok') return []
+  return size.classes.map((c) => (c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }))
+}
+
 /** `classSymbol` for every class, in legend order (the class-index expression's positions). */
 export function classSymbols(style: LayerStyle, resolved: ResolvedStyle): SymbolSpec[] {
   return resolved.classes.map((c) => classSymbol(style, resolved, c))

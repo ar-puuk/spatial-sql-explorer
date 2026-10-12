@@ -486,10 +486,20 @@ export function validateStyle(style: LayerStyle): string[] {
       })
     }
     for (const o of [...r.classes, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
-    if (r.vary === 'size') {
-      const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
-      if (!ok(r.sizeMin) || !ok(r.sizeMax)) errors.push(`Sizes must be between ${SIZE_LO} and ${SIZE_HI} px.`)
-      else if ((r.sizeMin as number) > (r.sizeMax as number)) errors.push('The smallest size must not be larger than the largest.')
+  }
+  // Spec 009: the size channel.
+  const size = style.size
+  if (size) {
+    const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
+    if (!size.column) errors.push('Choose a column to size by.')
+    if (!ok(size.sizeMin) || !ok(size.sizeMax)) errors.push(`Sizes must be between ${SIZE_LO} and ${SIZE_HI} px.`)
+    else if (size.sizeMin > size.sizeMax) errors.push('The smallest size must not be larger than the largest.')
+    if (size.mode === 'classed' && size.method === 'manual') {
+      const ranges = [...size.classes].sort((a, b) => a.index - b.index)
+      ranges.forEach((k, i) => {
+        if (k.lower === undefined || k.upper === undefined) errors.push(`Size class ${i + 1} needs both bounds.`)
+        else if (!(k.lower < k.upper)) errors.push(`Size class ${i + 1}: the lower bound must be below the upper bound.`)
+      })
     }
   }
   return errors
