@@ -5,8 +5,9 @@
   // store. Bottom-left, above the scale bar (research §8, amended): the style
   // panel opens on the right and must not cover it, and the feature
   // inspector (top-left) is transient.
-  import type { GeometryType, ResolvedStyle } from '@spatial-explorer/core'
+  import { markerExtent, type GeometryType, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import SymbolSwatch from './style/SymbolSwatch.svelte'
 
   interface Props {
     resolved: ResolvedStyle
@@ -16,17 +17,22 @@
     collapsed: boolean
     onToggleCollapsed: () => void
     onToggleClass: (key: string, visible: boolean) => void
-    /** Spec 008 FR-005: the fill opacity, so swatches look like the map (lines stay opaque). */
-    fillOpacity?: number
+    /** Each class's symbol (core `classSymbols`), so swatches look like the map: color, opacity, shape, size, pattern. */
+    symbols: SymbolSpec[]
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, fillOpacity = 1 }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
   const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
+  // Markers keep their relative sizes; big ones shrink together to fit a row.
+  const SWATCH = 22
+  const reach = $derived(Math.max(1, ...symbols.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2)))
+  const scale = $derived(Math.min(1, (SWATCH / 2 - 1) / reach))
+  const swatchSize = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : 18)
 </script>
 
-<section class="legend" aria-label="Legend" style:--swatch-alpha="{Math.round((shape === 'line' ? 1 : fillOpacity) * 100)}%">
+<section class="legend" aria-label="Legend" style:--swatch-size="{swatchSize}px">
   <button type="button" class="head" aria-expanded={!collapsed} onclick={onToggleCollapsed} title={heading}>
     <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={12} />
     <span class="caption">{heading}</span>
@@ -36,20 +42,22 @@
       <p class="reason">{resolved.reason} Showing the single symbol.</p>
     {/if}
     <ul>
-      {#each resolved.classes as c (c.key)}
+      {#each resolved.classes as c, i (c.key)}
         <li class:hidden={!c.visible}>
           {#if c.kind === 'single'}
-            <span class="swatch {shape}" style:--swatch={c.color} aria-hidden="true"></span>
+            <span class="swatch" style:--swatch={c.color}><SymbolSwatch symbol={symbols[i]} kind={shape} {scale} size={swatchSize} /></span>
           {:else}
             <button
               type="button"
-              class="swatch {shape}"
+              class="swatch"
               style:--swatch={c.color}
               aria-pressed={!c.visible}
               aria-label={`${c.visible ? 'Hide' : 'Show'} class ${c.label}`}
               title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
               onclick={() => onToggleClass(c.key, !c.visible)}
-            ></button>
+            >
+              <SymbolSwatch symbol={symbols[i]} kind={shape} {scale} size={swatchSize} hollow={!c.visible} />
+            </button>
           {/if}
           <span class="label" title={c.label}>{c.label}</span>
           <span class="count">{nf.format(c.count)}</span>
@@ -110,7 +118,7 @@
   }
   li {
     display: grid;
-    grid-template-columns: 18px 1fr auto;
+    grid-template-columns: var(--swatch-size, 18px) 1fr auto;
     align-items: center;
     gap: 8px;
     min-height: 22px;
@@ -121,33 +129,16 @@
     opacity: 0.5;
   }
   .swatch {
+    display: grid;
+    place-items: center;
     justify-self: center;
     padding: 0;
-    border: 1px solid var(--se-swatch-border);
-    background: color-mix(in srgb, var(--swatch) var(--swatch-alpha, 100%), transparent);
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
   }
   button.swatch {
     cursor: pointer;
-  }
-  .swatch.area {
-    width: 14px;
-    height: 14px;
-    border-radius: 2px;
-  }
-  .swatch.point {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-  }
-  .swatch.line {
-    width: 16px;
-    height: 4px;
-    border-radius: 2px;
-  }
-  /* Hidden: hollow swatch, the color kept as its outline. */
-  li.hidden .swatch {
-    background: transparent;
-    border: 2px solid var(--swatch);
   }
   .label {
     overflow: hidden;

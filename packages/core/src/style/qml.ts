@@ -21,7 +21,8 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
-import { QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
+import { QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
+import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
 
 const PX_PER_MM = 96 / 25.4
 const PX_PER_PT = 96 / 72
@@ -29,6 +30,52 @@ const PX_PER_PT = 96 / 72
 function qgisColor(hex: string, opacity: number): string {
   const c = parseColor(hex) ?? { r: 0, g: 0, b: 0, a: 1 }
   return `${c.r},${c.g},${c.b},${Math.round(opacity * 255)}`
+}
+
+/** QGIS `line_style` / `outline_style` names (Qt pen styles). */
+const QGIS_DASH: Record<LineDash, string> = { solid: 'solid', dash: 'dash', dot: 'dot', 'dash-dot': 'dash dot', 'dash-dot-dot': 'dash dot dot' }
+
+/**
+ * QGIS simple-marker names. QGIS's `cross` and `x` (`cross2`) are drawn with
+ * the outline only, so ours (filled, to carry class colors) are written as
+ * `cross_fill`, upright or turned 45 degrees (checked in QGIS 4.2.3).
+ */
+function qgisMarker(shape: MarkerShape): { name: string; angle: number } {
+  if (shape === 'cross') return { name: 'cross_fill', angle: 0 }
+  if (shape === 'x') return { name: 'cross_fill', angle: 45 }
+  return { name: shape, angle: 0 }
+}
+
+/** Our shape for a QGIS marker name and angle; unknown shapes are circles, with a note. */
+function shapeFromQgis(name: string | undefined, angle: number, notes: string[]): MarkerShape {
+  const n = (name ?? 'circle').trim().toLowerCase()
+  const turned = Math.abs(((angle % 90) + 90) % 90) === 45
+  if (n === 'cross_fill' || n === 'cross' || n === 'cross2' || n === 'x') {
+    if (n !== 'cross_fill') notes.push(`QGIS draws the "${n}" marker as lines; it was imported as a filled ${n === 'cross' ? 'cross' : 'x'}.`)
+    const upright = n === 'cross_fill' || n === 'cross'
+    return upright !== turned ? 'cross' : 'x'
+  }
+  if (n === 'circle' || n === 'square' || n === 'triangle' || n === 'diamond' || n === 'star') {
+    if (angle % 360 !== 0) notes.push(`The marker's ${angle}° rotation was not imported.`)
+    return n
+  }
+  notes.push(`The "${n}" marker shape was imported as a circle.`)
+  return 'circle'
+}
+
+/** A QGIS line pattern: a named pen style, or a custom dash matched to the closest one. */
+function dashFromQgis(p: Map<string, string>, key: 'line_style' | 'outline_style', notes: string[]): LineDash | undefined {
+  if (p.get('use_custom_dash') === '1') {
+    const dash = dashFromPattern((p.get('customdash') ?? '').split(';').map(Number))
+    if (dash) {
+      notes.push('A custom dash pattern was imported as the closest line style.')
+      return dash
+    }
+  }
+  const name = p.get(key)
+  const found = (Object.keys(QGIS_DASH) as LineDash[]).find((d) => QGIS_DASH[d] === name)
+  if (!found && name && name !== 'no') notes.push(`The "${name}" line style was imported as solid.`)
+  return found
 }
 
 function options(entries: Record<string, string>): string {
@@ -47,7 +94,7 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
       color: qgisColor(style.fillColor, style.fillOpacity),
       style: 'solid',
       outline_color: qgisColor(style.strokeColor, style.strokeOpacity),
-      outline_style: style.strokeWidth > 0 ? 'solid' : 'no',
+      outline_style: style.strokeWidth > 0 ? QGIS_DASH[style.lineDash ?? 'solid'] : 'no',
       outline_width: String(round(style.strokeWidth)),
       outline_width_unit: 'Pixel',
       joinstyle: 'round',
@@ -56,16 +103,18 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
     layerClass = 'SimpleLine'
     props = {
       line_color: qgisColor(style.strokeColor, style.strokeOpacity),
-      line_style: 'solid',
+      line_style: QGIS_DASH[style.lineDash ?? 'solid'],
       line_width: String(round(style.strokeWidth)),
       line_width_unit: 'Pixel',
-      capstyle: 'round',
+      capstyle: (style.lineDash ?? 'solid') === 'solid' ? 'round' : 'flat',
       joinstyle: 'round',
     }
   } else {
     layerClass = 'SimpleMarker'
+    const marker = qgisMarker(style.markerShape ?? 'circle')
     props = {
-      name: 'circle',
+      name: marker.name,
+      angle: String(marker.angle),
       color: qgisColor(style.fillColor, style.fillOpacity),
       outline_color: qgisColor(style.strokeColor, style.strokeOpacity),
       outline_style: style.strokeWidth > 0 ? 'solid' : 'no',
@@ -100,11 +149,6 @@ function categoryType(columnType: string | undefined): string {
   return 'string'
 }
 
-/** One symbol per class: the shared symbol with only the class color changed (FR-006). */
-function classStyle(style: LayerStyle, kind: 'fill' | 'line' | 'marker', color: string): LayerStyle {
-  return kind === 'line' ? { ...style, strokeColor: color } : { ...style, fillColor: color }
-}
-
 /** Spatial Explorer's own settings QGIS has no field for, as QGIS custom properties. */
 function customProperties(entries: Record<string, string>): string {
   const rows = Object.entries(entries).map(([k, v]) => `      <Option name="${escapeXml(k)}" type="QString" value="${escapeXml(v)}"/>`)
@@ -113,7 +157,8 @@ function customProperties(entries: Record<string, string>): string {
 
 function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined): { renderer: string; props: Record<string, string> } {
   const r = th.renderer
-  const symbols = th.classes.map((c, i) => symbolXml(kind, classStyle(style, kind, c.color), String(i))).join('\n')
+  // One symbol per class: the shared symbol with the class color (FR-006) or size.
+  const symbols = th.classes.map((c, i) => symbolXml(kind, classLayerStyle(style, kind, c), String(i))).join('\n')
   const props: Record<string, string> = { 'spatialExplorer/ramp': r.ramp.id, 'spatialExplorer/rampReversed': String(r.ramp.reversed) }
   if (r.kind === 'categorized') {
     props['spatialExplorer/categories'] = r.manual ? 'manual' : 'auto'
@@ -151,7 +196,7 @@ ${symbols}
   }
   return {
     props,
-    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="${r.vary === 'size' ? 'GraduatedSize' : 'GraduatedColor'}" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <ranges>
 ${ranges.join('\n')}
     </ranges>
@@ -315,6 +360,24 @@ function symbolColor(symbol: Element): string | null {
   return c ? rgbToHex(c) : null
 }
 
+/** A class symbol's size, px: marker radius (half of QGIS's size) or line width. Null for fills. */
+function symbolSize(symbol: Element): number | null {
+  const layer = Array.from(symbol.getElementsByTagName('layer')).find((l) => l.getAttribute('enabled') !== '0')
+  if (!layer) return null
+  const p = readProps(layer)
+  const cls = layer.getAttribute('class')
+  const quiet: string[] = []
+  if (cls === 'SimpleMarker') {
+    const d = toPx(p.get('size'), p.get('size_unit'), quiet, 'marker size')
+    return d === null ? null : round(d / 2, 2)
+  }
+  if (cls === 'SimpleLine') {
+    const w = toPx(p.get('line_width'), p.get('line_width_unit'), quiet, 'line width')
+    return w === null ? null : round(w, 2)
+  }
+  return null
+}
+
 function readCustomProperties(doc: Document): Map<string, string> {
   const out = new Map<string, string>()
   const root = doc.getElementsByTagName('customproperties')[0]
@@ -368,6 +431,8 @@ export function qmlToStyle(text: string): StyleImportResult {
     }
     const w = toPx(p.get('outline_width'), p.get('outline_width_unit'), notes, 'outline width')
     if (w !== null) style.strokeWidth = p.get('outline_style') === 'no' ? 0 : w
+    const dash = dashFromQgis(p, 'outline_style', notes)
+    if (dash) style.lineDash = dash
   } else if (cls === 'SimpleLine') {
     const line = colorAndAlpha(p.get('line_color') ?? p.get('color'))
     if (line) {
@@ -376,6 +441,8 @@ export function qmlToStyle(text: string): StyleImportResult {
     }
     const w = toPx(p.get('line_width'), p.get('line_width_unit'), notes, 'line width')
     if (w !== null) style.strokeWidth = w
+    const dash = dashFromQgis(p, 'line_style', notes)
+    if (dash) style.lineDash = dash
   } else if (cls === 'SimpleMarker') {
     const fill = colorAndAlpha(p.get('color'))
     if (fill) {
@@ -391,8 +458,8 @@ export function qmlToStyle(text: string): StyleImportResult {
     if (w !== null) style.strokeWidth = p.get('outline_style') === 'no' ? 0 : w
     const size = toPx(p.get('size'), p.get('size_unit'), notes, 'marker size')
     if (size !== null) style.pointRadius = size / 2
-    const shape = p.get('name')
-    if (shape && shape !== 'circle') notes.push(`The "${shape}" marker shape was imported as a circle.`)
+    const angle = Number(p.get('angle') ?? '0')
+    style.markerShape = shapeFromQgis(p.get('name'), Number.isFinite(angle) ? angle : 0, notes)
   } else {
     notes.push(`The "${cls}" symbol layer type is not supported; default colors were kept.`)
   }
@@ -402,10 +469,13 @@ export function qmlToStyle(text: string): StyleImportResult {
     if (/[()"+\s]/.test(attr)) notes.push(`The classes use an expression ("${attr}"), not a column; they may not match any column here.`)
     const custom = readCustomProperties(doc)
     const symbols = new Map<string, string>()
+    const sizes = new Map<string, number>()
     for (const s of Array.from(renderer.getElementsByTagName('symbols')[0]?.children ?? [])) {
       const name = s.getAttribute('name')
       const color = symbolColor(s)
       if (name !== null && color) symbols.set(name, color)
+      const size = name !== null ? symbolSize(s) : null
+      if (name !== null && size !== null) sizes.set(name, size)
     }
     const ramp = custom.has('spatialExplorer/ramp') ? { id: custom.get('spatialExplorer/ramp') as string, reversed: custom.get('spatialExplorer/rampReversed') === 'true' } : undefined
     if (rendererType === 'categorizedSymbol') {
@@ -422,8 +492,15 @@ export function qmlToStyle(text: string): StyleImportResult {
       const cap = Number(custom.get('spatialExplorer/cap'))
       style.renderer = categorizedFrom(attr, items, { ramp, auto: custom.get('spatialExplorer/categories') === 'auto', cap: Number.isFinite(cap) ? cap : undefined })
     } else {
-      if (renderer.getAttribute('graduatedMethod') === 'GraduatedSize') notes.push("Size by value isn't supported; the class colors were imported and the sizes ignored.")
-      const ranges: ImportedRange[] = Array.from(renderer.getElementsByTagName('range')).map((r) => ({
+      const rangeEls = Array.from(renderer.getElementsByTagName('range'))
+      // QGIS GraduatedSize: each range's symbol has its size; ours run evenly from the first to the last.
+      let size: { min: number; max: number } | undefined
+      if (renderer.getAttribute('graduatedMethod') === 'GraduatedSize') {
+        const s = rangeEls.map((r) => sizes.get(r.getAttribute('symbol') ?? '')).filter((v): v is number => v !== undefined)
+        if (s.length) size = { min: Math.min(s[0], s[s.length - 1]), max: Math.max(s[0], s[s.length - 1]) }
+        else notes.push('The class sizes could not be read; the classes vary the color.')
+      }
+      const ranges: ImportedRange[] = rangeEls.map((r) => ({
         lower: Number(r.getAttribute('lower')),
         upper: Number(r.getAttribute('upper')),
         color: symbols.get(r.getAttribute('symbol') ?? ''),
@@ -440,7 +517,7 @@ export function qmlToStyle(text: string): StyleImportResult {
       } catch {
         // ignore a malformed property
       }
-      style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue })
+      style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue, size })
     }
   }
 

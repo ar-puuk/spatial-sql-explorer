@@ -5,7 +5,7 @@
   // here: that's per-shell chrome (§4.3). The web shell injects its status bar
   // over the map through `mapOverlay`; VS Code uses its native status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, rendererOf, sidecarStyleFileName } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, sidecarStyleFileName } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -46,8 +46,10 @@
   const legendRenderer = $derived(rendererOf(store.style))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
-      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
+      (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
+  // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
+  const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
   const legendTitle = $derived(legendRenderer.kind === 'single' ? '' : legendRenderer.column)
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
@@ -57,7 +59,7 @@
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
       shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
-      rows: r.classes.filter((c) => c.visible).map((c) => ({ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined })),
+      rows: r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
     }
   })
   const loading = $derived(session.loadState === 'loading')
@@ -366,7 +368,7 @@
           collapsed={store.legendCollapsed}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
-          fillOpacity={store.style.fillOpacity * (store.style.layerOpacity ?? 1)}
+          symbols={legendSymbols}
         />
       {/if}
       {#if openPanel === 'style' && layer}

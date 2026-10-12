@@ -6,6 +6,7 @@ import type { Feature, Layer } from '../models.js'
 import { NO_VALUE_COLOR, OTHER_COLOR, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
+import { DEFAULT_SIZE_RANGE, classSizes } from './symbol.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -266,12 +267,16 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   }
 
   const fmt = labelFormat(ranges[0]?.lower ?? 0, ranges[ranges.length - 1]?.upper ?? 0, ranges.length)
-  const colors = rampColors(r.ramp, ranges.length)
+  // Size classes (QGIS GraduatedSize) share the single symbol's color; the ramp isn't used.
+  const bySize = r.vary === 'size'
+  const colors = bySize ? ranges.map(() => style.fillColor) : rampColors(r.ramp, ranges.length)
+  const sizes = bySize ? classSizes(ranges.length, r.sizeMin ?? DEFAULT_SIZE_RANGE.point.min, r.sizeMax ?? DEFAULT_SIZE_RANGE.point.max) : []
   const overrides = new Map(r.classes.map((c) => [c.index, c]))
   const classes: ResolvedClass[] = ranges.map((range, i) => {
     const o = overrides.get(i)
     const label = perValue || range.lower === range.upper ? fmt.format(range.upper) : `${fmt.format(range.lower)} – ${fmt.format(range.upper)}`
-    return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? label, color: o?.color ?? colors[i], visible: o?.visible !== false, count: counts[i] }
+    const color = bySize ? colors[i] : (o?.color ?? colors[i])
+    return { key: `range:${i}`, kind: 'range', lower: range.lower, upper: range.upper, label: o?.label ?? label, color, visible: o?.visible !== false, count: counts[i], ...(bySize ? { size: sizes[i] } : {}) }
   })
   // A big result's class counts arrive from SQL afterwards (QuerySession.resolveStyle), "Other" included.
   if (outside > 0 || (stats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: outside })

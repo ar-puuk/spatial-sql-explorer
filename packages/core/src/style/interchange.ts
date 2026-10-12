@@ -27,6 +27,18 @@ export interface ExportClass {
   color: string
   label: string
   visible: boolean
+  /** Size classes: marker radius or line width, px. */
+  size?: number
+}
+
+/**
+ * One class's symbol as a LayerStyle, for formats that write a symbol per
+ * class: the class color on the fill (markers, polygons) or the line, or the
+ * class size on the marker or the line (size classes keep the colors).
+ */
+export function classLayerStyle(style: LayerStyle, kind: 'fill' | 'line' | 'marker', c: ExportClass): LayerStyle {
+  if (c.size !== undefined) return kind === 'line' ? { ...style, strokeWidth: c.size } : kind === 'marker' ? { ...style, pointRadius: c.size } : style
+  return kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }
 }
 
 export interface Thematic {
@@ -47,10 +59,14 @@ export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | u
     return { thematic: null, notes: [`${why} The single symbol was exported instead of the ${r.kind} classes.`] }
   }
   const classes: ExportClass[] = resolved.classes.flatMap((c) =>
-    c.kind === 'single' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible }]
+    c.kind === 'single' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
   )
   return { thematic: { renderer: r, classes }, notes: [] }
 }
+
+/** Mapbox GL styles draw shaped markers only from a sprite, which a style file can't carry. */
+export const MAPBOX_SHAPE_NOTE = (shape: string): string =>
+  `Mapbox GL styles have no ${shape} marker without a sprite: other tools draw circles (Spatial Explorer keeps the ${shape}).`
 
 /** What a format can't hold for this style (FR-015), known before writing. */
 export function previewExportNotice(style: LayerStyle, format: StyleFormat, resolved: ResolvedStyle | undefined): StyleNotice {
@@ -59,6 +75,7 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   items.push(...notes)
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
+  if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
   if (thematic && format === 'sld') {
     if (thematic.renderer.kind === 'graduated') items.push("SLD can't store the classification method: the classes will import as fixed (Manual).")
     const hidden = thematic.classes.filter((c) => !c.visible).length
@@ -127,7 +144,7 @@ export interface ImportedRange {
 }
 
 /** A graduated renderer from a format's ranges. Without a method (SLD, foreign Mapbox) the ranges are fixed (Manual). */
-export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { method?: GraduatedMethod; ramp?: RampRef; noValue?: ImportedCategory } = {}): GraduatedRenderer {
+export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { method?: GraduatedMethod; ramp?: RampRef; noValue?: ImportedCategory; size?: { min: number; max: number } } = {}): GraduatedRenderer {
   const method = opts.method ?? 'manual'
   const ramp = opts.ramp ?? { id: 'viridis', reversed: false }
   const colors = rampColors(ramp, ranges.length)
@@ -135,7 +152,7 @@ export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { m
     .map((r, index) => ({
       index,
       ...(method === 'manual' ? { lower: r.lower, upper: r.upper } : {}),
-      ...override(r.color, colors[index], r.label, isGeneratedRangeLabel, r.visible),
+      ...override(opts.size ? undefined : r.color, colors[index], r.label, isGeneratedRangeLabel, r.visible),
     }))
     .filter((c) => method === 'manual' || Object.keys(c).length > 1)
   const nv = opts.noValue
@@ -147,6 +164,7 @@ export function graduatedFrom(column: string, ranges: ImportedRange[], opts: { m
     ramp,
     classes,
     noValue: nv ? override(nv.color, undefined, nv.label, (l) => l === 'No value', nv.visible) : {},
+    ...(opts.size ? { vary: 'size' as const, sizeMin: opts.size.min, sizeMax: opts.size.max } : {}),
   }
 }
 

@@ -127,7 +127,8 @@ describe('QML written by QGIS', () => {
     expect(style.fillOpacity).toBe(0.5) // symbol alpha multiplies color alpha
     expect(style.pointRadius).toBe(5)
     expect(style.strokeWidth).toBe(1)
-    expect(notes).toEqual(['The "square" marker shape was imported as a circle.'])
+    expect(style.markerShape).toBe('square')
+    expect(notes).toEqual([])
   })
 
   // Spec 003 replaced spec 001's "first symbol only" import with real categorized classes.

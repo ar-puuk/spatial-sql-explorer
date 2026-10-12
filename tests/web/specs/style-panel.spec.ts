@@ -6,6 +6,7 @@ import { openFile, writeParcels, writeSquares } from './helpers'
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
+const swatchFillOpacity = (page: Page) => legendRows(page).first().locator('.swatch svg > *').evaluate((el) => Number(el.getAttribute('fill-opacity')))
 const swatch = (page: Page, i: number) => legendRows(page).nth(i).locator('.swatch').evaluate((el) => getComputedStyle(el).getPropertyValue('--swatch').trim())
 
 test('sections in a fixed order, and only those that apply', async ({ page }) => {
@@ -100,10 +101,8 @@ test('opacity applies live to the map and the legend', async ({ page }) => {
   await slider.fill('0.25')
   await expect(slider).toHaveAttribute('aria-valuetext', '25%')
   await expect(legend(page)).toBeVisible()
-  // The swatch fill carries the opacity (color-mix with transparent): its alpha is about 0.25.
-  await expect
-    .poll(() => legendRows(page).first().locator('.swatch').evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toMatch(/(rgba?|color)\(.*[ ,/] ?0\.2[45]\d*\)$/)
+  // The swatch is drawn like the map: its fill carries the opacity.
+  await expect.poll(() => swatchFillOpacity(page)).toBeCloseTo(0.25, 2)
 })
 
 test('layer opacity fades the whole layer, live, and is saved in the QML (user request)', async ({ page }) => {
@@ -114,9 +113,7 @@ test('layer opacity fades the whole layer, live, and is saved in the QML (user r
   await slider.fill('0.5')
   await expect(slider).toHaveAttribute('aria-valuetext', '50%')
   // Default fill opacity 45%, times 50%: the legend swatch is about 22% opaque.
-  await expect
-    .poll(() => legendRows(page).first().locator('.swatch').evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toMatch(/[ ,/] ?0\.2[0-4]\d*\)$/)
+  await expect.poll(() => swatchFillOpacity(page)).toBeCloseTo(0.225, 2)
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
   const fs = await import('node:fs')
   expect(fs.readFileSync(await download.path(), 'utf8')).toContain('<layerOpacity>0.5</layerOpacity>')

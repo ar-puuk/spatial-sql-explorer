@@ -17,8 +17,9 @@ import {
   type StyleImportResult,
 } from './model.js'
 import type { StyleExport } from './qml.js'
-import { classIndexExpression, visibilityFilter } from './expressions.js'
-import { categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { symbolExpressions, visibilityFilter } from './expressions.js'
+import { MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { dashFromPattern, dashPattern } from './symbol.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
 
@@ -35,13 +36,12 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
   // "" guarded, upper-inclusive ranges), so any MapLibre/Mapbox renderer
   // shows the same classes; hidden classes become a layer filter.
   const { thematic, notes } = thematicForExport(style, resolved)
-  const index = thematic && resolved ? classIndexExpression(style, resolved) : null
-  const classColor = (fallback: string): unknown => {
-    if (!index || !resolved) return fallback
-    const arms: unknown[] = []
-    resolved.classes.forEach((c, i) => arms.push(i, c.color))
-    return ['match', index, ...arms, fallback]
-  }
+  // Per-class colors and sizes (size classes) as the viewer draws them.
+  const sym = thematic && resolved ? symbolExpressions(style, resolved) : null
+  const roundSize = (v: unknown): unknown => (typeof v === 'number' ? round(v) : v)
+  const pattern = dashPattern(style.lineDash)
+  const dash = pattern ? { 'line-dasharray': pattern } : {}
+  if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point')) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
   const hidden = thematic && resolved ? visibilityFilter(style, resolved) : null
   const filter = (f: unknown): unknown => (hidden ? ['all', f, hidden] : f)
   if (wants('Polygon')) {
@@ -50,7 +50,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       type: 'fill',
       source,
       filter: filter(POLYGON_FILTER),
-      paint: { 'fill-color': classColor(style.fillColor), 'fill-opacity': round(style.fillOpacity) },
+      paint: { 'fill-color': sym?.fillColor ?? style.fillColor, 'fill-opacity': round(style.fillOpacity) },
     })
     if (style.strokeWidth > 0) {
       layers.push({
@@ -59,7 +59,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
         source,
         filter: filter(POLYGON_FILTER),
         layout: { 'line-join': 'round' },
-        paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
+        paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity), ...dash },
       })
     }
   }
@@ -71,7 +71,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       source,
       filter: filter(POLYGON_FILTER),
       paint: {
-        'fill-extrusion-color': classColor(style.fillColor),
+        'fill-extrusion-color': sym?.fillColor ?? style.fillColor,
         'fill-extrusion-height': extrusionHeightExpression(style.extrusion),
         'fill-extrusion-base': 0,
         'fill-extrusion-opacity': round(style.layerOpacity ?? 1),
@@ -84,8 +84,13 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       type: 'line',
       source,
       filter: filter(LINE_FILTER),
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': classColor(style.strokeColor), 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity) },
+      layout: { 'line-join': 'round', 'line-cap': pattern ? 'butt' : 'round' },
+      paint: {
+        'line-color': sym?.lineColor ?? style.strokeColor,
+        'line-width': roundSize(sym?.lineWidth ?? style.strokeWidth),
+        'line-opacity': round(style.strokeOpacity),
+        ...dash,
+      },
     })
   }
   if (wants('Point')) {
@@ -95,9 +100,9 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       source,
       filter: filter(POINT_FILTER),
       paint: {
-        'circle-color': classColor(style.fillColor),
+        'circle-color': sym?.fillColor ?? style.fillColor,
         'circle-opacity': round(style.fillOpacity),
-        'circle-radius': round(style.pointRadius),
+        'circle-radius': roundSize(sym?.radius ?? style.pointRadius),
         'circle-stroke-color': style.strokeColor,
         'circle-stroke-width': round(style.strokeWidth),
         'circle-stroke-opacity': round(style.strokeOpacity),
@@ -251,6 +256,11 @@ export function mapboxToStyle(text: string): StyleImportResult {
     if (w !== undefined) style.strokeWidth = w
     const o = num(lineLayer.paint['line-opacity'])
     style.strokeOpacity = (o ?? 1) * (c?.a ?? 1)
+    const d = lineLayer.paint['line-dasharray']
+    if (Array.isArray(d) && d.every((n) => typeof n === 'number')) {
+      const dash = dashFromPattern(d as number[])
+      if (dash) style.lineDash = dash
+    } else if (d !== undefined) skipped++
   } else if (circleLayer?.paint) {
     const c = color(circleLayer.paint['circle-stroke-color'])
     if (c) style.strokeColor = c.hex

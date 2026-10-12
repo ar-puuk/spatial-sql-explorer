@@ -8,8 +8,14 @@
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
 import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedStyle } from './model.js'
+import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 
-export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion'
+/**
+ * `marker` draws points of a shape other than the circle, from icons
+ * (`markerIconId`); `marker-select` is the disc behind them that shows
+ * hover and selection (icons can't change with feature state).
+ */
+export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion' | 'marker-select' | 'marker'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
 
 // The focused feature (inspector, table cursor), or a ticked row (spec 008 FR-012): drawn alike.
@@ -104,31 +110,79 @@ export const DOT_PROP = '__se_dot'
 const DOT = ['boolean', ['get', DOT_PROP], false]
 const DOT_RADIUS = 1.75
 
-/** The class color per feature: `match` on the class index. */
-function classColorExpression(index: unknown, resolved: ResolvedStyle, fallback: string): unknown {
+/** A class value per feature: `match` on the class index (single symbol: the value itself). */
+function perClass(index: unknown, symbols: SymbolSpec[], pick: (s: SymbolSpec) => unknown, fallback: unknown): unknown {
+  if (index === null) return fallback
   const arms: unknown[] = []
-  resolved.classes.forEach((c, i) => arms.push(i, c.color))
+  symbols.forEach((sym, i) => arms.push(i, pick(sym)))
   return arms.length ? ['match', index, ...arms, fallback] : fallback
+}
+
+/** As `perClass`, but a plain number when every class has the fallback's (sizes rarely vary). */
+function perClassSize(index: unknown, symbols: SymbolSpec[], pick: (s: SymbolSpec) => number, fallback: number): number | unknown[] {
+  return symbols.every((sym) => pick(sym) === fallback) ? fallback : (perClass(index, symbols, pick, fallback) as unknown[])
+}
+
+const plus = (e: number | unknown[], n: number): number | unknown[] => (typeof e === 'number' ? e + n : ['+', e, n])
+const atLeast1 = (e: number | unknown[]): number | unknown[] => (typeof e === 'number' ? Math.max(e, 1) : ['max', e, 1])
+
+/** The class symbols as expressions (unselected): what `paintFor` draws and the Mapbox GL export writes. */
+export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
+  const index = classIndexExpression(style, resolved)
+  const base = baseSymbol(style)
+  const symbols = classSymbols(style, resolved)
+  return {
+    index,
+    fillColor: perClass(index, symbols, (x) => x.fillColor, base.fillColor),
+    lineColor: perClass(index, symbols, (x) => x.lineColor, base.lineColor),
+    radius: perClassSize(index, symbols, (x) => x.radius, base.radius),
+    lineWidth: perClassSize(index, symbols, (x) => x.lineWidth, base.lineWidth),
+    /** Marker icon per feature (shapes other than the circle). */
+    icon: perClass(index, symbols, markerIconId, markerIconId(base)),
+    /** In line widths, for MapLibre `line-dasharray`; null when solid. */
+    dash: dashPattern(style.lineDash),
+  }
+}
+
+/** Every marker icon the style draws (the map makes the missing ones and drops the rest). */
+export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
+  return [...new Set([markerIconId(baseSymbol(style)), ...classSymbols(style, resolved).map(markerIconId)])]
+}
+
+/**
+ * Layout properties that follow the style: the marker icon, and butt caps on
+ * dashed lines (round caps would fill the gaps of a dotted line).
+ */
+export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, Record<string, unknown>>> {
+  const dashed = (style.lineDash ?? 'solid') !== 'solid'
+  return {
+    line: { 'line-cap': dashed ? 'butt' : 'round' },
+    marker: { 'icon-image': symbolExpressions(style, resolved).icon },
+  }
 }
 
 export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string): MapPaint {
   // Spec 008: the layer opacity scales the fill and outline opacities.
   const s = withLayerOpacity(style)
   const sel = selectionColor
-  const index = classIndexExpression(style, resolved)
+  // Thematic renderers vary the color (polygon and point fill, and the line
+  // color of line layers, FR-006; polygon outlines keep the stroke), or, by
+  // size, the marker size and the line width.
+  const { index, fillColor, lineColor, radius, lineWidth, dash } = symbolExpressions(style, resolved)
   const thematic = index !== null
-  // Thematic renderers vary only the color: polygon and point fill, and the
-  // line color of line layers (FR-006). Polygon outlines keep the stroke.
-  const fillColor = thematic ? classColorExpression(index, resolved, s.fillColor) : s.fillColor
-  const lineColor = thematic ? classColorExpression(index, resolved, s.strokeColor) : s.strokeColor
   const outlineWidth = Math.max(s.strokeWidth, 1) + 1.5
+  const lineOutline = plus(atLeast1(lineWidth), 1.5)
+  const extent = markerExtent(style.markerShape ?? 'circle')
+  // Shaped markers: the disc behind the icon reaches past the shape and its outline.
+  const reach = plus(typeof radius === 'number' ? radius * extent : ['*', radius, extent], s.strokeWidth / 2 + 3)
+  const dasharray = dash ?? undefined
   return {
     // Under the outline: a contrasting ring around the selected feature, so
     // selection never depends on hue alone (FR-019). Thematic styles only;
     // spec 001's single symbol is unchanged.
     halo: {
       'line-color': haloColor(sel),
-      'line-width': thematic ? ['case', selected, outlineWidth + 4, 0] : 0,
+      'line-width': thematic ? ['case', selected, typeof lineWidth === 'number' ? outlineWidth + 4 : plus(lineOutline, 4), 0] : 0,
       'line-opacity': thematic ? 0.85 : 0,
     },
     fill: {
@@ -139,11 +193,13 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
       'line-color': ['case', selected, sel, s.strokeColor],
       'line-width': ['case', selected, outlineWidth, s.strokeWidth],
       'line-opacity': ['case', selected, 1, s.strokeOpacity],
+      'line-dasharray': dasharray,
     },
     line: {
       'line-color': ['case', selected, sel, lineColor],
-      'line-width': ['case', selected, outlineWidth + 1, hovered, s.strokeWidth + 1, s.strokeWidth],
+      'line-width': ['case', selected, plus(lineOutline, 1), hovered, plus(lineWidth, 1), lineWidth],
       'line-opacity': ['case', selected, 1, s.strokeOpacity],
+      'line-dasharray': dasharray,
     },
     // Spec 008 US6: polygons raised by the extrusion, in the style's colors.
     // Solid, like QGIS 3D (MapLibre extrusion opacity is layer-wide): the
@@ -159,11 +215,21 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
       'circle-color': ['case', selected, sel, fillColor],
       'circle-opacity': ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
       // Spec 007: a polygon or line under ~2 px in the current view is drawn as a small dot (DOT_PROP).
-      'circle-radius': ['case', selected, s.pointRadius + 2, DOT, DOT_RADIUS, hovered, s.pointRadius + 1, s.pointRadius],
+      'circle-radius': ['case', selected, plus(radius, 2), DOT, DOT_RADIUS, hovered, plus(radius, 1), radius],
       'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', s.strokeColor],
       'circle-stroke-width': ['case', selected, 2, DOT, 0, s.strokeWidth],
       'circle-stroke-opacity': ['case', selected, 1, s.strokeOpacity],
     },
+    // Hover and selection of shaped markers: a disc in the selection color behind the icon.
+    'marker-select': {
+      'circle-color': sel,
+      'circle-radius': reach,
+      'circle-opacity': ['case', selected, 0.9, hovered, 0.35, 0],
+      'circle-stroke-color': haloColor(sel),
+      'circle-stroke-width': ['case', selected, 1.5, 0],
+    },
+    // The icons carry their own colors and opacities (`markerIconId`).
+    marker: {},
   }
 }
 

@@ -680,3 +680,42 @@ column only (the engine provably can't return it).
 - Tests: `gapped-ids.gpkg` and `cube-network.sqlite` (scripts/fixtures-008.mjs),
   tests/web/specs/sqlite-sources.spec.ts, the VS Code layers suite, and
   tests/core/sqlite-source.test.ts.
+
+## 17. Marker shapes, line patterns and size classes (user request, 2026-10-12)
+
+Scope (user decisions): a marker shape for points (QGIS's core set: circle,
+square, triangle, diamond, star, cross, x), a line pattern for lines and
+polygon outlines (solid, dash, dot, dash dot, dash dot dot: Qt's pen styles,
+which QGIS's `line_style` names), and graduated **by size** (QGIS
+GraduatedSize): marker radius on points, line width on lines, evenly from a
+smallest to a largest size. Polygons have no size classes. Shared model:
+`packages/core/src/style/symbol.ts` (`SymbolSpec` per class feeds the map,
+legend, map image and style files).
+
+**Map**: MapLibre's circle layer draws only circles, so other shapes are a
+`symbol` layer whose icons are drawn on a canvas on demand
+(`styleimagemissing`), at 2x, from an id that encodes the whole look
+(`markerIconId`). Icons can't follow feature state, so hover and selection
+are a disc in the selection color under the icon (`marker-select`). Dashes
+are `line-dasharray` (in line widths, as Qt), with butt caps.
+
+**QGIS 4.2.3 checks** (PyQGIS; files in tests/core/fixtures/style/symbols):
+- QGIS's `cross` and `x` (`cross2`) are outline-only; `x` decodes to
+  `cross2`. Ours are filled (to carry class colors), so QML writes
+  `cross_fill`, at angle 45 for the x. QGIS reloads both exactly.
+- QML written by us reloads in QGIS with the same shape, size (px), pen
+  style, and GraduatedSize with each range's width/size.
+- QGIS writes SLD dash arrays as Qt's unscaled pattern (`4 2` at any width).
+  We write SLD's own unit, pixels (`8 4` at width 2); QGIS reads that as an
+  8;4 px custom dash, the same lengths. Both forms import here
+  (`dashFromPattern` ignores the unit).
+- QGIS's SLD reader turns any polygon outline dash into `dash`, and reads SLD
+  `cross`/`x` as its outline-only marks; GeoServer draws them filled. A
+  diamond is written as a square turned 45° (no standard SLD mark), which
+  QGIS and GeoServer both draw as our diamond.
+- Mapbox GL styles have no shaped markers without a sprite: the export says
+  so and keeps the shape in the embedded `metadata` for a lossless round trip.
+
+**Known limit (spec 007, not new)**: in a Mixed layer the client can't tell a
+real point from the centroid that stands in for a polygon under ~2 px, so
+every point is drawn as a small dot and ignores the point style.
