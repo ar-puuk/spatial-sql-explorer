@@ -303,14 +303,14 @@ sizes and labels, with a Size section shown.
 halfway through the domain is drawn at rMin + (rMax − rMin)·√0.5, and the
 legend shows 3–5 reference sizes (quickstart scenario 2).
 
-- [ ] T020 [P] [US2] Add tests in `tests/core/style-channels.test.ts`:
+- [X] T020 [P] [US2] Add tests in `tests/core/style-channels.test.ts`:
   - `proportionalSize` for lines (linear) and points (√t), clamping, null,
     and min = max;
   - `resolved.size.domain` and `samples` (3–5, including min and max,
     sizes from the same formula);
   - the `paintFor` size evaluated per feature equals `proportionalSize`;
   - the size legend reference rows aren't toggles, but No value is.
-- [ ] T021 [P] [US2] Add web tests in
+- [X] T021 [P] [US2] Add web tests in
   `tests/web/specs/style-channels.spec.ts`: the Classed | Proportional radio,
   the legend reference sizes with values, and switching back to Classed
   restoring stepped classes.

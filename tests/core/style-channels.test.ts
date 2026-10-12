@@ -23,7 +23,9 @@ import {
   setSizeClassLabel,
   setSizeClassVisible,
   setSizeMethod,
+  setSizeMode,
   setSizeRange,
+  proportionalSize,
   sizeSymbols,
   startStyle,
   validateStyle,
@@ -236,5 +238,65 @@ describe('styles saved with Graduated "Vary: Size" open unchanged (US3, FR-009)'
       const text = exportStyle(style, format, 'Point', 'x.geojson', resolveStyle(style, layer), layer.columns).text
       expect(text, format).not.toMatch(/"vary"|graduatedMethod="GraduatedSize"/)
     }
+  })
+})
+
+describe('proportional sizes (US2)', () => {
+  const prop = (geometry: 'point' | 'line') => setSizeMode(withSize(categorized, geometry), 'proportional')
+
+  it('lines scale linearly, points by area (QGIS size assistant "Area": r = min + (max - min) * sqrt(t))', () => {
+    const domain = { min: 100, max: 4100 }
+    expect(proportionalSize(100, domain, 1, 6, 'line')).toBe(1)
+    expect(proportionalSize(2100, domain, 1, 6, 'line')).toBe(3.5)
+    expect(proportionalSize(4100, domain, 1, 6, 'line')).toBe(6)
+    expect(proportionalSize(1100, domain, 4, 20, 'point')).toBeCloseTo(4 + 16 * 0.5, 9) // t = 0.25
+    expect(proportionalSize(99999, domain, 4, 20, 'point')).toBe(20) // clamped
+    expect(proportionalSize(-5, domain, 4, 20, 'point')).toBe(4)
+    expect(proportionalSize(7, { min: 7, max: 7 }, 4, 20, 'point')).toBe(20) // one value: the largest size
+  })
+
+  it('resolves the domain, 3-5 reference sizes (with min and max) and No value', () => {
+    const style = prop('line')
+    const r = resolveStyle(style, roads)
+    const values = roads.features.map((f) => f.attributes.aadt).filter((v): v is number => v !== null)
+    expect(r.size?.mode).toBe('proportional')
+    expect(r.size?.caption).toBe('aadt · Proportional')
+    expect(r.size?.domain).toEqual({ min: Math.min(...values), max: Math.max(...values) })
+    const samples = r.size?.samples ?? []
+    expect(samples.length).toBeGreaterThanOrEqual(3)
+    expect(samples.length).toBeLessThanOrEqual(5)
+    expect(samples[0].value).toBe(Math.min(...values))
+    expect(samples.at(-1)?.value).toBe(Math.max(...values))
+    for (const s of samples) expect(s.size).toBe(proportionalSize(s.value, r.size?.domain as { min: number; max: number }, 1, 6, 'line'))
+    expect(r.size?.classes.map((c) => c.kind)).toEqual(['noValue'])
+  })
+
+  it('the map draws each feature at proportionalSize (null: the single size)', () => {
+    for (const geometry of ['line', 'point'] as const) {
+      const style = prop(geometry)
+      const r = resolveStyle(style, roads)
+      const p = paintFor(style, r, '#f59e0b')
+      const [layer, prop2, type] = geometry === 'line' ? (['line', 'line-width', 'LineString'] as const) : (['circle', 'circle-radius', 'Point'] as const)
+      const domain = r.size?.domain as { min: number; max: number }
+      const [lo, hi] = geometry === 'line' ? [1, 6] : [2, 10]
+      for (const f of roads.features) {
+        const v = f.attributes.aadt
+        const want = v === null ? (geometry === 'line' ? style.strokeWidth : style.pointRadius) : proportionalSize(v, domain, lo, hi, geometry)
+        expect(evaluate((p[layer] as Record<string, unknown>)[prop2], f.attributes, `layers[0].paint.${prop2}`, type) as number).toBeCloseTo(want, 9)
+      }
+    }
+  })
+
+  it('hiding No value hides features without a value; reference sizes are not classes', () => {
+    const style = setSizeClassVisible(prop('line'), 'size:__null', false)
+    const r = resolveStyle(style, roads)
+    const filter = visibilityFilter(style, r)
+    for (const f of roads.features) expect(evaluate(filter, f.attributes, 'layers[0].filter')).toBe(f.attributes.aadt !== null)
+    expect(sizeSymbols(style, r)).toHaveLength((r.size?.samples?.length ?? 0) + 1)
+  })
+
+  it('switching back to classed restores stepped classes', () => {
+    const back = setSizeMode(prop('line'), 'classed')
+    expect(resolveStyle(back, roads).size?.classes.filter((c) => c.kind === 'range')).toHaveLength(5)
   })
 })

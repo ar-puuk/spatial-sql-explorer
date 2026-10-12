@@ -64,3 +64,23 @@ test('polygons have no size channel, and the old Graduated "Vary" switch is gone
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await expect(panel(page).getByRole('radiogroup', { name: 'Vary' })).toHaveCount(0)
 })
+
+test('proportional sizes: smooth widths with reference sizes in the legend, and back to classes (US2)', async ({ page }) => {
+  await openRoads(page)
+  await panel(page).getByRole('switch', { name: 'Size by column' }).click()
+  await panel(page).getByLabel('Size column').selectOption('aadt')
+  const mode = panel(page).getByRole('radiogroup', { name: 'Size scale' })
+  await expect(mode.getByRole('radio', { name: 'Classed' })).toHaveAttribute('aria-checked', 'true')
+  await mode.getByRole('radio', { name: 'Proportional' }).click()
+  await expect(sizeGroup(page)).toHaveAccessibleName('aadt · Proportional')
+  // Reference sizes (not toggles), then No value (a toggle).
+  const rows = sizeGroup(page).locator('li')
+  await expect.poll(() => rows.count()).toBeGreaterThanOrEqual(4)
+  await expect(rows.first().getByRole('button')).toHaveCount(0)
+  await expect(rows.last().getByRole('button')).toHaveCount(1)
+  await expect(panel(page).getByLabel('Size method')).toHaveCount(0)
+  await expect(panel(page)).toContainText('scale smoothly')
+
+  await mode.getByRole('radio', { name: 'Classed' }).click()
+  await expect(sizeGroup(page)).toHaveAccessibleName('aadt · Quantile, 5 classes')
+})
