@@ -35,6 +35,11 @@ export function columnValuesSql(relation: string, column: string): string {
   return `SELECT ${quoteIdent(column)} AS v FROM ${relation}`
 }
 
+/** Spec 009: every value of several columns in one pass, in row order (column i as `v<i>`). */
+export function columnsValuesSql(relation: string, columns: readonly string[]): string {
+  return `SELECT ${columns.map((c, i) => `${quoteIdent(c)} AS v${i}`).join(', ')} FROM ${relation}`
+}
+
 /** The most frequent categories, most frequent first (ties alphabetical); `also` adds manual values. */
 export function topCategoriesSql(relation: string, column: string, also: string[] = []): string {
   const extra = also.length ? ` OR cat IN (${also.map((v) => `'${v.replace(/'/g, "''")}'`).join(', ')})` : ''

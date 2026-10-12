@@ -120,7 +120,7 @@ moving on.
     by the browser specs. Done 2026-10-12: also run once in the native DuckDB
     CLI on `counties-bivariate.geojson`, where all 16 cell/no-value counts
     equal a JS `classOf` reference.
-- [ ] T006 Generalize `QuerySession.resolveStyle` in
+- [X] T006 Generalize `QuerySession.resolveStyle` in
   `packages/core/src/query/session.ts`:
   - collect the channel columns (color column(s), and the size column when
     `style.size` applies, deduplicated);

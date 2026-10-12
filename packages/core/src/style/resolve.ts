@@ -44,6 +44,13 @@ export function rowsOf(input: ResolveInput | null): number {
   return input?.rowCount ?? input?.features?.length ?? 0
 }
 
+/**
+ * Spec 009: where the engine puts the size channel's data. A size channel on
+ * the color channel's own column needs its own statistics (other classes, or
+ * numbers for a categorized column), under `size:<column>`.
+ */
+export const sizeDataKey = (column: string, shared: boolean): string => (shared ? `size:${column}` : column)
+
 /** The engine's data for `column`, if it was fetched (spec 009: per channel column). */
 export function columnData(input: ResolveInput, column: string): ColumnData | null {
   const byColumn = input.dataByColumn?.[column]
