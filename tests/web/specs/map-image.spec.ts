@@ -124,3 +124,31 @@ test('the size channel group is drawn into the image, under the color group', as
   const red = await pixel(page, shot.base64, 24, centerOf(1))
   expect(red[0]).toBeGreaterThan(200)
 })
+
+// Spec 009 T049 (US6): the bivariate square is drawn into the image: axis 2's label, the cells
+// (rows high to low), axis 1's label, No value; a hidden cell is hollow.
+test('the bivariate square is drawn into the image, hidden cells hollow', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#800000', '#008000', '#000080']
+  const legend = {
+    title: 'a × b · Quantile',
+    shape: 'area',
+    alpha: 1,
+    rows: [],
+    bivariate: { x: 'a', y: 'b', nx: 3, ny: 3, cells: colors.map((color, k) => ({ color, visible: k !== 4 })), noValue: { color: '#8c8c8c', label: 'No value', count: 3, visible: true } },
+  }
+  const shot = await capture(page, 1, legend)
+  // Lines: title, axis 2, three cell rows (j = 2, 1, 0), axis 1, No value.
+  const lines = 7
+  const top = shot.height - (lines * 18 + 14) - 28
+  const centerOf = (line: number) => top + 8 + 12 + 18 * line - 5
+  const hex = async (i: number, j: number) => {
+    const [r, g, b] = await pixel(page, shot.base64, 26 + 18 * i, centerOf(2 + (2 - j)))
+    return [r, g, b].map((v) => (v > 200 ? 'ff' : v < 60 ? '00' : 'xx')).join('')
+  }
+  expect(await hex(0, 0)).toBe('ff0000') // low/low: bottom-left
+  expect(await hex(2, 0)).toBe('0000ff')
+  expect(await hex(1, 2)).toBe('00xx00') // #008000: dark green, top row
+  expect(await hex(1, 1)).toBe('ffffff') // hidden: hollow (the light legend box shows through)
+})

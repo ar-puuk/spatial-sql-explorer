@@ -109,6 +109,20 @@ counts). Bivariate is 1 combined totals pass, 2 order-statistics passes and
 1 joint counts pass: 4 passes, under the 2x budget. Color plus size is
 the same shape.
 
+**Measured (T053, 2026-10-12)**: `scale.spec.ts` "spec 009 SC-007" ran
+alone on the 1,000,166-row result of `parcels-4m.parquet`, as centroid
+points so the size channel applies:
+
+| Style | Time | vs graduated |
+|---|---|---|
+| Graduated `value` | 2,359 ms | 1.0x |
+| Bivariate `value` x `acres` | 2,917 ms | 1.24x |
+| Color + size (`value`, size by `acres`) | 3,426 ms | 1.45x |
+
+Run it with `npx playwright test --project=performance --no-deps -g "spec 009 SC-007"`.
+Without `--no-deps`, the performance project first runs the whole chromium
+suite.
+
 ## 5. QGIS QML: color + size
 
 **Spike** ([spikes/qgis-dd-size.py.txt](./spikes/qgis-dd-size.py.txt),
@@ -191,6 +205,13 @@ with 10 rules (9 cells and No value) and a layer custom property
   (columns, methods, palette, hidden cells). Import treats a RuleRenderer as
   bivariate **only** when this property is present (FR-025). Otherwise it
   keeps today's single-symbol fallback with a notice.
+- **Render parity, verified (T047, 2026-10-12)**:
+  - `tests/qgis/check_009.py` on the bivariate polygon case (one cell
+    hidden): QGIS 4.2.3's RuleRenderer gave all 60 features the same cell
+    color as the app, and left the hidden cell's features undrawn.
+  - A mutation run (one wrong color; one hidden feature expected drawn) was
+    caught, with exit 1.
+  - The same run re-confirmed the 4 size-channel cases (240 of 240).
 
 ## 7. SLD and Mapbox GL
 
@@ -250,6 +271,19 @@ low/low to high/high.
 
 The default, Orange–Blue, is the most color-blind safe. The 2-class forms
 (FR-015) take the grid's corner and middle rows and columns.
+
+**Implemented (T035, 2026-10-12)**: `scripts/bivariate-palettes.mjs`.
+- The spike's hand-picked high/high corners were replaced by a rule:
+  high/high is the CIELAB average of the two high corners' a and b, at
+  lightness 28.
+- Only vendored ColorBrewer schemes can be used: `rampData.ts` has no PuBu
+  or RdPu. So Red–Blue takes YlGnBu's dark end (`#2c7fb8`), and Pink–Blue
+  takes PiYG's darkest pink (`#c51b7d`).
+- The generator refuses a palette under ΔE 15, and adds a note under 12 for
+  deuteranopes.
+- Final scores (plain / deuteranope): Orange–Blue 27.6 / 27.9, Red–Blue
+  27.2 / 24.8, Green–Purple 26.5 / 19.6, Pink–Blue 21.1 / 13.6. None
+  needs the note.
 
 **Rejected**: multiply-blending two ramps (Stevens' manual method). It
 scored well (ΔE up to 27), but the high/high corner was near-black

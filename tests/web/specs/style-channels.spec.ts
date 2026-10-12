@@ -31,6 +31,8 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  // SC-001: one click sizes by the first measure (the id column goes last).
+  await expect(panel(page).getByLabel('Size column')).toHaveValue('aadt')
   await panel(page).getByLabel('Size column').selectOption('aadt')
   // Five width classes plus No value (the fixture has null traffic), next to the unchanged color group.
   await expect(sizeGroup(page)).toHaveAccessibleName('aadt · Quantile, 5 classes')

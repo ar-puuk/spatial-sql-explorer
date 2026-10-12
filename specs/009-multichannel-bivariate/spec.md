@@ -97,7 +97,9 @@ reference sizes in the legend.
 1. **Given** a Proportional size channel, **When** the map draws, **Then**
    the feature with the lowest value gets the smallest size, the feature with
    the highest value gets the largest, and the others scale smoothly between
-   them, by width for lines and by area for point markers.
+   them, by width for lines and, for point markers, by QGIS's size
+   assistant "Area" scale (radius = smallest + (largest − smallest) × √t,
+   t the value's place between the minimum and maximum).
 2. **Given** a Proportional size channel, **When** the legend shows, **Then**
    it lists 3 to 5 reference sizes labeled with the values they stand for.
 3. **Given** a feature with no value in the size column, **When** the map
@@ -243,7 +245,10 @@ bivariate style, and check that each image contains the matching legend.
   falls back to the single symbol with a notice, as categorized and
   graduated styles do.
 - **Size channel on a mixed-geometry layer**: markers and lines are sized;
-  polygons in the same layer are not.
+  polygons in the same layer are not. Known limit (spec 007, not this
+  spec): a mixed layer draws its points as small dots, because the viewer
+  can't tell them from the dots that stand in for tiny polygons. So the
+  size channel shows on its lines only, until that limit is fixed.
 - **Hidden classes in both channels**: a feature is hidden if its class is
   hidden in either channel.
 - **Very large size range**: sizes are limited to the same bounds as the
@@ -274,7 +279,9 @@ bivariate style, and check that each image contains the matching legend.
 - **FR-004**: The size channel MUST offer Proportional mode: sizes scale
   continuously from the smallest size at the column's minimum value to the
   largest size at its maximum. Line widths scale linearly with the value;
-  point markers scale so their area is proportional to the value.
+  point markers follow QGIS's size assistant "Area" scale (radius =
+  smallest + (largest − smallest) × √t, t the value's place in the range),
+  so a style reopened in QGIS draws the same sizes.
 - **FR-005**: Features with no value in the size column MUST be drawn at
   the layer's single size or width and counted as "No value" in the size
   legend group.
@@ -375,7 +382,8 @@ bivariate style, and check that each image contains the matching legend.
 - **SC-002**: A user can build a bivariate map of two columns in 4
   interactions or fewer from an open style panel.
 - **SC-003**: For every feature drawn, its color and size match the legend
-  classes it is counted in: zero mismatches on a 10,000-feature test layer,
+  classes it is counted in: zero mismatches on a 10,000-feature test layer (checked with the map's own
+  expression evaluator),
   for both channels and for every bivariate cell.
 - **SC-004**: Bivariate cell counts in the legend add up exactly to the
   number of features in the displayed result (including "No value").
@@ -398,8 +406,9 @@ bivariate style, and check that each image contains the matching legend.
 - Bivariate palettes are a small curated set of established cartographic
   3×3 schemes, chosen in the plan and fixed (data colors are
   theme-independent).
-- Proportional point markers scale by area (perceptually fair). Lines scale
-  linearly by width. These defaults are not user-configurable in this spec.
+- Proportional point markers use QGIS's "Area" scale (by area, starting
+  from the smallest size; research §3). Lines scale linearly by width.
+  These defaults are not user-configurable in this spec.
 - The size legend draws size samples in the single symbol's color. In a
   two-channel legend, color swatches are drawn at one size.
 - Marker shape, line pattern and the other single-symbol settings stay layer

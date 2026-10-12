@@ -18,8 +18,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   basemaps, a globe view, place search, and any source CRS.
 - **Query**: DuckDB spatial SQL against the file as the table `layer`, with
   autocomplete and inline errors; results replace the map and the table.
-- **Style**: single, categorized and graduated styles, ramps previewed on the
-  map, layer opacity, 3D polygon extrusion. Saved as a QGIS `.qml` sidecar;
+- **Style**: single, categorized, graduated and bivariate styles, ramps
+  previewed on the map, size by a column (classed or proportional), marker
+  shapes and dashed lines, layer opacity, 3D polygon extrusion. Saved as a QGIS `.qml` sidecar;
   imports and exports QML, SLD and Mapbox GL style JSON.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;

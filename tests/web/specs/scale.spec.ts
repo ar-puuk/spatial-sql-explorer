@@ -265,3 +265,48 @@ test('SC-004 (spec 008): a table filter on 4M rows counts within 3 s, and can be
   const both = await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { filterState(): { filters: unknown[] } } }).__spatialExplorerE2E.filterState().filters.length)
   expect(both).toBe(2)
 })
+
+// Spec 009 SC-007: on the same 1,000,166-row result, classifying both bivariate
+// axes, or a color and a size column, takes no more than twice one graduated column.
+test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated column', async ({ page }) => {
+  test.setTimeout(900000)
+  const file = largeData('parcels-4m.parquet')
+  await page.goto('/?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await expect(statusBar(page)).toContainText('4,000,000', { timeout: 60000 })
+  await page.keyboard.press('Control+Shift+Q')
+  const { runQuery } = await import('./helpers')
+  // Points (centroids), so the size channel applies: the same 1,000,166 rows for all three styles.
+  await runQuery(page, 'SELECT parcel_id, acres, value, year_built, ST_Centroid(geom) AS geom FROM layer WHERE value > 1500000')
+  await expect(page.locator('.query-status')).toContainText('1,000,166 rows', { timeout: 120000 })
+  await page.getByRole('button', { name: 'Layer style' }).click()
+  const panel = page.getByRole('dialog', { name: 'Layer style' })
+  const legend = page.getByRole('region', { name: 'Legend' })
+  /** Time from an edit to the legend showing `text`. */
+  const timed = async (edit: () => Promise<void>, text: string | RegExp) => {
+    const t0 = Date.now()
+    await edit()
+    await expect(legend).toContainText(text, { timeout: 300000 })
+    return Date.now() - t0
+  }
+
+  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await panel.getByLabel('Column', { exact: true }).selectOption('acres')
+  await expect(legend).toContainText('acres · Quantile', { timeout: 300000 })
+  const graduatedMs = await timed(() => panel.getByLabel('Column', { exact: true }).selectOption('value'), 'value · Quantile')
+
+  await panel.getByRole('switch', { name: 'Size by column' }).click()
+  await panel.getByLabel('Size column').selectOption('year_built')
+  await expect(legend).toContainText('year_built · Quantile', { timeout: 300000 })
+  const colorSizeMs = await timed(() => panel.getByLabel('Size column').selectOption('acres'), /acres · Quantile, \d+ classes/)
+
+  await page.getByRole('radio', { name: 'Bivariate' }).click()
+  await panel.getByLabel('Axis 1', { exact: true }).selectOption('year_built')
+  await panel.getByLabel('Axis 2', { exact: true }).selectOption('acres')
+  await expect(legend).toContainText('year_built × acres', { timeout: 300000 })
+  const bivariateMs = await timed(() => panel.getByLabel('Axis 1', { exact: true }).selectOption('value'), 'value × acres')
+
+  results.spec009_sc007 = { rows: 1_000_166, graduatedMs, colorSizeMs, bivariateMs }
+  expect(bivariateMs, 'bivariate within 2x graduated').toBeLessThanOrEqual(2 * graduatedMs + 250)
+  expect(colorSizeMs, 'color + size within 2x graduated').toBeLessThanOrEqual(2 * graduatedMs + 250)
+})

@@ -14,9 +14,20 @@ export interface LegendGroup {
   rows: Array<{ color: string; label: string; count?: number; symbol?: SymbolSpec }>
 }
 
-/** The first group (the color channel), plus (spec 009) more groups after it: the size channel. */
+/** Spec 009 US6: a bivariate square: cells row-major from low/low (i + nx * j). */
+export interface LegendBivariate {
+  x: string
+  y: string
+  nx: number
+  ny: number
+  cells: Array<{ color: string; visible: boolean }>
+  noValue?: { color: string; label: string; count: number; visible: boolean }
+}
+
+/** The first group (the color channel, or a bivariate square), plus (spec 009) more groups after it: the size channel. */
 export interface LegendSpec extends LegendGroup {
   groups?: LegendGroup[]
+  bivariate?: LegendBivariate
 }
 
 /** MapView's capture: the current view as a PNG at 1x or 2x the map's size. */
@@ -62,7 +73,9 @@ export function composeMapImage(input: ComposeInput): HTMLCanvasElement {
   ctx.scale(ratio, ratio)
   const w = out.width / ratio
   const h = out.height / ratio
-  if (input.legend && input.legend.rows.length) drawLegend(ctx, input.legend, h)
+  // Spec 009: a bivariate square or a size group is a legend even without color rows.
+  const lg = input.legend
+  if (lg && (lg.rows.length || lg.bivariate || lg.groups?.some((g) => g.rows.length))) drawLegend(ctx, lg, h)
   if (input.attribution) drawAttribution(ctx, input.attribution, w, h)
   ctx.restore()
   return out
@@ -74,9 +87,24 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
   const sw = 14
   // Spec 009: the color group, then each further group (its title, then its rows).
   const groups: LegendGroup[] = [legend, ...(legend.groups ?? [])].filter((g, i) => i === 0 || g.rows.length)
-  type Line = { kind: 'title'; text: string; main: boolean } | { kind: 'row'; group: LegendGroup; row: LegendGroup['rows'][number]; scale: number } | { kind: 'more'; n: number }
+  type Line =
+    | { kind: 'title'; text: string; main: boolean }
+    | { kind: 'row'; group: LegendGroup; row: LegendGroup['rows'][number]; scale: number }
+    | { kind: 'more'; n: number }
+    | { kind: 'axis'; text: string }
+    | { kind: 'cells'; j: number }
   const all: Line[] = []
+  // Spec 009 US6: the bivariate square, one 18 px line per row (high to low), with the axis labels.
+  const biv = legend.bivariate
+  if (biv) {
+    if (legend.title) all.push({ kind: 'title', text: legend.title, main: true })
+    all.push({ kind: 'axis', text: `↑ ${biv.y}` })
+    for (let j = biv.ny - 1; j >= 0; j--) all.push({ kind: 'cells', j })
+    all.push({ kind: 'axis', text: `${biv.x} →` })
+    if (biv.noValue?.visible) all.push({ kind: 'row', group: { title: '', shape: 'area', alpha: 1, rows: [] }, row: { color: biv.noValue.color, label: biv.noValue.label, count: biv.noValue.count }, scale: 1 })
+  }
   groups.forEach((g, i) => {
+    if (biv && i === 0) return
     if (i === 0 ? g.title : true) all.push({ kind: 'title', text: g.title, main: i === 0 })
     // Markers keep their relative sizes within a group, shrunk together to fit a row.
     const reach = Math.max(1, ...g.rows.map((r) => (r.symbol ? r.symbol.radius * markerExtent(r.symbol.shape) + Math.min(r.symbol.strokeWidth, 3) / 2 : 5)))
@@ -87,7 +115,20 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
   const lines = all.length > maxLines ? [...all.slice(0, maxLines - 1), { kind: 'more' as const, n: all.length - (maxLines - 1) }] : all
   ctx.font = FONT
   const countW = (r: { count?: number }) => (r.count === undefined ? 0 : ctx.measureText(nf.format(r.count)).width + 12)
-  const rowW = Math.max(0, ...lines.map((l) => (l.kind === 'row' ? ctx.measureText(l.row.label).width + countW(l.row) : l.kind === 'more' ? ctx.measureText(`+${l.n} more`).width : 0)))
+  const rowW = Math.max(
+    0,
+    ...lines.map((l) =>
+      l.kind === 'row'
+        ? ctx.measureText(l.row.label).width + countW(l.row)
+        : l.kind === 'more'
+          ? ctx.measureText(`+${l.n} more`).width
+          : l.kind === 'axis'
+            ? ctx.measureText(l.text).width - sw - 8
+            : l.kind === 'cells' && biv
+              ? biv.nx * 18 - sw - 8
+              : 0
+    )
+  )
   ctx.font = TITLE_FONT
   const titleW = Math.max(0, ...lines.map((l) => (l.kind === 'title' ? ctx.measureText(l.text).width : 0)))
   const boxW = Math.min(320, Math.ceil(Math.max(titleW, sw + 8 + rowW) + pad * 2))
@@ -108,6 +149,27 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
       ctx.fillStyle = l.main ? '#1f2328' : '#57606a'
       ctx.font = TITLE_FONT
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
+    } else if (l.kind === 'axis') {
+      ctx.font = FONT
+      ctx.fillStyle = '#57606a'
+      ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
+    } else if (l.kind === 'cells') {
+      for (let i = 0; i < (biv?.nx ?? 0); i++) {
+        if (!biv) break
+        const c = biv.cells[i + biv.nx * l.j]
+        if (!c) continue
+        const cx = x + pad + i * 18
+        const cy = ty - 13
+        if (c.visible) {
+          ctx.fillStyle = c.color
+          ctx.fillRect(cx, cy, 16, 16)
+        } else {
+          // Hidden: hollow, the color kept as its outline.
+          ctx.strokeStyle = c.color
+          ctx.lineWidth = 2
+          ctx.strokeRect(cx + 1, cy + 1, 14, 14)
+        }
+      }
     } else if (l.kind === 'more') {
       ctx.font = FONT
       ctx.fillStyle = '#57606a'

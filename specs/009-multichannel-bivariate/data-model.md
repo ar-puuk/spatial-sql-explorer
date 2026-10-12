@@ -36,6 +36,7 @@ becomes:
 | `classes` | `RangeClassDef[]` | Classed only. As graduated: manual = the full list with bounds; otherwise overrides by index. The `color` override is not allowed. |
 | `noValue` | `{ label?, visible? }` | Classed and proportional. |
 | `sizeMin`, `sizeMax` | `number` | 0.5–100 px, `sizeMin ≤ sizeMax`. Marker **radius** for points, **width** for lines. Defaults: points 2–10, lines 1–6. |
+| `scale` | `'linear' \| 'area'`? | Proportional only. Set from the geometry when the channel starts: `area` for points, `linear` for lines; absent means linear. QGIS's transformer `scaleType` (1 / 0). Added in implementation (T022), because resolve doesn't know the geometry. |
 
 **Validation**: as graduated (bounds contiguous and increasing when manual),
 plus the size range rule. These errors block the edit with a message, as
@@ -64,6 +65,8 @@ today.
 different numeric columns".
 
 **Transitions**:
+- Choosing the other axis's column for an axis swaps the two columns,
+  rather than being refused (T043).
 - Swapping axes exchanges `x` and `y` and transposes `hidden`.
 - Changing a method reclassifies that axis only. `hidden` keys are kept;
   keys outside a smaller grid are ignored.
@@ -97,7 +100,7 @@ and 2.
 | `mode` | `classed` or `proportional`. |
 | `classes` | Classed: `ResolvedClass` items (`kind: 'range'`, `size` set) and `noValue`. Proportional: only `noValue` when present. |
 | `domain` | Proportional: `{ min, max }` of the column over the displayed result. |
-| `samples` | Proportional: 3–5 `{ value, size }` legend references, including min and max. |
+| `samples` | Proportional: 3–5 `{ value, size, label }` legend references, including min and max. |
 
 ## Map-side derived values (not stored)
 

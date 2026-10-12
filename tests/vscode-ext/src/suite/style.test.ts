@@ -309,3 +309,65 @@ suite('Spec 009 US5: a size channel survives save and reopen', () => {
     }
   })
 })
+
+// Spec 009 T048 (US5): a bivariate style is saved as the QML sidecar (QGIS's
+// rule-based renderer) and restored as bivariate, with its palette and hidden cell.
+suite('Spec 009 US5: a bivariate style survives save and reopen', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('poverty_rate x obesity_rate, green-purple, one cell hidden', async function () {
+    this.timeout(90000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-biv-'))
+    const file = path.join(dir, 'counties.geojson')
+    fs.copyFileSync(path.resolve(__dirname, '../../fixtures/counties-bivariate.geojson'), file)
+    const open = async () => {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+      const deadline = Date.now() + 45000
+      for (;;) {
+        const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+        if (s?.loadState === 'ready') return
+        assert.ok(Date.now() < deadline, 'counties.geojson did not load')
+        await sleep(200)
+      }
+    }
+    try {
+      await open()
+      const before = await applyStyle(
+        {
+          ...BASE_SYMBOL,
+          renderer: { kind: 'bivariate', x: { column: 'poverty_rate', method: 'quantile' }, y: { column: 'obesity_rate', method: 'equal' }, palette: 'green-purple', hidden: ['2-0'], noValue: {} },
+        },
+        (x) => x.renderer === 'bivariate' && x.status === 'ok'
+      )
+      assert.strictEqual(before.caption, 'poverty_rate × obesity_rate · Quantile / Equal interval')
+      assert.strictEqual(before.classes.filter((c) => c.key.startsWith('cell:')).length, 9)
+      assert.strictEqual(before.classes.reduce((n, c) => n + c.count, 0), 600)
+      await vscode.commands.executeCommand('spatialExplorer._saveStyle')
+      const sidecar = path.join(dir, 'counties.qml')
+      const deadline = Date.now() + 10000
+      while (!fs.existsSync(sidecar)) {
+        assert.ok(Date.now() < deadline, 'counties.qml was not written')
+        await sleep(100)
+      }
+      assert.match(fs.readFileSync(sidecar, 'utf8'), /type="RuleRenderer"/)
+
+      await open()
+      let after: StyleState | null = null
+      const until = Date.now() + 10000
+      while (Date.now() < until) {
+        after = await styleState()
+        if (after?.renderer === 'bivariate' && after.status === 'ok') break
+        await sleep(100)
+      }
+      assert.strictEqual(after?.source, 'counties.qml')
+      const view = (s: StyleState | null) => s?.classes.map((c) => [c.key, c.label, c.color, c.visible, c.count])
+      assert.deepStrictEqual(view(after), view(before))
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

@@ -32,6 +32,11 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
   - Single, categorized or graduated (equal interval, quantile, natural
     breaks), with a chart of the column's values and ramps previewed on the
     map as you browse them.
+  - **Bivariate maps**: two numeric columns colored from a 3×3 square, with
+    a keyboard legend square whose cells hide their features.
+  - **Size by a column**: line width or marker size by another numeric
+    column, in classes or proportional, next to the class colors. Marker
+    shapes and dashed lines too.
   - Layer opacity, fill, outline and point size, live on the map and legend.
     Edit any class's color, label or bounds, or hide it from its legend
     swatch.

@@ -8,6 +8,7 @@
   import { markerExtent, type GeometryType, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
+  import BivariateLegend from './style/BivariateLegend.svelte'
 
   interface Props {
     resolved: ResolvedStyle
@@ -51,6 +52,12 @@
       <p class="reason">{resolved.reason} Showing the single symbol.</p>
     {/if}
     <!-- Spec 009: one group per channel (contracts/ui.md "Legend"). -->
+    {#if resolved.grid && resolved.status === 'ok'}
+      <!-- Spec 009 US4: the bivariate square. -->
+      <div role="group" aria-label={heading} class="group">
+        <BivariateLegend {resolved} onToggle={onToggleClass} />
+      </div>
+    {:else}
     <div role="group" aria-label={heading} class="group">
     <ul>
       {#each resolved.classes as c, i (c.key)}
@@ -76,6 +83,7 @@
       {/each}
     </ul>
     </div>
+    {/if}
     {#if size}
       <h4 class="group-title" title={size.channel.caption}>{size.channel.caption}</h4>
       <div role="group" aria-label={size.channel.caption} class="group">

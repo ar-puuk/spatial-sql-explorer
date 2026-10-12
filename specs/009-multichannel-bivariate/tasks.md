@@ -227,8 +227,8 @@ widths, and two legend groups (quickstart scenario 1).
 - [X] T014 [US1] In `packages/ui/src/LayerStylePanel.svelte`:
   - remove the Graduated "Vary" radio and its size inputs;
   - add the **Size** section per `contracts/ui.md`: the switch, Column
-    (numeric), Method, Classes, Smallest/Largest (px), and
-    `SizeClassList`;
+    (numeric), Method, Classes, Smallest/Largest (px), and the size
+    class list (`ClassList` in its size mode);
   - for polygon layers, show the note instead of the section;
   - wire everything to the `edit.ts` functions through `apply()`
     (validation messages as today).
@@ -425,7 +425,7 @@ hidden (quickstart scenario 4).
 
 ### Tests for User Story 4
 
-- [ ] T032 [P] [US4] Create `tests/core/style-bivariate.test.ts` (failing
+- [X] T032 [P] [US4] Create `tests/core/style-bivariate.test.ts` (failing
   first):
   - `resolveStyle` gives 9 cells in row-major order from low/low (`i + nx *
     j`) with x/y ranges, plus `grid` and No value; cell counts plus No value
@@ -440,12 +440,12 @@ hidden (quickstart scenario 4).
   - large results: cell counts from `cellCountsSql` equal the in-memory
     counts on the same data;
   - polygons, lines and points all color.
-- [ ] T033 [P] [US4] Create a palette test in
+- [X] T033 [P] [US4] Create a palette test in
   `tests/core/style-bivariate.test.ts`: every palette in
   `BIVARIATE_PALETTES` meets research §8 (min ΔE ≥ 15, deuteranope ≥ 12
   except palettes carrying a `note`, lightness decreasing low/low →
   high/high), and 2-class grids use the corner and middle indexes.
-- [ ] T034 [P] [US4] Create `tests/web/specs/style-bivariate.spec.ts`
+- [X] T034 [P] [US4] Create `tests/web/specs/style-bivariate.spec.ts`
   (failing first):
   - the Style radio "Bivariate"; axis selects; the legend `grid` with 9
     cells whose accessible names follow `contracts/ui.md`;
@@ -460,7 +460,7 @@ hidden (quickstart scenario 4).
 
 ### Implementation for User Story 4
 
-- [ ] T035 [US4] Write `scripts/bivariate-palettes.mjs`. It ports the
+- [X] T035 [US4] Write `scripts/bivariate-palettes.mjs`. It ports the
   scoring from `spikes/bivariate-palettes.mjs.txt` into a generator that
   reads the ColorBrewer anchors from `packages/core/src/style/rampData.ts`
   and writes `packages/core/src/style/bivariateData.ts` (GENERATED header,
@@ -469,14 +469,14 @@ hidden (quickstart scenario 4).
   `pink-blue` with its note. Run it and commit the output.
   - Add the palettes to `THIRD-PARTY-NOTICES.md` only if the attribution
     text needs updating (the anchors are already covered).
-- [ ] T036 [US4] Create `packages/core/src/style/bivariate.ts`:
+- [X] T036 [US4] Create `packages/core/src/style/bivariate.ts`:
   - `BIVARIATE_PALETTES` re-export, `DEFAULT_BIVARIATE_PALETTE`,
     `bivariateColor(palette, i, j, nx, ny)`;
   - `bivariateIndexExpression(style, resolved)`: two `let`s with the
     graduated index rules, then `ix + nx * iy` mapped to the class
     positions; No value when either axis is.
   - Export from `index.ts`.
-- [ ] T037 [US4] Resolve bivariate in `packages/core/src/style/resolve.ts`:
+- [X] T037 [US4] Resolve bivariate in `packages/core/src/style/resolve.ts`:
   - each axis through `classifyRanges` (T009) with `classCount` 3;
   - cells with counts (in memory, or filled from `cellCountsSql` by the
     session), labels such as "`<x range>` · `<y range>`", visibility from
@@ -486,13 +486,13 @@ hidden (quickstart scenario 4).
   - In `packages/core/src/query/session.ts`, add the bivariate path: totals
     for both columns, order statistics per axis, then `cellCountsSql`
     (SC-007).
-- [ ] T038 [US4] Wire bivariate into `expressions.ts`:
+- [X] T038 [US4] Wire bivariate into `expressions.ts`:
   - `classIndexExpression` returns `bivariateIndexExpression` for
     bivariate;
   - colors come from the cell classes through the existing `classSymbols`
     path;
   - `symbolExpressions` ignores `size` for bivariate (FR-007).
-- [ ] T039 [US4] Add the bivariate edits in `edit.ts`:
+- [X] T039 [US4] Add the bivariate edits in `edit.ts`:
   - `startStyle(…, 'bivariate', layer)` picks the first two numeric
     columns, keeps `size` stored but inactive, and applies the
     `THEMATIC_SYMBOL` defaults as for other thematic renderers;
@@ -501,10 +501,10 @@ hidden (quickstart scenario 4).
   - `validateStyle`: two different numeric columns.
   - `sanitizeRenderer`: bivariate fields, with an unknown palette falling
     back to the default.
-- [ ] T040 [P] [US4] Create `packages/ui/src/style/BivariatePicker.svelte`:
+- [X] T040 [P] [US4] Create `packages/ui/src/style/BivariatePicker.svelte`:
   the Axis 1 / Axis 2 selects (numeric only), a Swap button, Method selects
   per axis, and a palette radio group with 3×3 SVG previews and notes.
-- [ ] T041 [P] [US4] Create `packages/ui/src/style/BivariateLegend.svelte`
+- [X] T041 [P] [US4] Create `packages/ui/src/style/BivariateLegend.svelte`
   per `contracts/ui.md`:
   - `role="grid"`, rows high-to-low;
   - cell buttons with `aria-pressed` and full accessible names and
@@ -513,14 +513,20 @@ hidden (quickstart scenario 4).
   - axis labels with arrows; a No value row;
   - theme tokens for chrome, fixed palette colors.
   - It is used by both `MapLegend.svelte` and the style panel ("Cells").
-- [ ] T042 [US4] Integrate:
+- [X] T042 [US4] Integrate:
   - `LayerStylePanel.svelte`: the fourth Style radio, with the
     unavailable reason; `BivariatePicker`; the "Cells" legend; the Size
     section note;
   - `MapLegend.svelte`: render `BivariateLegend` for bivariate;
   - `viewerStore.svelte.ts`: route `cell:` keys to `setCellVisible`.
-- [ ] T043 [US4] Run T032–T034 to green, plus all style suites. Profile
+- [X] T043 [US4] Run T032–T034 to green, plus all style suites. Profile
   axis and palette changes on `counties-bivariate` at 6x CPU throttle.
+  - Done 2026-10-12: at 6x, an axis method change takes 258 ms, a palette
+    change 384 ms, and a swap 299 ms.
+  - Picking the other axis's column now swaps the two axes; it was refused
+    as "the same column" before.
+  - With four style types the panel is 344 px wide, and axis 2's label sits
+    above the square.
 
 **Checkpoint**: bivariate maps work and are testable on their own.
 
@@ -532,7 +538,7 @@ hidden (quickstart scenario 4).
 bivariate) and in QGIS (the same 9 colors), and export SLD and Mapbox with
 their notices (quickstart scenario 5).
 
-- [ ] T044 [P] [US5] Add bivariate interchange tests in
+- [X] T044 [P] [US5] Add bivariate interchange tests in
   `tests/core/style-bivariate.test.ts`:
   - QML: `type="RuleRenderer"`, 9 cell rules (fewer for small grids) with
     the filters in `interchange-mapping.md`, `checkstate="0"` for hidden
@@ -543,20 +549,20 @@ their notices (quickstart scenario 5).
     re-import as the single symbol with the notice;
   - Mapbox: the paint equals the viewer's, the hidden-cell filter, and
     `metadata` round-trips.
-- [ ] T045 [US5] Implement bivariate QML write and read in
+- [X] T045 [US5] Implement bivariate QML write and read in
   `packages/core/src/style/qml.ts`:
   - a `ruleRendererXml(style, resolved, kind)` writer with keys, labels,
     `checkstate`, and symbols from `classSymbols`;
   - import: a `RuleRenderer` with `spatialExplorer/bivariate` becomes a
     `BivariateRenderer` (sanitized); without it, the existing fallback.
-- [ ] T046 [P] [US5] Implement bivariate in `sld.ts` (cell rules, notices)
+- [X] T046 [P] [US5] Implement bivariate in `sld.ts` (cell rules, notices)
   and `mapbox.ts` (cell `match` paint, filter). Extend `previewExportNotice`
   in `interchange.ts`.
-- [ ] T047 [US5] Extend `tests/qgis/check_009.py` to the bivariate QML:
+- [X] T047 [US5] Extend `tests/qgis/check_009.py` to the bivariate QML:
   - QGIS lists 10 rules, with 9 active minus hidden;
   - each feature's rendered fill equals the expected cell color (SC-005).
   - Record the outcome in research §6.
-- [ ] T048 [US5] Add a VS Code suite test (same file as T029): save, close
+- [X] T048 [US5] Add a VS Code suite test (same file as T029): save, close
   and reopen a bivariate sidecar on `counties-bivariate.geojson`; it is
   still bivariate, with the same palette and hidden cells.
 
@@ -564,11 +570,11 @@ their notices (quickstart scenario 5).
 
 ## Phase 10: User Story 6 (bivariate) — Map image with the bivariate square (P3)
 
-- [ ] T049 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
+- [X] T049 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
   bivariate style, the PNG contains the 3×3 square. Sample the 9 cell
   centers against the palette colors, and check a hidden cell is drawn
   hollow.
-- [ ] T050 [US6] Draw the bivariate group in `packages/ui/src/mapImage.ts`:
+- [X] T050 [US6] Draw the bivariate group in `packages/ui/src/mapImage.ts`:
   - the square with axis labels (column names, arrows), and No value
     below;
   - built in `ViewerLayout.svelte` from `resolved.grid`.
@@ -577,22 +583,41 @@ their notices (quickstart scenario 5).
 
 ## Phase 11: Polish & Cross-Cutting
 
-- [ ] T051 [P] Update `CLAUDE.md` "Styling and export": the renderers are
+- [X] T051 [P] Update `CLAUDE.md` "Styling and export": the renderers are
   now single, categorized, graduated or bivariate, plus an optional size
   channel (classed or proportional); and the QML forms (data-defined size,
   rule-based bivariate). Update the in-app or README feature list if there
   is one (`apps/web` landing copy, `apps/vscode-ext/README.md`).
-- [ ] T052 [P] Re-run `npm run screenshots` only if the docs show the style
+- [X] T052 [P] Re-run `npm run screenshots` only if the docs show the style
   panel; otherwise skip and say so.
-- [ ] T053 Run the full gates:
+  - Skipped (2026-10-12): no doc embeds the screenshots; `screenshots/` is
+    gitignored output.
+- [X] T053 Run the full gates:
   - `npm run lint`, `npm run typecheck:core`, `npm run typecheck:ui`;
   - `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext`;
   - `tests/qgis/check_009.py`.
   - Walk through every quickstart scenario, including SC-007 timing on the
     1M-row fixture, and record the timings in research §4.
-- [ ] T054 Run `/speckit-analyze` for spec/plan/tasks consistency, and fix
+  - Done 2026-10-12:
+    - lint (the one pre-existing warning) and the core, ui, web and
+      vscode-ext typechecks are clean;
+    - core: 491 passed;
+    - web (chromium, 4 workers): 158 passed, 2 failed under load
+      (`large-open.spec:53` cancel; `style-thematic.spec:193`, whose legend
+      took longer than its 10 s limit to reclassify). Both pass alone,
+      twice;
+    - VS Code: 81 passing, 3 pending;
+    - QGIS parity: 300 of 300 features (research §5, §6);
+    - SC-007: bivariate 1.24x, color + size 1.45x (research §4).
+- [X] T054 Run `/speckit-analyze` for spec/plan/tasks consistency, and fix
   any blocking finding before the final local merge (no push without user
   approval, per project memory).
+  - Done 2026-10-12. No critical findings. Remediated:
+    - FR-004 wording (QGIS "Area" scale);
+    - the mixed-layer limit, now in the spec;
+    - SC-003 checked on 10,000 features (`tests/core/style-scale.test.ts`);
+    - id-like columns go last in default picks (SC-001/SC-002);
+    - doc drift.
 
 ---
 
@@ -633,7 +658,7 @@ their notices (quickstart scenario 5).
 ```text
 Task: "T007 tests/core/style-channels.test.ts — channel resolve, map = legend, combined visibility"
 Task: "T008 tests/web/specs/style-channels.spec.ts — Size section, legend groups"
-Task: "T013 packages/ui/src/style/SizeClassList.svelte — size class rows"
+Task: "T013 packages/ui/src/ClassList.svelte — size mode for the size class rows"
 ```
 
 ## Parallel Example: User Story 4

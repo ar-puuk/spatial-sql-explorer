@@ -34,6 +34,7 @@ def check(qml):
     expected = json.load(open(base + '.expected.json'))
     geometry = expected['geometry']
     layer = QgsVectorLayer(base + '.geojson', 'case', 'ogr')
+    # Spec 009 US4: bivariate polygons (color and visibility only).
     message, ok = layer.loadNamedStyle(qml)
     renderer = layer.renderer().clone()
     ctx = QgsRenderContext()
@@ -48,13 +49,15 @@ def check(qml):
             got = {'visible': False}
         else:
             symbol = symbols[0]
-            size = size_of(symbol, ctx, geometry)
+            # Polygons have no size channel: drawn when QGIS gives them a symbol.
+            size = size_of(symbol, ctx, geometry) if geometry != 'polygon' else 1
             got = {'visible': size > 0, 'color': symbol.color().name(), 'size': round(size, 4)}
         if not want['visible']:
             if got['visible']:
                 mismatches.append({'feature': i, 'want': want, 'got': got})
             continue
-        if not got['visible'] or got['color'] != want['color'] or abs(got['size'] - want['size']) > 1e-3:
+        size_differs = want.get('size') is not None and abs(got['size'] - want['size']) > 1e-3
+        if not got['visible'] or got['color'] != want['color'] or size_differs:
             mismatches.append({'feature': i, 'want': want, 'got': got})
     renderer.stopRender(ctx)
     return {'case': os.path.basename(base), 'loaded': bool(ok), 'renderer': renderer.type(), 'features': len(expected['features']), 'mismatches': mismatches[:5], 'mismatchCount': len(mismatches)}

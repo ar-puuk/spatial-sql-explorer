@@ -8,6 +8,7 @@
   // format from its menu. Import reads any of the three formats.
   import {
     eligibleColumns,
+    measureColumns,
     extrusionUnavailableReason,
     DEFAULT_EXTRUSION_SCALE,
     type Extrusion,
@@ -28,6 +29,10 @@
     setClassVisible,
     setMethod,
     setRamp,
+    setBivariateAxis,
+    setBivariatePalette,
+    setCellVisible,
+    swapBivariateAxes,
     setSizeChannel,
     setSizeClassBound,
     setSizeClassCount,
@@ -61,6 +66,8 @@
   import ValueHistogram from './style/ValueHistogram.svelte'
   import SaveStyleButton from './style/SaveStyleButton.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
+  import BivariatePicker from './style/BivariatePicker.svelte'
+  import BivariateLegend from './style/BivariateLegend.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -168,6 +175,7 @@
     { kind: 'single', label: 'Single', hint: 'One color for every feature' },
     { kind: 'categorized', label: 'Categorized', hint: 'A color per value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a numeric column' },
+    { kind: 'bivariate', label: 'Bivariate', hint: 'Colors by two numeric columns, from a 3×3 square' },
   ]
   const renderer = $derived(rendererOf(style))
   const thematic = $derived(renderer.kind !== 'single')
@@ -243,7 +251,8 @@
   const sizeSymbols = $derived(sizeOn && resolved.size?.status === 'ok' ? { symbols: sizeSymbolsOf(style, resolved), kind: sizeGeometry } : null)
   function toggleSize(): void {
     if (sizeOn) return apply(setSizeChannel(style, null, sizeGeometry))
-    const column = numericColumns[0]?.name
+    // Identifier-like columns go last (spec 009 SC-001: a useful default in one click).
+    const column = measureColumns(layer?.columns)[0]?.name
     if (column) apply(setSizeChannel(style, column, sizeGeometry))
   }
   function chooseSize(side: 'min' | 'max', value: number): void {
@@ -426,6 +435,34 @@
     {/if}
 
     <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
+    <!-- Spec 009 US4: bivariate (contracts/ui.md "Style panel"). -->
+    {#if renderer.kind === 'bivariate'}
+      <section aria-labelledby="style-sec-axes">
+        <h3 id="style-sec-axes">Columns</h3>
+        <BivariatePicker
+          {renderer}
+          columns={columnsFor('graduated')}
+          onAxis={(axis, patch) => apply(setBivariateAxis(style, axis, patch))}
+          onSwap={() => apply(swapBivariateAxes(style))}
+          onPalette={(id) => apply(setBivariatePalette(style, id))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+        {/if}
+      </section>
+      <section aria-labelledby="style-sec-cells">
+        <h3 id="style-sec-cells">Cells</h3>
+        {#if resolved.status === 'fallback'}
+          <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
+        {:else}
+          <BivariateLegend {resolved} cell={28} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
+          {#each resolved.notes as note (note)}
+            <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+          {/each}
+        {/if}
+      </section>
+    {/if}
+
     <section aria-labelledby="style-sec-size">
       <h3 id="style-sec-size">Size</h3>
       {#if geometryType === 'Polygon'}
@@ -780,7 +817,7 @@
     display: flex;
     flex-direction: column;
     max-height: 100%;
-    width: 320px;
+    width: 344px;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -824,14 +861,15 @@
   }
   .renderers {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
     overflow: hidden;
   }
   .renderers button {
     height: 24px;
-    padding: 0 6px;
+    padding: 0 4px;
     border: 0;
     border-left: 1px solid var(--se-input-border);
     background: var(--se-input-bg);

@@ -54,12 +54,12 @@ export interface Thematic {
 export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined): { thematic: Thematic | null; notes: string[] } {
   const r = rendererOf(style)
   if (r.kind === 'single') return { thematic: null, notes: [] }
-  // Spec 009 US5 writes bivariate classes.
-  if (r.kind === 'bivariate') return { thematic: null, notes: ['Bivariate classes are not exported in this build; the single symbol was exported.'] }
   if (!resolved || resolved.status !== 'ok') {
     const why = resolved?.reason ?? 'The classes could not be computed.'
     return { thematic: null, notes: [`${why} The single symbol was exported instead of the ${r.kind} classes.`] }
   }
+  // Spec 009: bivariate cells are written by each format itself (bivariateForExport).
+  if (r.kind === 'bivariate') return { thematic: null, notes: [] }
   const classes: ExportClass[] = resolved.classes.flatMap((c) =>
     c.kind === 'single' || c.kind === 'cell' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
   )
@@ -78,6 +78,12 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  // Spec 009: bivariate in SLD.
+  if (format === 'sld' && rendererOf(style).kind === 'bivariate' && resolved?.status === 'ok') {
+    items.push("SLD has no bivariate palette: it reloads as a single symbol (QML and Mapbox GL keep it).")
+    const hidden = resolved.classes.filter((c) => !c.visible).length
+    if (hidden) items.push(`SLD can't mark a cell as hidden: ${hidden} hidden ${hidden === 1 ? 'cell' : 'cells'} will be left out.`)
+  }
   // Spec 009: the size channel in SLD.
   if (format === 'sld' && style.size && resolved?.size?.status === 'ok') {
     if (style.size.mode === 'proportional') items.push('Proportional sizes are written as 5 steps.')

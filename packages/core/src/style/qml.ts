@@ -13,6 +13,7 @@ import {
   DEFAULT_LAYER_STYLE,
   escapeXml,
   parseColor,
+  rendererOf,
   rgbToHex,
   round,
   sanitizeStyle,
@@ -195,6 +196,39 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
     `<Option name="expression" type="QString" value="${escapeXml(`CASE ${arms.join(' ')} ELSE ${single} END`)}"/>`,
     '<Option name="type" type="int" value="3"/>',
   ])
+}
+
+/**
+ * Spec 009 US4/US5 (research §6): a bivariate style as QGIS's rule-based
+ * renderer: one rule per cell (our class rules: the first class of an axis
+ * includes its lower bound; hidden cells unchecked) and one for "No value".
+ * The renderer itself rides along in `spatialExplorer/bivariate`.
+ */
+function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 'fill' | 'line' | 'marker'): string {
+  const g = resolved.grid
+  if (!g) return ''
+  const x = qgisField(g.x.column)
+  const y = qgisField(g.y.column)
+  const between = (f: string, r: { lower: number; upper: number }, first: boolean) => `${f} ${first ? '>=' : '>'} ${r.lower} AND ${f} <= ${r.upper}`
+  const rules: string[] = []
+  const symbols: string[] = []
+  resolved.classes.forEach((c, k) => {
+    const filter =
+      c.kind === 'cell' && c.x && c.y
+        ? `${between(x, c.x, c.col === 0)} AND ${between(y, c.y, c.row === 0)}`
+        : `${x} IS NULL OR ${y} IS NULL`
+    const unchecked = c.visible ? '' : ' checkstate="0"'
+    rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-${escapeXml(c.key)}}" label="${escapeXml(c.label)}" symbol="${k}"${unchecked}/>`)
+    symbols.push(symbolXml(kind, kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }, String(k)))
+  })
+  return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    <rules key="{se-rules}">
+${rules.join('\n')}
+    </rules>
+    <symbols>
+${symbols.join('\n')}
+    </symbols>
+  </renderer-v2>`
 }
 
 /** A size channel from a QGIS data-defined size this product didn't write (a size assistant transformer), or null. */
@@ -393,6 +427,12 @@ ${symbolXml(kind, style, '0', sizeDd)}
   </renderer-v2>`
   let props: Record<string, string> = {}
   if (thematic) ({ renderer, props } = thematicRenderer(style, kind, thematic, columnType, sizeDd))
+  // Spec 009: bivariate, as a rule-based renderer.
+  const r = rendererOf(style)
+  if (r.kind === 'bivariate' && resolved?.status === 'ok' && resolved.grid) {
+    renderer = bivariateRendererXml(style, resolved, kind)
+    props = { 'spatialExplorer/bivariate': JSON.stringify(r) }
+  }
   // Our own size channel, kept whole for a lossless reload here.
   if (style.size) props['spatialExplorer/size'] = JSON.stringify(style.size)
   // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
@@ -509,7 +549,9 @@ export function qmlToStyle(text: string): StyleImportResult {
   const notes: string[] = []
   const rendererType = renderer.getAttribute('type') ?? 'singleSymbol'
   const thematicType = rendererType === 'categorizedSymbol' || rendererType === 'graduatedSymbol'
-  if (rendererType !== 'singleSymbol' && !thematicType) {
+  // Spec 009: our own bivariate rules (a RuleRenderer with the renderer in a custom property).
+  const ownBivariate = rendererType === 'RuleRenderer' ? readCustomProperties(doc).get('spatialExplorer/bivariate') : undefined
+  if (rendererType !== 'singleSymbol' && !thematicType && !ownBivariate) {
     notes.push(`This QML uses a "${rendererType}" renderer, which isn't supported; its first symbol was imported as a single symbol.`)
   }
   const symbol = renderer.getElementsByTagName('symbol')[0]
@@ -625,6 +667,17 @@ export function qmlToStyle(text: string): StyleImportResult {
         // ignore a malformed property
       }
       style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue, size })
+    }
+  }
+
+  if (ownBivariate) {
+    try {
+      style.renderer = JSON.parse(ownBivariate) as LayerStyle['renderer']
+      // The first rule's symbol carries a cell color, not the single symbol's.
+      delete style.fillColor
+      if (cls === 'SimpleLine') delete style.strokeColor
+    } catch {
+      notes.push('The saved bivariate style could not be read; its first symbol was imported as a single symbol.')
     }
   }
 
