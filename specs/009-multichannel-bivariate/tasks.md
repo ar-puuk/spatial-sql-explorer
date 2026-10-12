@@ -399,11 +399,11 @@ and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
 **Independent Test**: save a PNG for a two-channel style. The legend shows
 the color group and the size group (quickstart scenario 6).
 
-- [ ] T030 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
+- [X] T030 [P] [US6] Extend `tests/web/specs/map-image.spec.ts`: for a
   categorized + size style, the PNG legend box contains both group titles
   (check with the existing pixel and OCR-free approach: sample the swatch
   and title rows as the spec does today).
-- [ ] T031 [US6] Change `LegendSpec` in `packages/ui/src/mapImage.ts` to
+- [X] T031 [US6] Change `LegendSpec` in `packages/ui/src/mapImage.ts` to
   `groups` (contracts/ui.md). `drawLegend` lays the groups out one after
   another, with the size rows drawn to scale. Build the groups in
   `packages/ui/src/ViewerLayout.svelte`. Keep the old single-group output

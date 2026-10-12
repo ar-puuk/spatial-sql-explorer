@@ -3,7 +3,7 @@
   // legacy app's drop zone as the empty state, and the shared ViewerLayout
   // with the status bar docked over the map. VS Code renders none of this —
   // it has native chrome for each.
-  import { ViewerLayout, StatusBar, Icon, createViewerStore } from '@spatial-explorer/ui'
+  import { ViewerLayout, StatusBar, Icon, createViewerStore, type LegendSpec } from '@spatial-explorer/ui'
   import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
   import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
   import ThemeMenu from './ThemeMenu.svelte'
@@ -156,8 +156,9 @@
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),
       /** Spec 008 US7: the map as a PNG (base64), without saving. */
-      captureMap: async (scale: 1 | 2, legend = false) => {
-        const legendSpec = legend ? { title: 'Legend', shape: 'area' as const, alpha: 1, rows: [{ color: '#ff0000', label: 'Test' }] } : null
+      captureMap: async (scale: 1 | 2, legend: boolean | LegendSpec = false) => {
+        // A test legend: one red row, or the spec the test passes (spec 009: groups).
+        const legendSpec = typeof legend === 'object' ? legend : legend ? { title: 'Legend', shape: 'area' as const, alpha: 1, rows: [{ color: '#ff0000', label: 'Test' }] } : null
         const r = await store.captureMapImage({ scale, legend: legendSpec })
         if (!r) return null
         let bin = ''

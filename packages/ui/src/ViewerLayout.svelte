@@ -67,6 +67,22 @@
       shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
       rows: r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      // Spec 009: the size channel's group (reference sizes, then visible classes).
+      groups: legendSize
+        ? [
+            {
+              title: legendSize.channel.caption,
+              shape: layer.geometryType === 'Point' ? ('point' as const) : ('line' as const),
+              alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+              rows: [
+                ...(legendSize.channel.samples ?? []).map((x, i) => ({ color: store.style.fillColor, label: x.label, symbol: legendSize.symbols[i] })),
+                ...legendSize.channel.classes.flatMap((c, i) =>
+                  c.visible ? [{ color: c.color, label: c.label, count: c.count, symbol: legendSize.symbols[(legendSize.channel.samples?.length ?? 0) + i] }] : []
+                ),
+              ],
+            },
+          ]
+        : undefined,
     }
   })
   const loading = $derived(session.loadState === 'loading')
