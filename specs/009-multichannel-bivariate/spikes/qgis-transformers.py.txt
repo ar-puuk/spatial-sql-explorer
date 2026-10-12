@@ -1,0 +1,70 @@
+import os, sys
+from qgis.core import *
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False); app.initQgis()
+out = sys.argv[1]
+log = open(os.path.join(out, 'ddsize.log'), 'w', buffering=1)
+
+lyr = QgsVectorLayer('LineString?crs=EPSG:4326&field=cls:string&field=v:double&field=w:double', 'l', 'memory')
+pr = lyr.dataProvider()
+feats = []
+for i, (c, v, w) in enumerate([('a', 0, 1), ('b', 50, 2), ('a', 100, 3), ('b', None, None)]):
+    f = QgsFeature(lyr.fields()); f.setAttributes([c, v, w]); f.setGeometry(QgsGeometry.fromWkt('LINESTRING(0 %d, 1 %d)' % (i, i))); feats.append(f)
+pr.addFeatures(feats); lyr.updateExtents()
+
+# 1) categorized + size assistant (field + QgsSizeScaleTransformer), per QGIS's own UI
+cats = [QgsRendererCategory('a', QgsLineSymbol.createSimple({'line_color': '255,0,0,255'}), 'a'), QgsRendererCategory('b', QgsLineSymbol.createSimple({'line_color': '0,0,255,255'}), 'b')]
+r = QgsCategorizedSymbolRenderer('cls', cats)
+prop = QgsProperty.fromField('v')
+prop.setTransformer(QgsSizeScaleTransformer(QgsSizeScaleTransformer.Linear, 0, 100, 1, 6, 0.5, 1))
+for c in r.categories():
+    c.symbol().setDataDefinedWidth(prop)
+lyr.setRenderer(r)
+lyr.saveNamedStyle(os.path.join(out, 'dd_linear.qml'))
+lyr.saveSldStyle(os.path.join(out, 'dd_linear.sld'))
+
+# 2) classed steps as an expression
+expr = 'CASE WHEN "w" IS NULL THEN 0.5 WHEN "w" <= 1 THEN 1 WHEN "w" <= 2 THEN 3.5 ELSE 6 END'
+r2 = QgsCategorizedSymbolRenderer('cls', [QgsRendererCategory('a', QgsLineSymbol.createSimple({}), 'a'), QgsRendererCategory('b', QgsLineSymbol.createSimple({}), 'b')])
+for c in r2.categories():
+    c.symbol().setDataDefinedWidth(QgsProperty.fromExpression(expr))
+lyr.setRenderer(r2)
+lyr.saveNamedStyle(os.path.join(out, 'dd_steps.qml'))
+
+# 3) points: area scale (size assistant default for markers?)
+pts = QgsVectorLayer('Point?crs=EPSG:4326&field=v:double', 'p', 'memory')
+ps = QgsMarkerSymbol.createSimple({'size': '2', 'size_unit': 'Pixel'})
+pp = QgsProperty.fromField('v'); pp.setTransformer(QgsSizeScaleTransformer(QgsSizeScaleTransformer.Area, 0, 100, 4, 20, 2, 0.5))
+ps.setDataDefinedSize(pp)
+pts.setRenderer(QgsSingleSymbolRenderer(ps))
+pts.saveNamedStyle(os.path.join(out, 'dd_area.qml'))
+t = QgsSizeScaleTransformer(QgsSizeScaleTransformer.Area, 0, 100, 4, 20, 2, 0.5)
+log.write('area transform 0,25,50,100,None: %s\n' % [t.size(x) for x in (0, 25, 50, 100)])
+t2 = QgsSizeScaleTransformer(QgsSizeScaleTransformer.Flannery, 0, 100, 4, 20, 2, 0.5)
+log.write('flannery 0,25,50,100: %s exp=%s\n' % ([t2.size(x) for x in (0, 25, 50, 100)], t2.exponent()))
+log.write('area exponent=%s\n' % t.exponent())
+
+# 4) rule-based bivariate (9 cells + no value)
+root = QgsRuleBasedRenderer.Rule(None)
+for i in range(3):
+    for j in range(3):
+        s = QgsFillSymbol.createSimple({'color': '%d,%d,128,255' % (i * 100, j * 100)})
+        rule = QgsRuleBasedRenderer.Rule(s, 0, 0, '"a" > %d AND "b" > %d' % (i, j), 'cell %d-%d' % (i, j))
+        root.appendChild(rule)
+root.appendChild(QgsRuleBasedRenderer.Rule(QgsFillSymbol.createSimple({'color': '200,200,200,255'}), 0, 0, '"a" IS NULL OR "b" IS NULL', 'No value'))
+pg = QgsVectorLayer('Polygon?crs=EPSG:4326&field=a:double&field=b:double', 'g', 'memory')
+pg.setRenderer(QgsRuleBasedRenderer(root))
+pg.setCustomProperty('spatialExplorer/bivariate', '{"x":"a"}')
+pg.saveNamedStyle(os.path.join(out, 'bivariate.qml'))
+pg.saveSldStyle(os.path.join(out, 'bivariate.sld'))
+
+# reload checks
+chk = QgsVectorLayer('LineString?crs=EPSG:4326&field=cls:string&field=v:double', 'c', 'memory')
+chk.loadNamedStyle(os.path.join(out, 'dd_linear.qml'))
+p = chk.renderer().categories()[0].symbol().dataDefinedWidth()
+log.write('reload linear: active=%s field=%s transformer=%s\n' % (p.isActive(), p.field(), p.transformer() and p.transformer().toExpression('"v"')))
+chk2 = QgsVectorLayer('Polygon?crs=EPSG:4326&field=a:double&field=b:double', 'c2', 'memory')
+chk2.loadNamedStyle(os.path.join(out, 'bivariate.qml'))
+log.write('reload bivariate: %s rules=%d custom=%s\n' % (type(chk2.renderer()).__name__, len(chk2.renderer().rootRule().children()), chk2.customProperty('spatialExplorer/bivariate')))
+log.close()
+os._exit(0)
