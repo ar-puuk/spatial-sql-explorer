@@ -180,7 +180,7 @@ widths, and two legend groups (quickstart scenario 1).
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] In `packages/core/src/style/resolve.ts`, resolve the size
+- [X] T009 [US1] In `packages/core/src/style/resolve.ts`, resolve the size
   channel:
   - add `resolveSizeChannel(style, input)`, reusing the graduated branch
     (extract it into `classifyRanges(column, method, classCount, manual
