@@ -592,15 +592,32 @@ their notices (quickstart scenario 5).
   panel; otherwise skip and say so.
   - Skipped (2026-10-12): no doc embeds the screenshots; `screenshots/` is
     gitignored output.
-- [ ] T053 Run the full gates:
+- [X] T053 Run the full gates:
   - `npm run lint`, `npm run typecheck:core`, `npm run typecheck:ui`;
   - `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext`;
   - `tests/qgis/check_009.py`.
   - Walk through every quickstart scenario, including SC-007 timing on the
     1M-row fixture, and record the timings in research §4.
-- [ ] T054 Run `/speckit-analyze` for spec/plan/tasks consistency, and fix
+  - Done 2026-10-12:
+    - lint (the one pre-existing warning) and the core, ui, web and
+      vscode-ext typechecks are clean;
+    - core: 491 passed;
+    - web (chromium, 4 workers): 158 passed, 2 failed under load
+      (`large-open.spec:53` cancel; `style-thematic.spec:193`, whose legend
+      took longer than its 10 s limit to reclassify). Both pass alone,
+      twice;
+    - VS Code: 81 passing, 3 pending;
+    - QGIS parity: 300 of 300 features (research §5, §6);
+    - SC-007: bivariate 1.24x, color + size 1.45x (research §4).
+- [X] T054 Run `/speckit-analyze` for spec/plan/tasks consistency, and fix
   any blocking finding before the final local merge (no push without user
   approval, per project memory).
+  - Done 2026-10-12. No critical findings. Remediated:
+    - FR-004 wording (QGIS "Area" scale);
+    - the mixed-layer limit, now in the spec;
+    - SC-003 checked on 10,000 features (`tests/core/style-scale.test.ts`);
+    - id-like columns go last in default picks (SC-001/SC-002);
+    - doc drift.
 
 ---
 
