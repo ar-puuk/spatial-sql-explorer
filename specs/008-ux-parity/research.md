@@ -597,3 +597,26 @@ extensions (until now fetched by DuckDB itself, unchecked), and sql.js.
   parquet extension).
 - Offline: still needs a connection the first time (as before, for the
   extensions); after that the browser's HTTP cache serves the pinned files.
+
+**Local copy, offline after first use** (user request, 2026-10-11): the
+files still come from jsDelivr and extensions.duckdb.org, but each shell
+keeps them, so later starts need no network.
+- `HostAdapter.engineFile(file, { refresh })` returns a file's bytes from the
+  host's copy, downloading it once from its pinned URL; the core checks the
+  SHA-256 of whatever comes back and asks for a fresh download once on a
+  mismatch. `pruneEngineFiles(keep)` drops other versions after the engine
+  starts.
+- VS Code: the extension host downloads (Node `fetch`, hash-checked, written
+  as `.part` then renamed) into `globalStorage/engine/<sha256>-<name>`; the
+  webview reads it as a local resource, and its CSP no longer lists the
+  CDNs. VS Code's `http.fetchAdditionalSupport` (default on; checked in the
+  1.141 build) gives that `fetch` the editor's proxy and system-certificate
+  settings. Remote: the copy lives where the extension host runs.
+- Web: Cache Storage (`spatial-explorer-engine`, keyed by hash), not the
+  HTTP cache (which the browser evicts freely); `navigator.storage.persist()`
+  is requested. The page itself still needs the network to load (no service
+  worker).
+- Tested: web, with the engine servers unreachable after the first start
+  (0 requests, opens fine) and a damaged cached wasm (only that file is
+  downloaded again); VS Code, a second open downloads nothing and a damaged
+  copy on disk is replaced.

@@ -40,3 +40,52 @@ test('no engine downloads beyond the pinned files', async ({ page }) => {
   expect(files).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm'])
   expect(engine.every((p) => p.startsWith('/engine-mirror/'))).toBe(true)
 })
+
+// The local copy (Cache Storage): offline after the first start.
+const ENGINE_CACHE = 'spatial-explorer-engine'
+const cachedNames = (page: import('@playwright/test').Page) =>
+  page.evaluate(async (name) => (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname.split('/').pop()!).sort(), ENGINE_CACHE)
+
+test('after the first start, the engine starts with the download servers unreachable', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await page.goto('/?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await expect.poll(() => cachedNames(page)).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm'])
+
+  // No way to reach the engine's servers any more.
+  let attempts = 0
+  await page.route('**/engine-mirror/**', (route) => {
+    attempts++
+    return route.abort('internetdisconnected')
+  })
+  await page.reload()
+  await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await expect(page.locator('.status-bar')).toContainText('features')
+  expect(attempts).toBe(0)
+})
+
+test('a damaged local copy is noticed and downloaded again', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await page.goto('/?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  // Damage the cached wasm in place.
+  await page.evaluate(async (name) => {
+    const cache = await caches.open(name)
+    const key = (await cache.keys()).find((r) => r.url.endsWith('/duckdb-eh.wasm'))!
+    await cache.put(key, new Response(new TextEncoder().encode('damaged')))
+  }, ENGINE_CACHE)
+  const downloads: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/engine-mirror/')) downloads.push(r.url().split('/').pop()!)
+  })
+  await page.reload()
+  await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  // Only the damaged file came from the network again.
+  expect(downloads).toEqual(['duckdb-eh.wasm'])
+})

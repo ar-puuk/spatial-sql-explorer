@@ -10,6 +10,11 @@
   getPreference?(key: 'placeSearch.enabled'): boolean | undefined
   ```
   Plus `onPreferenceChange?(cb): () => void`, called when a value changes.
+- Engine local copy (research §15): `engineFile?(file: { name; url; sha256 },
+  { refresh? }): Promise<ArrayBuffer>` returns the file from the host's copy,
+  downloading it once from `url`; the core checks the hash. VS Code: the
+  extension host's global storage. Web: Cache Storage.
+  `pruneEngineFiles?(keep: string[])` removes other versions.
   VS Code reads the `spatialExplorer.placeSearch.enabled` setting and
   reports changes through the existing `onThemeChange`-style messaging,
   re-reading on configuration change. Web: undefined, meaning enabled.

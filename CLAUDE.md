@@ -27,6 +27,8 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
   json) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
   scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package.
   Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
+  Each shell keeps a local copy through HostAdapter.engineFile (VS Code: extension host global storage;
+  web: Cache Storage), so it works offline after the first start.
   Known ceiling: the engine's memory limit is 3.1 GiB in both shells (measured, specs/007-viewport-loading/research.md §1;
   omx-viewer's ~512 MB OOM was likely JS-side copies, not the engine). After an OOM the registered file handle must be re-registered.
   Design for it (see performance rules).

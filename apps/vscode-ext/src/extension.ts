@@ -158,6 +158,8 @@ function log(line: string): void {
 // webview reads it from there: offline after the first use.
 const engineDir = (context: vscode.ExtensionContext): vscode.Uri => vscode.Uri.joinPath(context.globalStorageUri, 'engine')
 const engineDownloads = new Map<string, Promise<vscode.Uri>>()
+/** Test hook (_getEngineDownloads): the engine files downloaded in this session. */
+const engineDownloadLog: string[] = []
 
 async function ensureEngineFile(context: vscode.ExtensionContext, file: { name: string; url: string; sha256: string }, refresh: boolean): Promise<vscode.Uri> {
   if (!/^[0-9a-f]{64}$/.test(file.sha256) || !/^[\w.@-]+$/.test(file.name)) throw new Error('not an engine file')
@@ -184,6 +186,7 @@ async function ensureEngineFile(context: vscode.ExtensionContext, file: { name: 
     const partial = vscode.Uri.joinPath(engineDir(context), `${file.sha256}-${file.name}.part`)
     await vscode.workspace.fs.writeFile(partial, bytes)
     await vscode.workspace.fs.rename(partial, target, { overwrite: true })
+    engineDownloadLog.push(file.name)
     log(`SQL engine: downloaded ${file.name} (${(bytes.length / 1024 / 1024).toFixed(1)} MB) from ${new URL(file.url).host}`)
     return target
   })()
@@ -821,6 +824,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // Spec 008 US7 T081: export the map image (pair with _saveNextExportTo).
     vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number) => provider.postToActive({ type: 'testExportMapImage', scale })),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
+    // Spec 008 research §15: where the engine's local copy lives, and what was downloaded this session.
+    vscode.commands.registerCommand('spatialExplorer._getEngineDownloads', () => ({ dir: engineDir(context).fsPath, downloaded: [...engineDownloadLog] })),
     vscode.commands.registerCommand('spatialExplorer._testSelectFeature', (id: string | number | null) => {
       lastSelection = null
       provider.testSelectFeature(id)

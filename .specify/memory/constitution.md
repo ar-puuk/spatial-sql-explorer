@@ -1,6 +1,9 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 → 1.2.0
+Version change: 1.2.0 → 1.2.1 (clarification: the engine's code is kept as a local
+copy after the first download, still hash-checked on every start)
+
+Previous: 1.1.0 → 1.2.0
 Modified principles:
   - IV. Local-First and Private: the SQL engine is downloaded, not bundled (user
     decision 2026-10-11): DuckDB-WASM, its extensions and sql.js come from pinned URLs
@@ -68,7 +71,8 @@ first-party VS Code feature, not a web page embedded in a webview.
 User data never leaves the machine. No telemetry is collected without explicit
 opt-in. The network is used only for basemap tiles/styles, downloading the SQL engine's code
 (DuckDB-WASM, its extensions and sql.js, from pinned URLs, each checked against a SHA-256
-recorded at build time before it runs; the engine is not bundled), and the place search, which sends only the text the user
+recorded at build time before it runs; the engine is not bundled, and each shell keeps a
+local copy after the first download), and the place search, which sends only the text the user
 types, is disclosed before first use, and can be turned off — never for user data
 egress (no file contents, file names or paths).
 **Rationale**: the target user opens sensitive or proprietary geospatial files; trust
@@ -178,4 +182,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-11
+**Version**: 1.2.1 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-11
