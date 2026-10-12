@@ -244,11 +244,20 @@ widths, and two legend groups (quickstart scenario 1).
   from `layoutFor` for shaped markers. Re-run
   `tests/web/specs/style-symbols.spec.ts`: it must pass once its Vary steps
   are rewritten to use the Size section (update that spec in this task).
-- [ ] T017 [US1] Run T007 and T008 to green, plus all
+- [X] T017 [US1] Run T007 and T008 to green, plus all
   `tests/core/style*.test.ts` and `tests/web/specs/style-*.spec.ts`.
   Profile a size edit on `parcels-10k` points at 6x CPU throttle in the
   browser (memory: UI responsiveness): no input lag beyond today's color
   edits.
+  - Done 2026-10-12. At 6x throttle on `roads-traffic`: a size range edit
+    takes 344 ms and a class count change 293 ms, against 399 ms for a ramp
+    change.
+  - Under the full parallel suite (6 workers), `globe.spec:9`,
+    `basemap.spec:47`, `accessibility.spec:28` (all states), and both
+    `large-open` cancel tests time out intermittently. All pass alone and
+    with 2 workers: load, not this change.
+  - With a size channel, color legend swatches use a 3 px line so they
+    stay readable.
 
 **Checkpoint**: color + classed size works and is testable on its own.
 

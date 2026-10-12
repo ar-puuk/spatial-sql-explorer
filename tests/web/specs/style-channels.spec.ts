@@ -19,7 +19,9 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await openRoads(page)
   await page.getByRole('radio', { name: 'Categorized' }).click()
   await panel(page).getByLabel('Column', { exact: true }).selectOption('functional_class')
-  const colorRows = await legend(page).getByRole('group', { name: /^functional_class · / }).locator('li').count()
+  // The fixture's five classes (no nulls in functional_class).
+  const colorRows = 5
+  await expect(legend(page).getByRole('group', { name: /^functional_class · / }).locator('li')).toHaveCount(colorRows)
   // A new style column reloads the view (spec 007): wait for the count of the drawn view.
   await expect.poll(() => rendered(page)).not.toBeNull()
   const drawn = (await rendered(page)) as string
