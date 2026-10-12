@@ -17,6 +17,7 @@ interface StyleState {
   dirty: boolean
   source: string | null
   classes: Array<{ key: string; label: string; color: string; visible: boolean; count: number }>
+  size?: { column: string; mode: string; status: string; caption: string; classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>; samples?: Array<{ value: number; size: number }> }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -237,6 +238,71 @@ suite('Spec 008 US1: save style as each format', () => {
       await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', mapbox)
       await vscode.commands.executeCommand('spatialExplorer._saveStyleAs', 'mapbox')
       assert.strictEqual(JSON.parse(await waitFor(mapbox)).version, 8)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// Spec 009 T029 (US5): a color + size style is saved in the QML sidecar and
+// restored on reopen, with the same size classes, sizes and hidden class.
+suite('Spec 009 US5: a size channel survives save and reopen', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('categorized color + classed width on roads', async function () {
+    this.timeout(90000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-size-'))
+    const file = path.join(dir, 'roads.geojson')
+    fs.copyFileSync(path.resolve(__dirname, '../../fixtures/roads-traffic.geojson'), file)
+    const open = async () => {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+      const deadline = Date.now() + 45000
+      for (;;) {
+        const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+        if (s?.loadState === 'ready') return
+        assert.ok(Date.now() < deadline, 'roads.geojson did not load')
+        await sleep(200)
+      }
+    }
+    try {
+      await open()
+      const before = await applyStyle(
+        {
+          ...BASE_SYMBOL,
+          renderer: { kind: 'categorized', column: 'functional_class', ramp: { id: 'brewer-set2', reversed: false }, cap: 12, manual: false, classes: [], other: {}, noValue: {} },
+          size: { column: 'aadt', mode: 'classed', method: 'quantile', classCount: 4, classes: [{ index: 3, visible: false }], noValue: {}, sizeMin: 1, sizeMax: 7, scale: 'linear' },
+        },
+        (x) => x.renderer === 'categorized' && x.size?.status === 'ok'
+      )
+      assert.strictEqual(before.size?.caption, 'aadt · Quantile, 4 classes')
+      assert.deepStrictEqual(before.size?.classes.filter((c) => c.key.startsWith('size:range')).map((c) => c.size), [1, 3, 5, 7])
+      await vscode.commands.executeCommand('spatialExplorer._saveStyle')
+      const sidecar = path.join(dir, 'roads.qml')
+      const deadline = Date.now() + 10000
+      while (!fs.existsSync(sidecar)) {
+        assert.ok(Date.now() < deadline, 'roads.qml was not written')
+        await sleep(100)
+      }
+      const qml = fs.readFileSync(sidecar, 'utf8')
+      assert.match(qml, /name="spatialExplorer\/size"/)
+      assert.match(qml, /<Option name="outlineWidth" type="Map">/)
+
+      await open()
+      let after: StyleState | null = null
+      const until = Date.now() + 10000
+      while (Date.now() < until) {
+        after = await styleState()
+        if (after?.size?.status === 'ok') break
+        await sleep(100)
+      }
+      assert.strictEqual(after?.source, 'roads.qml')
+      const view = (s: StyleState | null) => s?.size?.classes.map((c) => [c.key, c.label, c.size, c.visible, c.count])
+      assert.deepStrictEqual(view(after), view(before))
+      assert.deepStrictEqual(after?.classes.map((c) => c.color), before.classes.map((c) => c.color))
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       fs.rmSync(dir, { recursive: true, force: true })

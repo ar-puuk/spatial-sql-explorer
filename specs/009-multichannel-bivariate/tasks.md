@@ -386,7 +386,7 @@ and in QGIS, and export and re-import SLD and Mapbox (quickstart scenario
   and compares per-feature width/size and color against a JSON of expected
   values written by the core test (SC-005). Run it on the US1/US2 QMLs and
   record the outcome in research §5.
-- [ ] T029 [US5] Add a VS Code suite test in
+- [X] T029 [US5] Add a VS Code suite test in
   `tests/vscode-ext/src/suite/layers.test.ts` (or a new
   `style-channels.test.ts`): save the sidecar for a two-channel style on
   `roads-traffic.geojson`, close, reopen; the size channel is restored and
