@@ -425,7 +425,7 @@ hidden (quickstart scenario 4).
 
 ### Tests for User Story 4
 
-- [ ] T032 [P] [US4] Create `tests/core/style-bivariate.test.ts` (failing
+- [X] T032 [P] [US4] Create `tests/core/style-bivariate.test.ts` (failing
   first):
   - `resolveStyle` gives 9 cells in row-major order from low/low (`i + nx *
     j`) with x/y ranges, plus `grid` and No value; cell counts plus No value
@@ -440,12 +440,12 @@ hidden (quickstart scenario 4).
   - large results: cell counts from `cellCountsSql` equal the in-memory
     counts on the same data;
   - polygons, lines and points all color.
-- [ ] T033 [P] [US4] Create a palette test in
+- [X] T033 [P] [US4] Create a palette test in
   `tests/core/style-bivariate.test.ts`: every palette in
   `BIVARIATE_PALETTES` meets research §8 (min ΔE ≥ 15, deuteranope ≥ 12
   except palettes carrying a `note`, lightness decreasing low/low →
   high/high), and 2-class grids use the corner and middle indexes.
-- [ ] T034 [P] [US4] Create `tests/web/specs/style-bivariate.spec.ts`
+- [X] T034 [P] [US4] Create `tests/web/specs/style-bivariate.spec.ts`
   (failing first):
   - the Style radio "Bivariate"; axis selects; the legend `grid` with 9
     cells whose accessible names follow `contracts/ui.md`;
@@ -460,7 +460,7 @@ hidden (quickstart scenario 4).
 
 ### Implementation for User Story 4
 
-- [ ] T035 [US4] Write `scripts/bivariate-palettes.mjs`. It ports the
+- [X] T035 [US4] Write `scripts/bivariate-palettes.mjs`. It ports the
   scoring from `spikes/bivariate-palettes.mjs.txt` into a generator that
   reads the ColorBrewer anchors from `packages/core/src/style/rampData.ts`
   and writes `packages/core/src/style/bivariateData.ts` (GENERATED header,
