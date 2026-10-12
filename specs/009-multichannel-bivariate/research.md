@@ -191,6 +191,13 @@ with 10 rules (9 cells and No value) and a layer custom property
   (columns, methods, palette, hidden cells). Import treats a RuleRenderer as
   bivariate **only** when this property is present (FR-025). Otherwise it
   keeps today's single-symbol fallback with a notice.
+- **Render parity, verified (T047, 2026-10-12)**:
+  - `tests/qgis/check_009.py` on the bivariate polygon case (one cell
+    hidden): QGIS 4.2.3's RuleRenderer gave all 60 features the same cell
+    color as the app, and left the hidden cell's features undrawn.
+  - A mutation run (one wrong color; one hidden feature expected drawn) was
+    caught, with exit 1.
+  - The same run re-confirmed the 4 size-channel cases (240 of 240).
 
 ## 7. SLD and Mapbox GL
 

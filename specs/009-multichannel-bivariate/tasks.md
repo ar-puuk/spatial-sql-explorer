@@ -558,7 +558,7 @@ their notices (quickstart scenario 5).
 - [X] T046 [P] [US5] Implement bivariate in `sld.ts` (cell rules, notices)
   and `mapbox.ts` (cell `match` paint, filter). Extend `previewExportNotice`
   in `interchange.ts`.
-- [ ] T047 [US5] Extend `tests/qgis/check_009.py` to the bivariate QML:
+- [X] T047 [US5] Extend `tests/qgis/check_009.py` to the bivariate QML:
   - QGIS lists 10 rules, with 9 active minus hidden;
   - each feature's rendered fill equals the expected cell color (SC-005).
   - Record the outcome in research §6.
