@@ -53,7 +53,7 @@
   // Spec 009: with a size channel, color swatches are drawn at one readable width (sizes have their own group).
   const legendSymbols = $derived.by(() => {
     const symbols = classSymbols(store.style, store.resolvedStyle)
-    return store.resolvedStyle.size?.status === 'ok' ? symbols.map((s) => ({ ...s, lineWidth: Math.max(s.lineWidth, 3) })) : symbols
+    return store.resolvedStyle.size?.status === 'ok' ? symbols.map((s) => ({ ...s, lineWidth: Math.max(s.lineWidth, 3), radius: Math.max(s.radius, 5) })) : symbols
   })
   // Spec 009: the size channel's legend group, when it draws.
   const legendSize = $derived(store.resolvedStyle.size?.status === 'ok' ? { channel: store.resolvedStyle.size, symbols: sizeSymbols(store.style, store.resolvedStyle) } : null)

@@ -150,10 +150,28 @@ export function sizeIndexExpression(style: LayerStyle, resolved: ResolvedStyle):
   return size && size.mode === 'classed' ? rangeIndex(size.column, size.classes) : null
 }
 
+/** A value that counts as "No value" (graduated's rules: null, boolean, "", non-numeric), as an expression. */
+function noValueTest(column: string): unknown {
+  const v = ['var', 'v']
+  return ['let', 'v', ['get', column], ['any', ['==', v, null], ['==', ['typeof', v], 'boolean'], ['==', ['to-string', v], ''], ['>=', ['abs', ['to-number', v, NOT_A_NUMBER]], Number.MAX_VALUE]]]
+}
+
+/** Spec 009 US2: the proportional size per feature (research §3); no value gets `fallback`. */
+function proportionalExpression(style: LayerStyle, size: ResolvedSizeChannel, fallback: number): unknown {
+  const s = style.size as NonNullable<LayerStyle['size']>
+  const domain = size.domain as { min: number; max: number }
+  const span = domain.max - domain.min
+  const n = ['var', 'n']
+  const t = ['min', 1, ['max', 0, ['/', ['-', n, domain.min], span]]]
+  const scaled = !(span > 0) ? s.sizeMax : ['+', s.sizeMin, ['*', s.sizeMax - s.sizeMin, (s.scale ?? 'linear') === 'area' ? ['sqrt', t] : t]]
+  return ['case', noValueTest(size.column), fallback, ['let', 'n', ['to-number', ['get', size.column], NOT_A_NUMBER], scaled]]
+}
+
 /** The size per feature from the size channel (`fallback` for no value / outside), or null. */
 function channelSize(style: LayerStyle, resolved: ResolvedStyle, fallback: number): number | unknown[] | null {
   const size = activeSize(style, resolved)
   if (!size) return null
+  if (size.mode === 'proportional') return size.domain ? (proportionalExpression(style, size, fallback) as unknown[]) : null
   const index = sizeIndexExpression(style, resolved)
   if (index === null) return null
   const arms: unknown[] = []
@@ -298,6 +316,9 @@ export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): un
   if (sizeIndex !== null && size) {
     const hidden = size.classes.flatMap((c, i) => (c.visible ? [] : [i]))
     if (hidden.length) tests.push(['!', ['in', sizeIndex, ['literal', hidden]]])
+  } else if (size?.mode === 'proportional' && size.classes.some((c) => c.kind === 'noValue' && !c.visible)) {
+    // Proportional: only "No value" can be hidden.
+    tests.push(['!', noValueTest(size.column)])
   }
   return tests.length === 0 ? null : tests.length === 1 ? tests[0] : ['all', ...tests]
 }

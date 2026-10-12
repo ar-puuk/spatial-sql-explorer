@@ -192,7 +192,9 @@ export function sizeSymbols(style: LayerStyle, resolved: ResolvedStyle): SymbolS
   const base = baseSymbol(style)
   const size = resolved.size
   if (!size || size.status !== 'ok') return []
-  return size.classes.map((c) => (c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }))
+  // Proportional: the reference sizes first (legend rows that aren't classes), then "No value".
+  const samples = (size.samples ?? []).map((x) => ({ ...base, radius: x.size, lineWidth: x.size }))
+  return [...samples, ...size.classes.map((c) => (c.size === undefined ? base : { ...base, radius: c.size, lineWidth: c.size }))]
 }
 
 /** `classSymbol` for every class, in legend order (the class-index expression's positions). */
@@ -200,7 +202,19 @@ export function classSymbols(style: LayerStyle, resolved: ResolvedStyle): Symbol
   return resolved.classes.map((c) => classSymbol(style, resolved, c))
 }
 
-/** Default size ranges for a size-graduated renderer: marker radius or line width, px. */
+/**
+ * Spec 009 US2: a proportional size. `t` is the value's place in the domain
+ * (clamped to 0..1); lines scale linearly, markers by area (QGIS size
+ * assistant "Area": min + (max - min)·√t, research §3). A domain of one
+ * value gives the largest size.
+ */
+export function proportionalSize(value: number, domain: { min: number; max: number }, sizeMin: number, sizeMax: number, scale: 'line' | 'point' | 'linear' | 'area'): number {
+  if (!(domain.max > domain.min)) return sizeMax
+  const t = Math.min(1, Math.max(0, (value - domain.min) / (domain.max - domain.min)))
+  return sizeMin + (sizeMax - sizeMin) * (scale === 'point' || scale === 'area' ? Math.sqrt(t) : t)
+}
+
+/** Default size ranges for a size channel: marker radius or line width, px. */
 export const DEFAULT_SIZE_RANGE = Object.freeze({ point: { min: 2, max: 10 }, line: { min: 1, max: 6 } })
 
 /** Class sizes from `min` to `max`, evenly spaced (QGIS's `setSymbolSizes`). */

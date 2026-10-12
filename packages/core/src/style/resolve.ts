@@ -6,7 +6,7 @@ import type { Feature, Layer } from '../models.js'
 import { NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
-import { classSizes } from './symbol.js'
+import { classSizes, proportionalSize } from './symbol.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -396,12 +396,46 @@ export function resolveSizeChannel(style: LayerStyle, layer: ResolveInput | null
   return { status: 'ok', caption: rangesCaption(s.column, s.method, c), mode: 'classed', column: s.column, classes, notes: c.notes }
 }
 
-/** Spec 009 US2: proportional sizes (implemented with US2; until then, the classed path's domain only). */
+/**
+ * Spec 009 US2: proportional sizes. The domain is the column's range over the
+ * displayed result (SQL min/max for big results); the legend gets 3-5
+ * reference sizes, the ends exact and the middle ones at round values.
+ */
 function proportionalChannel(style: LayerStyle, layer: ResolveInput, dataKey: string): ResolvedSizeChannel {
   const s = style.size as SizeChannel
-  void layer
-  void dataKey
-  return { status: 'fallback', reason: 'Proportional sizes are not available in this build.', caption: `${s.column} · Proportional`, mode: 'proportional', column: s.column, classes: [], notes: [] }
+  const known = columnData(layer, dataKey)
+  const stats = known?.kind === 'numbers' ? known : null
+  let min = Infinity
+  let max = -Infinity
+  let nulls = stats ? stats.nulls : 0
+  if (stats) {
+    if (stats.sample.length) {
+      min = stats.sample[0]
+      max = stats.sample[stats.sample.length - 1]
+    }
+  } else {
+    for (const raw of valuesOf(layer, s.column)) {
+      const v = toNumber(raw)
+      if (v === null) nulls++
+      else {
+        if (v < min) min = v
+        if (v > max) max = v
+      }
+    }
+  }
+  const caption = `${s.column} · Proportional`
+  if (!(min <= max)) {
+    return { status: 'fallback', reason: `Column "${s.column}" has no numeric values in this result. Every feature has the single size.`, caption, mode: 'proportional', column: s.column, classes: [], notes: [] }
+  }
+  const domain = { min, max }
+  const scale = s.scale ?? 'linear'
+  const fmt = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 3 })
+  const round2 = (v: number) => Number(v.toPrecision(2))
+  const values = max > min ? [...new Set([min, round2(min + (max - min) / 3), round2(min + ((max - min) * 2) / 3), max])].filter((v) => v >= min && v <= max).sort((a, b) => a - b) : [min]
+  const samples = values.map((value) => ({ value, size: proportionalSize(value, domain, s.sizeMin, s.sizeMax, scale), label: fmt.format(value) }))
+  const classes: ResolvedClass[] = nulls > 0 ? [{ key: `${SIZE_KEY_PREFIX}__null`, kind: 'noValue', label: s.noValue.label ?? 'No value', color: style.fillColor, visible: s.noValue.visible !== false, count: nulls }] : []
+  const notes = max > min ? [] : [`Every value is ${fmt.format(min)}: every feature has the largest size.`]
+  return { status: 'ok', caption, mode: 'proportional', column: s.column, classes, domain, samples, notes }
 }
 
 /** QGIS's quantile from just the order statistics around each break (stats.ts quantilePositions). */

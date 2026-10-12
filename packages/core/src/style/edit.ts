@@ -300,7 +300,18 @@ export function setSizeChannel(style: LayerStyle, column: string | null, geometr
   const was = style.size
   if (was) return { ...style, size: { ...was, column, method: was.method === 'manual' ? 'quantile' : was.method, classes: [] } }
   const range = DEFAULT_SIZE_RANGE[geometry]
-  const size: SizeChannel = { column, mode: 'classed', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, sizeMin: range.min, sizeMax: range.max }
+  const size: SizeChannel = {
+    column,
+    mode: 'classed',
+    method: 'quantile',
+    classCount: DEFAULT_CLASS_COUNT,
+    classes: [],
+    noValue: {},
+    sizeMin: range.min,
+    sizeMax: range.max,
+    // Proportional markers scale by area, lines by width (research §3).
+    scale: geometry === 'point' ? 'area' : 'linear',
+  }
   return { ...style, size }
 }
 

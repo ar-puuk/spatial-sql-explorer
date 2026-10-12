@@ -142,6 +142,12 @@ export interface SizeChannel {
   /** px: marker radius (points) or line width (lines); sizeMin <= sizeMax. */
   sizeMin: number
   sizeMax: number
+  /**
+   * Proportional only: how sizes follow values. `linear` (lines: width) or
+   * `area` (markers: QGIS's size assistant "Area", r = min + (max - min)·√t).
+   * Set from the geometry when the channel starts; absent means linear.
+   */
+  scale?: 'linear' | 'area'
 }
 
 export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
@@ -435,6 +441,7 @@ export function sanitizeSizeChannel(raw: Partial<SizeChannel> | undefined | null
     noValue,
     sizeMin: sizes.sizeMin,
     sizeMax: sizes.sizeMax,
+    ...(raw.scale === 'area' || raw.scale === 'linear' ? { scale: raw.scale } : {}),
   }
 }
 

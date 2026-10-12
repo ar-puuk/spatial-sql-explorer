@@ -314,7 +314,7 @@ legend shows 3–5 reference sizes (quickstart scenario 2).
   `tests/web/specs/style-channels.spec.ts`: the Classed | Proportional radio,
   the legend reference sizes with values, and switching back to Classed
   restoring stepped classes.
-- [ ] T022 [US2] Implement Proportional mode:
+- [X] T022 [US2] Implement Proportional mode:
   - `proportionalSize` and domain/samples in
     `packages/core/src/style/symbol.ts` and `resolve.ts` (domain from
     `numberTotalsSql` min/max on large results, from the values otherwise);

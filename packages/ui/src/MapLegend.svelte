@@ -29,13 +29,16 @@
   const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
   // Markers keep their relative sizes; big ones shrink together to fit a row.
   const SWATCH = 22
-  // Markers in both groups share one scale, so sizes compare across them.
-  const reach = $derived(Math.max(1, ...[...symbols, ...(size?.symbols ?? [])].map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2)))
+  // Each group has its own scale: color swatches stay one readable size, size swatches keep their proportions.
+  const reachOf = (list: SymbolSpec[]) => Math.max(1, ...list.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2))
+  const reach = $derived(reachOf(symbols))
+  const sizeReach = $derived(reachOf(size?.symbols ?? []))
+  const sizeScale = $derived(Math.min(1, (SWATCH / 2 - 1) / sizeReach))
   const scale = $derived(Math.min(1, (SWATCH / 2 - 1) / reach))
   const swatchSize = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : 18)
   // Size rows: markers to scale on point layers, line widths on line and mixed layers.
   const sizeKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
-  const sizeSwatch = $derived(sizeKind === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : SWATCH)
+  const sizeSwatch = $derived(sizeKind === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * sizeReach * sizeScale + 2))) : SWATCH)
 </script>
 
 <section class="legend" aria-label="Legend" style:--swatch-size="{swatchSize}px">
@@ -77,6 +80,14 @@
       <h4 class="group-title" title={size.channel.caption}>{size.channel.caption}</h4>
       <div role="group" aria-label={size.channel.caption} class="group">
       <ul>
+        <!-- Spec 009 US2: proportional reference sizes, smallest first; not classes, so not toggles. -->
+        {#each size.channel.samples ?? [] as sample, i (sample.value)}
+          <li>
+            <span class="swatch"><SymbolSwatch symbol={size.symbols[i]} kind={sizeKind} scale={sizeScale} size={sizeSwatch} /></span>
+            <span class="label">{sample.label}</span>
+            <span class="count"></span>
+          </li>
+        {/each}
         {#each size.channel.classes as c, i (c.key)}
           <li class:hidden={!c.visible}>
             <button
@@ -88,7 +99,7 @@
               title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
               onclick={() => onToggleClass(c.key, !c.visible)}
             >
-              <SymbolSwatch symbol={size.symbols[i]} kind={sizeKind} {scale} size={sizeSwatch} hollow={!c.visible} />
+              <SymbolSwatch symbol={size.symbols[(size.channel.samples?.length ?? 0) + i]} kind={sizeKind} scale={sizeScale} size={sizeSwatch} hollow={!c.visible} />
             </button>
             <span class="label" title={c.label}>{c.label}</span>
             <span class="count">{nf.format(c.count)}</span>

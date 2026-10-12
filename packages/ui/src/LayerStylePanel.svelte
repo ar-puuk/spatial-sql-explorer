@@ -34,6 +34,7 @@
     setSizeClassLabel,
     setSizeClassVisible,
     setSizeMethod,
+    setSizeMode,
     setSizeRange,
     sizeSymbols as sizeSymbolsOf,
     baseSymbol,
@@ -460,6 +461,31 @@
               {/each}
             </select>
           </div>
+          <div class="row field">
+            <span class="label" id="size-scale-label">Scale</span>
+            <div class="renderers two" role="radiogroup" aria-label="Size scale">
+              {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={size.mode === m.mode}
+                  tabindex={size.mode === m.mode ? 0 : -1}
+                  title={m.hint}
+                  onclick={() => apply(setSizeMode(style, m.mode))}
+                  onkeydown={(e) => {
+                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                      e.preventDefault()
+                      const next = size.mode === 'classed' ? 'proportional' : 'classed'
+                      apply(setSizeMode(style, next))
+                      const group = (e.currentTarget as HTMLElement).parentElement
+                      queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+                    }
+                  }}>{m.label}</button
+                >
+              {/each}
+            </div>
+          </div>
+          {#if size.mode === 'classed'}
           <div class="pair">
             <div class="row field">
               <span class="label" aria-hidden="true">Method</span>
@@ -481,6 +507,9 @@
               </select>
             </div>
           </div>
+          {:else}
+            <p class="hint">Sizes scale smoothly from the smallest to the largest value of {size.column}{sizeGeometry === 'point' ? ', by marker area' : ''}.</p>
+          {/if}
           <div class="row field">
             <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
             <span class="size-range">
@@ -492,7 +521,7 @@
           </div>
           {#if resolved.size?.status === 'fallback'}
             <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
-          {:else if resolved.size && sizeSymbols}
+          {:else if resolved.size && sizeSymbols && size.mode === 'classed'}
             <ClassList
               {resolved}
               kind="graduated"
