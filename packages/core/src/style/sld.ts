@@ -179,12 +179,45 @@ function otherFilter(column: string, classes: ExportClass[]): string {
   return `<ogc:And>${listed.join('')}${notNull}</ogc:And>`
 }
 
+/** Spec 009: one rule per visible bivariate cell (both axes' tests ANDed), plus "No value". Hidden cells are left out. */
+function bivariateRules(style: LayerStyle, geometry: StyleGeometry, resolved: ResolvedStyle): string {
+  const g = resolved.grid as NonNullable<ResolvedStyle['grid']>
+  const families = geometry === 'Mixed' ? MIXED_RULES : [{ geom: geometry, types: [] as string[] }]
+  const between = (column: string, r: { lower: number; upper: number }, first: boolean) => {
+    const lower = first ? 'PropertyIsGreaterThanOrEqualTo' : 'PropertyIsGreaterThan'
+    return `<ogc:${lower}>${prop(column)}${literal(r.lower)}</ogc:${lower}><ogc:PropertyIsLessThanOrEqualTo>${prop(column)}${literal(r.upper)}</ogc:PropertyIsLessThanOrEqualTo>`
+  }
+  const rules: string[] = []
+  for (const f of families) {
+    const geom = f.geom as Exclude<StyleGeometry, 'Mixed'>
+    const geomTest = f.types.length ? geometryTypeFilter(f.types).replace(/^<ogc:Filter>|<\/ogc:Filter>$/g, '') : ''
+    for (const c of resolved.classes) {
+      if (!c.visible) continue
+      const test =
+        c.kind === 'cell' && c.x && c.y
+          ? `<ogc:And>${between(g.x.column, c.x, c.col === 0)}${between(g.y.column, c.y, c.row === 0)}${geomTest}</ogc:And>`
+          : `${geomTest ? '<ogc:And>' : ''}<ogc:Or><ogc:PropertyIsNull>${prop(g.x.column)}</ogc:PropertyIsNull><ogc:PropertyIsNull>${prop(g.y.column)}</ogc:PropertyIsNull></ogc:Or>${geomTest}${geomTest ? '</ogc:And>' : ''}`
+      const look = geom === 'LineString' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }
+      rules.push(`          <Rule>
+            <Name>${escapeXml(c.label)}</Name>
+            <Title>${escapeXml(c.label)}</Title>
+            <ogc:Filter>${test}</ogc:Filter>
+            ${symbolizer(geom, look)}
+          </Rule>`)
+    }
+  }
+  return rules.join('\n')
+}
+
 export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName: string, resolved?: ResolvedStyle): StyleExport {
   const style = sanitizeStyle(input)
   const { thematic } = thematicForExport(style, resolved)
   const notes = previewExportNotice(style, 'sld', resolved).items
   const sizeClasses = geometry === 'Polygon' ? null : sizeExportClasses(style, resolved)
-  const rules = sizeClasses && style.size
+  const isBivariate = rendererOf(style).kind === 'bivariate' && resolved?.status === 'ok' && !!resolved.grid
+  const rules = isBivariate && resolved
+    ? bivariateRules(style, geometry, resolved)
+    : sizeClasses && style.size
     ? channelRules(style, geometry, thematic ? { column: thematic.renderer.column, classes: thematic.classes } : null, { column: style.size.column, classes: sizeClasses })
     : thematic
     ? thematicRules(style, geometry, thematic.renderer.column, thematic.classes)

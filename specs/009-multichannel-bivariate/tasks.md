@@ -549,13 +549,13 @@ their notices (quickstart scenario 5).
     re-import as the single symbol with the notice;
   - Mapbox: the paint equals the viewer's, the hidden-cell filter, and
     `metadata` round-trips.
-- [ ] T045 [US5] Implement bivariate QML write and read in
+- [X] T045 [US5] Implement bivariate QML write and read in
   `packages/core/src/style/qml.ts`:
   - a `ruleRendererXml(style, resolved, kind)` writer with keys, labels,
     `checkstate`, and symbols from `classSymbols`;
   - import: a `RuleRenderer` with `spatialExplorer/bivariate` becomes a
     `BivariateRenderer` (sanitized); without it, the existing fallback.
-- [ ] T046 [P] [US5] Implement bivariate in `sld.ts` (cell rules, notices)
+- [X] T046 [P] [US5] Implement bivariate in `sld.ts` (cell rules, notices)
   and `mapbox.ts` (cell `match` paint, filter). Extend `previewExportNotice`
   in `interchange.ts`.
 - [ ] T047 [US5] Extend `tests/qgis/check_009.py` to the bivariate QML:
