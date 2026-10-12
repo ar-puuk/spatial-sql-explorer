@@ -109,14 +109,17 @@ moving on.
   falls back to `data` when `data.column === column`.
   - Use it in `valuesOf` and in the graduated and categorized branches.
   - All existing core tests stay green.
-- [ ] T005 [P] Add SQL builders in `packages/core/src/view/stats.ts`:
+- [X] T005 [P] Add SQL builders in `packages/core/src/view/stats.ts`:
   - `multiTotalsSql(relation, columns[])`: one pass, per column `n`,
     `nulls`, `min`, `max`, aliased by position;
   - `cellCountsSql(relation, xColumn, xRanges, yColumn, yRanges)`: the
     `classCountsSql` CASE for each column, `GROUP BY cx, cy`, with -2 for
     null and -1 outside.
-  - Unit-test both in `tests/core/stats-sql.test.ts`: they run against the
-    test DuckDB like the existing builders, and counts match a JS reference.
+  - Unit-test both in `tests/core/stats-sql.test.ts` (SQL shape, as the
+    existing builders are; core tests don't run DuckDB). Execution is checked
+    by the browser specs. Done 2026-10-12: also run once in the native DuckDB
+    CLI on `counties-bivariate.geojson`, where all 16 cell/no-value counts
+    equal a JS `classOf` reference.
 - [ ] T006 Generalize `QuerySession.resolveStyle` in
   `packages/core/src/query/session.ts`:
   - collect the channel columns (color column(s), and the size column when

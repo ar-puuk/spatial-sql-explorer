@@ -84,10 +84,39 @@ export function quantilePositions(n: number, k: number): number[] {
  * value" (-2), in one pass.
  */
 export function classCountsSql(relation: string, column: string, ranges: ReadonlyArray<{ lower: number; upper: number }>): string {
-  const whens = ranges.map((r, i) => `WHEN v <= ${r.upper} THEN ${i}`).join(' ')
-  const lower = ranges.length ? ranges[0].lower : 0
-  const cls = ranges.length ? `CASE WHEN v IS NULL THEN -2 WHEN v < ${lower} THEN -1 ${whens} ELSE -1 END` : 'CASE WHEN v IS NULL THEN -2 ELSE -1 END'
-  return `SELECT cls, count(*) AS n FROM (SELECT ${cls} AS cls FROM (SELECT ${numberSql(column)} AS v FROM ${relation})) GROUP BY cls`
+  return `SELECT cls, count(*) AS n FROM (SELECT ${classCaseSql('v', ranges)} AS cls FROM (SELECT ${numberSql(column)} AS v FROM ${relation})) GROUP BY cls`
+}
+
+/** A number's class as SQL `CASE` (classOf's rules): the range index, -1 outside, -2 no value. */
+function classCaseSql(v: string, ranges: ReadonlyArray<{ lower: number; upper: number }>): string {
+  if (!ranges.length) return `CASE WHEN ${v} IS NULL THEN -2 ELSE -1 END`
+  const whens = ranges.map((r, i) => `WHEN ${v} <= ${r.upper} THEN ${i}`).join(' ')
+  return `CASE WHEN ${v} IS NULL THEN -2 WHEN ${v} < ${ranges[0].lower} THEN -1 ${whens} ELSE -1 END`
+}
+
+/**
+ * Spec 009: numeric count, nulls, min and max of several columns in one pass
+ * (the size channel and bivariate axes). Column i's values are `n_i`,
+ * `nulls_i`, `min_i`, `max_i`.
+ */
+export function multiTotalsSql(relation: string, columns: readonly string[]): string {
+  const values = columns.map((c, i) => `${numberSql(c)} AS v${i}`).join(', ')
+  const totals = columns.map((_, i) => `count(v${i}) AS n_${i}, count(*) - count(v${i}) AS nulls_${i}, min(v${i}) AS min_${i}, max(v${i}) AS max_${i}`).join(', ')
+  return `SELECT ${totals} FROM (SELECT ${values} FROM ${relation})`
+}
+
+/**
+ * Spec 009: exact bivariate cell counts in one pass: each axis's class
+ * (classOf's rules; -1 outside, -2 no value), grouped by both.
+ */
+export function cellCountsSql(
+  relation: string,
+  xColumn: string,
+  xRanges: ReadonlyArray<{ lower: number; upper: number }>,
+  yColumn: string,
+  yRanges: ReadonlyArray<{ lower: number; upper: number }>
+): string {
+  return `SELECT cx, cy, count(*) AS n FROM (SELECT ${classCaseSql('vx', xRanges)} AS cx, ${classCaseSql('vy', yRanges)} AS cy FROM (SELECT ${numberSql(xColumn)} AS vx, ${numberSql(yColumn)} AS vy FROM ${relation})) GROUP BY cx, cy`
 }
 
 // --- Value distribution (spec 008 FR-003, research §10) ----------------------
