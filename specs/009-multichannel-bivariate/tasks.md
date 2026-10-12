@@ -227,8 +227,8 @@ widths, and two legend groups (quickstart scenario 1).
 - [X] T014 [US1] In `packages/ui/src/LayerStylePanel.svelte`:
   - remove the Graduated "Vary" radio and its size inputs;
   - add the **Size** section per `contracts/ui.md`: the switch, Column
-    (numeric), Method, Classes, Smallest/Largest (px), and
-    `SizeClassList`;
+    (numeric), Method, Classes, Smallest/Largest (px), and the size
+    class list (`ClassList` in its size mode);
   - for polygon layers, show the note instead of the section;
   - wire everything to the `edit.ts` functions through `apply()`
     (validation messages as today).
@@ -588,8 +588,10 @@ their notices (quickstart scenario 5).
   channel (classed or proportional); and the QML forms (data-defined size,
   rule-based bivariate). Update the in-app or README feature list if there
   is one (`apps/web` landing copy, `apps/vscode-ext/README.md`).
-- [ ] T052 [P] Re-run `npm run screenshots` only if the docs show the style
+- [X] T052 [P] Re-run `npm run screenshots` only if the docs show the style
   panel; otherwise skip and say so.
+  - Skipped (2026-10-12): no doc embeds the screenshots; `screenshots/` is
+    gitignored output.
 - [ ] T053 Run the full gates:
   - `npm run lint`, `npm run typecheck:core`, `npm run typecheck:ui`;
   - `npm run test:core`, `npm run test:web`, `npm run test:vscode-ext`;
@@ -639,7 +641,7 @@ their notices (quickstart scenario 5).
 ```text
 Task: "T007 tests/core/style-channels.test.ts — channel resolve, map = legend, combined visibility"
 Task: "T008 tests/web/specs/style-channels.spec.ts — Size section, legend groups"
-Task: "T013 packages/ui/src/style/SizeClassList.svelte — size class rows"
+Task: "T013 packages/ui/src/ClassList.svelte — size mode for the size class rows"
 ```
 
 ## Parallel Example: User Story 4

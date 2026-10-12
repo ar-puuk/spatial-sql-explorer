@@ -100,7 +100,7 @@ and 2.
 | `mode` | `classed` or `proportional`. |
 | `classes` | Classed: `ResolvedClass` items (`kind: 'range'`, `size` set) and `noValue`. Proportional: only `noValue` when present. |
 | `domain` | Proportional: `{ min, max }` of the column over the displayed result. |
-| `samples` | Proportional: 3–5 `{ value, size }` legend references, including min and max. |
+| `samples` | Proportional: 3–5 `{ value, size, label }` legend references, including min and max. |
 
 ## Map-side derived values (not stored)
 

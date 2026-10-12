@@ -15,6 +15,9 @@ async function openCounties(page: Page): Promise<void> {
   await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
   await page.getByRole('button', { name: 'Layer style' }).click()
   await page.getByRole('radio', { name: 'Bivariate' }).click()
+  // SC-002: the defaults are already the two measures (the id column goes last).
+  await expect(panel(page).getByLabel('Axis 1', { exact: true })).toHaveValue('poverty_rate')
+  await expect(panel(page).getByLabel('Axis 2', { exact: true })).toHaveValue('obesity_rate')
   await panel(page).getByLabel('Axis 1', { exact: true }).selectOption('poverty_rate')
   await panel(page).getByLabel('Axis 2', { exact: true }).selectOption('obesity_rate')
 }

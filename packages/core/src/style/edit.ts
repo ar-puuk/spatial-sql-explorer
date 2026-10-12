@@ -25,7 +25,7 @@ import {
 import { toCategory } from './classify.js'
 import { defaultRamp } from './ramps.js'
 import { DEFAULT_SIZE_RANGE } from './symbol.js'
-import { eligibleColumns, valuesOf, type ResolveInput } from './resolve.js'
+import { eligibleColumns, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
 
 const TEXTUAL = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i
 
@@ -52,7 +52,8 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
   if (kind === 'single') return { kind: 'single' }
   // Spec 009: bivariate takes two numeric columns (the given one first).
   if (kind === 'bivariate') {
-    const numeric = eligibleColumns(layer?.columns, 'graduated').map((c) => c.name)
+    // Identifier-like columns go last, so the default axes are measures (spec 009 SC-002).
+    const numeric = measureColumns(layer?.columns).map((c) => c.name)
     const x = column ?? numeric[0] ?? ''
     const y = numeric.find((c) => c !== x) ?? ''
     return { kind: 'bivariate', x: { column: x, method: 'quantile' }, y: { column: y, method: 'quantile' }, palette: DEFAULT_BIVARIATE_PALETTE, hidden: [], noValue: {} }

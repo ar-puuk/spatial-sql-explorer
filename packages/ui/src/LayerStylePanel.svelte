@@ -8,6 +8,7 @@
   // format from its menu. Import reads any of the three formats.
   import {
     eligibleColumns,
+    measureColumns,
     extrusionUnavailableReason,
     DEFAULT_EXTRUSION_SCALE,
     type Extrusion,
@@ -250,7 +251,8 @@
   const sizeSymbols = $derived(sizeOn && resolved.size?.status === 'ok' ? { symbols: sizeSymbolsOf(style, resolved), kind: sizeGeometry } : null)
   function toggleSize(): void {
     if (sizeOn) return apply(setSizeChannel(style, null, sizeGeometry))
-    const column = numericColumns[0]?.name
+    // Identifier-like columns go last (spec 009 SC-001: a useful default in one click).
+    const column = measureColumns(layer?.columns)[0]?.name
     if (column) apply(setSizeChannel(style, column, sizeGeometry))
   }
   function chooseSize(side: 'min' | 'max', value: number): void {

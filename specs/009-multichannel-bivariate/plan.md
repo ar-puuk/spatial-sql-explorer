@@ -141,7 +141,7 @@ packages/core/src/view/stats.ts        # combined totals, two-column cell counts
 packages/core/src/query/session.ts     # resolveStyle: per-channel column data
 packages/ui/src/
 ├── LayerStylePanel.svelte             # Bivariate type, Size section; Vary removed
-├── style/SizeClassList.svelte         # NEW (or ClassList with a size mode)
+├── ClassList.svelte                   # size mode for the size channel (built instead of a SizeClassList.svelte)
 ├── style/BivariatePicker.svelte       # NEW: axes, swap, palette previews
 ├── style/BivariateLegend.svelte       # NEW: keyboard grid
 ├── MapLegend.svelte                   # legend groups

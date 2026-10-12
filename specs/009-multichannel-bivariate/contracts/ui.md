@@ -34,7 +34,8 @@ apply live (FR-020). Chrome uses theme tokens; data colors are fixed.
       so they don't clash with the color controls.
   - The panel is 344 px wide, so four style types fit.
   - With Bivariate chosen, the section reads "Bivariate maps have no size
-    channel."
+    channel." On a polygon layer the polygon note is shown instead (it
+    applies whatever the style type).
 - The Graduated **Vary: Color | Size** radio from 2026-10-12 is removed.
 
 ## Legend (`MapLegend.svelte`)

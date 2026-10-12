@@ -73,6 +73,18 @@ export function isNumericType(type: string): boolean {
   return NUMERIC.test(type.trim())
 }
 
+/** Identifier-like column names (feature ids, keys): numbers, but rarely what a map is about. */
+const ID_LIKE = /^(id|fid|gid|oid|ogc_fid|objectid|object_id|rowid)$|_id$|^id_/i
+
+/**
+ * Spec 009: numeric columns worth mapping first, for default picks
+ * (bivariate axes, the size column): identifier-like columns go last.
+ */
+export function measureColumns(columns: ResolveInput['columns'] | undefined): Array<{ name: string; type: string }> {
+  const numeric = eligibleColumns(columns, 'graduated')
+  return [...numeric.filter((c) => !ID_LIKE.test(c.name)), ...numeric.filter((c) => ID_LIKE.test(c.name))]
+}
+
 /** Columns a renderer can use: every attribute for categorized, numeric ones for graduated. */
 export function eligibleColumns(columns: ResolveInput['columns'] | undefined, kind: 'categorized' | 'graduated'): Array<{ name: string; type: string }> {
   return (columns ?? []).filter((c) => kind === 'categorized' || isNumericType(c.type))
