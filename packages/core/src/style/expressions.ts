@@ -9,6 +9,7 @@
 import { extrusionHeightExpression } from './extrusion.js'
 import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
+import { bivariateIndexExpression } from './bivariate.js'
 
 /**
  * `marker` draws points of a shape other than the circle, from icons
@@ -46,8 +47,7 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
     case 'graduated':
       return graduatedIndex(r, resolved)
     case 'bivariate':
-      // Spec 009 US4 draws the cells; until then a bivariate style resolves as a fallback.
-      return null
+      return bivariateIndexExpression(style, resolved)
   }
 }
 

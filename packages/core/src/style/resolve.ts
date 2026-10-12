@@ -3,10 +3,11 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
+import { bivariateColor, bivariatePalette } from './bivariate.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -110,8 +111,7 @@ function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedSt
     case 'graduated':
       return graduated(style, r, layer)
     case 'bivariate':
-      // Spec 009 US4.
-      return fallback(style, layer, 'Bivariate maps are not available in this build.')
+      return bivariate(style, r, layer)
   }
 }
 
@@ -365,6 +365,68 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   if (c.outside > 0 || (c.fromStats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: c.outside })
   if (c.nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: c.nulls })
   return { status: 'ok', caption: rangesCaption(r.column, r.method, c), classes, notes: c.notes }
+}
+
+/**
+ * Spec 009 US4: bivariate. Each axis is classified like a graduated column
+ * (3 classes, fewer when it has fewer distinct values: FR-015); cells are the
+ * pairs, row-major from low/low (i + nx * j), then "No value" (either value
+ * missing). Counts are joint: from the rows (small results), or filled in by
+ * QuerySession from one GROUP BY (big ones).
+ */
+function bivariate(style: LayerStyle, r: BivariateRenderer, layer: ResolveInput | null): ResolvedStyle {
+  if (!layer) return single(style, layer)
+  if (r.x.column && r.x.column === r.y.column) return fallback(style, layer, 'Choose two different numeric columns.')
+  const why = notNumeric(layer, r.x.column) ?? notNumeric(layer, r.y.column)
+  if (why) return fallback(style, layer, why)
+  const cx = classifyRanges(r.x.column, r.x.method, 3, [], layer)
+  const cy = classifyRanges(r.y.column, r.y.method, 3, [], layer)
+  if (!cx.ranges.length || !cy.ranges.length) return fallback(style, layer, `Column "${!cx.ranges.length ? r.x.column : r.y.column}" has no numeric values in this result.`)
+  const nx = cx.ranges.length
+  const ny = cy.ranges.length
+
+  // Joint counts from the rows (the two columns' values are row-aligned).
+  const counts = Array.from({ length: nx * ny }, () => 0)
+  let noValue = 0
+  if (!cx.fromStats || !cy.fromStats) {
+    const xs = valuesOf(layer, r.x.column)
+    const ys = valuesOf(layer, r.y.column)
+    for (let k = 0; k < xs.length; k++) {
+      const vx = toNumber(xs[k])
+      const vy = toNumber(ys[k])
+      const i = vx === null ? -1 : classOf(vx, cx.ranges)
+      const j = vy === null ? -1 : classOf(vy, cy.ranges)
+      if (i < 0 || j < 0) noValue++
+      else counts[i + nx * j]++
+    }
+  } else noValue = Math.max(cx.nulls, cy.nulls) // a lower bound; QuerySession sets the exact count
+
+  const palette = bivariatePalette(r.palette)
+  const hidden = new Set(r.hidden)
+  const classes: ResolvedClass[] = []
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = cx.ranges[i]
+      const y = cy.ranges[j]
+      classes.push({
+        key: `cell:${i}-${j}`,
+        kind: 'cell',
+        col: i,
+        row: j,
+        x: { lower: x.lower, upper: x.upper },
+        y: { lower: y.lower, upper: y.upper },
+        label: `${cx.label(x)} · ${cy.label(y)}`,
+        color: bivariateColor(palette, i, j, nx, ny),
+        visible: !hidden.has(`${i}-${j}`),
+        count: counts[i + nx * j],
+      })
+    }
+  }
+  if (noValue > 0 || cx.fromStats) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: noValue })
+  const axis = (column: string, method: BivariateRenderer['x']['method'], c: Classified) => ({ column, method, ranges: c.ranges.map((range) => ({ ...range, label: c.label(range) })) })
+  const methods = r.x.method === r.y.method ? METHOD_NAMES[r.x.method] : `${METHOD_NAMES[r.x.method]} / ${METHOD_NAMES[r.y.method]}`
+  const notes = [...cx.notes.map((n) => `${r.x.column}: ${n}`), ...cy.notes.map((n) => `${r.y.column}: ${n}`)]
+  return { status: 'ok', caption: `${r.x.column} × ${r.y.column} · ${methods}`, classes, notes, grid: { x: axis(r.x.column, r.x.method, cx), y: axis(r.y.column, r.y.method, cy) } }
 }
 
 /** Size channel class keys: `size:range:<i>`, `size:__other`, `size:__null` (legend and edits). */

@@ -469,14 +469,14 @@ hidden (quickstart scenario 4).
   `pink-blue` with its note. Run it and commit the output.
   - Add the palettes to `THIRD-PARTY-NOTICES.md` only if the attribution
     text needs updating (the anchors are already covered).
-- [ ] T036 [US4] Create `packages/core/src/style/bivariate.ts`:
+- [X] T036 [US4] Create `packages/core/src/style/bivariate.ts`:
   - `BIVARIATE_PALETTES` re-export, `DEFAULT_BIVARIATE_PALETTE`,
     `bivariateColor(palette, i, j, nx, ny)`;
   - `bivariateIndexExpression(style, resolved)`: two `let`s with the
     graduated index rules, then `ix + nx * iy` mapped to the class
     positions; No value when either axis is.
   - Export from `index.ts`.
-- [ ] T037 [US4] Resolve bivariate in `packages/core/src/style/resolve.ts`:
+- [X] T037 [US4] Resolve bivariate in `packages/core/src/style/resolve.ts`:
   - each axis through `classifyRanges` (T009) with `classCount` 3;
   - cells with counts (in memory, or filled from `cellCountsSql` by the
     session), labels such as "`<x range>` · `<y range>`", visibility from
@@ -486,13 +486,13 @@ hidden (quickstart scenario 4).
   - In `packages/core/src/query/session.ts`, add the bivariate path: totals
     for both columns, order statistics per axis, then `cellCountsSql`
     (SC-007).
-- [ ] T038 [US4] Wire bivariate into `expressions.ts`:
+- [X] T038 [US4] Wire bivariate into `expressions.ts`:
   - `classIndexExpression` returns `bivariateIndexExpression` for
     bivariate;
   - colors come from the cell classes through the existing `classSymbols`
     path;
   - `symbolExpressions` ignores `size` for bivariate (FR-007).
-- [ ] T039 [US4] Add the bivariate edits in `edit.ts`:
+- [X] T039 [US4] Add the bivariate edits in `edit.ts`:
   - `startStyle(…, 'bivariate', layer)` picks the first two numeric
     columns, keeps `size` stored but inactive, and applies the
     `THEMATIC_SYMBOL` defaults as for other thematic renderers;

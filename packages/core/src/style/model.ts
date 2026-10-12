@@ -495,6 +495,23 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
       noValue: sanitizeOverride(c.noValue),
     }
   }
+  if (r.kind === 'bivariate') {
+    const b = r as Partial<BivariateRenderer>
+    const axis = (a: Partial<BivariateAxis> | undefined): BivariateAxis => ({
+      column: typeof a?.column === 'string' ? a.column : '',
+      method: a?.method === 'equal' || a?.method === 'jenks' || a?.method === 'quantile' ? a.method : 'quantile',
+    })
+    const noValue = sanitizeOverride(b.noValue)
+    delete noValue.color
+    return {
+      kind: 'bivariate',
+      x: axis(b.x),
+      y: axis(b.y),
+      palette: typeof b.palette === 'string' && b.palette ? b.palette : DEFAULT_BIVARIATE_PALETTE,
+      hidden: (Array.isArray(b.hidden) ? b.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-2]-[0-2]$/.test(k)),
+      noValue,
+    }
+  }
   if (r.kind === 'graduated') {
     const g = r as Partial<GraduatedRenderer>
     const method: GraduatedMethod = g.method === 'equal' || g.method === 'quantile' || g.method === 'jenks' || g.method === 'manual' ? g.method : 'quantile'
@@ -550,6 +567,7 @@ export function validateStyle(style: LayerStyle): string[] {
     }
     for (const o of [...r.classes, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
   }
+  if (r.kind === 'bivariate' && (!r.x.column || !r.y.column || r.x.column === r.y.column)) errors.push('Choose two different numeric columns.')
   // Spec 009: the size channel.
   const size = style.size
   if (size) {

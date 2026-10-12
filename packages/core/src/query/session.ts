@@ -21,6 +21,7 @@ import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMem
 import {
   categoryTotalsSql,
   classCountsSql,
+  cellCountsSql,
   columnsValuesSql,
   multiTotalsSql,
   evenPositions,
@@ -35,7 +36,7 @@ import {
   topCategoriesSql,
 } from '../view/stats.js'
 import { resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { rendererOf, type GraduatedMethod, type LayerStyle, type ResolvedStyle } from '../style/model.js'
+import { rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle } from '../style/model.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
@@ -578,13 +579,15 @@ export class QuerySession {
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
     const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
-    // Spec 009: every channel column the style classifies. Bivariate statistics come with US4.
+    // Spec 009: every channel column the style classifies.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
     const size = style.size && r.kind !== 'bivariate' && has(style.size.column) ? style.size : null
-    if (!facts || r.kind === 'bivariate' || (!colorColumn && !size) || this.utilityRows || this.needsLoad) {
+    const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
+    if (!facts || (!colorColumn && !size && !axes) || this.utilityRows || this.needsLoad) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()
+    if (axes) return this.resolveBivariate(style, axes, base, relation)
     const columns = [...new Set([colorColumn, size?.column].filter((c): c is string => !!c))]
     return this.exclusive(async (isCancelled) => {
       const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
@@ -661,6 +664,60 @@ export class QuerySession {
       if (r.kind === 'graduated' && colorColumn && resolved.status === 'ok') out = { ...out, classes: await counted(colorColumn, resolved.classes) }
       if (size && size.mode === 'classed' && out.size?.status === 'ok') out = { ...out, size: { ...out.size, classes: await counted(size.column, out.size.classes) } }
       return out
+    }, 'background')
+  }
+
+  /**
+   * Spec 009 US4 (research §4): bivariate statistics. Small results: both
+   * columns' values in one pass (counts from the rows). Big ones: one totals
+   * pass for both axes, each axis's order statistics, then exact cell counts
+   * from one GROUP BY.
+   */
+  private resolveBivariate(style: LayerStyle, r: BivariateRenderer, base: ResolveInput, relation: string): Promise<ResolvedStyle> {
+    const columns = [r.x.column, r.y.column]
+    return this.exclusive(async (isCancelled) => {
+      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : (this.facts?.totalRows ?? 0)
+      const cap = jenksSample()
+      const dataByColumn: Record<string, ColumnData> = {}
+      if (n <= cap) {
+        const values = columns.map(() => [] as Array<Feature['attributes'][string]>)
+        await streamRows(this.conn, columnsValuesSql(relation, columns), isCancelled, (batch) => {
+          for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
+        })
+        columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
+        return resolveStyleFrom(style, { ...base, dataByColumn })
+      }
+      const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, columns), isCancelled)
+      for (const [k, axis] of [r.x, r.y].entries()) {
+        const count = Number(totals[`n_${k}`])
+        const even = evenPositions(count, cap)
+        const around = axis.method === 'quantile' ? quantilePositions(count, 3) : []
+        const atPos = new Map<number, number>()
+        if (count > 0) {
+          await streamRows(this.conn, orderStatisticsSql(relation, axis.column, [...even, ...around]), isCancelled, (batch) => {
+            for (const row of batch) atPos.set(Number(row.pos), Number(row.v))
+          })
+        }
+        const sample = even.map((pos) => atPos.get(pos)).filter((v): v is number => v !== undefined)
+        const quantileStats = Object.fromEntries(around.map((pos) => [pos, atPos.get(pos) ?? 0]))
+        dataByColumn[axis.column] = { kind: 'numbers', column: axis.column, sample, n: count, nulls: Number(totals[`nulls_${k}`]), quantileStats }
+      }
+      const resolved = resolveStyleFrom(style, { ...base, dataByColumn })
+      if (resolved.status !== 'ok' || !resolved.grid) return resolved
+      const counts = new Map<string, number>()
+      let noValue = 0
+      await streamRows(this.conn, cellCountsSql(relation, r.x.column, resolved.grid.x.ranges, r.y.column, resolved.grid.y.ranges), isCancelled, (batch) => {
+        for (const row of batch) {
+          const cx = Number(row.cx)
+          const cy = Number(row.cy)
+          if (cx < 0 || cy < 0) noValue += Number(row.n)
+          else counts.set(`${cx}-${cy}`, Number(row.n))
+        }
+      })
+      const classes = resolved.classes
+        .map((c) => (c.kind === 'cell' ? { ...c, count: counts.get(`${c.col}-${c.row}`) ?? 0 } : c.kind === 'noValue' ? { ...c, count: noValue } : c))
+        .filter((c) => c.kind !== 'noValue' || c.count > 0)
+      return { ...resolved, classes }
     }, 'background')
   }
 

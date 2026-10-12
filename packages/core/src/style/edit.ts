@@ -14,6 +14,8 @@ import {
   type GraduatedRenderer,
   type LayerStyle,
   type RampRef,
+  type BivariateAxis,
+  type BivariateRenderer,
   type RangeClassDef,
   type Renderer,
   type ResolvedStyle,
@@ -99,6 +101,8 @@ function patchClass(style: LayerStyle, key: string, patch: ClassOverride): Layer
 
 /** FR-009: hides or shows a class on the map. Keeps the method and the manual flag. */
 export function setClassVisible(style: LayerStyle, key: string, visible: boolean): LayerStyle {
+  // Spec 009: bivariate cells and their "No value".
+  if (rendererOf(style).kind === 'bivariate') return setCellVisible(style, key, visible)
   return patchClass(style, key, { visible })
 }
 
@@ -399,4 +403,41 @@ export function setSizeClassBound(style: LayerStyle, resolved: ResolvedStyle, in
   const neighbour = next.find((c) => c.index === (side === 'lower' ? index - 1 : index + 1))
   if (neighbour) neighbour[side === 'lower' ? 'upper' : 'lower'] = value
   return { ...style, size: { ...s, method: 'manual', classCount: Math.max(next.length, MIN_CLASS_COUNT), classes: next } }
+}
+
+// --- Spec 009 US4: bivariate (data-model.md BivariateRenderer) -----------------
+
+function withBivariate(style: LayerStyle, patch: (r: BivariateRenderer) => BivariateRenderer): LayerStyle {
+  const r = rendererOf(style)
+  return r.kind === 'bivariate' ? { ...style, renderer: patch(r) } : style
+}
+
+/** An axis's column or method; only that axis is reclassified. */
+export function setBivariateAxis(style: LayerStyle, axis: 'x' | 'y', patch: Partial<BivariateAxis>): LayerStyle {
+  return withBivariate(style, (r) => ({ ...r, [axis]: { ...r[axis], ...patch } }))
+}
+
+/** Swaps the axes; hidden cells follow (transposed). */
+export function swapBivariateAxes(style: LayerStyle): LayerStyle {
+  return withBivariate(style, (r) => ({ ...r, x: r.y, y: r.x, hidden: r.hidden.map((k) => k.split('-').reverse().join('-')) }))
+}
+
+export function setBivariatePalette(style: LayerStyle, palette: string): LayerStyle {
+  return withBivariate(style, (r) => ({ ...r, palette }))
+}
+
+/** Hides or shows a cell (`cell:<i>-<j>`) or "No value" (`__null`). */
+export function setCellVisible(style: LayerStyle, key: string, visible: boolean): LayerStyle {
+  return withBivariate(style, (r) => {
+    if (key === '__null') {
+      const noValue = { ...r.noValue }
+      if (visible) delete noValue.visible
+      else noValue.visible = false
+      return { ...r, noValue }
+    }
+    if (!key.startsWith('cell:')) return r
+    const cell = key.slice(5)
+    const hidden = r.hidden.filter((k) => k !== cell)
+    return { ...r, hidden: visible ? hidden : [...hidden, cell] }
+  })
 }
