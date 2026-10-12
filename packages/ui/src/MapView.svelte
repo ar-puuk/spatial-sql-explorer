@@ -14,6 +14,10 @@
     BasemapHealth,
     loadBasemapStyle,
     paintFor,
+    layoutFor,
+    isMarkerIconId,
+    markerIconIds,
+    usesMarkerIcons,
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
@@ -30,6 +34,7 @@
   import { drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
   import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
+  import { drawMarkerIcon } from './markerIcon.js'
 
   interface Props {
     layer: Layer | null
@@ -139,7 +144,10 @@
   const POLYGON = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
   const LINE = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
   const POINT = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
-  const INTERACTIVE_DEFS = ['fill', 'line', 'circle']
+  // A Point standing in for a small polygon or line (spec 007) is always a dot, never a shaped marker.
+  const DOT = ['boolean', ['get', DOT_PROP], false]
+  const MARKER_POINT = ['all', POINT, ['!', DOT]]
+  const INTERACTIVE_DEFS = ['fill', 'line', 'circle', 'marker']
 
   /**
    * Canvas colors cannot use CSS variables (CLAUDE.md), so the selection
@@ -152,13 +160,21 @@
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion'; filter: unknown; layout?: Record<string, unknown> }> = [
+  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion' | 'symbol'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
     // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'circle', type: 'circle', filter: POINT },
+    // Points of a shape other than the circle: icons, over a disc that shows hover and selection.
+    { id: 'marker-select', type: 'circle', filter: MARKER_POINT },
+    {
+      id: 'marker',
+      type: 'symbol',
+      filter: MARKER_POINT,
+      layout: { 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport' },
+    },
     // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
     { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
   ]
@@ -177,6 +193,7 @@
   }
   function layerVisibility(id: string): 'visible' | 'none' {
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
+    if (id === 'marker' || id === 'marker-select') return usesMarkerIcons(style) ? 'visible' : 'none'
     if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
     return 'visible'
   }
@@ -224,10 +241,31 @@
     ) as GeoJSON.FeatureCollection
   }
 
-  /** Each layer's geometry filter, plus the hidden-class filter (FR-009). */
+  /** Each layer's geometry filter, plus the hidden-class filter (FR-009). Shaped markers leave the circle layer only the dots. */
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     const hidden = visibilityFilter(style, resolved)
-    return hidden ? ['all', def.filter, hidden] : def.filter
+    const geometry = def.id === 'circle' && usesMarkerIcons(style) ? ['all', POINT, DOT] : def.filter
+    return hidden ? ['all', geometry, hidden] : geometry
+  }
+
+  /** A layer's layout: its fixed part, plus what follows the style (dash caps, marker icons). */
+  function layerLayout(def: (typeof LAYER_DEFS)[number], layouts: ReturnType<typeof layoutFor>): Record<string, unknown> {
+    return { ...(def.layout ?? {}), ...(layouts[def.id as keyof typeof layouts] ?? {}), visibility: layerVisibility(def.id) }
+  }
+
+  /**
+   * Marker icons are made when the map first asks for one
+   * (`styleimagemissing`); icons the style no longer draws are dropped.
+   */
+  function addMarkerIcon(m: MapLibreMap, id: string): void {
+    if (m.hasImage(id)) return
+    const icon = drawMarkerIcon(id)
+    if (icon) m.addImage(id, icon.image, { pixelRatio: icon.pixelRatio })
+  }
+  function pruneMarkerIcons(m: MapLibreMap): void {
+    const keep = new Set(usesMarkerIcons(style) ? markerIconIds(style, resolved) : [])
+    for (const id of m.listImages()) if (isMarkerIconId(id) && !keep.has(id)) m.removeImage(id)
+    for (const id of keep) addMarkerIcon(m, id)
   }
 
   /**
@@ -244,13 +282,19 @@
     if (!map || !mapReady) return
     if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
     const p = paintFor(style, resolved, selectionColor())
+    const layouts = layoutFor(style, resolved)
+    pruneMarkerIcons(map)
     for (const l of layerInstances()) {
       if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
+      // An undefined value (a solid line's dash array) goes back to the default.
       for (const [prop, value] of Object.entries(layerPaint(l.def.id, p))) {
-        map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], value as Parameters<MapLibreMap['setPaintProperty']>[2])
+        map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], (value ?? null) as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
-      map.setLayoutProperty(l.id, 'visibility', layerVisibility(l.def.id))
+      for (const [key, value] of Object.entries(layerLayout(l.def, layouts))) {
+        const prop = key as Parameters<MapLibreMap['setLayoutProperty']>[1]
+        if (map.getLayoutProperty(l.id, prop) !== value) map.setLayoutProperty(l.id, prop, value as Parameters<MapLibreMap['setLayoutProperty']>[2])
+      }
     }
   }
 
@@ -305,6 +349,7 @@
     styledTiles = tiles
     doc.sources[SOURCE_ID] = styledTiles ? { type: 'vector', url: styledTiles.url } : { type: 'geojson', data: currentData, promoteId: ID_PROP }
     const p = paintFor(style, resolved, selectionColor())
+    const layouts = layoutFor(style, resolved)
     for (const l of layerInstances()) {
       doc.layers.push({
         id: l.id,
@@ -312,8 +357,8 @@
         source: SOURCE_ID,
         ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
         filter: layerFilter(l.def),
-        layout: { ...(l.def.layout ?? {}), visibility: layerVisibility(l.def.id) },
-        paint: layerPaint(l.def.id, p),
+        layout: layerLayout(l.def, layouts),
+        paint: Object.fromEntries(Object.entries(layerPaint(l.def.id, p)).filter(([, v]) => v !== undefined)),
       } as never)
     }
     return doc
@@ -625,6 +670,10 @@
     map.touchZoomRotate.disableRotation()
     map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-left')
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
+    // Shaped marker icons, on demand (also after a basemap switch replaces the style's images).
+    map.on('styleimagemissing', (e: { id: string }) => {
+      if (map && isMarkerIconId(e.id)) addMarkerIcon(map, e.id)
+    })
     map.on('load', () => {
       registerHandlers()
       mapReady = true
@@ -717,6 +766,8 @@
     void style.pointRadius
     void style.layerOpacity
     void style.extrusion
+    void style.markerShape
+    void style.lineDash
     void resolved
     void themeRevision
     void blankColor

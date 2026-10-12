@@ -5,6 +5,7 @@
 // Persisted shapes are plain JSON; derived ones (ResolvedStyle) never are.
 //
 import { sanitizeExtrusion, type Extrusion } from './extrusion.js'
+import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './symbol.js'
 
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
@@ -35,6 +36,10 @@ export interface LayerStyle {
   renderer?: Renderer
   /** Spec 008 US6: polygon extrusion (./extrusion.ts). Absent: flat. */
   extrusion?: Extrusion
+  /** Point marker shape (./symbol.ts). Absent: circle. */
+  markerShape?: MarkerShape
+  /** Line and polygon outline pattern (./symbol.ts). Absent: solid. */
+  lineDash?: LineDash
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
@@ -99,6 +104,14 @@ export interface GraduatedRenderer {
   /** Manual: the full list with bounds. Otherwise: overrides, keyed by class index. */
   classes: RangeClassDef[]
   noValue: ClassOverride
+  /**
+   * What the classes vary (QGIS `graduatedMethod`): the color (ramp), or the
+   * size: marker radius for points, line width for lines, from `sizeMin` to
+   * `sizeMax` px. Absent means color.
+   */
+  vary?: 'color' | 'size'
+  sizeMin?: number
+  sizeMax?: number
 }
 
 /** What the map, legend and panel draw. Recomputed on every style or data change; never saved. */
@@ -130,6 +143,8 @@ export interface ResolvedClass {
   upper?: number
   /** kind 'other': how many distinct values it groups. */
   groups?: number
+  /** kind 'range' of a size-graduated renderer: marker radius or line width, px. */
+  size?: number
 }
 
 /** Items not exported, not imported, or not applied (FR-015). */
@@ -255,6 +270,8 @@ export function sanitizeStyle(style: Partial<LayerStyle>): LayerStyle {
     renderer: sanitizeRenderer(style.renderer),
     ...(typeof style.layerOpacity === 'number' && Number.isFinite(style.layerOpacity) && style.layerOpacity < 1 ? { layerOpacity: clamp(style.layerOpacity, 0, 1) } : {}),
     ...(sanitizeExtrusion(style.extrusion) ? { extrusion: sanitizeExtrusion(style.extrusion) } : {}),
+    ...(isMarkerShape(style.markerShape) && style.markerShape !== 'circle' ? { markerShape: style.markerShape } : {}),
+    ...(isLineDash(style.lineDash) && style.lineDash !== 'solid' ? { lineDash: style.lineDash } : {}),
   }
 }
 
@@ -274,6 +291,17 @@ function sanitizeOverride(o: ClassOverride | undefined): ClassOverride {
 
 function sanitizeRamp(r: RampRef | undefined, fallback: string): RampRef {
   return { id: typeof r?.id === 'string' && r.id ? r.id : fallback, reversed: r?.reversed === true }
+}
+
+const SIZE_LO = 0.5
+const SIZE_HI = 100
+
+/** A size-graduated renderer's range, made valid (min <= max, both within 0.5..100 px). */
+function sanitizeSizes(g: Partial<GraduatedRenderer>): Pick<GraduatedRenderer, 'vary' | 'sizeMin' | 'sizeMax'> {
+  const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, SIZE_LO, SIZE_HI) : fallback)
+  const min = n(g.sizeMin, 2)
+  const max = n(g.sizeMax, Math.max(min, 10))
+  return { vary: 'size', sizeMin: Math.min(min, max), sizeMax: Math.max(min, max) }
 }
 
 /**
@@ -315,6 +343,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
           return out
         }),
       noValue: sanitizeOverride(g.noValue),
+      ...(g.vary === 'size' ? sanitizeSizes(g) : {}),
     }
   }
   return { kind: 'single' }
@@ -351,6 +380,11 @@ export function validateStyle(style: LayerStyle): string[] {
       })
     }
     for (const o of [...r.classes, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
+    if (r.vary === 'size') {
+      const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
+      if (!ok(r.sizeMin) || !ok(r.sizeMax)) errors.push(`Sizes must be between ${SIZE_LO} and ${SIZE_HI} px.`)
+      else if ((r.sizeMin as number) > (r.sizeMax as number)) errors.push('The smallest size must not be larger than the largest.')
+    }
   }
   return errors
 }

@@ -16,7 +16,8 @@ import {
   type StyleImportResult,
 } from './model.js'
 import type { StyleExport } from './qml.js'
-import { categorizedFrom, graduatedFrom, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { categorizedFrom, classLayerStyle, graduatedFrom, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { dashFromPattern, dashPattern, type MarkerShape } from './symbol.js'
 
 function param(name: string, value: string | number): string {
   return `<CssParameter name="${name}">${escapeXml(String(value))}</CssParameter>`
@@ -26,15 +27,29 @@ function fill(style: LayerStyle): string {
   return `<Fill>${param('fill', style.fillColor)}${param('fill-opacity', round(style.fillOpacity))}</Fill>`
 }
 
-function stroke(style: LayerStyle): string {
+/** Lines and polygon outlines carry the dash pattern, in pixels (pattern x width), as SLD defines it. */
+function stroke(style: LayerStyle, dashed = false): string {
   if (style.strokeWidth <= 0) return ''
-  return `<Stroke>${param('stroke', style.strokeColor)}${param('stroke-width', round(style.strokeWidth))}${param('stroke-opacity', round(style.strokeOpacity))}${param('stroke-linejoin', 'round')}</Stroke>`
+  const pattern = dashed ? dashPattern(style.lineDash) : null
+  const dash = pattern ? param('stroke-dasharray', pattern.map((n) => round(n * style.strokeWidth)).join(' ')) : ''
+  return `<Stroke>${param('stroke', style.strokeColor)}${param('stroke-width', round(style.strokeWidth))}${param('stroke-opacity', round(style.strokeOpacity))}${param('stroke-linejoin', 'round')}${dash}</Stroke>`
+}
+
+/**
+ * SLD well-known marks. No standard mark is a diamond: it is a square turned
+ * 45 degrees, of the size that puts its corners where QGIS's diamond has them.
+ */
+function mark(shape: MarkerShape, radius: number): { name: string; size: number; rotation: number } {
+  if (shape === 'diamond') return { name: 'square', size: radius * Math.SQRT2, rotation: 45 }
+  return { name: shape, size: radius * 2, rotation: 0 }
 }
 
 function symbolizer(geom: Exclude<StyleGeometry, 'Mixed'>, style: LayerStyle): string {
-  if (geom === 'Polygon') return `<PolygonSymbolizer>${fill(style)}${stroke(style)}</PolygonSymbolizer>`
-  if (geom === 'LineString') return `<LineSymbolizer>${stroke(style)}</LineSymbolizer>`
-  return `<PointSymbolizer><Graphic><Mark><WellKnownName>circle</WellKnownName>${fill(style)}${stroke(style)}</Mark><Size>${round(style.pointRadius * 2)}</Size></Graphic></PointSymbolizer>`
+  if (geom === 'Polygon') return `<PolygonSymbolizer>${fill(style)}${stroke(style, true)}</PolygonSymbolizer>`
+  if (geom === 'LineString') return `<LineSymbolizer>${stroke(style, true)}</LineSymbolizer>`
+  const m = mark(style.markerShape ?? 'circle', style.pointRadius)
+  const rotation = m.rotation ? `<Rotation>${m.rotation}</Rotation>` : ''
+  return `<PointSymbolizer><Graphic><Mark><WellKnownName>${m.name}</WellKnownName>${fill(style)}${stroke(style)}</Mark><Size>${round(m.size)}</Size>${rotation}</Graphic></PointSymbolizer>`
 }
 
 // Mixed layers: one rule per geometry family, filtered with the
@@ -64,8 +79,8 @@ function classFilter(column: string, c: ExportClass, first: boolean): string {
   return `<ogc:And><ogc:${lower}>${prop(column)}${literal(c.lower ?? 0)}</ogc:${lower}><ogc:PropertyIsLessThanOrEqualTo>${prop(column)}${literal(c.upper ?? 0)}</ogc:PropertyIsLessThanOrEqualTo></ogc:And>`
 }
 
-function classStyle(style: LayerStyle, geom: Exclude<StyleGeometry, 'Mixed'>, color: string): LayerStyle {
-  return geom === 'LineString' ? { ...style, strokeColor: color } : { ...style, fillColor: color }
+function classStyle(style: LayerStyle, geom: Exclude<StyleGeometry, 'Mixed'>, c: ExportClass): LayerStyle {
+  return classLayerStyle(style, geom === 'LineString' ? 'line' : geom === 'Point' ? 'marker' : 'fill', c)
 }
 
 /** Thematic rules: one per visible class ("Other" is the ElseFilter), times geometry family for mixed layers. */
@@ -84,7 +99,7 @@ function thematicRules(style: LayerStyle, geometry: StyleGeometry, column: strin
             <Name>${escapeXml(c.label)}</Name>
             <Title>${escapeXml(c.label)}</Title>
             ${filter}${elseFilter}
-            ${symbolizer(f.geom as Exclude<StyleGeometry, 'Mixed'>, classStyle(style, f.geom as Exclude<StyleGeometry, 'Mixed'>, c.color))}
+            ${symbolizer(f.geom as Exclude<StyleGeometry, 'Mixed'>, classStyle(style, f.geom as Exclude<StyleGeometry, 'Mixed'>, c))}
           </Rule>`)
     }
   })
@@ -214,6 +229,35 @@ function ruleColor(rule: Element): string | undefined {
   return c ? rgbToHex(c) : undefined
 }
 
+/** A point mark's shape and radius, px (a square turned 45 degrees is a diamond). */
+function readMark(point: Element, notes: string[]): { shape: MarkerShape; radius?: number } {
+  const wkn = (byLocal(point, 'WellKnownName')[0]?.textContent?.trim() ?? 'circle').toLowerCase()
+  const size = Number(byLocal(point, 'Size')[0]?.textContent?.trim())
+  const rotation = Number(byLocal(point, 'Rotation')[0]?.textContent?.trim() ?? '0') || 0
+  const turned = Math.abs(((rotation % 90) + 90) % 90) === 45
+  const radius = Number.isFinite(size) ? size / 2 : undefined
+  if (byLocal(point, 'ExternalGraphic').length > 0) notes.push('External graphic markers are not supported; a circle was used.')
+  if (wkn === 'square' && turned) return { shape: 'diamond', radius: radius !== undefined ? radius * Math.SQRT2 : undefined }
+  // QGIS writes its own names (cross_fill, cross2) into SLD.
+  if (wkn === 'cross' || wkn === 'cross_fill') return { shape: turned ? 'x' : 'cross', radius }
+  if (wkn === 'x' || wkn === 'cross2') return { shape: turned ? 'cross' : 'x', radius }
+  if (wkn === 'circle' || wkn === 'square' || wkn === 'triangle' || wkn === 'diamond' || wkn === 'star') {
+    if (rotation % 360 !== 0) notes.push(`The marker's ${rotation}° rotation was not imported.`)
+    return { shape: wkn, radius }
+  }
+  notes.push(`The "${wkn}" marker shape was imported as a circle.`)
+  return { shape: 'circle', radius }
+}
+
+/** A rule's symbol size: the marker radius, or the line width; undefined for polygons. */
+function ruleSize(rule: Element): number | undefined {
+  const point = byLocal(rule, 'PointSymbolizer')[0]
+  if (point) return readMark(point, []).radius
+  const line = byLocal(rule, 'LineSymbolizer')[0]
+  const w = line ? Number(readParams(directChild(line, 'Stroke')).get('stroke-width')) : NaN
+  return Number.isFinite(w) ? w : undefined
+}
+
 function ruleLabel(rule: Element): string | undefined {
   return (byLocal(rule, 'Title')[0] ?? byLocal(rule, 'Name')[0])?.textContent?.trim() || undefined
 }
@@ -232,6 +276,7 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
   const seen = new Set<string>()
   if (thematic.some((r) => r.cls?.kind === 'guard')) notes.push('A rule for values below the first class was skipped; such values fall in "Other".')
   const ranges: ImportedRange[] = []
+  const rangeSizes: number[] = []
   const categories: ImportedCategory[] = []
   for (const { rule, cls } of thematic) {
     if (!cls || cls.kind === 'guard') continue
@@ -240,7 +285,11 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
     seen.add(key)
     const color = ruleColor(rule)
     const label = ruleLabel(rule)
-    if (cls.kind === 'range') ranges.push({ lower: cls.lower, upper: cls.upper, color, label })
+    if (cls.kind === 'range') {
+      ranges.push({ lower: cls.lower, upper: cls.upper, color, label })
+      const size = ruleSize(rule)
+      if (size !== undefined) rangeSizes.push(size)
+    }
     else categories.push({ value: cls.kind === 'value' ? cls.value : cls.kind === 'noValue' ? null : undefined, color, label })
   }
   if (ranges.length) {
@@ -250,7 +299,11 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
     if (last.upper === Number.MAX_VALUE) last.upper = last.lower === 0 ? 1 : 10 ** Math.ceil(Math.log10(Math.abs(last.lower) * 10))
     notes.push("SLD doesn't store the classification method; the classes were imported as fixed (Manual).")
     const noValue = categories.find((c) => c.value === null)
-    return graduatedFrom(column, ranges, { noValue })
+    // Ranges drawn at different sizes are size classes (QGIS's GraduatedSize writes them so).
+    const sizes = rangeSizes.length === ranges.length ? rangeSizes : []
+    const size = new Set(sizes).size > 1 ? { min: Math.min(...sizes), max: Math.max(...sizes) } : undefined
+    if (size && new Set(ranges.map((r) => r.color)).size > 1) notes.push('The classes vary both color and size; the sizes were imported and the colors left out.')
+    return graduatedFrom(column, ranges, { noValue, size })
   }
   return categorizedFrom(column, categories)
 }
@@ -288,14 +341,19 @@ export function sldToStyle(text: string): StyleImportResult {
   if (strokeParams.has('stroke')) style.strokeColor = strokeParams.get('stroke')
   if (strokeParams.has('stroke-width')) style.strokeWidth = num(strokeParams.get('stroke-width'))
   if (strokeParams.has('stroke-opacity')) style.strokeOpacity = num(strokeParams.get('stroke-opacity'))
+  // The dash pattern of the line or polygon outline, in any unit (QGIS writes Qt's, in line widths).
+  const lineStroke = readParams((polygon && directChild(polygon, 'Stroke')) || (line && directChild(line, 'Stroke')) || undefined)
+  const dasharray = lineStroke.get('stroke-dasharray')
+  if (dasharray) {
+    const dash = dashFromPattern(dasharray.split(/[\s,]+/).filter(Boolean).map(Number))
+    if (dash) style.lineDash = dash
+  }
   if ((polygon || mark) && !strokeEl) style.strokeWidth = 0
 
   if (point) {
-    const size = num(byLocal(point, 'Size')[0]?.textContent?.trim())
-    if (size !== undefined) style.pointRadius = size / 2
-    const wkn = byLocal(point, 'WellKnownName')[0]?.textContent?.trim()
-    if (wkn && wkn !== 'circle') notes.push(`The "${wkn}" marker shape was imported as a circle.`)
-    if (byLocal(point, 'ExternalGraphic').length > 0) notes.push('External graphic markers are not supported; a circle was used.')
+    const m = readMark(point, notes)
+    if (m.radius !== undefined) style.pointRadius = m.radius
+    style.markerShape = m.shape
   }
 
   if (renderer) {

@@ -19,6 +19,7 @@ import {
 } from './model.js'
 import { toCategory } from './classify.js'
 import { defaultRamp } from './ramps.js'
+import { DEFAULT_SIZE_RANGE } from './symbol.js'
 import { eligibleColumns, valuesOf, type ResolveInput } from './resolve.js'
 
 const TEXTUAL = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i
@@ -271,4 +272,30 @@ export function deleteClass(style: LayerStyle, resolved: ResolvedStyle, key: str
     return { ...style, renderer: { ...m, classCount: Math.max(classes.length, MIN_CLASS_COUNT), classes } }
   }
   return style
+}
+
+/**
+ * A graduated renderer's classes vary the color (ramp) or the size (QGIS
+ * GraduatedSize): marker radius on point layers, line width on line layers,
+ * from a default range that suits the geometry. The classes are kept.
+ */
+export function setGraduatedVary(style: LayerStyle, vary: 'color' | 'size', geometry: 'point' | 'line'): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'graduated' || (r.vary ?? 'color') === vary) return style
+  if (vary === 'color') {
+    const rest = { ...r }
+    delete rest.vary
+    delete rest.sizeMin
+    delete rest.sizeMax
+    return { ...style, renderer: rest }
+  }
+  const range = DEFAULT_SIZE_RANGE[geometry]
+  return { ...style, renderer: { ...r, vary: 'size', sizeMin: r.sizeMin ?? range.min, sizeMax: r.sizeMax ?? range.max } }
+}
+
+/** The smallest and largest class size of a size-graduated renderer, px. */
+export function setSizeRange(style: LayerStyle, sizeMin: number, sizeMax: number): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'graduated' || r.vary !== 'size') return style
+  return { ...style, renderer: { ...r, sizeMin, sizeMax } }
 }

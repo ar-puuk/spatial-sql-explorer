@@ -28,6 +28,16 @@
     setClassVisible,
     setMethod,
     setRamp,
+    setGraduatedVary,
+    setSizeRange,
+    baseSymbol,
+    classSymbols,
+    LINE_DASHES,
+    LINE_DASH_NAMES,
+    MARKER_SHAPES,
+    MARKER_SHAPE_NAMES,
+    type LineDash,
+    type MarkerShape,
     validateStyle,
     previewExportNotice,
     type GeometryType,
@@ -44,6 +54,7 @@
   import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
   import SaveStyleButton from './style/SaveStyleButton.svelte'
+  import SymbolSwatch from './style/SymbolSwatch.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -214,7 +225,38 @@
 
   let hasFill = $derived(geometryType !== 'LineString')
   let hasPoints = $derived(geometryType === 'Point' || geometryType === 'Mixed')
+  let hasLines = $derived(geometryType !== 'Point')
   let strokeLabel = $derived(geometryType === 'LineString' ? 'Line' : 'Outline')
+
+  // --- Size classes (QGIS GraduatedSize): marker size on points, line width on lines.
+  const sizeMode = $derived(renderer.kind === 'graduated' && renderer.vary === 'size')
+  const sizeUnavailable = $derived(geometryType === 'Polygon' ? 'Polygons have no size: size classes are for points and lines.' : null)
+  const sizeGeometry = $derived<'point' | 'line'>(geometryType === 'LineString' ? 'line' : 'point')
+  const sizeSymbols = $derived(sizeMode ? { symbols: classSymbols(style, resolved), kind: sizeGeometry } : null)
+  function chooseVary(vary: 'color' | 'size'): void {
+    if (vary === 'size' && sizeUnavailable) return
+    apply(setGraduatedVary(style, vary, sizeGeometry))
+  }
+  function chooseSize(side: 'min' | 'max', value: number): void {
+    if (renderer.kind !== 'graduated' || !Number.isFinite(value)) return
+    const min = side === 'min' ? value : (renderer.sizeMin ?? value)
+    const max = side === 'max' ? value : (renderer.sizeMax ?? value)
+    apply(setSizeRange(style, min, max))
+  }
+
+  // --- Marker shape and line pattern.
+  const shape = $derived<MarkerShape>(style.markerShape ?? 'circle')
+  const dash = $derived<LineDash>(style.lineDash ?? 'solid')
+  const preview = $derived(baseSymbol(style))
+  function shapeKeydown(e: KeyboardEvent): void {
+    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!dir) return
+    e.preventDefault()
+    const next = MARKER_SHAPES[(MARKER_SHAPES.indexOf(shape) + dir + MARKER_SHAPES.length) % MARKER_SHAPES.length]
+    onChange({ markerShape: next })
+    const group = (e.currentTarget as HTMLElement).closest('[role="radiogroup"]')
+    queueMicrotask(() => group?.querySelector<HTMLElement>(`[data-shape="${next}"]`)?.focus())
+  }
 
   const pct = (n: number): string => `${Math.round(n * 100)}%`
   const numberFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 })
@@ -291,7 +333,7 @@
 
     {#if renderer.kind !== 'single'}
       <section aria-labelledby="style-sec-by">
-        <h3 id="style-sec-by">Color by</h3>
+        <h3 id="style-sec-by">{sizeMode ? 'Size by' : 'Color by'}</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
           <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
@@ -308,6 +350,23 @@
       {#if renderer.kind === 'graduated'}
         <section aria-labelledby="style-sec-classes">
           <h3 id="style-sec-classes">Classification</h3>
+          <div class="row field">
+            <span class="label" id="style-vary-label">Vary</span>
+            <div class="renderers two" role="radiogroup" aria-labelledby="style-vary-label">
+              <button type="button" role="radio" aria-checked={!sizeMode} tabindex={sizeMode ? -1 : 0} title="A color per class, from a ramp" onclick={() => chooseVary('color')}
+                >Color</button
+              >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={sizeMode}
+                tabindex={sizeMode ? 0 : -1}
+                aria-disabled={sizeUnavailable !== null}
+                title={sizeUnavailable ?? (sizeGeometry === 'line' ? 'A line width per class' : 'A marker size per class')}
+                onclick={() => chooseVary('size')}>Size</button
+              >
+            </div>
+          </div>
           <div class="pair">
             <div class="row field">
               <label class="label" for="style-method">Method</label>
@@ -336,20 +395,52 @@
       {/if}
 
       <section aria-labelledby="style-sec-colors">
-        <h3 id="style-sec-colors">Colors</h3>
+        <h3 id="style-sec-colors">{sizeMode ? 'Sizes' : 'Colors'}</h3>
         {#if resolved.status === 'fallback'}
           <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
         {:else}
-          <RampPicker
-            value={renderer.ramp}
-            renderer={renderer.kind}
-            classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
-            onChange={(ramp) => apply(setRamp(style, ramp))}
-            onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
-          />
+          {#if sizeMode && renderer.kind === 'graduated'}
+            <div class="row field">
+              <label class="label" for="style-size-min">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</label>
+              <span class="size-range">
+                <input
+                  id="style-size-min"
+                  class="number"
+                  type="number"
+                  aria-label="Smallest class size"
+                  min="0.5"
+                  max="100"
+                  step="0.5"
+                  value={renderer.sizeMin}
+                  onchange={(e) => chooseSize('min', Number(e.currentTarget.value))}
+                />
+                <span aria-hidden="true">to</span>
+                <input
+                  class="number"
+                  type="number"
+                  aria-label="Largest class size"
+                  min="0.5"
+                  max="100"
+                  step="0.5"
+                  value={renderer.sizeMax}
+                  onchange={(e) => chooseSize('max', Number(e.currentTarget.value))}
+                />
+                <span>px</span>
+              </span>
+            </div>
+          {:else}
+            <RampPicker
+              value={renderer.ramp}
+              renderer={renderer.kind}
+              classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
+              onChange={(ramp) => apply(setRamp(style, ramp))}
+              onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
+            />
+          {/if}
           <ClassList
             {resolved}
             kind={renderer.kind}
+            {sizeSymbols}
             manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
             onColor={(key, color) => apply(setClassColor(style, key, color))}
             onLabel={(key, label) => apply(setClassLabel(style, key, label))}
@@ -381,7 +472,7 @@
       {#if hasFill}
         <div class="row">
           <span class="label" id="fill-label">Fill</span>
-          {#if thematic}
+          {#if thematic && !sizeMode}
             <span class="by-class" title="Class colors come from the classes above">·</span>
           {:else}
             <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
@@ -432,7 +523,39 @@
         <span class="value">{style.strokeWidth} px</span>
       </div>
 
+      {#if hasLines}
+        <div class="row">
+          <label class="label" for="style-dash">Pattern</label>
+          <span class="preview" aria-hidden="true"><SymbolSwatch symbol={{ ...preview, lineWidth: Math.min(Math.max(preview.lineWidth, 1.5), 3) }} kind="line" size={26} /></span>
+          <select id="style-dash" class="span" value={dash} onchange={(e) => onChange({ lineDash: e.currentTarget.value as LineDash })}>
+            {#each LINE_DASHES as d (d)}
+              <option value={d}>{LINE_DASH_NAMES[d]}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
       {#if hasPoints}
+        <div class="row">
+          <span class="label" id="shape-label">Shape</span>
+          <div class="shapes" role="radiogroup" aria-labelledby="shape-label">
+            {#each MARKER_SHAPES as m (m)}
+              <button
+                type="button"
+                role="radio"
+                data-shape={m}
+                aria-checked={shape === m}
+                aria-label={MARKER_SHAPE_NAMES[m]}
+                title={MARKER_SHAPE_NAMES[m]}
+                tabindex={shape === m ? 0 : -1}
+                onclick={() => onChange({ markerShape: m })}
+                onkeydown={shapeKeydown}
+              >
+                <SymbolSwatch symbol={{ ...preview, shape: m, radius: 6, strokeWidth: Math.min(preview.strokeWidth, 1.5), fillOpacity: Math.max(preview.fillOpacity, 0.6) }} kind="point" size={18} />
+              </button>
+            {/each}
+          </div>
+        </div>
         <div class="row">
           <span class="label" id="radius-label">Point size</span>
           <input
@@ -749,6 +872,54 @@
   }
   .row .wide {
     grid-column: 2 / 4;
+  }
+  .row .span {
+    grid-column: 3 / 5;
+  }
+  .preview {
+    display: grid;
+    place-items: center;
+  }
+  .renderers.two {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .size-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--se-text-secondary);
+  }
+  .size-range input.number {
+    width: 64px;
+  }
+  /* Marker shapes: a row of toggles, each drawn in the layer's own colors. */
+  .shapes {
+    grid-column: 2 / 5;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .shapes button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    cursor: pointer;
+  }
+  .shapes button:hover {
+    background: var(--se-control-hover);
+  }
+  .shapes button[aria-checked='true'] {
+    border-color: var(--se-selected-indicator, var(--se-focus));
+    background: var(--se-control-hover);
+  }
+  .shapes button:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
   }
   .label {
     color: var(--se-text-secondary);

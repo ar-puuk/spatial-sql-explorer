@@ -14,3 +14,12 @@
 To regenerate them, run the spike script described in
 `specs/003-thematic-styling/research.md` §1–§3 with
 `C:\OSGeo4W\bin\python-qgis.bat <script> <out-dir>`.
+
+## Symbols (marker shapes, line styles, size classes)
+
+`symbols/` holds files **written by QGIS 4.2.3** with `symbols/make_symbols.py`
+(`C:\OSGeo4W\bin\python-qgis.bat make_symbols.py <out-dir>`): a single
+marker per shape (`pt_<shape>`), a single line per pen style (`ln_<style>`),
+and graduated size renderers (`*_gradsize`: point sizes 2 to 10, line widths
+1 to 5, in QGIS's default millimetres), each as QML and SLD. Only the files
+the tests read are kept.

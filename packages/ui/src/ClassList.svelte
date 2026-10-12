@@ -5,8 +5,9 @@
   // values or the range bounds; changing those fixes the classes (Manual).
   // Arrow Up/Down move between rows, keeping the column.
   import { tick } from 'svelte'
-  import type { ResolvedStyle } from '@spatial-explorer/core'
+  import { markerExtent, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import SymbolSwatch from './style/SymbolSwatch.svelte'
 
   interface Props {
     resolved: ResolvedStyle
@@ -20,8 +21,13 @@
     onBound: (index: number, side: 'lower' | 'upper', value: number) => void
     onAdd: () => void
     onDelete: (key: string) => void
+    /** Size classes: each class's symbol, shown (with its size) in place of a color for the ranges. */
+    sizeSymbols?: { symbols: SymbolSpec[]; kind: 'point' | 'line' } | null
   }
-  let { resolved, kind, manual, onColor, onLabel, onVisible, onValue, onBound, onAdd, onDelete }: Props = $props()
+  let { resolved, kind, manual, onColor, onLabel, onVisible, onValue, onBound, onAdd, onDelete, sizeSymbols = null }: Props = $props()
+  const sizeScale = $derived(
+    sizeSymbols ? Math.min(1, 10 / Math.max(1, ...sizeSymbols.symbols.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2))) : 1
+  )
 
   const nf = new Intl.NumberFormat('en-US')
   let editingValues = $state(false)
@@ -96,7 +102,14 @@
       >
         <Icon name={c.visible ? 'eye' : 'eye-off'} size={14} />
       </button>
-      <input type="color" data-col="color" aria-label={`Color of ${c.label}`} value={c.color} onchange={(e) => onColor(c.key, e.currentTarget.value)} />
+      {#if sizeSymbols && c.size !== undefined}
+        {@const i = resolved.classes.indexOf(c)}
+        <span class="size-swatch" title="{c.size} px" role="img" aria-label="{c.label}: {c.size} px">
+          <SymbolSwatch symbol={sizeSymbols.symbols[i]} kind={sizeSymbols.kind} scale={sizeScale} size={22} />
+        </span>
+      {:else}
+        <input type="color" data-col="color" aria-label={`Color of ${c.label}`} value={c.color} onchange={(e) => onColor(c.key, e.currentTarget.value)} />
+      {/if}
 
       {#if editingValues && c.kind === 'value'}
         <input
@@ -250,6 +263,10 @@
     background: var(--se-input-bg);
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
+  }
+  .size-swatch {
+    display: grid;
+    place-items: center;
   }
   .bounds {
     display: grid;

@@ -3,6 +3,7 @@
 // legend, drawn from the resolved style with canvas calls (not a DOM
 // screenshot), and the basemap's attribution. Data colors are the style's;
 // the legend box is light with dark text whatever the theme, for print.
+import { dashPattern, markerExtent, markerPath, type SymbolSpec } from '@spatial-explorer/core'
 
 export interface LegendSpec {
   title: string
@@ -10,7 +11,7 @@ export interface LegendSpec {
   /** Fill alpha of area and point swatches (lines are opaque). */
   alpha: number
   /** Visible classes, in legend order. */
-  rows: Array<{ color: string; label: string; count?: number }>
+  rows: Array<{ color: string; label: string; count?: number; symbol?: SymbolSpec }>
 }
 
 /** MapView's capture: the current view as a PNG at 1x or 2x the map's size. */
@@ -95,9 +96,14 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
     ty += row
   }
   ctx.font = FONT
+  // Markers keep their relative sizes, shrunk together to fit a row.
+  const reach = Math.max(1, ...rows.map((r) => (r.symbol ? r.symbol.radius * markerExtent(r.symbol.shape) + Math.min(r.symbol.strokeWidth, 3) / 2 : 5)))
+  const scale = Math.min(1, (row / 2 - 1) / reach)
   for (const r of rows) {
     const sy = ty - 11
-    if (legend.shape === 'line') {
+    if (r.symbol) {
+      drawSymbol(ctx, r.symbol, legend.shape, x + pad, sy - 2, sw, scale)
+    } else if (legend.shape === 'line') {
       ctx.strokeStyle = r.color
       ctx.lineWidth = 3
       ctx.beginPath()
@@ -133,6 +139,37 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
     ctx.fillStyle = '#57606a'
     ctx.fillText(`+${more} more`, x + pad + sw + 8, ty)
   }
+}
+
+/** One class's symbol in a `w` x 16 cell at (x, y): the map's shape, size, line width and pattern. */
+function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolSpec, shape: LegendSpec['shape'], x: number, y: number, w: number, scale: number): void {
+  const cy = y + 8
+  ctx.save()
+  if (shape === 'line') {
+    const lw = Math.min(Math.max(s.lineWidth, 1), 8)
+    ctx.strokeStyle = s.lineColor
+    ctx.globalAlpha = Math.max(0.2, s.strokeOpacity)
+    ctx.lineWidth = lw
+    ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * lw) ?? [])
+    ctx.beginPath()
+    ctx.moveTo(x, cy)
+    ctx.lineTo(x + w, cy)
+    ctx.stroke()
+  } else {
+    const outline = Math.min(s.strokeWidth, 3)
+    const path = shape === 'point' ? new Path2D(markerPath(s.shape, Math.max(1.5, s.radius * scale), x + w / 2, cy)) : new Path2D(`M${x} ${y + 2}h${w}v12h${-w}Z`)
+    ctx.globalAlpha = Math.max(0.15, s.fillOpacity)
+    ctx.fillStyle = s.fillColor
+    ctx.fill(path)
+    if (outline > 0) {
+      ctx.globalAlpha = s.strokeOpacity
+      ctx.strokeStyle = s.strokeColor
+      ctx.lineWidth = outline
+      if (shape === 'area') ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * Math.max(outline, 1)) ?? [])
+      ctx.stroke(path)
+    }
+  }
+  ctx.restore()
 }
 
 function drawAttribution(ctx: CanvasRenderingContext2D, text: string, w: number, h: number): void {
