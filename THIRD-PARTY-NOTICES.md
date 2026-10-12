@@ -2,14 +2,17 @@
 
 Spatial Explorer (the VS Code extension and the web app) is licensed under the
 MIT License. It bundles the following third-party software, reproduced here to
-satisfy their license terms.
+satisfy their license terms. Some of it (the DuckDB-Wasm engine files, its
+extensions, sql.js's WebAssembly) is downloaded at runtime instead of being
+redistributed; see "Fetched at runtime, not bundled" at the end.
 
 ---
 
 ## DuckDB-Wasm 1.32.0 (includes DuckDB 1.4.3)
 
-Embedded SQL engine for every file read, as WebAssembly plus its worker script
-(`dist-webview/duckdb/`, `apps/web/public/duckdb/`) and JavaScript bindings.
+Embedded SQL engine for every file read. The JavaScript bindings are bundled;
+the WebAssembly module and its worker script are downloaded at runtime from
+jsDelivr (pinned version, SHA-256 checked) and kept as a local copy.
 Source: https://github.com/duckdb/duckdb-wasm, https://github.com/duckdb/duckdb
 
 ```
@@ -2906,7 +2909,9 @@ SOFTWARE.
 
 ## sql.js 1.14.2 (includes SQLite)
 
-Writes GeoPackage exports. Loaded only when a GeoPackage is exported.
+Writes GeoPackage exports. Its JavaScript is bundled; its WebAssembly is
+downloaded (jsDelivr, pinned, SHA-256 checked) only when a GeoPackage is
+exported, and kept as a local copy.
 Source: https://github.com/sql-js/sql.js. SQLite itself is in the public
 domain (https://sqlite.org/copyright.html).
 
@@ -3007,9 +3012,19 @@ The color ramps in `packages/core/src/style/ramps.ts` are data, not code.
 These are downloaded by the running app and are not redistributed with it.
 They are listed for transparency and attribution.
 
-- **DuckDB spatial extension** (MIT), loaded from `extensions.duckdb.org`. It
-  statically links GDAL (MIT/X), PROJ (MIT) and GEOS (LGPL-2.1).
-  https://github.com/duckdb/duckdb-spatial
+- **DuckDB-Wasm engine files** (MIT, see above): `duckdb-eh.wasm` and its
+  worker, from `cdn.jsdelivr.net` (`@duckdb/duckdb-wasm`, pinned version).
+- **DuckDB extensions** (MIT), from `extensions.duckdb.org`, pinned to the
+  engine's DuckDB release:
+  - **spatial**, which statically links GDAL (MIT/X), PROJ (MIT) and GEOS
+    (LGPL-2.1). https://github.com/duckdb/duckdb-spatial
+  - **parquet** and **json** (part of DuckDB, MIT).
+- **sql.js WebAssembly** (MIT, see above), from `cdn.jsdelivr.net`.
+
+Every engine file above is checked against a SHA-256 recorded at build time
+before it runs, and each app keeps a local copy after the first download (VS
+Code: the extension's storage; web: the browser's Cache Storage).
+
 - **Basemaps:** vector tiles, styles, sprites and glyphs from OpenFreeMap
   (https://openfreemap.org), built from OpenMapTiles (© OpenMapTiles, BSD-3 /
   CC-BY) on OpenStreetMap data (© OpenStreetMap contributors, ODbL 1.0,

@@ -1,58 +1,67 @@
 # Spatial Explorer: Spatial SQL & Map Viewer
 
 Open a geospatial file in VS Code and see it on a map and in an attribute
-table, without opening a desktop GIS.
+table, query it with spatial SQL, style it, and export it, without opening a
+desktop GIS.
+
+Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 
 ## Features
 
 - **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile,
-  GeoParquet and PMTiles open in Spatial Explorer by default. GeoJSON, CSV, Parquet,
-  GML and JSON offer it under **Open With…**, so text viewers aren't
-  replaced. You can also right-click a file and choose
-  **Open in Spatial Explorer**.
+  GeoParquet and PMTiles open in Spatial Explorer by default. GeoJSON, CSV,
+  Parquet, GML and JSON offer it under **Open With…**, so text viewers aren't
+  replaced. You can also right-click a file and choose **Open in Spatial
+  Explorer**. A GeoPackage with several layers lists them, and each one can be
+  shown. No file at hand? Run **Spatial Explorer: Open Sample Data (US
+  Counties)**.
 - **Map and table, in sync.**
-  - Click a feature on the map to select its row and see all of its
-    attributes. Double-click a row to zoom to the feature.
-  - The table can be sorted, its columns resized, and it can be navigated
-    from the keyboard.
-- **Correct positions in any CRS.** The source coordinate system is read
-  from the file and shown in the status bar, and the data is reprojected for
+  - Click a feature to select its row and see all of its attributes;
+    double-click a row to zoom to it.
+  - Choose which columns to show, filter any column from its header, and tick
+    rows to **Zoom to selection** or **Show selected only**.
+  - Sort, resize and navigate the table from the keyboard.
+- **Correct positions in any CRS.** The source coordinate system is read from
+  the file and shown in the status bar, and the data is reprojected for
   display. Files with no CRS are clearly marked as "WGS84 assumed".
-- **Looks like VS Code.** Every color comes from your theme, including
-  high-contrast themes. The basemap follows the theme's light or dark mode.
-  CRS, feature count and cursor coordinates appear in the native status bar.
-- **Basemaps.** OpenFreeMap vector basemaps (Positron, Liberty, Bright,
-  Dark, Fiord) or a blank background in a color you choose. If the network
-  is unavailable, the map falls back to blank and your data still shows.
+- **Map views.** OpenFreeMap vector basemaps (Positron, Liberty, Bright, Dark,
+  Fiord), Satellite, Topographic and OpenStreetMap, or a blank background in a
+  color you choose. Switch to a **globe**, set in a night sky. **Search
+  places** to jump to a city or address.
 - **Thematic maps that QGIS understands.**
-  - Pick a style type and a column, and the map is styled at once: color
-    by category, or by numeric classes (equal interval, quantile, natural
-    breaks). A chart of the column's values shows where the class breaks
-    fall.
-  - Browse color ramps and see each one on the map before you pick it.
-    Opacity, outline and point size apply live, to the map and the legend.
-  - Edit any class's color, label or bounds, or hide it from the map with
-    its legend swatch.
-  - **Save style (QML)** writes `<file>.qml` next to the data, which QGIS
-    loads automatically, and it's applied when you reopen the file.
-    Categorized and graduated styles open in QGIS with the same classes.
-    The arrow next to it saves OGC SLD or Mapbox GL style JSON instead.
-  - Import QGIS QML, OGC SLD, or Mapbox GL style JSON.
-  - Styles follow your queries: classes are recomputed for each result.
-- **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to
-  open the query panel, and query the file as the table `layer` with DuckDB
-  spatial SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the
-  selection. Results go to the map and the table. Autocomplete covers your
-  columns and the spatial functions, errors are underlined where they
-  happen, and recent queries are kept per file.
-- **Export.** Save the displayed result as GeoParquet, GeoJSON or CSV (or
-  Parquet for tables) from the **Export** button above the table, or with
-  **Spatial Explorer: Export Data…**. Exports keep the data's CRS (GeoParquet
-  records it so QGIS reads it correctly) or reproject to WGS84, and a notice
-  lists anything the format changes. The source file is never modified.
-- **Local-first.** Files are read by an embedded DuckDB engine inside the
-  editor and are never uploaded. The network is used only for the DuckDB
-  spatial extension and basemap tiles.
+  - Single, categorized or graduated (equal interval, quantile, natural
+    breaks), with a chart of the column's values and ramps previewed on the
+    map as you browse them.
+  - Layer opacity, fill, outline and point size, live on the map and legend.
+    Edit any class's color, label or bounds, or hide it from its legend
+    swatch.
+  - **3D extrusion**: raise polygons by a numeric column or a constant height,
+    and tilt or rotate the map (right-drag or Shift+arrows).
+  - **Save style (QML)** writes `<file>.qml` next to the data, which QGIS loads
+    automatically, and it's applied when you reopen the file. The arrow next to
+    it saves OGC SLD or Mapbox GL style JSON. **Load…** imports any of the
+    three.
+- **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to open
+  the query panel, and query the file as the table `layer` with DuckDB spatial
+  SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the selection.
+  Results go to the map and the table. Autocomplete covers your columns and the
+  spatial functions, errors are underlined where they happen, and recent
+  queries are kept per file.
+- **Export.** From the **Export** button above the table, or **Spatial
+  Explorer: Export Data…**:
+  - with geometry: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
+    FlatGeobuf, Shapefile (zipped), KML or CSV;
+  - attributes only: CSV, Parquet, Excel workbook or JSON;
+  - all, filtered or selected rows, in the data's CRS or any EPSG CRS from a
+    searchable list, under the file name you choose.
+
+  A notice lists anything the format changes (field renames, reprojection).
+  The source file is never modified.
+- **Map image.** **Export map image…** saves the view as a PNG at 1x or 2x,
+  with the legend and the basemap's attribution.
+- **Looks like VS Code.** Every color comes from your theme, including
+  high-contrast themes. CRS, feature count and cursor coordinates appear in the
+  native status bar.
 
 ## Query examples
 
@@ -91,16 +100,47 @@ Opening can always be cancelled (within 3 s). Running out of memory (the
 engine's limit is 3.1 GB) ends in a message, and the viewer stays usable.
 For very large data, GeoParquet is the best format.
 
-## Notes
-- Output: **View → Output → Spatial Explorer** logs each open and each query
-  with timings.
-- Multi-layer files open their first layer.
-
 ## Supported formats
 
-GeoJSON, GeoPackage, FlatGeobuf, Shapefile (with `.shx`, `.dbf`, `.prj`),
-GeoParquet, Parquet with a WKB geometry column, GML, CSV with
-`lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles
-(view only). See **Large files** for how each is read.
+GeoJSON, GeoPackage (several layers), FlatGeobuf, Shapefile (with `.shx`,
+`.dbf`, `.prj`), GeoParquet, Parquet with a WKB geometry column, GML, CSV with
+`lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles (view
+only). File Geodatabase folders can't be read; the extension offers an
+`ogr2ogr` command to convert one to GeoPackage.
 
-Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
+## Commands
+
+| Command | What it does |
+|---|---|
+| Spatial Explorer: Open in Spatial Explorer | Opens the file (also in the Explorer and editor-tab context menus) |
+| Spatial Explorer: Export Data… | Exports the displayed result |
+| Spatial Explorer: Open Sample Data (US Counties) | Opens a bundled sample, no workspace file needed |
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `spatialExplorer.placeSearch.enabled` | `true` | Shows the place search on the map. Turn it off to hide it. |
+
+## Privacy and network
+
+Your files never leave your machine: they are read by an embedded DuckDB
+engine inside the editor. The network is used only for:
+
+- **The SQL engine, once.** DuckDB-WASM and sql.js from jsDelivr, and the
+  spatial, parquet and json extensions from extensions.duckdb.org, at pinned
+  versions. Each file is checked against a SHA-256 recorded at build time and
+  refused if it doesn't match. A checked copy is kept in the extension's
+  storage, so later starts work offline. Downloads follow VS Code's proxy
+  settings.
+- **Basemap tiles**, from the basemap you pick (or none with Blank).
+- **Place search**, only when you search: the typed text alone is sent to
+  OpenStreetMap Nominatim, after a one-time notice. Turn it off with
+  `spatialExplorer.placeSearch.enabled`.
+
+No telemetry is collected.
+
+## Notes
+
+- **View → Output → Spatial Explorer** logs each open, query and engine
+  download with timings.

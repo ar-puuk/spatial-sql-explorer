@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
+  // GitHub Pages serves the app under /<repo>/ (the deploy workflow sets
+  // BASE_PATH); local dev, preview and tests use the root.
+  base: process.env.BASE_PATH || '/',
   plugins: [svelte()],
   worker: {
     format: 'es'

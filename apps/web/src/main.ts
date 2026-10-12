@@ -8,7 +8,7 @@ import './theme.css'
 // file loads). See scripts/copy-wasm-assets.js's comment: MapLibre's
 // automatic worker-URL detection breaks under both Vite dev and build for
 // this package, so we point it at a statically-served copy explicitly.
-setWorkerUrl('/maplibre/maplibre-gl-worker.mjs')
+setWorkerUrl(`${import.meta.env.BASE_URL}maplibre/maplibre-gl-worker.mjs`)
 
 // Spec 007: test-only thresholds (`?e2e=1&cap=…`), applied before the
 // engine starts (memoryLimit is set at creation). Empty without e2e=1.

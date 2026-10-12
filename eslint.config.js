@@ -98,7 +98,6 @@ export default [
 
   {
     ignores: [
-      'legacy/',
       // Vendored worker/wasm bundles copied from node_modules at build time.
       'apps/web/public/',
       'screenshots/',

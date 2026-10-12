@@ -6,8 +6,8 @@ extension from one codebase. Goal: never open QGIS for basic GIS work.
 Scope is exactly: LOOK (open + view), QUERY (SQL), STYLE (thematic), EXPORT.
 The VS Code extension is the priority target; the web app is the secondary shell.
 
-The repo currently contains the legacy single-page app (tag `legacy-v1`).
-It is being rebuilt, not patched. Use the legacy app only as a feature reference.
+The pre-rebuild single-page app is preserved at tag `legacy-v1` (no longer in the tree).
+Use it only as a feature reference (`git show legacy-v1:js/app.js`, or check out the tag).
 
 ## Explicitly out of scope
 Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb

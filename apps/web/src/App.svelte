@@ -255,7 +255,7 @@
   // `#v1=…` holds the query, style, basemap, projection and view, and the
   // file's name and size; never data or paths. Opening one asks for that
   // file (or opens the sample), then applies what it holds.
-  const SAMPLE_URL = '/sample/us-counties.parquet'
+  const SAMPLE_URL = `${import.meta.env.BASE_URL}sample/us-counties.parquet`
   let sampleFile: File | null = null
   let isSample = false
   let pendingShare = $state.raw<{ state: Partial<ShareState>; dropped: string[] } | null>(null)
