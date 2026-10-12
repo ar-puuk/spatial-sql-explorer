@@ -12,9 +12,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
 
 ## Features
 
-- **Look**: GeoJSON, GeoPackage (several layers), FlatGeobuf, Shapefile,
-  GeoParquet, Parquet, GML, CSV and PMTiles, on a map and in an attribute table
-  kept in sync. Files of several GB load only what's in view. Vector and raster
+- **Look**: GeoJSON, GeoPackage (several layers), SQLite/SpatiaLite (e.g.
+  Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
+  PMTiles, on a map and in an attribute table kept in sync. Files of several GB load only what's in view. Vector and raster
   basemaps, a globe view, place search, and any source CRS.
 - **Query**: DuckDB spatial SQL against the file as the table `layer`, with
   autocomplete and inline errors; results replace the map and the table.

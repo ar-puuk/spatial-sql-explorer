@@ -10,8 +10,8 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 
 - **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile,
   GeoParquet and PMTiles open in Spatial Explorer by default. GeoJSON, CSV,
-  Parquet, GML and JSON offer it under **Open With…**, so text viewers aren't
-  replaced. You can also right-click a file and choose **Open in Spatial
+  Parquet, GML, JSON and SQLite (`.sqlite`, `.db`) offer it under **Open
+  With…**, so text and database viewers aren't replaced. You can also right-click a file and choose **Open in Spatial
   Explorer**. A GeoPackage with several layers lists them, and each one can be
   shown. No file at hand? Run **Spatial Explorer: Open Sample Data (US
   Counties)**.
@@ -93,7 +93,7 @@ similar):
 |---|---|---|
 | GeoParquet / Parquet | In parts, any size | 1.1 GB (6M rows): facts 2 s, overview 4.9 s, city views < 2 s. 5 GB (27M rows): overview 9.5 s, engine memory < 60 MB |
 | FlatGeobuf (with index) | In parts, any size; queries need **Load** (into memory) | 1.45 GB (4M rows): facts 2 s, overview 2.7 s, city views 0.4 s |
-| GeoJSON, Shapefile, CSV, GML, GeoPackage | Read in full, once; announced above 100 MB | 325 MB GeoJSON: ~34 s |
+| GeoJSON, Shapefile, CSV, GML, GeoPackage, SQLite | Read in full, once; announced above 100 MB | 325 MB GeoJSON: ~34 s |
 | PMTiles (vector) | Tiles in view only; view-only | Any size |
 
 Opening can always be cancelled (within 3 s). Running out of memory (the
@@ -102,8 +102,9 @@ For very large data, GeoParquet is the best format.
 
 ## Supported formats
 
-GeoJSON, GeoPackage (several layers), FlatGeobuf, Shapefile (with `.shx`,
-`.dbf`, `.prj`), GeoParquet, Parquet with a WKB geometry column, GML, CSV with
+GeoJSON, GeoPackage (several layers), SQLite and SpatiaLite databases such as
+Cube 7 networks (several layers; attribute tables can be queried by name),
+FlatGeobuf, Shapefile (with `.shx`, `.dbf`, `.prj`), GeoParquet, Parquet with a WKB geometry column, GML, CSV with
 `lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles (view
 only). File Geodatabase folders can't be read; the extension offers an
 `ogr2ogr` command to convert one to GeoPackage.

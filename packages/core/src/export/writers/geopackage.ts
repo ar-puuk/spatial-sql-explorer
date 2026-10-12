@@ -6,7 +6,8 @@
 // loaded only when a GeoPackage is exported, from the shell's own copy of its
 // wasm (never a CDN). Output over GEOPACKAGE_MAX_BYTES stops with a message.
 import type { Geometry } from 'geojson'
-import type { Database, SqlJsStatic } from 'sql.js'
+import type { Database } from 'sql.js'
+import { loadSqlJs } from '../../sqlJs.js'
 import { GEOPACKAGE_MAX_BYTES } from '../formats.js'
 import { bboxOf, toNumber, textOf, toWkb, type ExportRow, type RowWriter, type WriterColumn, type WriterKind } from './common.js'
 
@@ -69,14 +70,6 @@ function sqlValue(kind: WriterKind, v: unknown): string | number | null {
     default:
       return textOf(v)
   }
-}
-
-let sqlJs: Promise<SqlJsStatic> | null = null
-
-/** sql.js, loaded once, with its wasm downloaded and hash-checked (spec 008 research §15). */
-async function loadSqlJs(loadWasm: () => Promise<ArrayBuffer>): Promise<SqlJsStatic> {
-  sqlJs ??= Promise.all([import('sql.js'), loadWasm()]).then(([m, wasmBinary]) => (m.default as unknown as (config: { wasmBinary: ArrayBuffer }) => Promise<SqlJsStatic>)({ wasmBinary }))
-  return sqlJs
 }
 
 export interface GeoPackageOptions {

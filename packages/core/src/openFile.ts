@@ -24,6 +24,7 @@ import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
+import { dropKeyTables, planSqliteSource } from './source/sqlite.js'
 import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
 
 export interface OpenFileDeps {
@@ -43,6 +44,8 @@ function detectStrategy(fileName: string): ReadStrategy {
     lower.endsWith('.fgb') ||
     lower.endsWith('.flatgeobuf') ||
     lower.endsWith('.gpkg') ||
+    lower.endsWith('.sqlite') ||
+    lower.endsWith('.db') ||
     lower.endsWith('.shp') ||
     lower.endsWith('.gml')
   ) {
@@ -145,14 +148,15 @@ async function readerSource(conn: AsyncDuckDBConnection, reader: string, materia
 }
 
 /** Builds the SQL FROM-source expression for a given read strategy. */
-async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string, materialize: boolean, layer: string | null = null): Promise<FromExpr> {
+async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy, vfsPath: string, materialize: boolean, layer: string | null = null, reader?: string): Promise<FromExpr> {
   switch (strategy) {
     case 'st_read': {
       // ST_Read keeps the source's geometry field name: `geom` for most
       // drivers, but e.g. GML exposes `geometryProperty` (a hard-coded `geom`
       // broke every GML file; research.md §9). Use the GEOMETRY-typed column.
-      // Spec 008 US3: one named layer of a file holding several.
-      const fromExpr = await readerSource(conn, layer === null ? `ST_Read('${vfsPath}')` : readLayerSql(vfsPath, layer), materialize)
+      // Spec 008 US3: one named layer of a file holding several. GeoPackage
+      // and SQLite layers come with their own reader (research §16).
+      const fromExpr = await readerSource(conn, reader ?? (layer === null ? `ST_Read('${vfsPath}')` : readLayerSql(vfsPath, layer)), materialize)
       const columns = await describeColumns(conn, fromExpr)
       const geometry = columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY'))
       if (!geometry) throw new Error('This file has no geometry column.')
@@ -343,7 +347,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   const format = formatFromFileName(source.name)
   if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
     throw new Error(
-      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, Shapefile, GML and PMTiles (view only).`
+      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, SQLite/SpatiaLite, Shapefile, GML and PMTiles (view only).`
     )
   }
 
@@ -366,6 +370,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     await conn.cancelSent().catch(() => false)
   })
   let registered: RegisteredSource | null = null
+  /** Files registered beside the source (a GeoPackage read as plain SQLite, research §16). */
+  let extraPaths: string[] = []
   let session: QuerySession | null = null
   let keepRegistered = true
   const detail = { readMode: mode.mode, sizeBytes: source.size, format }
@@ -386,14 +392,57 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
     }
     checkCancelled()
+    // Research §16: GeoPackage and SQLite files are also read by sql.js (their
+    // keys); a file already in memory is copied before the engine takes it,
+    // which is much faster than fetching it again.
+    let sqliteBytes: Uint8Array | null = (format === 'geopackage' || format === 'sqlite') && source.kind === 'bytes' ? source.bytes.slice() : null
     registered = await registerSource(db, source, () => hostAdapter.getFileSource(ref, { whole: true }))
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
-    const layers = strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    let layers = strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    // Research §16: how each GeoPackage / SQLite layer is read, with its feature id restored.
+    let readers = new Map<string, string>()
+    if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
+      const plan = await planSqliteSource({
+        db,
+        conn,
+        format,
+        path: registered.primaryPath,
+        layers,
+        sizeBytes: source.size,
+        wholeBytes: async () => {
+          const kept = sqliteBytes
+          sqliteBytes = null
+          if (kept) return kept
+          const whole = await hostAdapter.getFileSource(ref, { whole: true })
+          if (whole.kind !== 'bytes') throw new Error('The file could not be read into memory.')
+          return whole.bytes
+        },
+        loadSqlWasm: () => loadSqlWasm(duckdbAssets),
+        log: hostAdapter.log?.bind(hostAdapter),
+      })
+      layers = plan.layers
+      readers = plan.readers
+      extraPaths = plan.paths
+      timings.layers = lap()
+    }
+    checkCancelled()
     const multi = layers.length > 1
-    const active = multi ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    const active = layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
-    const ctx: ModeContext = { conn, path: registered.primaryPath, name: source.name, hostAdapter, ref, hooks, detail, checkCancelled, isCancelled: () => hooks.isCancelled?.() ?? false, layer: active }
+    const ctx: ModeContext = {
+      conn,
+      path: registered.primaryPath,
+      name: source.name,
+      hostAdapter,
+      ref,
+      hooks,
+      detail,
+      checkCancelled,
+      isCancelled: () => hooks.isCancelled?.() ?? false,
+      layer: active,
+      reader: active ? readers.get(active.name) : undefined,
+    }
 
     let opened: OpenedTable
     if (mode.mode === 'partial') opened = await openParquetInParts(ctx)
@@ -410,11 +459,11 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     hooks.onPhase?.('facts', detail)
 
     // The initial view IS the default query's result (FR-003, SC-002).
-    session = new QuerySession(db, await db.connect(), table, keepRegistered ? registered.paths : [], hostAdapter.log?.bind(hostAdapter))
+    session = new QuerySession(db, await db.connect(), table, keepRegistered ? [...registered.paths, ...extraPaths] : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
     session.setExportAssets({ loadSqlWasm: () => loadSqlWasm(duckdbAssets) })
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
-    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null)
+    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null, readers)
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -446,6 +495,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // A failed or cancelled whole read leaves nothing behind.
     await conn.query(`DROP TABLE IF EXISTS ${RAW_TABLE}`).catch(() => {})
     if (!session) await conn.query(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`).catch(() => {})
+    if (!session) await dropKeyTables(conn).catch(() => {})
     keepRegistered = false
     if (isOutOfMemory(err)) {
       // FR-014: a clear message; the engine itself survives (research §1).
@@ -460,7 +510,10 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     await conn.close().catch(() => {})
     // Materialized files' bytes are no longer needed: the engine keeps only
     // the table. Files read in parts stay registered until the session ends.
-    if (!keepRegistered) await registered?.drop()
+    if (!keepRegistered) {
+      await registered?.drop()
+      for (const p of extraPaths) await db.dropFile(p).catch(() => {})
+    }
   }
 }
 
@@ -474,8 +527,10 @@ interface ModeContext {
   detail: { readMode: ReadModeKind; sizeBytes: number; format: string }
   checkCancelled: () => void
   isCancelled: () => boolean
-  /** Spec 008 US3: the layer of a multi-layer file being opened, or null (the file's only layer). */
+  /** Spec 008 US3: the layer being opened, or null (a format without a layer list). */
   layer?: FileLayer | null
+  /** How that layer is read, when not a plain ST_Read (research §16). */
+  reader?: string
 }
 
 /**
@@ -484,12 +539,12 @@ interface ModeContext {
  * file's alias or an internal name are skipped (and logged by nobody: the
  * layer list still shows them).
  */
-async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layers: readonly FileLayer[], active: FileLayer | null, alias: string | null): Promise<void> {
+async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layers: readonly FileLayer[], active: FileLayer | null, alias: string | null, readers: ReadonlyMap<string, string>): Promise<void> {
   const taken = new Set<string>(alias ? [alias.toLowerCase()] : [])
   for (const l of layers) {
     if (l === active || layerViewSkipped(l.name, taken)) continue
     taken.add(l.name.toLowerCase())
-    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT * FROM ${readLayerSql(path, l.name)}`)
+    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT * FROM ${readers.get(l.name) ?? readLayerSql(path, l.name)}`)
   }
 }
 
@@ -672,7 +727,7 @@ async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
 async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<OpenedTable> {
   const { conn } = ctx
   ctx.hooks.onPhase?.('reading', ctx.detail)
-  const read = await buildFromExpr(conn, strategy, ctx.path, true, ctx.layer?.name ?? null)
+  const read = await buildFromExpr(conn, strategy, ctx.path, true, ctx.layer?.name ?? null, ctx.reader)
   // A listed layer knows its CRS already (ST_Read_Meta); otherwise ask for the first layer's.
   const srid = read.srid !== undefined ? read.srid : ctx.layer ? ctx.layer.srid : await detectSourceSrid(conn, ctx.path, strategy)
   const crs = resolveCrsInfo(srid)

@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **SQLite and SpatiaLite databases** (`.sqlite`, `.db`), such as Bentley
+  Cube 7 networks: spatial tables open as layers with their CRS, and
+  attribute-only tables (transit modes, tolls, junctions) can be queried by
+  name. In VS Code they open under **Open With…**, so SQLite viewers keep them.
+
+### Fixed
+
+- **GeoPackage layers whose feature ids don't run 1..N** (for example a
+  subset exported with its original ids) failed to open: the map stayed grey,
+  or showed the basemap without data, with "thread constructor failed". They
+  now open.
+- **Feature ids are kept**: a GeoPackage's `fid` and a SQLite table's integer
+  primary key (a Cube node's `n`) are columns again; they were dropped.
+
 ## [0.1.0] - 2026-10-11
 
 The first release of the VS Code extension (VS Code Marketplace and Open VSX)

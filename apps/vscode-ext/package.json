@@ -93,6 +93,12 @@
           },
           {
             "filenamePattern": "*.gml"
+          },
+          {
+            "filenamePattern": "*.sqlite"
+          },
+          {
+            "filenamePattern": "*.db"
           }
         ],
         "priority": "option"
@@ -122,7 +128,7 @@
       "explorer/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml)$/i && !explorerResourceIsFolder",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i && !explorerResourceIsFolder",
           "group": "navigation@20"
         },
         {
@@ -134,21 +140,21 @@
       "editor/title/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml)$/i",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i",
           "group": "1_open@20"
         }
       ],
       "editor/title": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml)$/i && activeEditor == workbench.editors.files.textFileEditor",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i && activeEditor == workbench.editors.files.textFileEditor",
           "group": "navigation@20"
         }
       ],
       "commandPalette": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml)$/i"
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i"
         },
         {
           "command": "spatialExplorer.exportData",

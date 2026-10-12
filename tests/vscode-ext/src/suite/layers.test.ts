@@ -3,7 +3,7 @@
 import * as assert from 'assert'
 import * as path from 'path'
 import * as vscode from 'vscode'
-import { openAndWait } from './query.test'
+import { openAndWait, run } from './query.test'
 
 interface TableState {
   layers: Array<{ name: string; geometryType: string | null; featureCount: number | null }>
@@ -44,6 +44,32 @@ suite('Spec 008 US3: layers in VS Code', () => {
     await vscode.commands.executeCommand('spatialExplorer._switchLayer', 'city points')
     const after = await waitFor((x) => x.activeLayer === 'city points' && x.rowCount === 3, 'did not switch')
     assert.strictEqual(after.layers.length, 3)
+  })
+
+  // Research §16: a layer whose feature ids don't run 1..N failed with "thread constructor failed".
+  test('a GeoPackage layer with ids that do not start at 1 opens, with its fid', async function () {
+    this.timeout(90000)
+    await openAndWait('gapped-ids.gpkg', 'spatialExplorer.editor')
+    const s = await waitFor((x) => x.layers.length === 3 && x.rowCount === 12, 'zones did not open')
+    assert.strictEqual(s.activeLayer, 'zones')
+    assert.strictEqual((await run('SELECT * FROM layer WHERE fid BETWEEN 101 AND 123'))?.rowCount, 12)
+    assert.strictEqual((await run('SELECT * FROM notes WHERE fid IN (7, 9, 11)'))?.rowCount, 3)
+  })
+
+  test('a SQLite network (Cube 7 shape) opens with its node numbers and tables', async function () {
+    this.timeout(90000)
+    await openAndWait('cube-network.sqlite', 'spatialExplorer.editorOption')
+    const s = await waitFor((x) => x.layers.length === 3 && x.rowCount === 8, 'nodes did not open')
+    assert.deepStrictEqual(
+      s.layers.map((l) => [l.name, l.geometryType, l.featureCount]),
+      [
+        ['cubedb__BY__node', 'Point', 8],
+        ['cubedb__BY__link', 'LineString', 8],
+        ['cubedb__BY__transit_mode', null, 3],
+      ]
+    )
+    assert.strictEqual((await run('SELECT * FROM layer WHERE n IN (10, 105, 106)'))?.rowCount, 3)
+    assert.strictEqual((await run('SELECT l.* FROM cubedb__BY__link l JOIN layer f ON f.n = l.a'))?.rowCount, 8)
   })
 
   test('a .gdb folder gets the "not supported" message with a conversion hint', async function () {
