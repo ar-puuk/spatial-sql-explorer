@@ -147,7 +147,7 @@ widths, and two legend groups (quickstart scenario 1).
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] Create `tests/core/style-channels.test.ts` (failing
+- [X] T007 [P] [US1] Create `tests/core/style-channels.test.ts` (failing
   first):
   - `resolveStyle` with a classed size channel gives `resolved.size`
     classes, with `size` from `classSizes`, the counts, No value, and the
@@ -166,7 +166,7 @@ widths, and two legend groups (quickstart scenario 1).
     `markerIconIds` are drawn at the largest radius.
   - A style without `size` gives deep-equal paint, layout, filter and
     resolved output to a snapshot taken before this phase.
-- [ ] T008 [P] [US1] Create `tests/web/specs/style-channels.spec.ts`
+- [X] T008 [P] [US1] Create `tests/web/specs/style-channels.spec.ts`
   (failing first) on `roads-traffic.geojson`:
   - the Size section switch "Size by column" (name per `contracts/ui.md`);
   - choosing `aadt` gives 5 size rows in a legend group titled
