@@ -538,7 +538,7 @@ hidden (quickstart scenario 4).
 bivariate) and in QGIS (the same 9 colors), and export SLD and Mapbox with
 their notices (quickstart scenario 5).
 
-- [ ] T044 [P] [US5] Add bivariate interchange tests in
+- [X] T044 [P] [US5] Add bivariate interchange tests in
   `tests/core/style-bivariate.test.ts`:
   - QML: `type="RuleRenderer"`, 9 cell rules (fewer for small grids) with
     the filters in `interchange-mapping.md`, `checkstate="0"` for hidden

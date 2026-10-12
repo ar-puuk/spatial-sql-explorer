@@ -11,7 +11,10 @@ import {
   DEFAULT_LAYER_STYLE,
   bivariateColor,
   classOf,
+  exportStyle,
+  importStyle,
   paintFor,
+  previewExportNotice,
   resolveStyle,
   rendererOf,
   setBivariateAxis,
@@ -209,5 +212,64 @@ describe('bivariate palettes (research §8)', () => {
       expect(lab(rgb(p.cells[0]))[0], p.id).toBeGreaterThan(lab(rgb(p.cells[4]))[0])
       expect(lab(rgb(p.cells[4]))[0], p.id).toBeGreaterThan(lab(rgb(p.cells[8]))[0])
     }
+  })
+})
+
+describe('bivariate style files (US5)', () => {
+  const columns = counties.columns
+  const exportAs = (style: LayerStyle, format: 'qml' | 'sld' | 'mapbox') => exportStyle(style, format, 'Polygon', 'counties.geojson', resolveStyle(style, counties), columns)
+
+  it('QML: a QGIS rule-based renderer, one rule per cell (hidden ones unchecked) and No value; reloads as bivariate', () => {
+    const style = setCellVisible(bivariate(), 'cell:2-1', false)
+    const r = resolveStyle(style, counties)
+    const qml = exportAs(style, 'qml').text
+    expect(qml).toContain('type="RuleRenderer"')
+    const rules = [...qml.matchAll(/<rule ([^>]*)\/>/g)].map((m) => m[1])
+    expect(rules).toHaveLength(10)
+    const x0 = r.grid?.x.ranges[0]
+    const y0 = r.grid?.y.ranges[0]
+    expect(rules[0]).toContain(`filter="&quot;poverty&quot; &gt;= ${x0?.lower} AND &quot;poverty&quot; &lt;= ${x0?.upper} AND &quot;obesity&quot; &gt;= ${y0?.lower} AND &quot;obesity&quot; &lt;= ${y0?.upper}"`)
+    expect(rules[1]).toContain(`&quot;poverty&quot; &gt; ${r.grid?.x.ranges[1].lower}`)
+    expect(rules.filter((x) => x.includes('checkstate="0"'))).toHaveLength(1)
+    expect(rules[2 + 3 * 1]).toContain('checkstate="0"')
+    expect(rules[9]).toContain('filter="&quot;poverty&quot; IS NULL OR &quot;obesity&quot; IS NULL"')
+    expect(qml).toContain('name="spatialExplorer/bivariate"')
+    const back = importStyle('x.qml', qml)
+    expect(back.style.renderer).toEqual(style.renderer)
+    expect(back.notes).toEqual([])
+  })
+
+  it('a QGIS rule-based style this product did not write keeps the first-symbol fallback', () => {
+    const qml = exportAs(bivariate(), 'qml').text.replace(/\s*<Option name="spatialExplorer\/bivariate"[^>]*\/>/, '')
+    const back = importStyle('x.qml', qml)
+    expect(rendererOf(back.style).kind).toBe('single')
+    expect(back.notes.join()).toMatch(/RuleRenderer/)
+  })
+
+  it('SLD: one rule per visible cell, plus No value; notices; reloads as the single symbol', () => {
+    const style = setCellVisible(bivariate(), 'cell:0-0', false)
+    const r = resolveStyle(style, counties)
+    const sld = exportAs(style, 'sld')
+    expect(sld.text.match(/<Rule>/g)).toHaveLength(9) // 8 visible cells + No value
+    expect(sld.notes.join()).toMatch(/hidden/)
+    const preview = previewExportNotice(style, 'sld', r).items.join()
+    expect(preview).toMatch(/SLD has no bivariate palette/)
+    const back = importStyle('x.sld', sld.text)
+    expect(rendererOf(back.style).kind).toBe('single')
+    expect(back.notes.join()).toMatch(/Classes on two columns/)
+  })
+
+  it('Mapbox GL: the viewer colors and hidden-cell filter; metadata round trip', () => {
+    const style = setCellVisible(bivariate(), 'cell:1-1', false)
+    const r = resolveStyle(style, counties)
+    const doc = JSON.parse(exportAs(style, 'mapbox').text)
+    const fill = doc.layers.find((l: { type: string }) => l.type === 'fill')
+    const viewer = paintFor(style, r, '#000').fill['fill-color']
+    const filter = visibilityFilter(style, r)
+    for (const f of counties.features) {
+      expect(evaluate(fill.paint['fill-color'], f.attributes, 'layers[0].paint.fill-color')).toBe(evaluate(viewer, f.attributes, 'layers[0].paint.fill-color'))
+      expect(evaluate(fill.filter, f.attributes, 'layers[0].filter')).toBe(evaluate(['all', ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false], filter], f.attributes, 'layers[0].filter'))
+    }
+    expect(importStyle('x.json', JSON.stringify(doc)).style.renderer).toEqual(style.renderer)
   })
 })
