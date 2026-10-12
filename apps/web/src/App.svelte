@@ -382,7 +382,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="shell" ondragover={handleDragOver} ondragleave={() => (isDragOver = false)} ondrop={handleDrop}>
   <header class="app-header">
-    <h1 class="brand"><span class="glyph" aria-hidden="true">⬡</span>Spatial Explorer</h1>
+    <h1 class="brand"><img class="glyph" src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width="20" height="20" />Spatial Explorer</h1>
     {#if fileName && !idleState}
       <span class="file" title={fileName}><Icon name="file" size={14} />{fileName}</span>
     {/if}
@@ -472,8 +472,10 @@
     white-space: nowrap;
   }
   .glyph {
-    font-size: 16px;
-    letter-spacing: 0;
+    display: block;
+    width: 20px;
+    height: 20px;
+    flex: none;
   }
   .file {
     display: inline-flex;

@@ -20,7 +20,9 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
 
 ## Product decisions (already made)
 - Name: Spatial Explorer. Marketplace display name pattern: "Spatial Explorer: Spatial SQL & Map Viewer"
-  (keywords in the display name; id/publisher TBD). Publish to VS Code Marketplace AND Open VSX.
+  (keywords in the display name). Extension ID `arpuuk.spatial-explorer` (publisher `arpuuk`, as omx-viewer).
+  Publish to VS Code Marketplace AND Open VSX (.github/workflows/publish-extension.yml, manual run only).
+  Logo: a globe in SQL square brackets, apps/vscode-ext/icon.svg (icon.png rendered from it; web favicon).
 - DuckDB runs as DuckDB-WASM inside the webview (NOT native in the extension host).
   Use the single-threaded bundle (no SharedArrayBuffer; coi-serviceworker is not usable in VS Code webviews).
   Not bundled (user decision 2026-10-11, constitution v1.2.0): DuckDB-WASM, its extensions (spatial, parquet,
