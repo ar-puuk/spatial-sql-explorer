@@ -4,6 +4,7 @@
 // SHA-256 recorded at build time (scripts/engine-assets.mjs) before it runs.
 // A file that doesn't match is refused, never executed.
 import assets from './engineAssets.json'
+import type { HostAdapter } from './hostAdapter.js'
 
 export const ENGINE_ASSETS = assets
 export type ExtensionName = keyof typeof assets.extensions.files
@@ -12,6 +13,13 @@ export type ExtensionName = keyof typeof assets.extensions.files
 export interface EngineSource {
   /** e.g. `/engine-mirror`: `https://cdn.jsdelivr.net/npm/…` → `<mirror>/npm/…`, `https://extensions.duckdb.org/…` → `<mirror>/extensions/…`. */
   mirror?: string
+  /** The host's local copy (offline after first use); without it, every start downloads. */
+  host?: Pick<HostAdapter, 'engineFile' | 'pruneEngineFiles'>
+}
+
+/** Every engine file's SHA-256: what a host keeps (anything else is an old version). */
+export function engineHashes(): string[] {
+  return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256)]
 }
 
 const CDN_HOSTS = ['cdn.jsdelivr.net', 'extensions.duckdb.org']
@@ -44,6 +52,29 @@ async function sha256(buf: ArrayBuffer): Promise<string> {
  */
 export async function fetchVerified(url: string, expected: string, label: string, source: EngineSource = {}): Promise<ArrayBuffer> {
   const from = engineUrl(url, source)
+  const host = source.host
+  if (host?.engineFile) {
+    // The host's local copy (downloaded once from the same URL). Its hash is
+    // checked here too; a copy that doesn't match is replaced once.
+    const file = { name: from.split('/').pop() ?? label, url: from, sha256: expected }
+    for (const refresh of [false, true]) {
+      let buf: ArrayBuffer
+      try {
+        buf = await host.engineFile(file, { refresh })
+      } catch (err) {
+        // The host's own download names the file; the message uses the friendly label.
+        if (err instanceof EngineLoadError) throw new EngineLoadError(err.message.split(file.name).join(label), err.kind)
+        throw new EngineLoadError(`Spatial Explorer could not download its SQL engine (${label}): ${err instanceof Error ? err.message : String(err)}. The first start needs an internet connection to ${CDN_HOSTS.join(' and ')}; after that it works offline.`, 'network')
+      }
+      if ((await sha256(buf)) === expected) return buf
+    }
+    throw new EngineLoadError(`Spatial Explorer refused to run its SQL engine: ${label} from ${new URL(from, globalThis.location?.href ?? 'http://localhost/').host} does not match the expected file, even after downloading it again.`, 'integrity')
+  }
+  return fetchFromNetwork(from, expected, label)
+}
+
+/** The download itself, checked; also what web hosts use to fill their local copy. */
+export async function fetchFromNetwork(from: string, expected: string, label: string): Promise<ArrayBuffer> {
   let res: Response
   try {
     res = await fetch(from, { credentials: 'omit' })

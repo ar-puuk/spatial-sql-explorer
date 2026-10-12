@@ -39,7 +39,8 @@ async function main(): Promise<void> {
   signalReady()
 
   const hostAdapter = createVsCodeHostAdapter()
-  const duckdbAssets = await getDuckDbAssets()
+  // Spec 008 research §15: the extension host keeps the engine's local copy (offline after first use).
+  const duckdbAssets = { ...(await getDuckDbAssets()), host: hostAdapter }
   const fileName = await getPrimaryFileName()
   const store = createViewerStore(hostAdapter, duckdbAssets)
   // The asset URLs arrive before the file's bytes do: start DuckDB + spatial
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string; column?: string; filter?: unknown; hidden?: unknown }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string; column?: string; filter?: unknown; hidden?: unknown; scale?: number }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
       // with the whole text selected. (Spec 007 removed the large-result prompt.)

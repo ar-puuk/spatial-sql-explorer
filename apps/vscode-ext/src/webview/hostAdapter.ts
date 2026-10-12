@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -279,6 +279,19 @@ export function createVsCodeHostAdapter(): HostAdapter {
   return {
     getTheme(): ThemeKind {
       return detectTheme()
+    },
+    // Spec 008 research §15: the extension host downloads each engine file once
+    // (from the same pinned URL), checks its hash and keeps it in its global
+    // storage; the webview reads the local copy. The core checks the hash again.
+    async engineFile(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer> {
+      const result = await request<{ uri?: string; error?: string }>({ type: 'engineFile', name: file.name, url: file.url, sha256: file.sha256, refresh: options?.refresh === true })
+      if (!result.uri) throw new Error(result.error ?? 'the extension could not download it')
+      const res = await fetch(result.uri)
+      if (!res.ok) throw new Error(`the local copy could not be read (${res.status})`)
+      return res.arrayBuffer()
+    },
+    async pruneEngineFiles(keep: string[]): Promise<void> {
+      post({ type: 'pruneEngineFiles', keep })
     },
     getPreference(key: 'placeSearch.enabled'): boolean | undefined {
       return key === 'placeSearch.enabled' ? placeSearchEnabled : undefined

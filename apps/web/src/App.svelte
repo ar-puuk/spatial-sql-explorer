@@ -12,8 +12,9 @@
   // Spec 008 research §15: the engine is downloaded from pinned URLs and
   // hash-checked (core engineAssets.ts); test builds serve the same files
   // from the app's own origin (VITE_ENGINE_MIRROR).
-  const duckdbAssets = { mirror: (import.meta.env.VITE_ENGINE_MIRROR as string | undefined) || undefined }
   const hostAdapter = createWebHostAdapter()
+  // The host keeps a local copy (Cache Storage): offline after the first start.
+  const duckdbAssets = { mirror: (import.meta.env.VITE_ENGINE_MIRROR as string | undefined) || undefined, host: hostAdapter }
 
   // Spec 008 FR-022: the theme choice (System follows the OS), remembered.
   let themePreference = $state<ThemePreference>('system')

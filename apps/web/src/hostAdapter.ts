@@ -1,7 +1,7 @@
 // Web implementation of HostAdapter (T031). Reads file bytes directly via
 // the File/Blob API — no message-passing boundary to cross, unlike the VS
 // Code implementation (apps/vscode-ext/src/webview/hostAdapter.ts).
-import type { FileSource, HostAdapter, OpenedFileRef, SaveOptions, SaveResult, StatusFields, ThemeKind } from '@spatial-explorer/core'
+import { fetchFromNetwork, type EngineFileRef, type FileSource, type HostAdapter, type OpenedFileRef, type SaveOptions, type SaveResult, type StatusFields, type ThemeKind } from '@spatial-explorer/core'
 
 const fileMap = new Map<string, File[]>()
 
@@ -68,6 +68,41 @@ export function provideFiles(files: File[]): void {
 /** e2e (spec 007 T053): range reads served, to show PMTiles is never read whole. */
 export const rangeReads = { count: 0, bytes: 0, largest: 0 }
 
+// Spec 008 research §15: the SQL engine's local copy, in Cache Storage (not
+// the HTTP cache, which the browser evicts freely). Keyed by content hash.
+const ENGINE_CACHE = 'spatial-explorer-engine'
+const engineKey = (sha256: string, name: string): string => `${location.origin}/__engine/${sha256}/${name}`
+let persistAsked = false
+
+async function engineFile(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer> {
+  // No Cache Storage (an insecure context, a locked-down browser): download every time.
+  if (typeof caches === 'undefined') return fetchFromNetwork(file.url, file.sha256, file.name)
+  const cache = await caches.open(ENGINE_CACHE)
+  const key = engineKey(file.sha256, file.name)
+  if (options?.refresh) await cache.delete(key)
+  else {
+    const hit = await cache.match(key)
+    if (hit) return hit.arrayBuffer()
+  }
+  const bytes = await fetchFromNetwork(file.url, file.sha256, file.name)
+  await cache.put(key, new Response(bytes.slice(0), { headers: { 'Content-Type': 'application/octet-stream' } })).catch(() => {})
+  if (!persistAsked) {
+    // Ask the browser not to clear it under storage pressure (it may say no).
+    persistAsked = true
+    void navigator.storage?.persist?.().catch(() => false)
+  }
+  return bytes
+}
+
+async function pruneEngineFiles(keep: string[]): Promise<void> {
+  if (typeof caches === 'undefined') return
+  const cache = await caches.open(ENGINE_CACHE)
+  for (const req of await cache.keys()) {
+    const sha = new URL(req.url).pathname.split('/')[2]
+    if (!keep.includes(sha)) await cache.delete(req)
+  }
+}
+
 export function createWebHostAdapter(): HostAdapter {
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
     // An explicit Light or Dark choice ignores the OS.
@@ -77,6 +112,8 @@ export function createWebHostAdapter(): HostAdapter {
   })
 
   return {
+    engineFile,
+    pruneEngineFiles,
     getTheme(): ThemeKind {
       return detectTheme()
     },
