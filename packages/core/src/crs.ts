@@ -27,6 +27,14 @@ export function reprojectToWgs84Sql(geometryColumn: string, sourceSrid: number |
 }
 
 /**
+ * Spec 010: the geometry in Web Mercator (EPSG:3857), for vector tiles (ST_AsMVTGeom).
+ * A null source is WGS84, assumed or real, as in reprojectToWgs84Sql.
+ */
+export function toWebMercatorSql(geometryColumn: string, sourceSrid: number | null): string {
+  return `ST_Transform(${geometryColumn}, 'EPSG:${sourceSrid ?? 4326}', 'EPSG:3857', always_xy := true)`
+}
+
+/**
  * Spec 008: the geometry in another EPSG CRS (export to a CRS the user
  * chose). The source is the result's CRS (null: WGS84, assumed or real).
  */

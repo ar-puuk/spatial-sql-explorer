@@ -1,3 +1,7 @@
 export * from './viewport.js'
 export * from './pages.js'
 export * from './stats.js'
+export * from './drawMode.js'
+export * from './tiles.js'
+export * from './features.js'
+export * from './featureBatches.js'

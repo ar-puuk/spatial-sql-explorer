@@ -67,11 +67,12 @@ function overlaps(box: Bbox, x0: string, y0: string, x1: string, y1: string): st
   return `${x0} <= ${num(box[2])} AND ${x1} >= ${num(box[0])} AND ${y0} <= ${num(box[3])} AND ${y1} >= ${num(box[1])}`
 }
 
-const hiddenOverlap = (box: Bbox): string => overlaps(box, '__se_xmin', '__se_ymin', '__se_xmax', '__se_ymax')
+/** Bbox-overlap predicate on the relation's hidden bbox columns (spec 010: tiles use it too). */
+export const hiddenOverlap = (box: Bbox): string => overlaps(box, '__se_xmin', '__se_ymin', '__se_xmax', '__se_ymax')
 const tableOverlap = (box: Bbox): string => overlaps(box, 'xmin', 'ymin', 'xmax', 'ymax')
 
 /** Rows of the relation whose bbox meets the view, as `(rn, xmin, ymin, xmax, ymax)` (not for `fgb`). */
-function candidates(t: ViewTarget, box: Bbox): string {
+export function candidates(t: ViewTarget, box: Bbox): string {
   if (t.index === 'bbox-table') return `SELECT rn, xmin, ymin, xmax, ymax FROM __se_bbox WHERE ${tableOverlap(box)}${t.narrowed ? ` AND rn IN (SELECT __se_rowid FROM ${t.relation})` : ''}`
   return `SELECT __se_rowid AS rn, __se_xmin AS xmin, __se_ymin AS ymin, __se_xmax AS xmax, __se_ymax AS ymax FROM ${t.relation} WHERE ${hiddenOverlap(box)}`
 }
@@ -140,7 +141,8 @@ function featureSelect(t: ViewTarget, minSize?: number, rowid = '__se_rowid'): s
   return [...t.attrs.map(quoteIdent), rowid === '__se_rowid' ? rowid : `${rowid} AS __se_rowid`, `ST_AsGeoJSON(${reprojectToWgs84Sql(g, t.srid)}) AS __se_geojson`].join(', ')
 }
 
-const validGeometry = (g: string, allValid = false): string => (allValid ? `${g} IS NOT NULL` : `${g} IS NOT NULL AND ST_IsValid(${g})`)
+/** Rows whose geometry can be drawn (spec 010: tiles and the one-time GeoJSON load use it too). */
+export const validGeometry = (g: string, allValid = false): string => (allValid ? `${g} IS NOT NULL` : `${g} IS NOT NULL AND ST_IsValid(${g})`)
 
 /** Every feature in the view (when the count is at or below the cap). */
 export function viewFeaturesSql(t: ViewTarget, box: Bbox, cap: number, minSize?: number): string {

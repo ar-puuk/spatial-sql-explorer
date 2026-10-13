@@ -104,6 +104,7 @@ export function writeSquares(): string {
  * - `jenksSample=<n>`: natural-breaks sample size;
  * - `memoryLimit=<size>`: engine memory limit (out-of-memory tests);
  * - `slowViewMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests.
+ * - `tileRows=<n>`: results with at least this many rows are drawn as tiles (spec 010).
  */
 export async function openFixture(page: Page, name: string, search = '?e2e=1'): Promise<void> {
   await openFile(page, fixture(name), search)

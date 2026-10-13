@@ -3,6 +3,7 @@
 // live here with the measurement that set them; tests may override them only
 // through `?e2e=1` (setTestOverrides), never in production.
 import type { ReadModeKind } from '../models.js'
+import { TILE_ROWS } from '../view/drawMode.js'
 
 export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'xlsx' | 'pmtiles'
 
@@ -103,12 +104,16 @@ export interface TestOverrides {
   jenksSample?: number
   memoryLimit?: string
   slowViewMs?: number
+  /** Spec 010: an artificial delay before each engine tile (loading-cue tests). */
+  slowTileMs?: number
+  /** Spec 010: results with at least this many rows are drawn as tiles (TILE_ROWS). */
+  tileRows?: number
   /** `true`: a 3 s cancellable pause in the open; `'stuck'`: an 8 s pause that ignores Cancel, like a GDAL parse. */
   slowParse?: boolean | 'stuck'
 }
 
 /** Query-string keys honored with `e2e=1` (documented in tests/web/specs/helpers.ts). */
-export const TEST_OVERRIDE_KEYS = ['cap', 'wholeThreshold', 'wholeBytes', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowViewMs', 'slowParse'] as const
+export const TEST_OVERRIDE_KEYS = ['cap', 'wholeThreshold', 'wholeBytes', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowViewMs', 'slowParse', 'tileRows', 'slowTileMs'] as const
 
 let overrides: TestOverrides = {}
 
@@ -125,7 +130,7 @@ export function parseTestOverrides(search: string): TestOverrides {
   const params = new URLSearchParams(search)
   if (!params.has('e2e')) return {}
   const out: TestOverrides = {}
-  const num = (key: 'cap' | 'wholeThreshold' | 'wholeBytes' | 'materializeCap' | 'jenksSample' | 'slowViewMs'): void => {
+  const num = (key: 'cap' | 'wholeThreshold' | 'wholeBytes' | 'materializeCap' | 'jenksSample' | 'slowViewMs' | 'tileRows' | 'slowTileMs'): void => {
     const v = params.get(key)
     if (v !== null && /^\d+$/.test(v)) out[key] = Number(v)
   }
@@ -134,6 +139,8 @@ export function parseTestOverrides(search: string): TestOverrides {
   num('wholeBytes')
   num('materializeCap')
   num('jenksSample')
+  num('tileRows')
+  num('slowTileMs')
   const mem = params.get('memoryLimit')
   if (mem && /^\d+(\.\d+)?\s*(KB|MB|GB|KiB|MiB|GiB)$/i.test(mem)) out.memoryLimit = mem
   num('slowViewMs')
@@ -150,6 +157,11 @@ export function viewCapFor(readMode: ReadModeKind): number {
 /** The materialize cap in effect (MATERIALIZE_CAP unless overridden in a test). */
 export function materializeCap(): number {
   return overrides.materializeCap ?? MATERIALIZE_CAP
+}
+
+/** Spec 010: the row count from which results are drawn as tiles (TILE_ROWS unless overridden in a test). */
+export function tileRows(): number {
+  return overrides.tileRows ?? TILE_ROWS
 }
 
 /** The natural-breaks sample size in effect. */

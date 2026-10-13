@@ -59,6 +59,10 @@ import {
   tileMeetsExtent,
   type ViewTarget,
 } from '../view/viewport.js'
+import { drawModeFor, type DrawMode } from '../view/drawMode.js'
+import { allFeaturesSql } from '../view/features.js'
+import { featureCollector } from '../view/featureBatches.js'
+import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
 
 /** contracts/query-service.md */
 export interface RunRequest {
@@ -207,10 +211,11 @@ export class WorkPreemptedError extends Error {
 /**
  * What holds the engine (spec 007 FR-007):
  * - `view`: a map view, interrupted by anything;
+ * - `tile`: one vector tile of a big result (spec 010), the same as a view;
  * - `background`: table pages, style statistics, a feature by id; interrupted by user work;
  * - `work`: user work (a query, an export) and everything else; never interrupted.
  */
-export type EngineWorkKind = 'view' | 'background' | 'work'
+export type EngineWorkKind = 'view' | 'tile' | 'background' | 'work'
 
 /** A view row (attributes, `__se_rowid`, `__se_geojson`) as a map Feature. */
 function toViewFeature(row: Record<string, unknown>): Feature {
@@ -424,13 +429,13 @@ export class QuerySession {
     // statistics) never blocks user work, and retries after (spec 007 FR-007).
     // Views wait for background work: they fire on every pan and the preview,
     // and would otherwise keep a style from ever finishing.
-    const interruptible = (): boolean => this.inFlightKind === 'view' || (kind === 'work' && this.inFlightKind === 'background')
+    const interruptible = (): boolean => this.inFlightKind === 'view' || this.inFlightKind === 'tile' || (kind === 'work' && this.inFlightKind === 'background')
     while (this.inFlight && interruptible()) {
       this.preemptInFlight?.()
       await this.cancel()
     }
     if (this.inFlight) {
-      if (kind === 'view') throw new ViewSkippedError()
+      if (kind === 'view' || kind === 'tile') throw new ViewSkippedError()
       throw new Error('A query is already running.')
     }
     this.cancelRequested = false
@@ -475,6 +480,7 @@ export class QuerySession {
       this.filterWhere = where
       this.matchingRows = null
       this.pages.clear()
+      this.dataVersion++
     }
     return parsed
   }
@@ -508,6 +514,7 @@ export class QuerySession {
       this.selectedOnlyWhere = where
       this.matchingRows = null
       this.pages.clear()
+      this.dataVersion++
     }
   }
 
@@ -982,6 +989,75 @@ export class QuerySession {
     }, 'view')
   }
 
+  // --- Spec 010: how the map draws the displayed result ------------------------
+
+  /** The opened file's size (openFile): a big file's default view is drawn as tiles. */
+  private fileBytes: number | null = null
+  /** "Load all": draw this result as GeoJSON whatever its size (reset by a new result). */
+  private loadAll = false
+  /** Bumps whenever the drawn rows change (result, filters, show selected only, Load all): tile URLs and refetches key on it. */
+  dataVersion = 0
+
+  setFileBytes(n: number | null): void {
+    this.fileBytes = n
+  }
+
+  setLoadAll(on: boolean): void {
+    if (on === this.loadAll) return
+    this.loadAll = on
+    this.dataVersion++
+  }
+
+  /** Rows of the displayed result, narrowed by the filters once counted (else the whole result's). */
+  private displayedRowsKnown(): number {
+    const total = this.facts?.totalRows ?? 0
+    return this.restriction() && this.matchingRows !== null ? this.matchingRows : total
+  }
+
+  /** GeoJSON (once, from memory) or engine tiles (spec 010, drawMode.ts). */
+  drawMode(): DrawMode {
+    return drawModeFor({ rows: this.displayedRowsKnown(), fileBytes: this.fileBytes, defaultView: !!this.facts?.defaultView, loadAll: this.loadAll })
+  }
+
+  /**
+   * Spec 010 GeoJSON mode: every mappable row of the displayed result, as one FeatureCollection.
+   * `attrs` undefined: all visible attributes (GeoLibre does this; style changes then never refetch).
+   * Background work: user work preempts it, and the caller asks again.
+   */
+  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void): Promise<GeoJSON.FeatureCollection> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.viewTarget()
+      if (!target) return { type: 'FeatureCollection', features: [] }
+      const wanted = attrs ? target.attrs.filter((a) => attrs.includes(a)) : target.attrs
+      const collector = featureCollector()
+      await streamRows(this.conn, allFeaturesSql(target, wanted, (target.textAttrs ?? []).filter((a) => wanted.includes(a))), isCancelled, async (batch) => {
+        await collector.add(batch)
+        onProgress?.(collector.features.length)
+      })
+      return { type: 'FeatureCollection', features: collector.features }
+    }, 'background')
+  }
+
+  /** Spec 010 tiles mode: one MVT tile of the displayed result. Empty tiles are a 0-byte array. */
+  async tile(z: number, x: number, y: number, attrs: string[]): Promise<Uint8Array> {
+    return this.exclusive(async (isCancelled) => {
+      const delay = testOverrides().slowTileMs
+      if (delay) await new Promise((r) => setTimeout(r, delay))
+      const target = this.viewTarget()
+      if (!target) return new Uint8Array(0)
+      let box = tileBoundsWgs84(z, x, y)
+      const boxSql = viewBoxSql(clampWgs84(box), target.srid)
+      if (boxSql) {
+        const b = await singleRow<{ x0: number; y0: number; x1: number; y1: number }>(this.conn, boxSql, isCancelled)
+        box = [b.x0, b.y0, b.x1, b.y1]
+      }
+      const columns = this.facts?.columns ?? this.table.columns
+      const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: columns.find((c) => c.name === name)?.type ?? 'VARCHAR' }))
+      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed), isCancelled)
+      return row.tile ?? new Uint8Array(0)
+    }, 'tile')
+  }
+
   /** One feature by its stable id, wherever it is (selection outside the drawn set, FR-008). */
   async featureById(id: number): Promise<Feature | null> {
     return this.exclusive(async (isCancelled) => {
@@ -1029,6 +1105,8 @@ export class QuerySession {
     this.matchingRows = null
     this.selectedOnlyWhere = null
     if (this.facts?.exportable !== false) this.utilityRows = null
+    this.loadAll = false
+    this.dataVersion++
   }
 
   /** The relation pages read: `layer` with its row ids, or the result with ids added. */

@@ -460,6 +460,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     session = new QuerySession(db, await db.connect(), table, keepRegistered ? [...registered.paths, ...extraPaths] : [], hostAdapter.log?.bind(hostAdapter))
     session.setLayerView({ ...opened.view, allValid: opened.invalid === 0 })
     session.setExportAssets({ loadSqlWasm: () => loadSqlWasm(duckdbAssets) })
+    // Spec 010: a big file's default view is drawn as tiles whatever its rows (TILE_BYTES).
+    session.setFileBytes(source.size)
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
     if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null, readers)
     const initial = await session.runDefault()
