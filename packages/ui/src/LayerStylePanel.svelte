@@ -62,7 +62,6 @@
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
-  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
   import SaveStyleButton from './style/SaveStyleButton.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
@@ -92,9 +91,6 @@
     onReset: () => void
     onDismissNotice: () => void
     onClose: () => void
-    /** Spec 007 T044: a FlatGeobuf read in parts; thematic styles need the whole file. */
-    needsLoad?: { sizeLabel: string } | null
-    onLoad?: () => void
     /** Spec 007: rows being classified by the engine (shown after 300 ms), or null. */
     classifyingRows?: number | null
     /** Spec 008 US6: polygons drawn flat by the extrusion (missing, zero or negative height), or null. */
@@ -121,8 +117,6 @@
     onReset,
     onDismissNotice,
     onClose,
-    needsLoad = null,
-    onLoad = () => {},
     classifyingRows = null,
     extrusionFlat = null,
     onSuggestScale,
@@ -183,7 +177,6 @@
   /** Why a renderer can't be chosen, or null. */
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
-    if (needsLoad) return 'Load the whole file to style by its values.'
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
@@ -342,9 +335,6 @@
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
-      {#if needsLoad}
-        <LoadWholeNotice sizeLabel={needsLoad.sizeLabel} purpose="style by its values" {onLoad} />
-      {/if}
     </section>
 
     {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
@@ -478,8 +468,8 @@
             class="switch"
             aria-label="Size by column"
             aria-checked={sizeOn}
-            disabled={!sizeOn && (numericColumns.length === 0 || needsLoad !== null)}
-            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : needsLoad ? 'Load the whole file to size by its values.' : undefined}
+            disabled={!sizeOn && numericColumns.length === 0}
+            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : undefined}
             onclick={toggleSize}
           >
             <span class="track" aria-hidden="true"><span class="thumb"></span></span>

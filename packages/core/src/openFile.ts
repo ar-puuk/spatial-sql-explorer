@@ -14,11 +14,9 @@ import type { HostAdapter, OpenedFileRef } from './hostAdapter.js'
 import { getDuckDb, resetDuckDb, type DuckDbAssetUrls } from './duckdbService.js'
 import { loadSqlWasm } from './engineAssets.js'
 import { isOutOfMemory, outOfMemoryMessage } from './outOfMemory.js'
-import { FgbReader } from './source/fgbReader.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
 import { formatFromFileName, readModeFor, testOverrides } from './source/readModes.js'
-import { epsgFrom, extentToWgs84, flatGeobufFacts, parquetFacts } from './source/facts.js'
-import { FGB_PREFIX_BYTES, fgbHeaderSize, parseFgbHeader } from './source/fgbHeader.js'
+import { epsgFrom, extentToWgs84, parquetFacts } from './source/facts.js'
 import { internalLayerViewSql, publicLayerViewSql, visibleColumns } from './source/layerSql.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
@@ -250,12 +248,6 @@ async function aliasFor(conn: AsyncDuckDBConnection, primaryFileName: string): P
 /** How to open (spec 007 T044). */
 export interface OpenOptions {
   /**
-   * Load a file normally read in parts (FlatGeobuf) whole into memory, so
-   * queries, the table, styles and export work on it. The user asked for it
-   * ("Load"), so the whole-read confirmation is skipped.
-   */
-  loadWhole?: boolean
-  /**
    * Spec 008 US3: the layer of a multi-layer file to open as `layer`.
    * Default: the first layer with geometry. A layer without geometry can't be
    * `layer`; query it by name instead.
@@ -352,8 +344,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   // How the engine reaches this file (research §4); a whole-transfer fallback
   // means partial reads aren't available in this window (FR-015).
   const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
-  const chosen = readModeFor(format, source.size, { partialReads: fallback === null })
-  const mode = options.loadWhole && chosen.mode === 'partial-view' ? { ...chosen, mode: 'whole' as const } : chosen
+  const mode = readModeFor(format, source.size, { partialReads: fallback === null })
   // Whole reads from memory: small files read faster from memory than through
   // many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm), and
   // FlatGeobuf is ~1,500x faster from memory (research §4).
@@ -385,7 +376,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   }
 
   try {
-    if (mode.mode === 'whole' && !options.loadWhole && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
+    if (mode.mode === 'whole' && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
       hooks.onPhase?.('announce', detail)
       if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
     }
@@ -444,7 +435,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
 
     let opened: OpenedTable
     if (mode.mode === 'partial') opened = await openParquetInParts(ctx)
-    else if (mode.mode === 'partial-view') opened = await openFlatGeobufInParts(ctx)
     else {
       opened = await openWhole(ctx, strategy)
       // A multi-layer file stays registered: its other layers are views over it (FR-017).
@@ -572,7 +562,6 @@ function factsOf(table: QueryableTable, opened: OpenedTable, readMode: ReadModeK
     readMode,
     spatialIndex: opened.spatialIndex,
     fallback,
-    needsLoad: readMode === 'partial-view',
   }
 }
 
@@ -673,52 +662,6 @@ async function openParquetInParts(ctx: ModeContext): Promise<OpenedTable> {
 async function invalidCount(conn: AsyncDuckDBConnection, g: string, isCancelled: () => boolean): Promise<number> {
   const r = await singleRow<{ n: bigint | number }>(conn, `SELECT count(*) FILTER (WHERE ${g} IS NULL OR NOT ST_IsValid(${g})) AS n FROM layer`, isCancelled)
   return Number(r.n)
-}
-
-/**
- * FlatGeobuf larger than the whole-read threshold, read in parts (research
- * §4): facts from the header (ST_Read_Meta plus the envelope parsed from the
- * first bytes), views through its spatial index (spatial_filter_box).
- * Whole-file work needs it loaded into memory first (loadWhole).
- */
-async function openFlatGeobufInParts(ctx: ModeContext): Promise<OpenedTable> {
-  const { conn } = ctx
-  const ff = await flatGeobufFacts(conn, ctx.path, ctx.isCancelled)
-  const prefix = await ctx.hostAdapter.readRange(ctx.ref, 0, FGB_PREFIX_BYTES)
-  const header = parseFgbHeader(await ctx.hostAdapter.readRange(ctx.ref, 0, FGB_PREFIX_BYTES + fgbHeaderSize(prefix)))
-  ctx.checkCancelled()
-  const geometry = ff.columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY'))
-  if (!geometry) throw new Error('This file has no geometry column.')
-  const names = ff.columns.map((c) => c.name)
-  const geomName = geomNameFor(names, geometry.name)
-  const attrs = names.filter((c) => c !== geometry.name && c !== 'OGC_FID')
-  // GDAL's OGC_FID when exposed; DuckDB-WASM 1.4.3's ST_Read doesn't, so the
-  // feature id is a hash of its geometry (stable, within the JS safe-integer range).
-  const rowidExpr = names.includes('OGC_FID') ? '"OGC_FID"' : `(hash(ST_AsWKB(${quoteIdent(geometry.name)})) % 9007199254740991)::BIGINT`
-  const src = { kind: 'st_read' as const, path: ctx.path, attrs, geomExpr: quoteIdent(geometry.name), geomName, rowidExpr }
-  await conn.query(internalLayerViewSql(src))
-  await conn.query(publicLayerViewSql(src))
-  const alias = await createAlias(conn, ctx.name)
-  const srid = epsgFrom(geometry.type) ?? ff.srid
-  const crs = resolveCrsInfo(srid)
-  const rows = header.featuresCount ?? ff.rows
-  // Map views in JS for WGS84 files with an index (the JS reader can't reproject).
-  const fgbReader =
-    header.indexNodeSize > 0 && (srid === null || srid === 4326) ? await FgbReader.open((offset, length) => ctx.hostAdapter.readRange(ctx.ref, offset, length)) : undefined
-  const table: QueryableTable = {
-    name: 'layer',
-    alias,
-    columns: await describeLayer(conn),
-    crs: crs.crs,
-    crsAssumed: crs.assumed,
-    srid,
-    backing: 'streamed',
-    totals: { rows, features: rows, invalid: 0 },
-    extent: await extentToWgs84(conn, header.envelope, srid, ctx.isCancelled),
-    sourceExtent: header.envelope,
-    geometryType: geometryTypeOf([ff.geometryType]),
-  }
-  return { table, spatialIndex: header.indexNodeSize > 0 ? 'file' : 'none', invalid: null, view: { index: 'fgb', path: ctx.path, geom: quoteIdent(geometry.name), attrs, rowidExpr, extent: header.envelope, fgbReader } }
 }
 
 /**

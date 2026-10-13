@@ -75,7 +75,7 @@ export interface Layer {
 // --- Spec 007: large files and viewport loading ------------------------------------
 
 /** How the engine reaches a file (research §4). `tiles`: the map reads it, not the engine. */
-export type ReadModeKind = 'partial' | 'partial-view' | 'whole' | 'tiles'
+export type ReadModeKind = 'partial' | 'whole' | 'tiles'
 
 /** Where map views get feature bounding boxes. */
 export type SpatialIndexKind = 'covering' | 'built' | 'building' | 'file' | 'rtree' | 'none'
@@ -108,7 +108,6 @@ export interface DatasetFacts {
    * FlatGeobuf read in parts (T044): the map works, but queries, the table,
    * thematic styles and export wait until the user loads the whole file.
    */
-  needsLoad: boolean
   /** PMTiles (US5): the archive's zoom range and vector layers, from its header and metadata. */
   tiles?: { minZoom: number; maxZoom: number; layers: string[] }
 }

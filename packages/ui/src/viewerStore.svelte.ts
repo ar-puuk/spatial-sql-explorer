@@ -296,13 +296,6 @@ export interface ViewerStore {
   dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
-  /**
-   * Spec 007 T044: a FlatGeobuf read in parts. The map works; queries, the
-   * table, thematic styles and export wait for `loadWhole()`. Null otherwise.
-   */
-  readonly needsLoad: { sizeLabel: string } | null
-  /** Re-opens the file whole into memory (progress and Cancel through the open). */
-  loadWhole(): Promise<void>
   /** Spec 008 US3: the layers of a multi-layer file, and the one shown; empty for single-layer files. */
   readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>
   readonly activeLayer: string | null
@@ -760,10 +753,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let openedRef: OpenedFileRef | null = null
   let openedSize = $state<number | null>(null)
 
-  const sizeLabel = (bytes: number): string =>
-    bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
-  const needsLoad = $derived(session.layer?.facts?.needsLoad && openedSize !== null ? { sizeLabel: sizeLabel(openedSize) } : null)
-
   // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
   let tilesArchive = $state.raw<TilesArchive | null>(null)
   const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
@@ -772,8 +761,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       ? 'Open a file first.'
       : tilesOnlyReason
         ? tilesOnlyReason
-        : needsLoad
-        ? `Load the whole file (${needsLoad.sizeLabel}) to export it.`
         : queryPhase === 'running'
           ? 'Wait for the running query to finish.'
           : (exportPlan?.blocked ?? null)
@@ -1023,10 +1010,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     prompt?.resolve(open)
   }
 
-  async function loadWhole(): Promise<void> {
-    if (!openedRef || !needsLoad) return
-    await load({ ref: openedRef, loadWhole: true })
-  }
 
   // --- Spec 008 US3: layers of a multi-layer file -----------------------------
   let fileLayers = $state.raw<ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>>([])
@@ -1049,9 +1032,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, layer: name })
   }
 
-  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean; layer?: string } = {}): Promise<void> {
-    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
-    if (options.layer === undefined && !options.loadWhole) layerStyles.clear()
+  async function load(options: { ref?: OpenedFileRef; layer?: string } = {}): Promise<void> {
+    const keptStyle = options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
+    if (options.layer === undefined) layerStyles.clear()
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
@@ -1122,7 +1105,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           },
           isCancelled: () => openCancelled,
         },
-        { loadWhole: options.loadWhole, layer: options.layer }
+        { layer: options.layer }
       )
       openInterrupt = null
       openPhase = null
@@ -1142,7 +1125,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       session.loadState = 'ready'
       void refreshDraw()
       if (keptStyle) {
-        // Loading the whole file (or switching layer) keeps that layer's style.
+        // Switching layer keeps that layer's style.
         style = keptStyle.style
         styleSource = keptStyle.styleSource
         styleDirty = keptStyle.styleDirty
@@ -1712,10 +1695,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       prewarmDuckDb(duckdbAssets)
     },
     load: () => load(),
-    get needsLoad() {
-      return needsLoad
-    },
-    loadWhole,
     get wholeReadPrompt() {
       return wholeReadPrompt
     },

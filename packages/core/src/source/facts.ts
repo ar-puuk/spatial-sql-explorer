@@ -119,33 +119,6 @@ export async function parquetFacts(conn: AsyncDuckDBConnection, path: string, is
   }
 }
 
-export interface FlatGeobufFacts {
-  rows: number
-  srid: number | null
-  geometryType: string
-  /** Every column ST_Read exposes (including GDAL's OGC_FID, the stable feature id). */
-  columns: Array<{ name: string; type: string }>
-}
-
-/** Count, CRS and geometry type from the header via ST_Read_Meta; the extent comes from parseFgbHeader. */
-export async function flatGeobufFacts(conn: AsyncDuckDBConnection, path: string, isCancelled: () => boolean): Promise<FlatGeobufFacts> {
-  const p = literal(path)
-  const m = await singleRow<{ n: bigint | number | null; gtype: string | null; auth_name: string | null; auth_code: string | null }>(
-    conn,
-    `SELECT layers[1].feature_count AS n, layers[1].geometry_fields[1].type AS gtype,
-            layers[1].geometry_fields[1].crs.auth_name AS auth_name, layers[1].geometry_fields[1].crs.auth_code AS auth_code
-     FROM ST_Read_Meta(${p})`,
-    isCancelled
-  )
-  const described = await conn.query(`DESCRIBE SELECT * FROM ST_Read(${p})`)
-  const columns = described.toArray().map((r) => {
-    const j = r.toJSON() as { column_name: string; column_type: string }
-    return { name: String(j.column_name), type: String(j.column_type) }
-  })
-  const code = m.auth_name === 'EPSG' && m.auth_code ? Number(m.auth_code) : NaN
-  return { rows: Number(m.n ?? 0), srid: Number.isFinite(code) ? code : null, geometryType: m.gtype ?? 'Unknown', columns }
-}
-
 /** A source-CRS extent as WGS84 (envelope corners reprojected by the engine). */
 export async function extentToWgs84(conn: AsyncDuckDBConnection, extent: Bbox | null, srid: number | null, isCancelled: () => boolean): Promise<Bbox | null> {
   if (!extent) return null

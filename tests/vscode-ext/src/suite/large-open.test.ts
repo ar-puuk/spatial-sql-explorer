@@ -58,10 +58,11 @@ suite('Spec 007 US1: large files open in VS Code', () => {
     assert.strictEqual(fs.statSync(fixture('parcels-10k.parquet')).size, stats.size)
   })
 
-  test('FlatGeobuf over the loopback server: facts from the header', async function () {
+  test('FlatGeobuf over the loopback server: read whole', async function () {
     this.timeout(90000)
     const s = await openReady('parcels-10k.fgb', 'spatialExplorer.editor')
-    // 3.6 MB is under the whole-read threshold: loaded into memory, where FlatGeobuf is fast.
+    // Spec 010: FlatGeobuf is always read whole (loaded into memory, where it is fast).
+    assert.strictEqual(s.facts?.readMode, 'whole')
     assert.strictEqual(s.facts?.rows, 10000)
     assert.strictEqual(s.facts?.crs.label, 'EPSG:4326 (WGS84)')
   })

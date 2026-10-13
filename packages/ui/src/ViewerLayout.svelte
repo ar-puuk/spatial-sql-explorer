@@ -20,7 +20,6 @@
   import MapImageDialog from './MapImageDialog.svelte'
   import PlaceSearch from './PlaceSearch.svelte'
   import type { LegendSpec } from './mapImage.js'
-  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
   import ColumnChooser from './ColumnChooser.svelte'
@@ -428,14 +427,9 @@
             onReset={() => store.resetStyle()}
             onDismissNotice={() => store.dismissStyleNotice()}
             onClose={closePanel}
-            needsLoad={store.needsLoad}
             classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
             extrusionFlat={store.extrusionFlat}
             onSuggestScale={(column) => store.suggestExtrusionScale(column)}
-            onLoad={() => {
-              closePanel()
-              void store.loadWhole()
-            }}
           />
         </div>
       {/if}
@@ -487,7 +481,7 @@
             <span class="title">Attributes</span>
           </button>
           <span class="count" class:truncated={layer?.truncated}>{store.filterCounts ? `${nf.format(store.filterCounts.matching)} of ${nf.format(store.filterCounts.total)} rows` : store.filtering ? 'Filtering…' : countLabel}</span>
-          {#if layer && !collapsed && !store.needsLoad && !store.tilesOnlyReason && layer.columns.length > 0}
+          {#if layer && !collapsed && !store.tilesOnlyReason && layer.columns.length > 0}
             <div class="columns-anchor">
               <button
                 type="button"
@@ -523,7 +517,7 @@
             {/if}
           {/if}
           <span class="spacer"></span>
-          {#if layer && layer.rowCount > 0 && !collapsed && !store.needsLoad && !store.tilesOnlyReason}
+          {#if layer && layer.rowCount > 0 && !collapsed && !store.tilesOnlyReason}
             <span class="hint">Double-click a row to zoom</span>
           {/if}
           {#if layer}
@@ -543,8 +537,6 @@
         <div class="drawer-body" id="attribute-drawer" hidden={collapsed}>
           {#if store.tilesOnlyReason}
             <UnavailableNotice text={store.tilesOnlyReason} />
-          {:else if store.needsLoad}
-            <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} purpose="list its rows" onLoad={() => void store.loadWhole()} />
           {:else}
           <AttributeTable
             {layer}

@@ -29,8 +29,6 @@ export type LayerViewSource =
   | { kind: 'table'; table: string; attrs: string[]; geomExpr: string; geomName: string }
   /** Any reader or table without stored hidden columns: row ids in read order, bbox computed. */
   | { kind: 'reader'; from: string; attrs: string[]; geomExpr: string; geomName: string }
-  /** FlatGeobuf read in parts through GDAL; `rowidExpr` is the feature id. */
-  | { kind: 'st_read'; path: string; attrs: string[]; geomExpr: string; geomName: string; rowidExpr: string }
 
 const bboxFrom = (g: string): string[] => [`ST_XMin(${g}) AS __se_xmin`, `ST_YMin(${g}) AS __se_ymin`, `ST_XMax(${g}) AS __se_xmax`, `ST_YMax(${g}) AS __se_ymax`]
 
@@ -44,8 +42,6 @@ function fromOf(src: LayerViewSource): string {
       return src.table
     case 'reader':
       return src.from
-    case 'st_read':
-      return `ST_Read(${literal(src.path)})`
   }
 }
 
@@ -67,9 +63,6 @@ export function internalLayerViewSql(src: LayerViewSource): string {
       break
     case 'reader':
       rest = ['row_number() OVER () - 1 AS __se_rowid', ...bboxFrom(src.geomExpr)]
-      break
-    case 'st_read':
-      rest = [`${src.rowidExpr} AS __se_rowid`, ...bboxFrom(src.geomExpr)]
       break
   }
   return `CREATE OR REPLACE VIEW ${INTERNAL_LAYER} AS SELECT ${[...head, ...rest].join(', ')} FROM ${from}`

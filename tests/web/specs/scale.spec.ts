@@ -96,27 +96,20 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   expect(results.sc004_longestTaskMs as number, 'SC-004: no task blocks the viewer for 1 s').toBeLessThan(1000)
 })
 
-test('SC-001: 1.45 GB FlatGeobuf opens from its header and index', async ({ page }) => {
-  test.setTimeout(300000)
+// Spec 010: FlatGeobuf is read whole (its per-pan partial reads are gone): announced, read into
+// memory, then drawn from engine tiles. Recorded, not held to spec 007's read-in-parts limits.
+test('spec 010: 1.45 GB FlatGeobuf is read whole and drawn from tiles', async ({ page }) => {
+  test.setTimeout(600000)
   const file = largeData('parcels-4m.fgb')
   await page.goto('/?e2e=1')
-  const open = await timeOpen(page, file, '4,000,000')
-  results.sc001_fgb4m = { sizeMB: Math.round(fs.statSync(file).size / 1e6), ...open }
-  expect(open.factsMs).toBeLessThanOrEqual(5000)
-  expect(open.overviewMs).toBeLessThanOrEqual(10000)
-
-  // SC-003 for FlatGeobuf in parts: zoomed views read their features from the file.
-  const views: Array<{ ms: number; drawn: number; thinned: boolean }> = []
-  for (const [lon, lat] of CITIES.slice(0, 5)) {
-    const before = (await viewState(page))?.generation ?? 0
-    const t0 = Date.now()
-    await hook(page, 'jumpTo', lon, lat, 15)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 30000 }).toBeGreaterThan(before)
-    const v = (await viewState(page))!
-    views.push({ ms: Date.now() - t0, drawn: v.drawn, thinned: v.thinned })
-  }
-  results.sc003_fgbCityViews = views
-  for (const v of views) expect(v.ms, 'SC-003: FlatGeobuf view within 2 s').toBeLessThanOrEqual(2000)
+  const t0 = Date.now()
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await page.getByRole('dialog', { name: 'Read the whole file?' }).getByRole('button', { name: 'Open' }).click()
+  await expect(statusBar(page)).toContainText('4,000,000', { timeout: 540000 })
+  const openMs = Date.now() - t0
+  await expect.poll(async () => (await hook<{ mode: string }>(page, 'drawState')).mode, { timeout: 60000 }).toBe('tiles')
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 120000 })
+  results.spec010_fgb4mWhole = { sizeMB: Math.round(fs.statSync(file).size / 1e6), openMs, overviewMs: Date.now() - t0 }
 })
 
 test('SC-005: Cancel ends any open within 3 s (GeoParquet, FlatGeobuf, 325 MB GeoJSON)', async ({ page }) => {

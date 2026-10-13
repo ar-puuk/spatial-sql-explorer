@@ -7,7 +7,7 @@ import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
-import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest } from '../models.js'
+import { DEFAULT_QUERY, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
@@ -15,7 +15,6 @@ import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, R
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
-import type { FgbReader } from '../source/fgbReader.js'
 import { dropKeyTables } from '../source/sqlite.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
@@ -162,27 +161,11 @@ export function resultFacts(built: BuiltResult, table: QueryableTable, defaultVi
 /** How map views reach `layer` (set by openFile; spec 007 research §6). */
 export interface LayerViewInfo {
   index: ViewTarget['index']
-  /** FlatGeobuf read in parts: the registered path. */
-  path?: string
-  /** FlatGeobuf read in parts: the feature id expression. */
-  rowidExpr?: string
-  /** FlatGeobuf read in parts: the file's envelope, in the layer CRS. */
-  extent?: Bbox | null
   /** The open counted no invalid geometry: views skip ST_IsValid. */
   allValid?: boolean
-  /**
-   * FlatGeobuf read in parts, in WGS84: views read the file in JS (index
-   * search + batched range reads) instead of GDAL (research.md US7 outcomes).
-   */
-  fgbReader?: FgbReader
   /** Quoted geometry column of `__se_layer`. */
   geom: string
   attrs: string[]
-}
-
-/** What whole-file work says on a FlatGeobuf read in parts, before Load (T044, data-model.md). */
-export function needsLoadMessage(sizeLabel: string): string {
-  return `Load the whole file (${sizeLabel}) to query it.`
 }
 
 /** A tile that couldn't be built because a query or export holds the engine; the map asks again after. */
@@ -283,7 +266,6 @@ export class QuerySession {
     const span = statementToRun(request.editorText, request.selection)
     if (!span) return { kind: 'empty' }
     const statement: ExecutedStatement = { text: span.text, editorOffset: span.from }
-    if (this.needsLoad) return { kind: 'refused', reason: 'Load the whole file to query it.', statement }
     const policy = classifyStatement(span.text, this.protectedNames)
     if (!policy.allowed) {
       this.log?.(`[query] refused: ${policy.reason} — ${oneLine(span.text)}`)
@@ -464,14 +446,13 @@ export class QuerySession {
    * Narrows the displayed result to rows matching `filters` (AND). Pages,
    * map views, style statistics, counts and export all read the narrowed
    * rows. Returns each filter as parsed (invalid ones aren't applied).
-   * Filters clear with a new result. Not for files read in parts
-   * (`needsLoad`), whose table is unavailable until loaded.
+   * Filters clear with a new result.
    */
   setFilters(filters: readonly ColumnFilter[]): ColumnFilter[] {
     const columns = this.facts?.columns ?? []
     const types = new Map(columns.map((c) => [c.name, c.type]))
     const parsed = filters.map((f) => parseFilter(f, types.get(f.column) ?? ''))
-    const where = this.needsLoad || this.utilityRows ? null : filtersToSql(parsed, columns)
+    const where = this.utilityRows ? null : filtersToSql(parsed, columns)
     this.filters = parsed
     if (where !== this.filterWhere) {
       this.filterWhere = where
@@ -582,7 +563,7 @@ export class QuerySession {
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
     const size = style.size && r.kind !== 'bivariate' && has(style.size.column) ? style.size : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
-    if (!facts || (!colorColumn && !size && !axes) || this.utilityRows || this.needsLoad) {
+    if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()
@@ -724,12 +705,12 @@ export class QuerySession {
    * The value distribution of a numeric column of the displayed result
    * (spec 008 FR-003): exact, in two aggregation passes over the whole
    * result, as background work. Null when the column has no numbers, or the
-   * result can't be read in full yet (spec 007 needsLoad).
+   * result has no rows to read.
    */
   /** Spec 008 US6: rows drawn flat by the extrusion (missing, zero or negative height). */
   async extrusionFlatCount(e: Extrusion): Promise<number | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || e.source.kind !== 'column') return null
+    if (!facts || e.source.kind !== 'column') return null
     const column = e.source.column
     if (!facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) return this.utilityRows.filter((f) => !(Number(f.attributes[column]) * e.scale > 0)).length
@@ -741,7 +722,7 @@ export class QuerySession {
   /** Spec 008 US6: the height column's typical high value (95th percentile of positives), for the auto scale. */
   async extrusionHigh(column: string): Promise<number | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (!facts || !facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) {
       const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => v > 0).sort((a, b) => a - b)
       return values.length ? values[Math.min(values.length - 1, Math.floor(values.length * 0.95))] : null
@@ -754,7 +735,7 @@ export class QuerySession {
 
   async valueHistogram(column: string): Promise<ValueHistogram | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (!facts || !facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) {
       const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => Number.isFinite(v))
       if (!values.length) return null
@@ -786,7 +767,7 @@ export class QuerySession {
   async distinctCounts(): Promise<Record<string, number>> {
     const facts = this.facts
     const textual = (facts?.columns ?? []).filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i.test(c.type))
-    if (!facts || !textual.length || this.utilityRows || this.needsLoad) return {}
+    if (!facts || !textual.length || this.utilityRows) return {}
     const relation = this.statsRelation()
     const select = textual.map((c, i) => `count(DISTINCT nullif(CAST(${quoteIdent(c.name)} AS VARCHAR), '')) AS d${i}`).join(', ')
     return this.exclusive(async (isCancelled) => {
@@ -833,25 +814,15 @@ export class QuerySession {
     this.layerView = info
   }
 
-  /**
-   * FlatGeobuf read in parts (T044): `layer` reads the file through
-   * spatial_filter_box. Whole-file statements there read it slowly in small
-   * parts and can't be interrupted midway, so queries, table pages, style
-   * statistics and export are refused until the file is loaded whole.
-   */
-  get needsLoad(): boolean {
-    return this.layerView?.index === 'fgb'
-  }
-
   /** The relation the map draws: `layer`, or the last query's result with hidden columns added. */
   private viewTarget(): ViewTarget | null {
     const facts = this.facts
     if (!facts || facts.defaultView) {
       const lv = this.layerView
       if (!lv) return null
-      const narrow = lv.index !== 'fgb' && !!this.restriction()
+      const narrow = !!this.restriction()
       const textAttrs = this.table.columns.filter((c) => isTemporalType(c.type) && lv.attrs.includes(c.name)).map((c) => c.name)
-      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
+      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, allValid: lv.allValid, narrowed: narrow }
     }
     const g = facts.geometryColumn
     if (!g || !facts.exportable) return null
@@ -895,8 +866,6 @@ export class QuerySession {
 
   /** GeoJSON (once, from memory) or engine tiles (spec 010, drawMode.ts). */
   drawMode(): DrawMode {
-    // A FlatGeobuf read in parts has no bbox columns to build tiles from: GeoJSON until spec 010 phase 5 reads it whole.
-    if (this.viewTarget()?.index === 'fgb') return 'geojson'
     return drawModeFor({ rows: this.displayedRowsKnown(), fileBytes: this.fileBytes, defaultView: !!this.facts?.defaultView, loadAll: this.loadAll })
   }
 
@@ -1012,7 +981,6 @@ export class QuerySession {
   async page(req: TablePageRequest): Promise<TablePage> {
     const cached = this.pages.get(req)
     if (cached) return cached
-    if (this.needsLoad) return { offset: req.offset, rows: [] }
     if (this.utilityRows) {
       const rows = this.utilityRows.slice(req.offset, req.offset + req.limit).map((f) => ({ id: Number(f.id), attributes: f.attributes, invalidGeometry: false }))
       return { offset: req.offset, rows }
@@ -1050,7 +1018,6 @@ export class QuerySession {
    * and a query never interleaves with it. Never touches __se_result.
    */
   async exportData(plan: ExportPlan, hooks: ExportHooks = {}, selection?: Selection): Promise<ExportResult> {
-    if (this.needsLoad) throw new Error('Load the whole file to export it.')
     const started = performance.now()
     try {
       const fill = plan.scope === 'selected' && selection ? selectionTableSql(selection) : null

@@ -125,7 +125,7 @@ describe('out of memory (FR-014)', () => {
 
   it('names the stage and a way forward', () => {
     expect(outOfMemoryMessage('open-whole', '3.1 GiB')).toBe(
-      'This file is too large to read in full here (out of memory). Convert it to GeoParquet or FlatGeobuf to open it at any size.'
+      'This file is too large to read in full here (out of memory). Convert it to GeoParquet to open it at any size.'
     )
     expect(outOfMemoryMessage('work', '3.1 GiB')).toBe('That ran out of memory (3.1 GB limit). Filter the result, or select fewer columns.')
     expect(outOfMemoryMessage('open', '64.0 MiB')).toMatch(/^Opening this file ran out of memory \(64\.0 MB limit\)\./)

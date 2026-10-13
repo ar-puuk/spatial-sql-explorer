@@ -52,13 +52,6 @@ describe('the internal layer view (__se_layer)', () => {
     expect(sql).toMatch(/FROM __se_source$/)
   })
 
-  it('FlatGeobuf read in parts: ST_Read with computed bbox and the feature id', () => {
-    const sql = internalLayerViewSql({ kind: 'st_read', path: '/se-source/p.fgb', attrs, geomExpr: '"geom"', geomName: 'geom', rowidExpr: '"fid"' })
-    expect(sql).toContain(`FROM ST_Read('/se-source/p.fgb')`)
-    expect(sql).toContain('"fid" AS __se_rowid')
-    expect(sql).toContain('ST_YMax("geom") AS __se_ymax')
-  })
-
   it('quotes identifiers and escapes paths', () => {
     const sql = internalLayerViewSql({ kind: 'parquet', path: "/se-source/o'brien.parquet", attrs: ['we"ird'], geomExpr: '"geom"', geomName: 'geom', covering: 'b"ox' })
     expect(sql).toContain(`'/se-source/o''brien.parquet'`)

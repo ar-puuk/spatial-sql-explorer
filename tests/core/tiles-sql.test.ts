@@ -62,8 +62,4 @@ describe('tileSql', () => {
     expect(s).toContain('__se_rowid IN (SELECT rn FROM (SELECT rn, xmin, ymin, xmax, ymax FROM __se_bbox WHERE')
     expect(s).toContain(`ST_Transform("geom", 'EPSG:26912', 'EPSG:3857', always_xy := true)`)
   })
-
-  it('refuses FlatGeobuf read in parts (loaded whole since spec 010)', () => {
-    expect(() => tileSql({ ...covering, index: 'fgb' }, 1, 0, 0, box, [])).toThrow(/FlatGeobuf/)
-  })
 })

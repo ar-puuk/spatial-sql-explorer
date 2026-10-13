@@ -44,7 +44,6 @@ function tileValue(a: TileAttr): string {
  * bbox columns prune rows by constants. Each feature carries `__id` (= __se_rowid) for promoteId.
  */
 export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[]): string {
-  if (t.index === 'fgb') throw new Error('FlatGeobuf is loaded whole since spec 010')
   const struct = [
     `'__id': __se_rowid`,
     ...attrs.map((a) => `'${a.name.replace(/'/g, "''")}': ${tileValue(a)}`),

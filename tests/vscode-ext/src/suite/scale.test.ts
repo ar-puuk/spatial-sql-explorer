@@ -59,24 +59,23 @@ suite('Spec 007 scale in VS Code (SE_LARGE_DATA=1)', function () {
     assert.ok(stats.bytes < stats.size, `served ${stats.bytes} of ${stats.size} bytes`)
   })
 
-  test('SC-001: 1.45 GB FlatGeobuf: facts and overview from the index', async function () {
-    this.timeout(180000)
+  // Spec 010: FlatGeobuf is read whole and drawn from tiles; the open time is recorded.
+  test('spec 010: 1.45 GB FlatGeobuf is read whole and drawn from tiles', async function () {
+    this.timeout(600000)
     if (!fs.existsSync(large('parcels-4m.fgb'))) this.skip()
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { wholeThreshold: 2_000_000_000 })
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
     const t0 = Date.now()
     await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(large('parcels-4m.fgb')), 'spatialExplorer.editor')
-    await until(openState, (s) => s?.facts?.rows === 4_000_000, 60000, 'facts')
-    const factsMs = Date.now() - t0
+    await until(openState, (s) => s?.phase === 'ready' && s.facts?.rows === 4_000_000, 540000, 'open')
+    const openMs = Date.now() - t0
     await until(
-      () => vscode.commands.executeCommand('spatialExplorer._getMapView') as Thenable<{ drawn: number } | null>,
-      (v) => (v?.drawn ?? 0) > 0,
+      () => vscode.commands.executeCommand('spatialExplorer._getMapView') as Thenable<{ mode: string; drawCalls: number } | null>,
+      (v) => v?.mode === 'tiles' && v.drawCalls > 0,
       120000,
-      'overview'
+      'tiles'
     )
-    const overviewMs = Date.now() - t0
-    console.log(`SCALE vscode sc001-fgb ${JSON.stringify({ factsMs, overviewMs })}`)
-    assert.ok(factsMs <= 5000, `facts ${factsMs} ms`)
-    assert.ok(overviewMs <= 10000, `overview ${overviewMs} ms`)
+    console.log(`SCALE vscode spec010-fgb-whole ${JSON.stringify({ openMs, overviewMs: Date.now() - t0 })}`)
   })
 
   test('SC-005: Cancel during a 325 MB GeoJSON parse ends within 3 s', async function () {

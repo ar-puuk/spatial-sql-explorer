@@ -36,7 +36,8 @@ export interface ReadModeRow {
 /** The catalog. GeoPackage is whole-read until a spike shows otherwise (research §4). */
 export const READ_MODES: readonly ReadModeRow[] = [
   { format: 'geoparquet', mode: 'partial', extensions: ['.parquet', '.geoparquet'] },
-  { format: 'flatgeobuf', mode: 'partial-view', extensions: ['.fgb', '.flatgeobuf'] },
+  // Spec 010: read whole (engine tiles draw big files; reading in parts existed for per-pan views).
+  { format: 'flatgeobuf', mode: 'whole', extensions: ['.fgb', '.flatgeobuf'] },
   { format: 'geojson', mode: 'whole', extensions: ['.geojson', '.json'] },
   { format: 'shapefile', mode: 'whole', extensions: ['.shp'] },
   { format: 'geopackage', mode: 'whole', extensions: ['.gpkg'] },
@@ -63,17 +64,16 @@ export interface ReadMode {
 /**
  * The read mode for one file on one platform. `partialReads: false` (the VS
  * Code fallback, FR-015) reads every engine format whole; PMTiles never
- * involves the engine. FlatGeobuf up to the threshold is loaded into memory,
- * where it's fast (research §4).
+ * involves the engine. The size no longer picks a mode (spec 010: FlatGeobuf
+ * is always read whole); whole reads over the threshold are announced.
  */
-export function readModeFor(format: FormatId, sizeBytes: number, platform: { partialReads: boolean }): ReadMode {
+export function readModeFor(format: FormatId, _sizeBytes: number, platform: { partialReads: boolean }): ReadMode {
   const o = overrides
   const wholeReadThresholdBytes = o.wholeThreshold ?? WHOLE_READ_THRESHOLD_BYTES
   const row = READ_MODES.find((r) => r.format === format)
   if (!row) throw new Error(`Unknown format: ${format}`)
   let mode = row.mode
   if (mode !== 'tiles' && !platform.partialReads) mode = 'whole'
-  else if (mode === 'partial-view' && sizeBytes <= wholeReadThresholdBytes) mode = 'whole'
   return { format, mode, wholeReadThresholdBytes }
 }
 

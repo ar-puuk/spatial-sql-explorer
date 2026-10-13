@@ -400,8 +400,8 @@ test('keyboard: every export control is reachable, and Esc returns to the Export
   await expect(button).toBeFocused()
 })
 
-// T061 (spec 007): the large-file states. A thinned map with its notice, the
-// FlatGeobuf "Load the whole file" state, and PMTiles' disabled panels.
+// T061 (spec 007; spec 010): the large-file states. Engine tiles with Load all,
+// the whole-read announcement (FlatGeobuf), and PMTiles' disabled panels.
 const fixtureFile = (name: string) => path.resolve(__dirname, '../../vscode-ext/fixtures', name)
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -418,9 +418,8 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.goto('/?e2e=1&wholeThreshold=1')
     await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
-    await expect(page.getByRole('button', { name: 'Load' }).first()).toBeVisible({ timeout: 60000 })
-    await page.keyboard.press('Control+Shift+Q')
-    await audit(page, 'load the whole file')
+    await expect(page.getByRole('dialog', { name: 'Read the whole file?' })).toBeVisible({ timeout: 60000 })
+    await audit(page, 'whole-read announcement')
 
     await page.goto('/?e2e=1')
     await page.locator('input[type="file"]').setInputFiles(fixtureFile('sample.pmtiles'))
@@ -430,7 +429,7 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
-test('keyboard: Cancel opening and Load are reachable and work from the keyboard', async ({ page }) => {
+test('keyboard: Cancel opening and the whole-read announcement work from the keyboard', async ({ page }) => {
   test.setTimeout(120000)
   await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
   await page.goto('/?e2e=1&slowParse=1')
@@ -441,18 +440,11 @@ test('keyboard: Cancel opening and Load are reachable and work from the keyboard
   await page.keyboard.press('Enter')
   await expect(page.getByText('Drag a geospatial file here')).toBeVisible({ timeout: 3000 })
 
+  // Spec 010: FlatGeobuf over the threshold is announced; Open has the focus, Enter reads it.
   await page.goto('/?e2e=1&wholeThreshold=1')
   await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
-  const load = page.getByRole('button', { name: 'Load' }).first()
-  await expect(load).toBeVisible({ timeout: 60000 })
-  // Reachable with Tab from the drawer header.
-  await page.getByRole('button', { name: 'Attributes' }).focus()
-  let reached = false
-  for (let i = 0; i < 15 && !reached; i++) {
-    await page.keyboard.press('Tab')
-    reached = await load.evaluate((el) => el === document.activeElement)
-  }
-  expect(reached, 'Tab reaches the Load button').toBe(true)
+  const open = page.getByRole('dialog', { name: 'Read the whole file?' }).getByRole('button', { name: 'Open' })
+  await expect(open).toBeFocused({ timeout: 60000 })
   await page.keyboard.press('Enter')
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { openState: () => { facts: { needsLoad: boolean } | null } } }).__spatialExplorerE2E.openState().facts?.needsLoad), { timeout: 60000 }).toBe(false)
+  await expect(page.locator('.status-bar')).toContainText('10,000 features', { timeout: 60000 })
 })

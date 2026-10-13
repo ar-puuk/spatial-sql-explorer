@@ -16,8 +16,7 @@ describe('read-mode catalog', () => {
   it('maps each format to its measured mode', () => {
     const mode = (f: string) => READ_MODES.find((r) => r.format === f)?.mode
     expect(mode('geoparquet')).toBe('partial')
-    expect(mode('flatgeobuf')).toBe('partial-view')
-    for (const f of ['geojson', 'shapefile', 'csv', 'xlsx', 'gml', 'geopackage']) expect(mode(f)).toBe('whole')
+    for (const f of ['flatgeobuf', 'geojson', 'shapefile', 'csv', 'xlsx', 'gml', 'geopackage']) expect(mode(f)).toBe('whole')
     expect(mode('pmtiles')).toBe('tiles')
   })
 
@@ -26,9 +25,9 @@ describe('read-mode catalog', () => {
     expect(readModeFor('geojson', 1 * MB, { partialReads: true }).wholeReadThresholdBytes).toBe(100 * MB)
   })
 
-  it('loads small FlatGeobuf files into memory, and reads large ones in parts', () => {
+  it('reads FlatGeobuf whole at any size (spec 010: engine tiles draw big files)', () => {
     expect(readModeFor('flatgeobuf', 50 * MB, { partialReads: true }).mode).toBe('whole')
-    expect(readModeFor('flatgeobuf', 500 * MB, { partialReads: true }).mode).toBe('partial-view')
+    expect(readModeFor('flatgeobuf', 500 * MB, { partialReads: true }).mode).toBe('whole')
   })
 })
 
@@ -66,7 +65,7 @@ describe('test overrides', () => {
     expect(testOverrides()).toEqual({})
     setTestOverrides({ wholeThreshold: 1 })
     expect(readModeFor('geojson', MB, { partialReads: true }).wholeReadThresholdBytes).toBe(1)
-    expect(readModeFor('flatgeobuf', 2 * MB, { partialReads: true }).mode).toBe('partial-view')
+    expect(readModeFor('flatgeobuf', 2 * MB, { partialReads: true }).mode).toBe('whole')
   })
 
   it('parse from a query string, numbers only, and only with e2e=1', async () => {
