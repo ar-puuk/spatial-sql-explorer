@@ -7,7 +7,7 @@
   import type { CompletionSource } from '@codemirror/autocomplete'
   import type { SQLNamespace } from '@codemirror/lang-sql'
   import SqlEditor from './SqlEditor.svelte'
-  import { functionSource, schemaFromCatalog } from './completion.js'
+  import { functionSource, pathSource, schemaFromCatalog } from './completion.js'
   import ResultCrsChip from './ResultCrsChip.svelte'
   import QueryHistory from './QueryHistory.svelte'
   import Icon from './Icon.svelte'
@@ -26,7 +26,7 @@
   let { store, collapsed, onToggle, embedded = false, schema: schemaProp, completionSources: sourcesProp }: Props = $props()
   // FR-015: completion from the live catalog unless a caller supplies its own.
   const schema = $derived(schemaProp ?? schemaFromCatalog(store.catalog))
-  const completionSources = $derived<CompletionSource[]>(sourcesProp ?? [functionSource(store.catalog)])
+  const completionSources = $derived<CompletionSource[]>(sourcesProp ?? [functionSource(store.catalog), pathSource(store.workspaceFiles)])
 
   const DOCS_URL = 'https://duckdb.org/docs/stable/core_extensions/spatial/functions'
   const nf = new Intl.NumberFormat('en-US')

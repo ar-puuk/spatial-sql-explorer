@@ -11,6 +11,7 @@ interface ServerForTests {
   register(primaryPath: string, sidecarPaths: string[]): Promise<{ token: string; urlFor(name: string): string; port: number }>
   release(token: string): void
   isListening(): boolean
+  addFiles(token: string, files: Array<{ name: string; fsPath: string }>): void
 }
 
 const fixture = (name: string): string => path.resolve(__dirname, '../../fixtures', name)
@@ -37,6 +38,7 @@ const sha = (b: Buffer): string => crypto.createHash('sha256').update(b).digest(
 
 suite('Spec 007: loopback source server', () => {
   let server: ServerForTests
+  let resolveInside: (root: string, p: string) => string | null
   let token: string
   let port: number
   const parquet = fixture('parcels-10k.parquet')
@@ -47,7 +49,9 @@ suite('Spec 007: loopback source server', () => {
   suiteSetup(async () => {
     const ext = vscode.extensions.all.find((e) => e.packageJSON.name === 'spatial-explorer')
     assert.ok(ext, 'extension not found')
-    server = ((await ext.activate()) as { sourceServerForTests: ServerForTests }).sourceServerForTests
+    const api = (await ext.activate()) as { sourceServerForTests: ServerForTests; resolveInsideForTests: typeof resolveInside }
+    server = api.sourceServerForTests
+    resolveInside = api.resolveInsideForTests
     const reg = await server.register(parquet, [fixture('sample.dbf'), fixture('sample.shx'), fixture('sample.prj')])
     token = reg.token
     port = reg.port
@@ -127,6 +131,22 @@ suite('Spec 007: loopback source server', () => {
       assert.strictEqual(r.status, 206, name)
       assert.strictEqual(sha(r.body), sha(fs.readFileSync(fixture(name)).subarray(0, 4)))
     }
+  })
+
+  test('spec 010: workspace files are served under the token by their ws/ name, with range reads', async () => {
+    server.addFiles(token, [{ name: 'ws/data/sample.gpkg', fsPath: fixture('sample.gpkg') }])
+    const r = await request(port, 'GET', route('ws/data/sample.gpkg'), { ...origin, Range: 'bytes=0-15' })
+    assert.strictEqual(r.status, 206)
+    assert.strictEqual(r.body.toString('latin1'), 'SQLite format 3\0')
+    assert.strictEqual((await request(port, 'GET', route('ws/data/other.gpkg'), origin)).status, 404)
+  })
+
+  test('spec 010: a workspace path that leaves the root is refused', () => {
+    const root = path.resolve(__dirname, '../../fixtures')
+    assert.strictEqual(resolveInside(root, 'sample.shp'), path.join(root, 'sample.shp'))
+    assert.strictEqual(resolveInside(root, 'a/b.shp'), path.join(root, 'a', 'b.shp'))
+    for (const bad of ['../x.shp', 'a/../../x.shp', '/etc/passwd', 'C:/x.shp', 'a\\..\\..\\x.shp', 'file:///x.shp', ''])
+      assert.strictEqual(resolveInside(root, bad), null, bad)
   })
 
   test('the server stops when its last file is released', async () => {

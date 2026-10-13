@@ -278,3 +278,31 @@ excluded (it stacks overlays). Now:
   production-ready cartographic basemap" (docs); not added (user: not needed).
 - Gallery open + search at 6× CPU: rendered progressively (8 rows, then 12 per task);
   longest task 73–86 ms over five runs (the flat virtualized list: 69–79 ms).
+
+## Phase 9: SQL across workspace files
+
+- S4 failed, so the fallback is in place: `referencedPaths` finds relative data-file
+  literals (tokenizer-based, so comments are skipped), the host resolves them, the session
+  registers each under `/se-source/ws/<path>` and rewrites the literal; an engine error's
+  offset is mapped back through the rewrite, so positions point at the user's text and
+  messages never show `/se-source/`.
+- A literal that can't be resolved refuses the statement only when it is read as a file
+  (the argument of a reader such as `ST_Read`/`read_parquet`/`read_csv_auto`, or a
+  `FROM`/`JOIN` file table). `WHERE name = 'x.csv'` still runs.
+- VS Code: files are served by the loopback server under the viewer's existing token as
+  `ws/<path>` (one encoded URL segment; `handle()` already decoded it whole), with
+  same-basename sidecars. Paths are refused when absolute, with `..`, backslashes or a
+  scheme, and when they resolve outside the root. Non-`file:` workspaces get a clear error.
+  The list follows the folder (a watcher on the data glob, 500 ms debounce).
+- Web: the workspace is the open file plus added files (Add files… or a drop on the Files
+  list). Found in testing: grouping by basename merged `sample.gpkg` and `sample.shp` into
+  one entry; now each data file is its own entry, with the sidecars of its basename.
+- Paths are suggested inside string literals (completion), the open file excepted (it is
+  `layer`).
+- How GeoLibre handles it (apps/geolibre-desktop/src/lib/sql-workspace.ts): every loaded
+  layer is copied into a DuckDB TEMP TABLE named after the layer, so SQL names layers, not
+  files; URL arguments of native readers are registered as HTTP file handles (range reads);
+  bare paths/URLs after FROM/JOIN are wrapped in the matching reader. Our single-layer rule
+  (spec 010) keeps other files off the map, so they are named by path and read in place
+  (no copy), which matches how DuckDB users write `read_parquet('…')` outside the tool.
+  Bare unquoted paths after FROM are not wrapped here (not in the plan).

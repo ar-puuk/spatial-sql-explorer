@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import * as vscode from 'vscode'
 import * as sourceServer from './sourceServer'
 import * as path from 'path'
+import * as fs from 'fs'
 import { BASEMAP_HOSTS } from './basemapHosts.generated'
 
 // SpatialExplorerDocument — minimal CustomDocument wrapper. No in-memory
@@ -48,6 +49,8 @@ type WebviewToHostMessage =
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'getSecret'; requestId: number; name: string }
+  | { type: 'listWorkspaceFiles'; requestId: number }
+  | { type: 'resolveWorkspaceFiles'; requestId: number; paths: string[] }
   | { type: 'setSecret'; requestId: number; name: string; value: string | null }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
@@ -217,10 +220,46 @@ async function pruneEngineFiles(context: vscode.ExtensionContext, keep: string[]
   }
 }
 
+// --- Spec 010 phase 9: workspace files a query can name -------------------------
+
+/** Data files a query can name (packages/core/src/sql/workspacePaths.ts WORKSPACE_DATA_EXTENSIONS). */
+const WORKSPACE_GLOB = '**/*.{geojson,json,shp,gpkg,fgb,flatgeobuf,parquet,geoparquet,csv,tsv,gml,kml,gpx,sqlite,db,xlsx}'
+const WORKSPACE_EXCLUDE = '**/{node_modules,.git,.venv,dist,out}/**'
+
+/** The workspace folder holding the document, or the document's own folder. */
+function workspaceRootOf(documentUri: vscode.Uri): vscode.Uri {
+  return vscode.workspace.getWorkspaceFolder(documentUri)?.uri ?? vscode.Uri.joinPath(documentUri, '..')
+}
+
+/** The data files under the root, relative with '/', sorted, with sizes (at most 5,000). */
+async function listWorkspaceFiles(documentUri: vscode.Uri): Promise<Array<{ path: string; size: number }>> {
+  const root = workspaceRootOf(documentUri)
+  const uris = await vscode.workspace.findFiles(new vscode.RelativePattern(root, WORKSPACE_GLOB), WORKSPACE_EXCLUDE, 5000)
+  const files = await Promise.all(
+    uris.map(async (u) => {
+      const rel = path.posix.relative(root.path, u.path)
+      const size = await vscode.workspace.fs.stat(u).then((s) => s.size, () => 0)
+      return { path: rel, size, ...(u.toString() === documentUri.toString() ? { open: true } : {}) }
+    })
+  )
+  return files.filter((f) => f.path && !f.path.startsWith('..')).sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** A relative workspace path as an absolute file path inside the root, or null (absolute, `..`, backslashes, a scheme). */
+export function resolveInside(rootFsPath: string, p: string): string | null {
+  if (!p || p.includes('\\') || p.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(p)) return null
+  if (p.split('/').some((s) => s === '..')) return null
+  const resolved = path.resolve(rootFsPath, p)
+  return resolved.startsWith(rootFsPath.endsWith(path.sep) ? rootFsPath : rootFsPath + path.sep) ? resolved : null
+}
+
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
   /** Spec 007: each viewer's loopback-server registration, and the files a whole-transfer fallback would send. */
-  private sources = new Map<vscode.WebviewPanel, { token: string | null; documentUri: vscode.Uri; files: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }>; chunksSent: boolean }>()
+  private sources = new Map<
+    vscode.WebviewPanel,
+    { token: string | null; urlBase?: string; documentUri: vscode.Uri; files: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }>; chunksSent: boolean }
+  >()
   private statusBarCrs: vscode.StatusBarItem
   private statusBarFeatureCount: vscode.StatusBarItem
   private statusBarCursor: vscode.StatusBarItem
@@ -254,8 +293,21 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     watcher.onDidChange(notifyChanged)
     watcher.onDidCreate(notifyChanged)
 
+    // Spec 010 phase 9: data files a query can name; the viewer's list follows the folder.
+    const root = workspaceRootOf(document.uri)
+    const dataWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, WORKSPACE_GLOB))
+    let dataChanged: ReturnType<typeof setTimeout> | null = null
+    const notifyData = (): void => {
+      if (dataChanged) clearTimeout(dataChanged)
+      dataChanged = setTimeout(() => void panel.webview.postMessage({ type: 'workspaceFilesChanged' }), 500)
+    }
+    dataWatcher.onDidCreate(notifyData)
+    dataWatcher.onDidDelete(notifyData)
+
     panel.onDidDispose(() => {
       watcher.dispose()
+      dataWatcher.dispose()
+      if (dataChanged) clearTimeout(dataChanged)
       this.releaseSource(panel)
       this.panels.delete(panel)
       this.statusBarCrs.hide()
@@ -335,6 +387,15 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         void this.context.globalState
           .update(`spatialExplorer.${msg.key}`, msg.value ?? undefined)
           .then(() => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: {} }))
+      } else if (msg.type === 'listWorkspaceFiles') {
+        void listWorkspaceFiles(document.uri).then(
+          (files) => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: { files } }),
+          (err: unknown) => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: { files: [], error: String(err) } })
+        )
+      } else if (msg.type === 'resolveWorkspaceFiles') {
+        void this.resolveWorkspaceFiles(panel, document.uri, msg.paths).then((results) =>
+          panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: { results } })
+        )
       } else if (msg.type === 'getSecret' || msg.type === 'setSecret') {
         void this.handleSecret(panel, msg)
       } else if (msg.type === 'queryState') {
@@ -564,6 +625,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.releaseSource(panel)
       const size = (await vscode.workspace.fs.stat(documentUri)).size
       let token: string | null = null
+      let urlBase: string | undefined
       let url: string | null = null
       let sidecars: Array<{ name: string; url: string }> = []
       let serverError: string | null = null
@@ -572,6 +634,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           const reg = await sourceServer.register(documentUri.fsPath, dataSidecars.map((f) => f.uri.fsPath))
           token = reg.token
           url = reg.urlFor(primaryName)
+          urlBase = url.slice(0, url.lastIndexOf('/'))
           sidecars = dataSidecars.map((f) => ({ name: f.name, url: reg.urlFor(f.name) }))
         } catch (err) {
           serverError = err instanceof Error ? err.message : String(err)
@@ -579,7 +642,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else {
         serverError = `files from ${documentUri.scheme}: can't be served locally`
       }
-      this.sources.set(panel, { token, documentUri, files, chunksSent: false })
+      this.sources.set(panel, { token, urlBase, documentUri, files, chunksSent: false })
       await panel.webview.postMessage({
         type: 'fileSource',
         name: primaryName,
@@ -661,6 +724,73 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       const chunkBase64 = Buffer.from(bytes.buffer, bytes.byteOffset + start, end - start).toString('base64')
       await panel.webview.postMessage({ type: 'initFileChunk', fileName, index: i, bytesBase64: chunkBase64 })
     }
+  }
+
+  /**
+   * Spec 010 phase 9: serves the workspace files a query names, under the
+   * viewer's token, as `ws/<path>` (and their same-basename sidecars).
+   */
+  private async resolveWorkspaceFiles(panel: vscode.WebviewPanel, documentUri: vscode.Uri, paths: string[]): Promise<unknown[]> {
+    const root = workspaceRootOf(documentUri)
+    const token = this.sources.get(panel)?.token ?? null
+    const out: unknown[] = []
+    for (const p of paths) {
+      if (root.scheme !== 'file' || !token) {
+        out.push({ path: p, error: "Joining workspace files needs local file access, which this window doesn't have." })
+        continue
+      }
+      const resolved = resolveInside(root.fsPath, p)
+      if (!resolved) {
+        out.push({ path: p, error: `"${p}" is not a path inside the workspace.` })
+        continue
+      }
+      let size: number
+      try {
+        const stat = fs.statSync(resolved)
+        if (!stat.isFile()) throw new Error('not a file')
+        size = stat.size
+      } catch {
+        out.push({ path: p, error: `"${p}" was not found in the workspace (${path.basename(root.fsPath)}).`, missing: true })
+        continue
+      }
+      const dir = path.dirname(resolved)
+      const base = path.basename(resolved, path.extname(resolved))
+      const relDir = path.posix.dirname(p) === '.' ? '' : `${path.posix.dirname(p)}/`
+      let sidecars: string[] = []
+      try {
+        sidecars = fs
+          .readdirSync(dir)
+          .filter((n) => n !== path.basename(resolved) && path.basename(n, path.extname(n)) === base && !/\.(qml|sld)$/i.test(n))
+      } catch {
+        // The primary file alone.
+      }
+      const name = `ws/${p}`
+      try {
+        sourceServer.addFiles(token, [{ name, fsPath: resolved }, ...sidecars.map((s) => ({ name: `ws/${relDir}${s}`, fsPath: path.join(dir, s) }))])
+      } catch (err) {
+        out.push({ path: p, error: err instanceof Error ? err.message : String(err) })
+        continue
+      }
+      const reg = { urlFor: (n: string) => this.sourceUrl(panel, n) }
+      out.push({
+        path: p,
+        source: {
+          kind: 'url',
+          name,
+          size,
+          url: reg.urlFor(name),
+          sidecars: sidecars.map((s) => ({ name: `ws/${relDir}${s}`, url: reg.urlFor(`ws/${relDir}${s}`) })),
+          styleSidecar: null,
+        },
+      })
+    }
+    return out
+  }
+
+  /** The URL of a file served under a viewer's token. */
+  private sourceUrl(panel: vscode.WebviewPanel, name: string): string {
+    const base = this.sources.get(panel)?.urlBase ?? ''
+    return `${base}/${encodeURIComponent(name)}`
   }
 
   /** Spec 010: basemap API keys in SecretStorage; only `basemapKey.<provider>` names. */
@@ -766,7 +896,8 @@ async function reopenBinaryTabsFromStartup(): Promise<void> {
 
 /** What `activate` exposes; tests reach the loopback server through it (source-server.test.ts). */
 export interface ExtensionApi {
-  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening'>
+  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening' | 'addFiles'>
+  resolveInsideForTests: typeof resolveInside
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -878,7 +1009,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('spatialExplorer._getSelection', () => lastSelection)
   )
-  return { sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening } }
+  return {
+    sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening, addFiles: sourceServer.addFiles },
+    resolveInsideForTests: resolveInside,
+  }
 }
 
 export function deactivate(): void {}

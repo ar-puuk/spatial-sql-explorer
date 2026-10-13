@@ -32,3 +32,20 @@ export function functionSource(catalog: CatalogSnapshot | null): CompletionSourc
     return { from: word.from, options, validFor: /^[A-Za-z0-9_]*$/ }
   }
 }
+
+/**
+ * Spec 010 phase 9: inside a string literal, the data files a query can name
+ * (workspace paths in VS Code, added files on the web).
+ */
+export function pathSource(files: ReadonlyArray<{ path: string; open?: boolean }>): CompletionSource {
+  const options: Completion[] = files.filter((f) => !f.open).map((f) => ({ label: f.path, type: 'text', apply: f.path.replace(/'/g, "''") }))
+  return (ctx: CompletionContext): CompletionResult | null => {
+    if (!options.length) return null
+    const line = ctx.state.doc.lineAt(ctx.pos)
+    const before = line.text.slice(0, ctx.pos - line.from)
+    // An odd number of quotes before the cursor: inside a literal ('' escapes count twice).
+    if ((before.match(/'/g)?.length ?? 0) % 2 === 0) return null
+    const open = before.lastIndexOf("'")
+    return { from: line.from + open + 1, options, validFor: /^[^'\n]*$/ }
+  }
+}

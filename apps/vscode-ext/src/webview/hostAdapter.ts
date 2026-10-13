@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef, type WorkspaceResolution } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -27,6 +27,8 @@ export type DuckDbAssets = Record<string, never>
 /** Spec 008: the `spatialExplorer.placeSearch.enabled` setting, as the host last sent it. */
 let placeSearchEnabled: boolean | undefined
 const preferenceListeners = new Set<() => void>()
+/** Spec 010 phase 9: told when data files appear or go in the workspace. */
+const workspaceListeners = new Set<() => void>()
 
 let maplibreWorkerUrlResolve: ((url: string) => void) | null = null
 const maplibreWorkerUrlPromise = new Promise<string>((resolve) => {
@@ -261,6 +263,8 @@ window.addEventListener('message', (event: MessageEvent) => {
   } else if (msg.type === 'preferences') {
     placeSearchEnabled = msg.placeSearchEnabled
     preferenceListeners.forEach((cb) => cb())
+  } else if (msg.type === 'workspaceFilesChanged') {
+    workspaceListeners.forEach((cb) => cb())
   } else if (msg.type === 'sourceChanged') {
     sourceChangedListeners.forEach((cb) => cb())
   } else if (msg.type === 'triggerError' && msg.message) {
@@ -379,6 +383,19 @@ export function createVsCodeHostAdapter(): HostAdapter {
       await request({ type: 'saveState', key, value })
     },
     secretLocation: 'vscode',
+    // Spec 010 phase 9: workspace files a query can name.
+    async listWorkspaceFiles() {
+      const result = await request<{ files?: Array<{ path: string; size: number }> }>({ type: 'listWorkspaceFiles' })
+      return result?.files ?? []
+    },
+    async resolveWorkspaceFiles(paths: string[]) {
+      const result = await request<{ results?: WorkspaceResolution[] }>({ type: 'resolveWorkspaceFiles', paths })
+      return result?.results ?? paths.map((path) => ({ path, error: 'The workspace did not answer.' }))
+    },
+    onWorkspaceFilesChanged(cb: () => void) {
+      workspaceListeners.add(cb)
+      return () => workspaceListeners.delete(cb)
+    },
     async getSecret(name: string): Promise<string | undefined> {
       const result = await request<{ value?: string; error?: string }>({ type: 'getSecret', name })
       if (result?.error) throw new Error(result.error)

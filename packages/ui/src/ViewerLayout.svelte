@@ -252,7 +252,8 @@
     if (layer.rowCount !== layer.featureCount) return `${nf.format(layer.rowCount)} rows · ${nf.format(layer.featureCount)} mapped`
     return `${nf.format(layer.featureCount)} ${layer.featureCount === 1 ? 'feature' : 'features'}`
   })
-  const queryFiles = $derived([{ name: fileName ?? 'layer', sql: 'layer', detail: 'layer' }])
+  // Spec 010 phase 9: the workspace's data files (the open one first); before the host answers, the open file.
+  const queryFiles = $derived(store.workspaceFiles.length ? store.workspaceFiles : [{ path: fileName ?? 'layer', size: 0, open: true }])
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -483,7 +484,11 @@
                 <QueryPanel bind:this={queryPanel} {store} embedded collapsed={false} onToggle={() => {}} />
               </div>
               <div class="files-col">
-                <WorkspaceFiles files={queryFiles} onInsert={(text) => queryPanel?.insertText(text)} />
+                <WorkspaceFiles
+                  files={queryFiles}
+                  onInsert={(text) => queryPanel?.insertText(text)}
+                  onAdd={store.canAddWorkspaceFiles ? (files) => void store.addWorkspaceFiles(files) : undefined}
+                />
               </div>
             </div>
           {/snippet}

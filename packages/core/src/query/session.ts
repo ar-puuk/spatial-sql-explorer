@@ -11,6 +11,9 @@ import { DEFAULT_QUERY, type Feature, type Layer, type QueryableTable, type Tabl
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
+import { pathLiterals, rewritePaths, type Rewritten } from '../sql/workspacePaths.js'
+import { registerSource, type RegisteredSource } from '../source/register.js'
+import type { WorkspaceResolution } from '../hostAdapter.js'
 import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
@@ -90,8 +93,23 @@ export type RunOutcome =
  * `ctasLineOffset` is 1 for queries, which run as "CREATE … AS\n" + the
  * statement (research §5/§8).
  */
-function toEngineError(err: unknown, statement: ExecutedStatement, editorText: string, wrapped: boolean): EngineError {
+function toEngineError(err: unknown, statement: ExecutedStatement, editorText: string, wrapped: boolean, rewritten?: Rewritten): EngineError {
   const text = err instanceof Error ? err.message : String(err)
+  if (rewritten && rewritten.text !== statement.text) {
+    // The engine saw the rewritten statement (workspace paths): place the error there, then map it back.
+    const info = parseEngineError(text, {
+      editorText: rewritten.text,
+      statementOffset: 0,
+      ctasLineOffset: wrapped ? 1 : 0,
+      ctasPrefixLength: wrapped ? CTAS_PREFIX.length : 0,
+    })
+    if (info.position) {
+      const offset = statement.editorOffset + rewritten.toOriginal(info.position.offset)
+      const before = editorText.slice(0, offset)
+      info.position = { line: before.split('\n').length, column: offset - (before.lastIndexOf('\n') + 1) + 1, offset }
+    }
+    return info
+  }
   return parseEngineError(text, {
     editorText,
     statementOffset: statement.editorOffset,
@@ -270,6 +288,14 @@ export class QuerySession {
       this.log?.(`[query] refused: ${policy.reason} — ${oneLine(span.text)}`)
       return { kind: 'refused', reason: policy.reason, statement }
     }
+    // Spec 010 phase 9: other workspace files the statement names, registered and rewritten.
+    const prepared = await this.prepareWorkspace(span.text)
+    if ('refused' in prepared) {
+      this.log?.(`[query] refused: ${prepared.refused} — ${oneLine(span.text)}`)
+      return { kind: 'refused', reason: prepared.refused, statement }
+    }
+    const rewritten = prepared.rewritten
+    const sql = rewritten.text
 
     const started = performance.now()
     const elapsed = (): number => Math.round(performance.now() - started)
@@ -295,20 +321,20 @@ export class QuerySession {
                   layerExtent: this.table.sourceExtent,
                 }),
             }),
-            span.text
+            sql
           )
           this.facts = resultFacts(result, this.table, false)
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         if (policy.kind === 'utility') {
-          const result = await this.utilityResult(span.text, isCancelled)
+          const result = await this.utilityResult(sql, isCancelled)
           this.facts = { ...resultFacts(result, this.table, false), exportable: false }
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         // Temp DDL: execute, then summarize.
-        await streamRows(this.conn, span.text, isCancelled)
+        await streamRows(this.conn, sql, isCancelled)
         const what = `${policy.object === 'table' ? 'temp table' : 'temp view'} \`${policy.name}\``
         let summary = `${policy.action === 'create' ? 'Created' : 'Dropped'} ${what}`
         if (policy.action === 'create' && policy.object === 'table') {
@@ -325,7 +351,7 @@ export class QuerySession {
           ? { kind: 'cancelled', durationMs: elapsed(), statement }
           : err instanceof OutOfMemoryError
             ? { kind: 'error', error: { kind: 'Out of Memory', message: err.message, hints: [] }, durationMs: elapsed(), statement }
-            : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query'), durationMs: elapsed(), statement }
+            : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query', rewritten), durationMs: elapsed(), statement }
     }
     this.log?.(`[query] ${describeOutcome(outcome)} — ${oneLine(span.text)}`)
     return outcome
@@ -381,6 +407,50 @@ export class QuerySession {
       kind: 'table',
       reRuns: false,
     }
+  }
+
+  /** Spec 010 phase 9: reaches other workspace files (HostAdapter.resolveWorkspaceFiles), or null. */
+  private workspaceResolver: ((paths: string[]) => Promise<WorkspaceResolution[]>) | null = null
+  /** Workspace files registered with the engine, by path. */
+  private wsRegistered = new Map<string, RegisteredSource>()
+
+  /** Set by the store from the host: lets a query name other workspace files. */
+  setWorkspace(resolver: ((paths: string[]) => Promise<WorkspaceResolution[]>) | null): void {
+    this.workspaceResolver = resolver
+  }
+
+  /**
+   * Registers the workspace files a statement names (once each) and rewrites
+   * their literals to the engine paths. A path used as a file (ST_Read('x.shp'),
+   * FROM 'x.parquet') that can't be read refuses the statement with the host's
+   * reason; any other literal that happens to look like a file name is left alone.
+   */
+  private async prepareWorkspace(text: string): Promise<{ rewritten: Rewritten } | { refused: string }> {
+    const literals = pathLiterals(text)
+    const unchanged = { rewritten: { text, toOriginal: (o: number) => o } }
+    if (!literals.length || !this.workspaceResolver) return unchanged
+    const wanted = [...new Set(literals.map((l) => l.path))].filter((p) => !this.wsRegistered.has(p))
+    if (wanted.length) {
+      let resolved: WorkspaceResolution[]
+      try {
+        resolved = await this.workspaceResolver(wanted)
+      } catch (err) {
+        return { refused: `Workspace files could not be listed: ${err instanceof Error ? err.message : String(err)}` }
+      }
+      for (const r of resolved) {
+        if ('source' in r) {
+          try {
+            this.wsRegistered.set(r.path, await registerSource(this.db, r.source))
+            this.log?.(`[query] workspace file: ${r.path}`)
+          } catch (err) {
+            return { refused: `${r.path} could not be read: ${err instanceof Error ? err.message : String(err)}` }
+          }
+        } else if (literals.some((l) => l.path === r.path && l.asFile)) {
+          return { refused: r.error }
+        }
+      }
+    }
+    return { rewritten: rewritePaths(text, new Set(this.wsRegistered.keys())) }
   }
 
   /** Names users can't replace or drop (statement policy). */
@@ -1121,6 +1191,8 @@ export class QuerySession {
     if (this.disposed) return
     await this.cancel()
     this.disposed = true
+    for (const r of this.wsRegistered.values()) await r.drop()
+    this.wsRegistered.clear()
     const drop = async (sql: string): Promise<void> => {
       await this.conn.query(sql).catch(() => {})
     }

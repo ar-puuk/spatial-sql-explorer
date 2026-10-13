@@ -1,7 +1,7 @@
 // Web implementation of HostAdapter (T031). Reads file bytes directly via
 // the File/Blob API — no message-passing boundary to cross, unlike the VS
 // Code implementation (apps/vscode-ext/src/webview/hostAdapter.ts).
-import { fetchFromNetwork, type EngineFileRef, type FileSource, type HostAdapter, type OpenedFileRef, type SaveOptions, type SaveResult, type StatusFields, type ThemeKind } from '@spatial-explorer/core'
+import { fetchFromNetwork, type EngineFileRef, type FileSource, type HostAdapter, type OpenedFileRef, type SaveOptions, type SaveResult, type StatusFields, type ThemeKind, type WorkspaceFile, type WorkspaceResolution } from '@spatial-explorer/core'
 
 const fileMap = new Map<string, File[]>()
 
@@ -59,10 +59,55 @@ export function provideFiles(files: File[]): void {
   const primary = files.find((f) => !isLikelySidecar(f.name)) ?? files[0]
   const id = crypto.randomUUID()
   fileMap.set(id, files)
+  // Spec 010 phase 9: the open file is also a workspace file (a query may name it).
+  openGroup = files
+  notifyWorkspace()
   // No path exists in the browser: name + size + mtime identifies "the same
   // file" across sessions well enough for query history (spec 002).
   pendingOpenFilesResolve?.([{ id, displayName: primary.name, stateKey: `${primary.name}|${primary.size}|${primary.lastModified}` }])
   pendingOpenFilesResolve = null
+}
+
+// --- Spec 010 phase 9: files a query can name ------------------------------------
+// The browser can't list folders: the workspace is the open file plus the files
+// the user adds (SQL tab, Add files… or a drop), each with its sidecars, by name.
+const workspaceGroups = new Map<string, File[]>()
+let openGroup: File[] | null = null
+const workspaceListeners = new Set<() => void>()
+const notifyWorkspace = (): void => workspaceListeners.forEach((cb) => cb())
+
+/**
+ * Adds each data file under its name, with the sidecars of the same basename
+ * (a Shapefile's .dbf/.shx/.prj). sample.shp and sample.gpkg stay two files.
+ */
+export function addWorkspaceFileList(files: File[]): WorkspaceFile[] {
+  const baseOf = (name: string): string => name.replace(/\.[^.]+$/, '').toLowerCase()
+  const sidecars = files.filter((f) => isLikelySidecar(f.name))
+  const added: WorkspaceFile[] = []
+  for (const primary of files.filter((f) => !isLikelySidecar(f.name))) {
+    workspaceGroups.set(primary.name, [primary, ...sidecars.filter((s) => baseOf(s.name) === baseOf(primary.name))])
+    added.push({ path: primary.name, size: primary.size })
+  }
+  if (added.length) notifyWorkspace()
+  return added
+}
+
+/** A file picker, resolved with the chosen files (none when cancelled). */
+function pickFiles(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.addEventListener('change', () => resolve([...(input.files ?? [])]))
+    input.addEventListener('cancel', () => resolve([]))
+    input.click()
+  })
+}
+
+function groupSource(path: string, group: File[]): FileSource {
+  const primary = primaryOf(group)
+  const sidecars = group.filter((f) => f !== primary && !STYLE_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)))
+  return { kind: 'handle', name: `ws/${path}`, size: primary.size, handle: primary, sidecars: sidecars.map((f) => ({ name: `ws/${f.name}`, handle: f })), styleSidecar: null }
 }
 
 /** e2e (spec 007 T053): range reads served, to show PMTiles is never read whole. */
@@ -152,6 +197,25 @@ export function createWebHostAdapter(): HostAdapter {
       }
       // Spec 007 research §2: the engine reads the File in slices; nothing is copied up front.
       return { kind: 'handle', name: primary.name, size: primary.size, handle: primary, sidecars: sidecars.map((f) => ({ name: f.name, handle: f })), styleSidecar }
+    },
+    async listWorkspaceFiles(): Promise<WorkspaceFile[]> {
+      const open = openGroup ? [{ path: primaryOf(openGroup).name, size: primaryOf(openGroup).size, open: true }] : []
+      const added = [...workspaceGroups.entries()].map(([path, g]) => ({ path, size: primaryOf(g).size }))
+      const seen = new Set(open.map((f) => f.path))
+      return [...open, ...added.filter((f) => !seen.has(f.path)).sort((a, b) => a.path.localeCompare(b.path))]
+    },
+    async resolveWorkspaceFiles(paths: string[]): Promise<WorkspaceResolution[]> {
+      return paths.map((path) => {
+        const group = workspaceGroups.get(path) ?? (openGroup && primaryOf(openGroup).name === path ? openGroup : null)
+        return group ? { path, source: groupSource(path, group) } : { path, error: `Add ${path} to the workspace first (SQL tab, Add files…).`, missing: true }
+      })
+    },
+    async addWorkspaceFiles(files?: File[]): Promise<WorkspaceFile[]> {
+      return addWorkspaceFileList(files ?? (await pickFiles()))
+    },
+    onWorkspaceFilesChanged(cb: () => void): () => void {
+      workspaceListeners.add(cb)
+      return () => workspaceListeners.delete(cb)
     },
     async readRange(ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array> {
       const files = fileMap.get(ref.id)

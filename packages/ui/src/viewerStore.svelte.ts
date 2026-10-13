@@ -76,7 +76,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName, styleDataColumns, type MapData } from '@spatial-explorer/core'
+import { formatFromFileName, styleDataColumns, type MapData, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -356,6 +356,11 @@ export interface ViewerStore {
   load(): Promise<void>
   /** Spec 008 US3: the layers of a multi-layer file, and the one shown; empty for single-layer files. */
   readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>
+  /** Spec 010 phase 9: data files a query can name (VS Code: the workspace; web: the open file and added ones). */
+  readonly workspaceFiles: ReadonlyArray<WorkspaceFile>
+  /** Web: files can be added for queries (a picker or a drop). */
+  readonly canAddWorkspaceFiles: boolean
+  addWorkspaceFiles(files?: File[]): Promise<void>
   readonly activeLayer: string | null
   /**
    * Shows another layer of the file (FR-016). A layer with geometry is opened
@@ -593,6 +598,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // The viewer's query session (spec 002). Deliberately not $state: it holds
   // live engine connections, which must never be proxied or posted.
   let querySession: QuerySession | null = null
+  let workspaceFiles = $state.raw<WorkspaceFile[]>([])
+  async function refreshWorkspaceFiles(): Promise<void> {
+    if (!hostAdapter.listWorkspaceFiles) return
+    try {
+      workspaceFiles = await hostAdapter.listWorkspaceFiles()
+    } catch {
+      workspaceFiles = []
+    }
+  }
+  hostAdapter.onWorkspaceFilesChanged?.(() => void refreshWorkspaceFiles())
 
   // --- spec 002: query state ------------------------------------------------
   let queryText = $state(DEFAULT_QUERY)
@@ -1272,6 +1287,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       openPhase = null
       openStartedAt = null
       querySession = opened.session
+      // Spec 010 phase 9: a query may name other workspace files.
+      const resolveWorkspace = hostAdapter.resolveWorkspaceFiles?.bind(hostAdapter)
+      opened.session.setWorkspace(resolveWorkspace ?? null)
+      void refreshWorkspaceFiles()
       resetQueryState()
       catalog = null
       void refreshCatalog()
@@ -1929,6 +1948,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return activeLayer
     },
     switchLayer,
+    get workspaceFiles() {
+      return workspaceFiles
+    },
+    get canAddWorkspaceFiles() {
+      return !!hostAdapter.addWorkspaceFiles
+    },
+    async addWorkspaceFiles(files) {
+      await hostAdapter.addWorkspaceFiles?.(files)
+      await refreshWorkspaceFiles()
+    },
     inspectTileFeature(feature) {
       detailFeature = feature
       session.selectedFeatureId = feature?.id ?? null
