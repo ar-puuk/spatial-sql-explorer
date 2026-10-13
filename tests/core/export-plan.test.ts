@@ -84,11 +84,11 @@ describe('formats offered (FR-004, FR-008)', () => {
 })
 
 describe('CRS (FR-006)', () => {
-  it('GeoJSON is forced to WGS84 and says why', () => {
+  // User request 2026-10-13: the dialog just disables the CRS picker; no notice explains it.
+  it('GeoJSON is forced to WGS84, without a notice', () => {
     const p = planExport(request({ format: 'geojson', crs: 'result' }), ctx({ facts: { ...ctx().facts, resultCrs: utm } }))
     expect(p.crs).toMatchObject({ output: 'wgs84', forced: true })
-    expect(p.crs.reason).toMatch(/GeoJSON/)
-    expect(p.notices.join()).toMatch(/reprojected from EPSG:26912/)
+    expect(p.notices.join()).not.toMatch(/WGS84|reprojected/)
     expect(p.sql).toMatch(/ST_Transform\("geom", 'EPSG:26912', 'EPSG:4326', always_xy := true\)/)
   })
 

@@ -104,7 +104,8 @@ test.describe('export keeps the CRS honestly (US2)', () => {
     await dialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     const crs = dialog(page).getByLabel('CRS')
     await expect(crs).toBeDisabled()
-    await expect(crs).toContainText('required by GeoJSON')
+    await expect(crs).toContainText('EPSG:4326')
+    await expect(crs).not.toContainText('required')
     const gj = await exportVia(page, { format: 'GeoJSON' })
     const [lon, lat] = JSON.parse(gj.bytes.toString('utf8')).features[0].geometry.coordinates[0][0][0]
     expect(lon).toBeGreaterThan(-180)

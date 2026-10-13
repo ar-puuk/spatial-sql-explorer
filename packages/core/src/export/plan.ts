@@ -177,7 +177,6 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
 
   // CRS (FR-006).
   const resultCrs = facts.resultCrs
-  const resultIsWgs84 = !resultCrs || resultCrs.srid === null || resultCrs.srid === 4326
   const forced = fmt.crs === 'wgs84-only'
   const customCode = request.crs === 'custom' && Number.isInteger(request.crsCode) && (request.crsCode ?? 0) > 0 ? (request.crsCode as number) : null
   const output: 'result' | 'wgs84' | 'custom' = forced ? 'wgs84' : request.crs === 'custom' ? (customCode ? 'custom' : 'result') : request.crs
@@ -250,7 +249,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     } else select.push(`${valid(`ST_AsText(${projected})`)} AS ${col}`)
 
     if (output === 'custom' && customCode !== (resultCrs?.srid ?? 4326)) notices.push(`Coordinates are reprojected from ${resultCrs?.label ?? 'EPSG:4326 (WGS84)'} to EPSG:${customCode}.`)
-    if (fmt.crs === 'wgs84-only' && !resultIsWgs84) notices.push(`${fmt.label} is always WGS84 (longitude, latitude): coordinates are reprojected from ${resultCrs?.label}.`)
+    // A WGS84-only format (GeoJSON, KML) just shows the CRS picker disabled: no notice (user request 2026-10-13).
     if (format === 'shapefile') {
       if (layer.geometryType === 'Mixed') notices.push('A Shapefile holds one geometry type: points, lines and polygons are written as separate Shapefiles in the zip.')
       notices.push('Shapefile text values longer than 254 characters are cut.')
