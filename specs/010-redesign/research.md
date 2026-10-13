@@ -182,3 +182,24 @@ then the tile provider retried the moment the engine was idle and started first,
 Fix: while user work waits for the engine, new tiles and views are skipped (they retry
 after). maplibre-gl-vector (GeoLibre) runs every engine call through one FIFO queue
 without preemption, so it can't hit this; our engine lets user work preempt tiles.
+
+## Phase 6: GeoPackage and SQLite without sql.js (as amended, user decision 2026-10-12)
+
+- The plan's option A (a `fid` from `row_number()`) is not used: DuckDB 1.5's `ST_Read`
+  returns the real id (S5), also through the SQLite-driver copy for layers GDAL can't
+  stream (gapped `zones`: 101…123; `notes`: 7, 9, 11). The key restore (sql.js read of
+  the INTEGER PRIMARY KEY, key tables, POSITIONAL JOIN) is removed.
+- A SQLite file's attribute-only tables are listed with `sqlite_scanner` (S8): an empty
+  `<file>-journal` is registered next to the database, then `sqlite_master` and a
+  `count(*)` per table. The extension is pinned and hash-checked like the others and is
+  optional: if it is missing or fails, the spatial layers still open (logged).
+- The whole file is copied into memory only for a GeoPackage with a layer GDAL can't
+  stream; a failure there gives "This GeoPackage layer can't be read in this engine
+  without loading the file into memory, and that failed: …".
+- sql.js now serves GeoPackage export only. Test: opening `gapped-ids.gpkg` and
+  `cube-network.sqlite` makes no request for sql.js.
+- The plan's `corrupt-key.gpkg` fixture is skipped: it tested "sql.js fails while GDAL
+  opens", and sql.js is no longer on the open path.
+
+VS Code open of the 10 MB performance file with sqlite_scanner loaded at start (3 runs, median):
+1,949 ms, against 2,047 ms without it: no measurable cost.

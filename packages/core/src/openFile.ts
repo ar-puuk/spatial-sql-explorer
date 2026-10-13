@@ -22,7 +22,7 @@ import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
-import { dropKeyTables, planSqliteSource } from './source/sqlite.js'
+import { planSqliteSource } from './source/sqlite.js'
 import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
 
 export interface OpenFileDeps {
@@ -381,15 +381,15 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
     }
     checkCancelled()
-    // Research §16: GeoPackage and SQLite files are also read by sql.js (their
-    // keys); a file already in memory is copied before the engine takes it,
-    // which is much faster than fetching it again.
-    let sqliteBytes: Uint8Array | null = (format === 'geopackage' || format === 'sqlite') && source.kind === 'bytes' ? source.bytes.slice() : null
+    // Research §16: a GeoPackage layer GDAL can't stream is read from a plain
+    // SQLite copy; a file already in memory is copied before the engine takes
+    // it, which is much faster than fetching it again.
+    let sqliteBytes: Uint8Array | null = format === 'geopackage' && source.kind === 'bytes' ? source.bytes.slice() : null
     registered = await registerSource(db, source, () => hostAdapter.getFileSource(ref, { whole: true }))
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
     let layers = strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
-    // Research §16: how each GeoPackage / SQLite layer is read, with its feature id restored.
+    // Research §16: how each GeoPackage / SQLite layer is read.
     let readers = new Map<string, string>()
     if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
       const plan = await planSqliteSource({
@@ -398,7 +398,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
         format,
         path: registered.primaryPath,
         layers,
-        sizeBytes: source.size,
         wholeBytes: async () => {
           const kept = sqliteBytes
           sqliteBytes = null
@@ -407,7 +406,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
           if (whole.kind !== 'bytes') throw new Error('The file could not be read into memory.')
           return whole.bytes
         },
-        loadSqlWasm: () => loadSqlWasm(duckdbAssets),
         log: hostAdapter.log?.bind(hostAdapter),
       })
       layers = plan.layers
@@ -485,7 +483,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // A failed or cancelled whole read leaves nothing behind.
     await conn.query(`DROP TABLE IF EXISTS ${RAW_TABLE}`).catch(() => {})
     if (!session) await conn.query(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`).catch(() => {})
-    if (!session) await dropKeyTables(conn).catch(() => {})
     keepRegistered = false
     if (isOutOfMemory(err)) {
       // FR-014: a clear message; the engine itself survives (research §1).

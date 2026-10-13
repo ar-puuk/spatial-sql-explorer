@@ -133,8 +133,9 @@ async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDb
     try {
       bytes = await verified[i]
     } catch (err) {
-      // Spec 008: JSON only serves JSON export, excel (spec 010) xlsx export and input; the app works without them.
-      if (name === 'json' || name === 'excel') continue
+      // Spec 008: JSON only serves JSON export; spec 010: excel xlsx export and input, sqlite_scanner
+      // a SQLite file's attribute tables. The app works without them.
+      if (name === 'json' || name === 'excel' || name === 'sqlite_scanner') continue
       throw err
     }
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/wasm' }))

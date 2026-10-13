@@ -37,7 +37,7 @@ test('no engine downloads beyond the pinned files', async ({ page }) => {
   await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
   const files = [...new Set(engine.map((p) => p.split('/').pop()))].sort()
-  expect(files).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'excel.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm'])
+  expect(files).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'excel.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm', 'sqlite_scanner.duckdb_extension.wasm'])
   expect(engine.every((p) => p.startsWith('/engine-mirror/'))).toBe(true)
 })
 
@@ -52,7 +52,7 @@ test('after the first start, the engine starts with the download servers unreach
   await page.goto('/?e2e=1')
   await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
-  await expect.poll(() => cachedNames(page)).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'excel.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm'])
+  await expect.poll(() => cachedNames(page)).toEqual(['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'excel.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'spatial.duckdb_extension.wasm', 'sqlite_scanner.duckdb_extension.wasm'])
 
   // No way to reach the engine's servers any more.
   let attempts = 0

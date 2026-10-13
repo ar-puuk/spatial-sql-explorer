@@ -37,6 +37,11 @@
         "url": "https://extensions.duckdb.org/v1.5.6/wasm_eh/excel.duckdb_extension.wasm",
         "sha256": "b220bd36e0f1e39a75d73a0008d3d678cc9fd61a18fbc4d471f01e0d2e3e73c4",
         "bytes": 594429
+      },
+      "sqlite_scanner": {
+        "url": "https://extensions.duckdb.org/v1.5.6/wasm_eh/sqlite_scanner.duckdb_extension.wasm",
+        "sha256": "64c3a7174365a2fbc6ce25d914c213fedc3dc15050e2394d7cb63ab53288c8ea",
+        "bytes": 1691748
       }
     }
   },

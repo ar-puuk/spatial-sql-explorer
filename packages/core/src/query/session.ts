@@ -15,7 +15,6 @@ import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, R
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
-import { dropKeyTables } from '../source/sqlite.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
   categoryTotalsSql,
@@ -1100,7 +1099,6 @@ export class QuerySession {
     await drop('DROP TABLE IF EXISTS __se_bbox')
     await drop(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`)
     await drop('DROP TABLE IF EXISTS __se_raw')
-    await dropKeyTables(this.conn).catch(() => {})
     await this.conn.close().catch(() => {})
     for (const path of this.liveFiles) await this.db.dropFile(path).catch(() => {})
   }

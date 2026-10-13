@@ -77,6 +77,17 @@ test('a SQLite network (Cube 7 shape): nodes keep n, links and attribute tables 
   await expect(statusBar(page)).toContainText('8 features')
 })
 
+// Spec 010 phase 6: the engine reads ids itself and sqlite_scanner lists tables; sql.js only serves GeoPackage export.
+test('opening GeoPackage and SQLite files never loads sql.js', async ({ page }) => {
+  const requests: string[] = []
+  page.on('request', (r) => requests.push(r.url()))
+  await openFile(page, fixture('gapped-ids.gpkg'), '?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(fixture('cube-network.sqlite'))
+  await expect(layerList(page).getByRole('option')).toHaveCount(3)
+  await expect(layerList(page).getByRole('option').nth(2)).toHaveAccessibleName('cubedb__BY__transit_mode, table, 3')
+  expect(requests.filter((u) => /sql-wasm/.test(u))).toEqual([])
+})
+
 test('a .db file opens like .sqlite', async ({ page }) => {
   const fs = await import('node:fs')
   const os = await import('node:os')
