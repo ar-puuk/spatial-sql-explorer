@@ -121,10 +121,30 @@ async function captureVsCode() {
       await win.keyboard.type(file)
       await win.waitForTimeout(600)
       await win.keyboard.press('Enter')
+      // Formats with "option" priority open as text: reopen them in the viewer, as a user would.
+      if (/\.(geojson|json|csv|xlsx|parquet)$/i.test(file)) {
+        await win.waitForTimeout(1500)
+        await win.keyboard.press('Control+Shift+P')
+        await win.keyboard.type('Spatial Explorer: Open in Spatial Explorer')
+        await win.waitForTimeout(600)
+        await win.keyboard.press('Enter')
+      }
 
       const view = win.frameLocator('iframe.webview').frameLocator('iframe')
-      // Wait for real rendered data, not a fixed delay.
-      await view.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 90000 })
+      // A file over the whole-read threshold is announced first (spec 007/010): read it.
+      const announce = view.getByRole('dialog', { name: 'Read the whole file?' })
+      await announce.waitFor({ state: 'visible', timeout: 8000 }).then(
+        () => announce.getByRole('button', { name: 'Open' }).click(),
+        () => {}
+      )
+      // Wait for real rendered data, not a fixed delay. On a timeout, keep what the window showed.
+      await view
+        .locator('.canvas-host[data-rendered-features]')
+        .waitFor({ state: 'attached', timeout: 240000 })
+        .catch(async (err) => {
+          await shot(win, `vscode-${slug(theme)}-timeout`)
+          throw err
+        })
       await win.waitForTimeout(1500)
       const name = `vscode-${slug(theme)}`
       await shot(win, `${name}-loaded`)

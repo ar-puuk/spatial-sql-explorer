@@ -1,0 +1,26 @@
+// SPIKE (spec 010 checkpoint): 72,000 detailed polygons in GeoJSON mode. Temporary.
+import { test, expect } from '@playwright/test'
+import { fixture, openFile, openQueryPanel, runQuery } from './helpers'
+
+test('72k countries', async ({ page }) => {
+  test.setTimeout(600000)
+  await page.addInitScript(() => {
+    const w = window as any
+    w.__longTasks = []
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__longTasks.push(Math.round(e.duration))
+    }).observe({ type: 'longtask', buffered: true })
+  })
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openQueryPanel(page)
+  await page.evaluate(() => ((window as any).__longTasks = []))
+  const paints = Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0)
+  const t0 = Date.now()
+  await runQuery(page, 'SELECT a.* FROM layer a, range(400) b')
+  await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0), { timeout: 540000 }).toBeGreaterThan(paints)
+  const drawnMs = Date.now() - t0
+  const shotT0 = Date.now()
+  await page.screenshot({ path: `${process.env.SPIKE_OUT}/countries-72k.png`, timeout: 120000 })
+  const long = await page.evaluate(() => (window as any).__longTasks as number[])
+  console.log('MEASURE', JSON.stringify({ drawnMs, screenshotMs: Date.now() - shotT0, longTasks: long.length, longestMs: Math.max(0, ...long), totalLongMs: long.reduce((a, b) => a + b, 0) }))
+})

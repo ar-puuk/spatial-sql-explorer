@@ -120,3 +120,44 @@ Also found while switching:
 
 Also from S9: `.xlsx` opens as an input format (`read_xlsx`, like CSV: lon/lat, longitude/
 latitude or WKT columns), and `excel` is a pinned extension (no measurable start cost, S8/S9).
+
+## Phase 4–5 checkpoint (new map drawing; FlatGeobuf read whole)
+
+Measured in the web build (headless Chromium, software WebGL), `spikes/measure.spec.ts.txt`:
+
+| Case | Mode | Facts | Drawn | Engine calls while panning | 5 pans at 6× CPU: long tasks / longest | Pan phase |
+|---|---|---|---|---|---|---|
+| parcels-10k.geojson | GeoJSON | 0.98 s | 2.0 s | 0 | 9 / 238 ms | 6.1 s |
+| parcels-77k.geojson | GeoJSON | 3.0 s | 7.9 s | 0 | 13 / 1,970 ms | 34.6 s |
+| parcels-230k.geojson | tiles | 12.7 s | 14.6 s | 2 tiles | 6 / 209 ms | 4.7 s |
+
+Spec 007's per-pan views re-queried on every pan; now GeoJSON mode does no engine work
+while panning, and tiles mode builds only the tiles that come into view (S1: ~16 ms each).
+
+**Tiny features at overview zoom (decision asked).** MapLibre's GeoJSON tiler
+(geojson-vt) drops features smaller than its simplification tolerance: parcels-10k drew
+**0 features** at its fit-to-extent zoom (5.4). Spec 007 hid this with per-view "dots".
+Phase 4 sets `tolerance: 0` on our GeoJSON source (everything drawn), at a cost in pans:
+
+| GeoJSON source | 10k: drawn at overview / longest task 6× | 77k: drawn / longest task 6× |
+|---|---|---|
+| default tolerance (GeoLibre, maplibre-gl-vector) | 0 / 0 ms | 0 / 0 ms |
+| `tolerance: 0` (committed) | 10,005 / 238 ms | 77,001 / 1,970 ms |
+
+Engine tiles have the same blind spot (`ST_AsMVTGeom` drops polygons that collapse on the
+tile grid: 876 of 10,000 parcels drawn at z5), as maplibre-gl-vector's tiles do.
+
+Heavy geometry: 72,000 detailed country polygons (`SELECT a.* FROM layer a, range(400) b`
+on world-boundaries) draw in GeoJSON mode in 18–20 s with ~1.5 s long tasks, whatever the
+tolerance; the cost is handing ~72k complex features to MapLibre's worker.
+
+VS Code (Extension Development Host, `npm run screenshots --file parcels-230k.fgb`):
+parcels-230k as FlatGeobuf is read whole, drawn from engine tiles, the status bar shows
+"Tiles · Load all", a clicked parcel opens in the inspector and is highlighted
+(`screenshots/p230k/`).
+
+A livelock found by the accessibility export test: user work cancelled the running tile,
+then the tile provider retried the moment the engine was idle and started first, forever.
+Fix: while user work waits for the engine, new tiles and views are skipped (they retry
+after). maplibre-gl-vector (GeoLibre) runs every engine call through one FIFO queue
+without preemption, so it can't hit this; our engine lets user work preempt tiles.
