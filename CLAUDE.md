@@ -12,7 +12,7 @@ Use it only as a feature reference (`git show legacy-v1:js/app.js`, or check out
 ## Explicitly out of scope
 Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb
 integration, plugin system, 3D tiles/terrain/planets, raster analysis, stacked
-basemaps. Say no to scope creep and flag it instead.
+basemaps, multiple map layers. Say no to scope creep and flag it instead.
 Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection toggle
 (MapLibre's built-in globe, no terrain), and polygon extrusion as a style option
 (height from a column). Nothing else 3D. Also allowed (2026-10-11): an opt-out place search
@@ -52,7 +52,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   priority "option" for .geojson .csv .parquet .json (do not hijack text/data viewers).
 - Explorer/editor-tab context menu: "Open in Spatial Explorer" (gated on resourceExtname).
 - Folder-based formats (.gdb) cannot bind to a custom editor: use an explorer/context command.
-- "Add to Spatial Explorer Session" for multi-file work and spatial joins (separate Session panel).
+- One layer on the map at a time (user decision 2026-10-12, spec 010). Multi-file work is SQL: a query names other workspace files by their path relative to the workspace root (`ST_Read('data/links.shp')`), and the result is drawn. The web app does the same with files the user adds.
 - Status bar items: CRS, feature count, cursor coordinates. Output channel for query logs/timings.
 - Works under Remote-SSH/WSL/Containers where possible; must not break on vscode.dev if avoidable.
 
@@ -89,12 +89,13 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - API keys: non-secret values in settings, secrets in context.secrets (SecretStorage).
 - CSP: webview needs img-src/connect-src for style, sprite, glyph and tile hosts; worker-src blob:;
   script-src 'wasm-unsafe-eval'.
+- Spec 010: a short featured list in the Basemap panel, plus "More basemaps…": a searchable modal over the maplibre-gl-basemap-control catalog (generated into packages/core by scripts/basemap-catalog.mjs). Excluded: Chinese providers, Google, traffic/label/route overlays, 3D, Mapbox and Amazon (they need request rewriting). Keys for MapTiler, Stadia, Protomaps, CARTO: VS Code SecretStorage, web localStorage.
+- Exactly one basemap is drawn at a time; switching replaces it and never touches the data source.
 
 ## Scale and performance rules
-- Never load a whole large file into memory when avoidable. Query by viewport bbox with a feature cap in the MVP.
-- Prefer range reads (registerFileURL against asWebviewUri) over posting whole files to the webview. VERIFY first (spike).
+- Map drawing (spec 010, GeoLibre's model): results under 100,000 rows (and files under 100 MiB) are converted to GeoJSON once and drawn from memory; larger ones are drawn from vector tiles DuckDB builds per tile (ST_AsMVT through MapLibre addProtocol), silently, with a "Load all" link. No per-pan re-queries.
+- Prefer range reads (registerFileURL against the loopback server) over posting whole files to the webview.
 - Prefer binary/Arrow transfer between host and webview over JSON.
-- Later: serve vector tiles via maplibre addProtocol + ST_AsMVT, if available in the WASM spatial build.
 - CRS: read the layer CRS and ST_Transform to EPSG:4326 for display. Plan for this from day one.
 
 ## Styling and export
@@ -112,7 +113,8 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 Embedded SQL editor first (a native .sql document is a later option). Results become map layers.
 Autocomplete from the DuckDB catalog. Docked, resizable panel.
 
-## References: copy DECISIONS and design, never code or assets
+## References
+GeoLibre (opengeos/GeoLibre), maplibre-gl-vector and maplibre-gl-basemap-control are MIT (© 2026 Qiusheng Wu). Their code may be copied and adapted when it is justified, with a `// Adapted from …` comment and the notice in THIRD-PARTY-NOTICES.md. Port React code to Svelte; never add React. Other references (Data Wrangler, Hex Editor, GitLens, SQLite Viewer): decisions and design only, never code or assets.
 - Data Wrangler (MS): right-click "Open in …" entry, grid + side panel, view/edit modes.
 - Hex Editor (MS): native-looking custom editor, inspector side panel, status bar items.
 - GitLens: dense toolbars/hover cards, theme fidelity. Licensing is mixed: do not reuse assets.
