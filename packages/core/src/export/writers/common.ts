@@ -1,6 +1,7 @@
-// Shared pieces of the JS export writers (spec 008 US4, research §3): the
-// engine can't write GDAL formats in this runtime, so rows stream out of it
-// (export/run.ts) and each writer turns them into its format. Rows arrive
+// Shared pieces of the JS export writers (spec 008 US4, research §3; spec 010:
+// GeoJSON, KML, Shapefile and GeoPackage, whose GDAL writers fail or crawl in
+// WASM): rows stream out of the engine (export/run.ts) and each writer turns
+// them into its format. Rows arrive
 // with values already made JS-safe by the plan's SQL (dates as ISO text,
 // decimals as doubles, nested values as JSON), and geometry as GeoJSON.
 import type { Geometry, Position } from 'geojson'

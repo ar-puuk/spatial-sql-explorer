@@ -3117,6 +3117,7 @@ They are listed for transparency and attribution.
   - **spatial**, which statically links GDAL (MIT/X), PROJ (MIT) and GEOS
     (LGPL-2.1). https://github.com/duckdb/duckdb-spatial
   - **parquet** and **json** (part of DuckDB, MIT).
+  - **excel** (DuckDB, MIT; xlsx export and input). https://github.com/duckdb/duckdb-excel
 - **sql.js WebAssembly** (MIT, see above), from `cdn.jsdelivr.net`.
 
 Every engine file above is checked against a SHA-256 recorded at build time

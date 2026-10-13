@@ -1,7 +1,7 @@
 <script lang="ts" module>
   // Drawn once per page load: the landing page comes back after a cancelled
   // open, and must not redo this work then.
-  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'GML', 'PMTiles']
+  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'Excel', 'GML', 'PMTiles']
 
   // Fixed data colors (theme-independent, like every data ramp): a warm
   // sequential ramp in the brand's amber family.

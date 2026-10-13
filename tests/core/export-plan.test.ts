@@ -133,6 +133,17 @@ describe('geometry SQL per format', () => {
     expect(planExport(request({ format: 'geojson' }), ctx()).sql).toMatch(/ST_AsGeoJSON\(.*\) END AS "__se_geojson"/)
   })
 
+  it('FlatGeobuf (GDAL, spec 010) gets the geometry itself and converts what GDAL refuses', () => {
+    const c = ctx({ layer: { ...ctx().layer, columns: [{ name: 'huge', type: 'HUGEINT' }, { name: 'gap', type: 'INTERVAL' }, { name: 'info', type: 'STRUCT(a INTEGER)' }, { name: 'payload', type: 'BLOB' }, { name: 'geom', type: 'GEOMETRY' }] } })
+    const sql = planExport(request({ format: 'flatgeobuf' }), c).sql
+    expect(sql).not.toMatch(/ST_AsGeoJSON/)
+    expect(sql).toMatch(/THEN "geom" END AS "geom"/)
+    expect(sql).toMatch(/CAST\("huge" AS VARCHAR\) AS "huge"/)
+    expect(sql).toMatch(/CAST\("gap" AS VARCHAR\) AS "gap"/)
+    expect(sql).toMatch(/CAST\(to_json\("info"\) AS VARCHAR\) AS "info"/)
+    expect(sql).toMatch(/base64\("payload"\) AS "payload"/)
+  })
+
   it('other geometry columns are written as WKT text, with a notice', () => {
     const p = planExport(request(), ctx({ facts: { ...ctx().facts, otherGeometryColumns: ['centroid'] } }))
     expect(p.sql).toMatch(/ST_AsText\("centroid"\) AS "centroid"/)

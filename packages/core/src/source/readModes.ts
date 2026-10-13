@@ -4,7 +4,7 @@
 // through `?e2e=1` (setTestOverrides), never in production.
 import type { ReadModeKind } from '../models.js'
 
-export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'pmtiles'
+export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'xlsx' | 'pmtiles'
 
 const MB = 1024 * 1024
 
@@ -57,6 +57,8 @@ export const READ_MODES: readonly ReadModeRow[] = [
   { format: 'sqlite', mode: 'whole', extensions: ['.sqlite', '.db'] },
   { format: 'gml', mode: 'whole', extensions: ['.gml'] },
   { format: 'csv', mode: 'whole', extensions: ['.csv'] },
+  // Spec 010: the first sheet of a workbook, with lon/lat or WKT columns, like CSV.
+  { format: 'xlsx', mode: 'whole', extensions: ['.xlsx'] },
   { format: 'pmtiles', mode: 'tiles', extensions: ['.pmtiles'] },
 ]
 

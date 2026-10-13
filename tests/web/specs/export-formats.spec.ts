@@ -39,6 +39,7 @@ for (const [label, ext] of [
   ['GeoPackage', '.gpkg'],
   ['FlatGeobuf', '.fgb'],
   ['KML', '.kml'],
+  ['GeoJSON', '.geojson'],
   ['GeoJSON (newline-delimited)', '.geojsonl'],
 ] as const) {
   test(`${label}: written and read back with the same rows`, async ({ page }) => {
@@ -50,6 +51,12 @@ for (const [label, ext] of [
     expect(back.rows).toBe(500)
     expect(back.types).toEqual(['POLYGON'])
     if (label !== 'KML') expect(back.columns).toEqual(expect.arrayContaining(['parcel_id', 'zone', 'value']))
+    if (label === 'KML') {
+      // Spec 010: GDAL writes longitude first (geometry_always_xy), and names Placemarks by the first text column.
+      const kml = bytes.toString('utf8')
+      expect(kml).toMatch(/<coordinates>-11\d\.\d+,4\d\.\d+/)
+      expect(kml).toMatch(/<name>P-\d+<\/name>/)
+    }
     if (label === 'KML' || label === 'GeoJSON (newline-delimited)') return // not formats the app opens
     // Our own exports reopen in the app (GeoPackage needs GDAL's feature-count table for that).
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-reopen-')), name)
@@ -174,4 +181,22 @@ test('a code the engine does not know: a message, Export disabled in the dialog 
   await page.keyboard.press('Escape')
   await expect(exportDialog(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Export data…' })).toBeEnabled()
+})
+
+// Spec 010 (research.md S9): an Excel workbook with lon/lat columns opens like a CSV.
+test('an Excel workbook with lon/lat columns opens as points', async ({ page }) => {
+  await openFile(page, fixture('places.xlsx'), '?e2e=1')
+  await expect(page.locator('.status-bar')).toContainText('3 features')
+  await expect(page.locator('.canvas-host')).toHaveAttribute('data-rendered-features', /^[1-9]/)
+})
+
+// Spec 010: GDAL's FlatGeobuf writer refuses a row without geometry when it builds a spatial
+// index; such a result is written without one (world-boundaries has one invalid geometry).
+// DuckDB's own FlatGeobuf reader can't read such a file back (QGIS can: research.md), so
+// the test checks the export and that a FlatGeobuf came out.
+test('FlatGeobuf with a row that has no valid geometry: all rows written', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const { bytes } = await exportVia(page, { format: 'FlatGeobuf' })
+  await expect(exportDialog(page)).toContainText('1 row has no valid geometry')
+  expect([...bytes.subarray(0, 4)]).toEqual([0x66, 0x67, 0x62, 0x03])
 })

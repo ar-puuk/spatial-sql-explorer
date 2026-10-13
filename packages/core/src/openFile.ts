@@ -32,12 +32,14 @@ export interface OpenFileDeps {
   duckdbAssets: DuckDbAssetUrls
 }
 
-type ReadStrategy = 'st_read' | 'parquet' | 'csv' | 'unsupported'
+type ReadStrategy = 'st_read' | 'parquet' | 'csv' | 'xlsx' | 'unsupported'
 
 function detectStrategy(fileName: string): ReadStrategy {
   const lower = fileName.toLowerCase()
   if (lower.endsWith('.parquet') || lower.endsWith('.geoparquet')) return 'parquet'
   if (lower.endsWith('.csv')) return 'csv'
+  // Spec 010 (research.md S9): the excel extension reads workbooks; they open like CSV.
+  if (lower.endsWith('.xlsx')) return 'xlsx'
   if (
     lower.endsWith('.geojson') ||
     lower.endsWith('.json') ||
@@ -168,7 +170,8 @@ async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy
     }
     case 'parquet':
       return geoParquetFromExpr(conn, vfsPath, materialize)
-    case 'csv': {
+    case 'csv':
+    case 'xlsx': {
       // Heuristic column detection, per spec.md's assumption ("CSV with
       // coordinate columns or WKT"). Tries common lon/lat name variants
       // first, then a WKT column. Must pick ONE geomExpr referencing only
@@ -177,7 +180,8 @@ async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy
       // CASE/COALESCE expression at bind time regardless of which branch
       // would execute, so a single static expression referencing all three
       // naming variants fails outright on a CSV that only has `lon`/`lat`.
-      const fromExpr = await readerSource(conn, `read_csv_auto('${vfsPath}')`, materialize)
+      const reader = strategy === 'xlsx' ? `read_xlsx('${vfsPath}')` : `read_csv_auto('${vfsPath}')`
+      const fromExpr = await readerSource(conn, reader, materialize)
       const names = (await describeColumns(conn, fromExpr)).map((c) => c.name)
       const columns = new Set(names.map((n) => n.toLowerCase()))
       if (columns.has('lon') && columns.has('lat')) {
@@ -189,7 +193,7 @@ async function buildFromExpr(conn: AsyncDuckDBConnection, strategy: ReadStrategy
       if (columns.has('wkt')) {
         return { fromExpr, geomExpr: 'ST_GeomFromText(wkt)', geometryColumn: null, srid: null, columns: names }
       }
-      throw new Error('CSV file has no recognized coordinate columns (lon/lat, longitude/latitude, or wkt).')
+      throw new Error(`${strategy === 'xlsx' ? 'Excel workbook' : 'CSV file'} has no recognized coordinate columns (lon/lat, longitude/latitude, or wkt).`)
     }
     case 'unsupported':
       throw new Error('Unsupported file format')

@@ -14,13 +14,16 @@ describe('export formats', () => {
       expect(f.extension).toMatch(/^(\.[a-z]+)+$/)
       expect(['spatial', 'attributes', 'both']).toContain(f.group)
       expect(['wgs84-only', 'any']).toContain(f.crs)
-      expect(['engine', 'js']).toContain(f.writer)
+      expect(['engine', 'gdal', 'excel', 'js']).toContain(f.writer)
     }
   })
 
-  it('GeoJSON, GeoJSONSeq and KML are WGS84 only; the engine writes only Parquet, CSV and JSON', () => {
+  it('GeoJSON, GeoJSONSeq and KML are WGS84 only; the engine writes FlatGeobuf and xlsx too (spec 010)', () => {
     for (const id of ['geojson', 'geojsonseq', 'kml'] as const) expect(exportFormat(id).crs).toBe('wgs84-only')
     expect(EXPORT_FORMATS.filter((f) => f.writer === 'engine').map((f) => f.id).sort()).toEqual(['csv', 'geojsonseq', 'geoparquet', 'json', 'parquet'])
+    expect(EXPORT_FORMATS.filter((f) => f.writer === 'gdal').map((f) => f.id).sort()).toEqual(['flatgeobuf'])
+    expect(EXPORT_FORMATS.filter((f) => f.writer === 'js').map((f) => f.id).sort()).toEqual(['geojson', 'geopackage', 'kml', 'shapefile'])
+    expect(exportFormat('xlsx').writer).toBe('excel')
     expect(exportFormat('parquet').group).toBe('attributes')
     expect(exportFormat('csv').group).toBe('both')
     expect(exportFormat('shapefile').extension).toBe('.shp.zip')

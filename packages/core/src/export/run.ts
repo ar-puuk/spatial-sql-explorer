@@ -3,20 +3,21 @@
 // DuckDB COPY into the in-memory file system under the already-allowed source
 // directory, copied out, and always dropped. GeoParquet is written as WKB with
 // our own `geo` metadata, because DuckDB's default makes QGIS read projected
-// data as WGS84.
+// data as WGS84. Spec 010: GDAL's FlatGeobuf writer and the excel extension's
+// xlsx writer are the engine's too; their files
+// go through cleanEngineFile (a WASM bug prepends one byte).
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { SOURCE_DIR } from '../duckdbService.js'
 import type { Geometry } from 'geojson'
-import { singleRow, streamRows, yieldToUi } from '../query/util.js'
-import { exportFormat } from './formats.js'
+import { quoteLiteral, singleRow, streamRows, yieldToUi } from '../query/util.js'
+import { cleanEngineFile } from './engineFile.js'
+import { exportFormat, XLSX_MAX_ROWS } from './formats.js'
 import { writeGeoJson } from './geojson.js'
 import { GEOJSON_JSON_PREFIX, type ExportPlan } from './plan.js'
 import { projjsonFor, wktFor } from './projjson.js'
 import { writerColumnsOf, type RowWriter } from './writers/common.js'
 import { kmlWriter } from './writers/kml.js'
-import { flatGeobufWriter } from './writers/flatgeobuf.js'
 import { shapefileWriter } from './writers/shapefile.js'
-import { xlsxWriter } from './writers/xlsx.js'
 import { geoPackageWriter } from './writers/geopackage.js'
 
 export interface ExportHooks {
@@ -111,12 +112,8 @@ async function writerFor(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: Exp
   switch (plan.format) {
     case 'kml':
       return kmlWriter(columns, baseOf(plan))
-    case 'flatgeobuf':
-      return flatGeobufWriter(columns, srid)
     case 'shapefile':
       return shapefileWriter(columns, baseOf(plan), await wktFor(db, conn, srid, isCancelled).catch(() => null))
-    case 'xlsx':
-      return xlsxWriter(columns)
     case 'geopackage': {
       if (!assets.loadSqlWasm) throw new Error('GeoPackage export is not available in this build (sql.js is missing).')
       return geoPackageWriter(columns, {
@@ -183,6 +180,11 @@ export async function runExport(
   }
 
   hooks.onProgress?.(null)
+  if (format.writer === 'gdal' || format.writer === 'excel') {
+    const empty = await emptyGeometries(conn, plan, isCancelled)
+    const { bytes, rows } = await writeOneFile(db, conn, plan, empty, isCancelled)
+    return { bytes, rows, notices: exactNotices(plan, empty) }
+  }
   const target = exportTarget(format.extension)
   try {
     const geo = plan.format === 'geoparquet' ? await geoMetadata(db, conn, plan, isCancelled) : undefined
@@ -197,6 +199,53 @@ export async function runExport(
     // A cancelled COPY leaves a partial file in memory (research §7).
     await db.dropFile(target).catch(() => {})
   }
+}
+
+/** GDAL driver and options (spec 010, research.md S7: only FlatGeobuf writes correctly and fast in WASM). */
+function gdalCopyOptions(plan: ExportPlan, layerName: string, emptyGeometries: number): string {
+  // Unknown CRS: the viewer assumed WGS84 (crsAssumed), so the files say so too.
+  const srs = `SRS 'EPSG:${plan.crs.srid ?? 4326}'`
+  const name = `LAYER_NAME ${quoteLiteral(layerName)}`
+  switch (plan.format) {
+    case 'flatgeobuf':
+      // A spatial index (readers can filter by box), unless a row has no geometry: GDAL refuses that
+      // with an index ("NULL geometry not supported with spatial index"). Such a file is valid (QGIS
+      // reads it), but DuckDB's own reader can't open one (nor one from the former JS writer).
+      return `(FORMAT GDAL, DRIVER 'FlatGeobuf', ${srs}, ${name}${emptyGeometries > 0 ? ", LAYER_CREATION_OPTIONS ('SPATIAL_INDEX=NO')" : ''})`
+    default:
+      throw new Error(`No GDAL writer for ${plan.format}.`)
+  }
+}
+
+/** Copies the engine's file out, cleaned (cleanEngineFile). */
+async function readEngineFile(db: AsyncDuckDB, path: string, kind: string, name: string): Promise<Uint8Array> {
+  return cleanEngineFile(await db.copyFileToBuffer(path), kind, name)
+}
+
+/** FlatGeobuf (GDAL) and xlsx (excel): one COPY, one file. */
+async function writeOneFile(db: AsyncDuckDB, conn: AsyncDuckDBConnection, plan: ExportPlan, emptyGeometries: number, isCancelled: () => boolean): Promise<{ bytes: Uint8Array; rows: number }> {
+  const format = exportFormat(plan.format)
+  const target = exportTarget(format.extension)
+  // Excel's sheet limit: the plan already says only the first rows are written.
+  const [sql, options] = plan.format === 'xlsx' ? [`${plan.sql} LIMIT ${XLSX_MAX_ROWS - 1}`, '(FORMAT xlsx, HEADER true)'] : [plan.sql, gdalCopyOptions(plan, baseOf(plan), emptyGeometries)]
+  try {
+    let rows = 0
+    await streamRows(conn, `COPY (${sql}) TO '${target}' ${options}`, isCancelled, (batch) => {
+      rows = Number(batch[0]?.Count ?? rows)
+    })
+    return { bytes: await readEngineFile(db, target, format.extension.slice(1), format.label), rows }
+  } finally {
+    await dropFiles(db, conn, target)
+  }
+}
+
+/** Drops every file the export left under `prefix` (GDAL may write side files). */
+async function dropFiles(db: AsyncDuckDB, conn: AsyncDuckDBConnection, prefix: string): Promise<void> {
+  const files: string[] = [prefix]
+  await streamRows(conn, `SELECT file FROM glob(${quoteLiteral(prefix + '*')})`, () => false, (batch) => {
+    for (const r of batch) files.push(String(r.file))
+  }).catch(() => {})
+  for (const f of files) await db.dropFile(f).catch(() => {})
 }
 
 /** Engine and allocation failures that mean "too big" (FR-011). */

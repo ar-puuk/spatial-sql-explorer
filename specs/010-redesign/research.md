@@ -93,3 +93,30 @@ How GeoLibre handles the same points (checked at the user's request):
 - Vector export in the browser: pure-JS writers, plus a separate ~18 MB WASI GDAL tool
   (`geolibre-wasm`, `vector_convert`) for FlatGeobuf and others. It does not use DuckDB's
   GDAL `COPY` in the browser.
+
+## Engine export writers (Option B, user decision 2026-10-12)
+
+The user chose option B for S7/S9: move exports to the engine where it works, dropping the
+stray first byte only when the format's signature starts at byte 1
+(`packages/core/src/export/engineFile.ts`). Measured in the real web build before switching
+each format (`spikes/export-*.spec.ts.txt`):
+
+| Format | Engine writer | Result | Kept |
+|---|---|---|---|
+| FlatGeobuf | GDAL `COPY` | 100,000 polygons in 1.36 s (GeoParquet: 1.38 s); 1M-row cancel in 0.88 s; QGIS reads WGS84 (180 features) and EPSG:26912 (1) correctly | **Engine**, with a spatial index. A result with a row without geometry is written without the index (GDAL: "NULL geometry not supported with spatial index"). DuckDB's own FlatGeobuf reader can't read a file with a null or empty geometry back, from GDAL or from the former JS writer (0 rows; QGIS reads 180), so that case is checked by its header only. |
+| xlsx | excel `COPY … (FORMAT xlsx)` | 100,000 rows in 0.86 s; openpyxl reads header and rows; dates and times are real Excel dates | **Engine**. The JS xlsx writer is deleted. |
+| GeoJSON | GDAL `COPY` | 100,000 polygons did not finish in 5 min; a 1M-row cancel took 346 s | JS writer (0.55 s for 100,000 in spec 005) |
+| KML | GDAL `COPY` | 100,000 polygons did not finish in 5 min | JS writer |
+| Shapefile | GDAL `COPY` | Corrupt: the .dbf header says 0 records, the .shx size is wrong (GDAL rewrites headers at the end; those writes don't land right in the WASM file layer) | JS writer |
+| GeoPackage | GDAL `COPY` | IO error (S7) | JS writer |
+
+Also found while switching:
+- **Axis order.** Without `geometry_always_xy`, GDAL writes EPSG:4326 in authority order
+  (latitude first): the S7 KML had `40.7,-111.896`. The engine now sets
+  `SET GLOBAL geometry_always_xy = true` before the lockdown; export-formats.spec checks
+  that KML coordinates are longitude first.
+- GDAL refuses HUGEINT and INTERVAL columns; the plan casts them to text for FlatGeobuf,
+  nested values to JSON text and blobs to base64 (as the JS writers did).
+
+Also from S9: `.xlsx` opens as an input format (`read_xlsx`, like CSV: lon/lat, longitude/
+latitude or WKT columns), and `excel` is a pinned extension (no measurable start cost, S8/S9).

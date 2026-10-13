@@ -133,8 +133,8 @@ async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDb
     try {
       bytes = await verified[i]
     } catch (err) {
-      // Spec 008: JSON only serves JSON export; the app works without it.
-      if (name === 'json') continue
+      // Spec 008: JSON only serves JSON export, excel (spec 010) xlsx export and input; the app works without them.
+      if (name === 'json' || name === 'excel') continue
       throw err
     }
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/wasm' }))
@@ -167,6 +167,9 @@ export const SOURCE_DIR = '/se-source/'
 async function lockDown(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
   // parquet (read_parquet, GeoParquet) and json (JSON export) were loaded with
   // spatial (loadExtensions): after the lockdown, nothing more can be loaded.
+  // Spec 010: GDAL's writers (export) take coordinates as x/y, never in the
+  // CRS's authority order (EPSG:4326 would be written latitude first).
+  await conn.query('SET GLOBAL geometry_always_xy = true')
   await conn.query(`SET allowed_directories = ['${SOURCE_DIR}']`)
   await conn.query('SET enable_external_access = false')
   await conn.query('SET lock_configuration = true')

@@ -95,6 +95,7 @@ export interface ExportPlan {
 }
 
 const BIG_INT = /^(BIGINT|HUGEINT|UBIGINT|UHUGEINT|INT8|LONG)$/i
+const HUGE_INT = /^(HUGEINT|UHUGEINT)$/i
 const DATE_TIME = /^(DATE|TIME|TIMESTAMP|TIMESTAMP WITH TIME ZONE|TIMESTAMPTZ|TIMESTAMP_[A-Z]+|INTERVAL)\b/i
 const NESTED = /(\[\]|^STRUCT\(|^MAP\(|^UNION\(|^LIST|^JSON$)/i
 const BINARY = /^(BLOB|BYTEA|BINARY|VARBINARY)$/i
@@ -195,12 +196,24 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
   const notices: string[] = []
   const xyAvailable = hasGeometry && layer.geometryType === 'Point'
   const csvGeometry = request.csvGeometry === 'xy' && xyAvailable ? 'xy' : 'wkt'
-  // GeoJSON values must survive the trip through JS, which loses column types:
-  // convert in SQL (research §4). Nested values come back as JSON text,
-  // marked so the writer embeds them as JSON values.
+  // Values for the JS writer (GeoPackage) must survive the trip through JS,
+  // which loses column types: convert in SQL (research §4). Nested values
+  // come back as JSON text, marked so the writer embeds them as JSON values.
   const jsWriter = fmt.writer === 'js'
+  // Spec 010: what GDAL's (FlatGeobuf) and the excel extension's writers can't
+  // take as is (measured: GDAL refuses HUGEINT and INTERVAL; nested values go
+  // as JSON text, blobs as base64, as the JS writers did).
+  const engineWriter = fmt.writer === 'gdal' || fmt.writer === 'excel'
   const column = (c: { name: string; type: string }): string => {
     const id = quoteIdent(c.name)
+    if (engineWriter) {
+      const type = c.type.trim()
+      const as = (expr: string): string => `${expr} AS ${id}`
+      if (NESTED.test(type)) return as(`CAST(to_json(${id}) AS VARCHAR)`)
+      if (BINARY.test(type)) return as(`base64(${id})`)
+      if (fmt.writer === 'gdal' && (HUGE_INT.test(type) || /^INTERVAL/i.test(type))) return as(`CAST(${id} AS VARCHAR)`)
+      return id
+    }
     if (!jsWriter) return id
     const type = c.type.trim()
     if (NESTED.test(type)) return `to_json(${id}) AS ${quoteIdent(GEOJSON_JSON_PREFIX + c.name)}`
@@ -228,6 +241,7 @@ export function planExport(request: ExportRequest, ctx: ExportPlanContext): Expo
     const projected = output === 'result' || targetSrid === null ? col : reprojectSql(col, resultCrs?.srid ?? null, targetSrid)
     const valid = (expr: string) => `CASE WHEN ${col} IS NOT NULL AND ST_IsValid(${col}) THEN ${expr} END`
     if (format === 'geoparquet') select.push(`${valid(`ST_AsWKB(${projected})::BLOB`)} AS ${col}`)
+    else if (fmt.writer === 'gdal') select.push(`${valid(projected)} AS ${col}`)
     else if (format === 'geojson' || jsWriter) select.push(`${valid(`ST_AsGeoJSON(${projected})`)} AS "__se_geojson"`)
     else if (format === 'csv' && csvGeometry === 'xy') {
       const taken = new Set(columns.map((c) => c.name.toLowerCase()))

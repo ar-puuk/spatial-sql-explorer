@@ -2,10 +2,12 @@
 // research §3). DATA: only formats verified end to end (written here, read
 // back by QGIS or a reader) appear here.
 //
-// Every GDAL writer still fails in DuckDB-WASM 1.32.0, so the engine writes
-// only Parquet/GeoParquet, CSV, JSON and GeoJSONSeq; the other formats are written in JS
-// from the result's rows (export/writers/*), streamed out of the engine in
-// batches.
+// Spec 010 (DuckDB 1.5.6, research.md S7/S9): the engine writes Parquet/
+// GeoParquet, CSV, JSON and GeoJSONSeq (DuckDB's own COPY), FlatGeobuf
+// (GDAL's COPY) and xlsx (the excel extension). GDAL's other writers fail in
+// WASM (GeoPackage errors; a Shapefile's headers come out wrong; GeoJSON and
+// KML take minutes for 100,000 rows), so those four are written in JS
+// (export/writers/*, geojson.ts) from rows streamed out of the engine in batches.
 
 export type ExportFormatId = 'geoparquet' | 'geojson' | 'geojsonseq' | 'flatgeobuf' | 'geopackage' | 'shapefile' | 'kml' | 'csv' | 'parquet' | 'xlsx' | 'json'
 
@@ -20,8 +22,8 @@ export interface ExportFormat {
   group: 'spatial' | 'attributes' | 'both'
   /** GeoJSON, GeoJSONSeq and KML are always WGS84. */
   crs: 'wgs84-only' | 'any'
-  /** 'engine': DuckDB COPY; 'js': our writer, fed the result's rows. */
-  writer: 'engine' | 'js'
+  /** 'engine': DuckDB's own COPY; 'gdal': COPY … (FORMAT GDAL); 'excel': COPY … (FORMAT xlsx); 'js': our writer, fed the result's rows. */
+  writer: 'engine' | 'gdal' | 'excel' | 'js'
   /** True when rows are written by our streaming writer (progress in rows); false for engine COPY. */
   streams: boolean
 }
@@ -30,13 +32,13 @@ export const EXPORT_FORMATS: readonly ExportFormat[] = [
   { id: 'geoparquet', label: 'GeoParquet', extension: '.parquet', group: 'spatial', crs: 'any', writer: 'engine', streams: false },
   { id: 'geopackage', label: 'GeoPackage', extension: '.gpkg', group: 'spatial', crs: 'any', writer: 'js', streams: true },
   { id: 'geojson', label: 'GeoJSON', extension: '.geojson', group: 'spatial', crs: 'wgs84-only', writer: 'js', streams: true },
-  { id: 'flatgeobuf', label: 'FlatGeobuf', extension: '.fgb', group: 'spatial', crs: 'any', writer: 'js', streams: true },
+  { id: 'flatgeobuf', label: 'FlatGeobuf', extension: '.fgb', group: 'spatial', crs: 'any', writer: 'gdal', streams: false },
   { id: 'shapefile', label: 'Shapefile (zip)', extension: '.shp.zip', group: 'spatial', crs: 'any', writer: 'js', streams: true },
   { id: 'kml', label: 'KML', extension: '.kml', group: 'spatial', crs: 'wgs84-only', writer: 'js', streams: true },
   { id: 'geojsonseq', label: 'GeoJSON (newline-delimited)', extension: '.geojsonl', group: 'spatial', crs: 'wgs84-only', writer: 'engine', streams: false },
   { id: 'csv', label: 'CSV', extension: '.csv', group: 'both', crs: 'any', writer: 'engine', streams: false },
   { id: 'parquet', label: 'Parquet', extension: '.parquet', group: 'attributes', crs: 'any', writer: 'engine', streams: false },
-  { id: 'xlsx', label: 'Excel workbook', extension: '.xlsx', group: 'attributes', crs: 'any', writer: 'js', streams: true },
+  { id: 'xlsx', label: 'Excel workbook', extension: '.xlsx', group: 'attributes', crs: 'any', writer: 'excel', streams: false },
   { id: 'json', label: 'JSON', extension: '.json', group: 'attributes', crs: 'any', writer: 'engine', streams: false },
 ]
 

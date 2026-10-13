@@ -16,6 +16,7 @@
     geojson: 'GeoJSON',
     shapefile: 'Shapefile',
     csv: 'CSV',
+    xlsx: 'Excel workbook',
     gml: 'GML',
     geopackage: 'GeoPackage',
     sqlite: 'SQLite',

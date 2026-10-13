@@ -10,14 +10,14 @@ describe('read-mode catalog', () => {
   it('has exactly one row per format', () => {
     const ids = READ_MODES.map((r) => r.format)
     expect(new Set(ids).size).toBe(ids.length)
-    expect([...ids].sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geopackage', 'geoparquet', 'gml', 'pmtiles', 'shapefile', 'sqlite'])
+    expect([...ids].sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geopackage', 'geoparquet', 'gml', 'pmtiles', 'shapefile', 'sqlite', 'xlsx'])
   })
 
   it('maps each format to its measured mode', () => {
     const mode = (f: string) => READ_MODES.find((r) => r.format === f)?.mode
     expect(mode('geoparquet')).toBe('partial')
     expect(mode('flatgeobuf')).toBe('partial-view')
-    for (const f of ['geojson', 'shapefile', 'csv', 'gml', 'geopackage']) expect(mode(f)).toBe('whole')
+    for (const f of ['geojson', 'shapefile', 'csv', 'xlsx', 'gml', 'geopackage']) expect(mode(f)).toBe('whole')
     expect(mode('pmtiles')).toBe('tiles')
   })
 
