@@ -46,10 +46,12 @@ test('measurements use the source CRS; results are drawn from the resolved CRS (
   await runQuery(page, 'SELECT name, round(ST_Area(geom) / 1e6) AS km2, geom FROM layer')
   await expect(grid(page).locator('tbody tr:not(.spacer)').first()).toContainText('10179528')
   await expect(page.locator('.result-crs')).toContainText('EPSG:26912')
-  await expect(page.locator('.result-crs')).toContainText('layer')
+  // DuckDB 1.5 types GDAL geometry with its CRS: the engine says, no guess needed.
+  await expect(page.locator('.result-crs')).toContainText('engine')
 
   await runQuery(page, "SELECT ST_Transform(geom, 'EPSG:26912', 'EPSG:4326', always_xy := true) AS geom FROM layer")
   await expect(page.locator('.result-crs')).toContainText('EPSG:4326')
+  // ST_Transform with CRS strings returns untyped GEOMETRY in 1.5: detected from the extent.
   await expect(page.locator('.result-crs')).toContainText('detected')
   await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
 })

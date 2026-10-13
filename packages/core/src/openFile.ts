@@ -17,7 +17,7 @@ import { isOutOfMemory, outOfMemoryMessage } from './outOfMemory.js'
 import { FgbReader } from './source/fgbReader.js'
 import { registerSource, type RegisteredSource } from './source/register.js'
 import { formatFromFileName, readModeFor, testOverrides } from './source/readModes.js'
-import { extentToWgs84, flatGeobufFacts, parquetFacts } from './source/facts.js'
+import { epsgFrom, extentToWgs84, flatGeobufFacts, parquetFacts } from './source/facts.js'
 import { FGB_PREFIX_BYTES, fgbHeaderSize, parseFgbHeader } from './source/fgbHeader.js'
 import { internalLayerViewSql, publicLayerViewSql, visibleColumns } from './source/layerSql.js'
 import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
@@ -72,12 +72,6 @@ async function describeColumns(conn: AsyncDuckDBConnection, fromExpr: string): P
     const row = r.toJSON() as { column_name: string; column_type: string }
     return { name: String(row.column_name), type: String(row.column_type) }
   })
-}
-
-/** `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`. */
-function epsgFrom(text: string | null | undefined): number | null {
-  const m = /EPSG[:"\s,]*(?:code"?\s*:\s*)?(\d{4,6})/i.exec(text ?? '')
-  return m ? Number(m[1]) : null
 }
 
 /**
@@ -544,7 +538,8 @@ async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layer
   for (const l of layers) {
     if (l === active || layerViewSkipped(l.name, taken)) continue
     taken.add(l.name.toLowerCase())
-    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT * FROM ${readers.get(l.name) ?? readLayerSql(path, l.name)}`)
+    // DuckDB 1.5's ST_Read returns GDAL's synthetic OGC_FID; `layer` drops it (openWhole), and so do these.
+    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ${readers.get(l.name) ?? readLayerSql(path, l.name)}`)
   }
 }
 

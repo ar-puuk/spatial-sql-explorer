@@ -118,6 +118,11 @@ async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDb
   if (release !== ENGINE_ASSETS.extensions.duckdb) {
     throw new EngineLoadError(`The SQL engine is DuckDB ${release}, but its extensions were recorded for ${ENGINE_ASSETS.extensions.duckdb}: run scripts/engine-assets.mjs.`, 'integrity')
   }
+  // DuckDB-WASM 1.5 (duckdb-wasm#2199, open): unless the default coordinate
+  // systems are loaded BEFORE spatial, read_parquet fails with "stoi: no
+  // conversion" on every GeoParquet whose CRS is OGC:CRS84 (the GeoParquet
+  // default). Order matters: the same call after LOAD spatial is the bug.
+  await conn.query('SELECT count(*) FROM duckdb_coordinate_systems()')
   const files = ENGINE_ASSETS.extensions.files
   const names = Object.keys(files) as ExtensionName[]
   // Downloads in parallel, loads in order.
@@ -153,7 +158,8 @@ export const SOURCE_DIR = '/se-source/'
  *   traversal (verified).
  * - No more extension loading.
  * - Configuration locked, so none of this can be SET back.
- * Verified on DuckDB-WASM 1.32.0 (DuckDB v1.4.3): spatial stays usable, and
+ * Verified on DuckDB-WASM 1.32.0 (DuckDB v1.4.3), again on 1.33.1-dev65.0 (v1.5.6,
+ * spec 010: the lockdown tests pass unchanged): spatial stays usable, and
  * GDAL can still probe sibling files (`/se-source/name.*`) for shapefiles.
  * Order matters: allowed_directories must be set before access is disabled,
  * and both before the configuration is locked.

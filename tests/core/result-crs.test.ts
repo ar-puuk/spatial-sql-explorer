@@ -49,3 +49,9 @@ describe('resolveResultCrs', () => {
     expect(resolveResultCrs({ ...base, resultExtent: null })).toMatchObject({ srid: 26912, source: 'layer' })
   })
 })
+
+describe('DuckDB 1.5 CRS-typed geometry (spec 010)', () => {
+  it('reads OGC:CRS84 (the GeoParquet default) as EPSG:4326', () => {
+    expect(resolveResultCrs({ override: null, engineType: "GEOMETRY('OGC:CRS84')", resultExtent: null, layerSrid: 26912, layerExtent: null })).toMatchObject({ srid: 4326, source: 'engine' })
+  })
+})

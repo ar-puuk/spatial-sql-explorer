@@ -216,7 +216,12 @@ export async function planSqliteSource(input: SqlitePlanInput): Promise<SqlitePl
     const plain = blocked.has(l.name)
     const reader = plain && plainPath ? stReadSql(plainPath, l.name, SQLITE_OPEN_OPTIONS) : stReadSql(path, l.name, opts)
     let key: LayerRead['key'] = null
-    const k = catalog?.keys.get(l.name)
+    let k = catalog?.keys.get(l.name)
+    // DuckDB 1.5's ST_Read returns the feature id under its own name (`fid`, Cube's `n`): nothing to restore.
+    if (k && (await readerColumns(conn, reader)).some((c) => c.toLowerCase() === k?.column.toLowerCase())) {
+      log?.(`[open] ${l.name}: ${k.column} read by the engine`)
+      k = undefined
+    }
     if (k && !/^ogc_fid$/i.test(k.column) && (l.featureCount === null || l.featureCount === k.values.length)) {
       const table = `${KEY_TABLE_PREFIX}${i}`
       if (await loadKeys(db, conn, table, k.values)) key = { column: k.column, table }
@@ -226,6 +231,16 @@ export async function planSqliteSource(input: SqlitePlanInput): Promise<SqlitePl
     readers.set(l.name, layerReadSql({ reader, key, decodeGeometry: plain ? l.geometryColumn : null }))
   }
   return { layers, readers, paths }
+}
+
+/** The columns a layer reader returns (a DESCRIBE: GDAL reads the schema, not the rows). */
+async function readerColumns(conn: AsyncDuckDBConnection, reader: string): Promise<string[]> {
+  try {
+    const res = await conn.query(`DESCRIBE SELECT * FROM ${reader}`)
+    return res.toArray().map((r) => String(r.toJSON().column_name))
+  } catch {
+    return []
+  }
 }
 
 /** Key values into an engine table, in order, through a CSV (no per-row statements). */

@@ -10,10 +10,14 @@ import { quoteIdent, singleRow } from '../query/util.js'
 
 const literal = (s: string): string => `'${s.replace(/'/g, "''")}'`
 
-/** `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`. */
+/**
+ * `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`.
+ * OGC:CRS84 (WGS84 lon/lat, which DuckDB 1.5 types GeoParquet's default CRS as) is 4326 here.
+ */
 export function epsgFrom(text: string | null | undefined): number | null {
   const m = /EPSG[:"\s,]*(?:code"?\s*:\s*)?(\d{4,6})/i.exec(text ?? '')
-  return m ? Number(m[1]) : null
+  if (m) return Number(m[1])
+  return /\bCRS:?84\b|"code"\s*:\s*"CRS84"/i.test(text ?? '') ? 4326 : null
 }
 
 export interface ParquetFacts {

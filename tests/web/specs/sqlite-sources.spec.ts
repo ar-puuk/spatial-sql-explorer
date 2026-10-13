@@ -31,6 +31,8 @@ test('a GeoPackage layer with ids that do not start at 1 opens, with its fid', a
   // Same column types as GDAL's GeoPackage reader gives.
   const types = Object.fromEntries((await sql(page, 'DESCRIBE layer')).map((r) => [r.column_name, r.column_type]))
   expect(types).toMatchObject({ fid: 'BIGINT', zone: 'VARCHAR', households: 'INTEGER', opened: 'DATE', active: 'BOOLEAN' })
+  // One id column (DuckDB 1.5 reads `fid` itself; a restored copy would add `fid_1`).
+  expect(Object.keys(types).filter((c) => /^fid/i.test(c))).toEqual(['fid'])
   // The CRS comes from the GeoPackage catalog.
   await expect(statusBar(page)).toContainText('EPSG:4326')
 
@@ -44,6 +46,7 @@ test('a GeoPackage with ids 1..N keeps the fast reader and gains its fid', async
   const rows = await sql(page, 'SELECT min(fid) AS lo, max(fid) AS hi, count(*) AS n FROM layer')
   expect(rows[0].lo).toBe(1)
   expect(rows[0].hi).toBe(rows[0].n)
+  expect((await sql(page, 'DESCRIBE layer')).map((r) => r.column_name).filter((c) => /^fid/i.test(String(c)))).toEqual(['fid'])
 })
 
 test('a SQLite network (Cube 7 shape): nodes keep n, links and attribute tables are layers', async ({ page }) => {

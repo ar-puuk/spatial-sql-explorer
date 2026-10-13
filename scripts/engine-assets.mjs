@@ -18,8 +18,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-/** The DuckDB release inside @duckdb/duckdb-wasm 1.32.0 (checked against `pragma_version()` at start-up). */
-const DUCKDB_VERSION = 'v1.4.3'
+/** The DuckDB release inside @duckdb/duckdb-wasm 1.33.1-dev65.0 (checked against `pragma_version()` at start-up). */
+const DUCKDB_VERSION = 'v1.5.6'
 const PLATFORM = 'wasm_eh'
 const EXTENSIONS = ['spatial', 'parquet', 'json']
 const CACHE = path.join(ROOT, 'scripts', '.engine-cache')

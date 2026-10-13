@@ -8,7 +8,7 @@ redistributed; see "Fetched at runtime, not bundled" at the end.
 
 ---
 
-## DuckDB-Wasm 1.32.0 (includes DuckDB 1.4.3)
+## DuckDB-Wasm 1.33.1-dev65.0 (includes DuckDB 1.5.6)
 
 Embedded SQL engine for every file read. The JavaScript bindings are bundled;
 the WebAssembly module and its worker script are downloaded at runtime from

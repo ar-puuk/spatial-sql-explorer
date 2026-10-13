@@ -61,6 +61,7 @@ test.describe('US1: open a large file and see it quickly', () => {
     const t0 = Date.now()
     await cancel.click()
     await expect(page.getByText('Drag a geospatial file here')).toBeVisible({ timeout: 3000 })
+    console.log(`TIMING SC-002 cancel during open: ${Date.now() - t0} ms`)
     expect(Date.now() - t0).toBeLessThan(3000)
     await expect(page.locator('.error-banner')).toHaveCount(0)
 

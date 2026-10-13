@@ -15,6 +15,7 @@ test('Try sample data: draws within 3 s with no outside network; style and expor
   await page.getByRole('button', { name: /Try sample data/ }).click()
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 30000 })
   const ms = Date.now() - started
+  console.log(`TIMING SC-008 sample drawn: ${ms} ms`)
   expect(ms, `sample drew in ${ms} ms`).toBeLessThan(3000) // SC-008
   await expect(page.locator('.status-bar')).toContainText('3,222')
   expect(Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(100)
