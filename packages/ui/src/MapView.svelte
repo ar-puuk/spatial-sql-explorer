@@ -734,14 +734,15 @@
       // side at low zoom reads as duplicated data.
       renderWorldCopies: false,
       trackResize: false,
-      // Rotation and tilt are on while polygons are extruded (spec 008 US6).
-      dragRotate: false,
+      // Tilt and rotate (right-drag or Ctrl+drag; Shift+arrows by keyboard) are always on
+      // (user decision 2026-10-13: basemap 3D buildings, such as Liberty's, show when tilted).
+      // Reset view brings the map back to flat and north-up.
+      dragRotate: true,
       pitchWithRotate: true,
-      touchPitch: false,
+      touchPitch: true,
     })
     // Test hooks only: the tests read the style itself (spec 010: exactly one basemap in it).
     if (document.documentElement.dataset.seTestHooks !== undefined) (container as unknown as { seMap: MapLibreMap }).seMap = map
-    map.touchZoomRotate.disableRotation()
     map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-left')
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     // Shaped marker icons, on demand (also after a basemap switch replaces the style's images).
@@ -877,22 +878,14 @@
     untrack(() => applyTicked())
   })
 
-  // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show,
-  // and lets the mouse tilt and rotate (right-drag; Shift+arrows by keyboard).
+  // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show.
   let tilted = $state(false)
   let wasExtruded = false
   $effect(() => {
     const on = extruded
     if (!map || !mapReady) return
     untrack(() => applyPaint())
-    if (on) {
-      map.dragRotate.enable()
-      map.touchZoomRotate.enableRotation()
-      if (!wasExtruded && map.getPitch() < 1) map.easeTo({ pitch: EXTRUSION_PITCH, duration: 600 })
-    } else {
-      map.dragRotate.disable()
-      map.touchZoomRotate.disableRotation()
-    }
+    if (on && !wasExtruded && map.getPitch() < 1) map.easeTo({ pitch: EXTRUSION_PITCH, duration: 600 })
     wasExtruded = on
   })
   function resetView(): void {

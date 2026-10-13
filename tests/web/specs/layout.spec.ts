@@ -112,3 +112,21 @@ test('no axe violations with the side panel and each bottom tab', async ({ page 
   await page.getByRole('tab', { name: 'SQL' }).click()
   await audit('basemap and SQL')
 })
+
+// User decision 2026-10-13: the map always tilts and rotates (basemap 3D buildings show); Reset view flattens it.
+test('a right-drag tilts the map without extrusion, and Reset view flattens it again', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const state = () => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): { pitch?: number; bearing?: number } } }).__spatialExplorerE2E.mapState())
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down({ button: 'right' })
+  await page.mouse.move(x + 40, y - 120, { steps: 12 })
+  await page.mouse.up({ button: 'right' })
+  await expect.poll(async () => (await state()).pitch ?? 0).toBeGreaterThan(10)
+  const reset = page.getByRole('button', { name: 'Reset view' })
+  await expect(reset).toBeVisible()
+  await reset.click()
+  await expect.poll(async () => (await state()).pitch ?? 1).toBeLessThan(0.5)
+  await expect(reset).toHaveCount(0)
+})
