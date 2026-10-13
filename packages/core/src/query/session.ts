@@ -34,7 +34,7 @@ import {
   topCategoriesSql,
 } from '../view/stats.js'
 import { resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle } from '../style/model.js'
+import { rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type SizeChannel } from '../style/model.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
@@ -569,10 +569,33 @@ export class QuerySession {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()
-    if (axes) return this.resolveBivariate(style, axes, base, relation)
+    // A change that only recolors (a ramp, a palette, a class color) reuses the data and the
+    // exact counts: hovering ramps in the picker re-ran the whole classification for each one.
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
+    const hit = this.styleCache
+    if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
+    this.styleInput = null
+    const out = await (axes ? this.resolveBivariate(style, axes, base, relation) : this.resolveClassified(style, r, base, relation, colorColumn, size))
+    if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
+    return out
+  }
+
+  /** The input the last engine classification used (the cache's data). */
+  private styleInput: ResolveInput | null = null
+  private styleCache: { key: string; input: ResolveInput; resolved: ResolvedStyle } | null = null
+
+  /** Categorized, graduated and size channels: the engine's data, then the pure classification. */
+  private resolveClassified(
+    style: LayerStyle,
+    r: ReturnType<typeof rendererOf>,
+    base: ResolveInput,
+    relation: string,
+    colorColumn: string | null,
+    size: SizeChannel | null
+  ): Promise<ResolvedStyle> {
     const columns = [...new Set([colorColumn, size?.column].filter((c): c is string => !!c))]
     return this.exclusive(async (isCancelled) => {
-      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
+      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : (base.rowCount ?? 0)
       const cap = jenksSample()
       const dataByColumn: Record<string, ColumnData> = {}
       if (n <= cap) {
@@ -582,7 +605,7 @@ export class QuerySession {
           for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
         })
         columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
-        return resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
+        return resolveStyleFrom(style, (this.styleInput = { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn }))
       }
       if (r.kind === 'categorized' && colorColumn) {
         const top: Array<{ value: string; count: number }> = []
@@ -624,7 +647,7 @@ export class QuerySession {
           dataByColumn[c.key] = { kind: 'numbers', column: c.column, sample, n: count, nulls, quantileStats }
         }
       }
-      const resolved = resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
+      const resolved = resolveStyleFrom(style, (this.styleInput = { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn }))
       // Exact class counts, filled in after classifying (as graduated has since spec 007).
       const counted = async (column: string, classes: ResolvedStyle['classes']): Promise<ResolvedStyle['classes']> => {
         const ranges = classes.filter((c) => c.kind === 'range').map((c) => ({ lower: c.lower ?? 0, upper: c.upper ?? 0 }))
@@ -667,7 +690,7 @@ export class QuerySession {
           for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
         })
         columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
-        return resolveStyleFrom(style, { ...base, dataByColumn })
+        return resolveStyleFrom(style, (this.styleInput = { ...base, dataByColumn }))
       }
       const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, columns), isCancelled)
       for (const [k, axis] of [r.x, r.y].entries()) {
@@ -684,7 +707,7 @@ export class QuerySession {
         const quantileStats = Object.fromEntries(around.map((pos) => [pos, atPos.get(pos) ?? 0]))
         dataByColumn[axis.column] = { kind: 'numbers', column: axis.column, sample, n: count, nulls: Number(totals[`nulls_${k}`]), quantileStats }
       }
-      const resolved = resolveStyleFrom(style, { ...base, dataByColumn })
+      const resolved = resolveStyleFrom(style, (this.styleInput = { ...base, dataByColumn }))
       if (resolved.status !== 'ok' || !resolved.grid) return resolved
       const counts = new Map<string, number>()
       let noValue = 0
@@ -1141,3 +1164,32 @@ export function describeOutcome(o: RunOutcome): string {
   }
 }
 
+/** Fields that only change how classes look, never which classes there are or their counts. */
+const PRESENTATION_KEYS = new Set([
+  'color', 'ramp', 'palette', 'label', 'visible', 'hidden', 'fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity',
+  'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash', 'sizeMin', 'sizeMax', 'extrusion',
+])
+
+/** The style without its presentation: two styles with the same key classify the same data the same way. */
+export function styleDataKey(style: LayerStyle): string {
+  return JSON.stringify(style, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
+}
+
+/** A fresh classification's classes, with the exact counts the engine found for the same classes. */
+export function withCounts(fresh: ResolvedStyle, counted: ResolvedStyle): ResolvedStyle {
+  const merge = (now: ResolvedStyle['classes'], before: ResolvedStyle['classes']): ResolvedStyle['classes'] => {
+    const seen = new Map<string, number>()
+    const keyOf = (c: ResolvedStyle['classes'][number]): string => {
+      const n = (seen.get(c.kind) ?? 0) + 1
+      seen.set(c.kind, n)
+      return `${c.kind}#${n}`
+    }
+    const counts = new Map(before.map((c) => [keyOf(c), c.count]))
+    seen.clear()
+    const hadOther = before.some((c) => c.kind === 'other')
+    return now.map((c) => ({ ...c, count: counts.get(keyOf(c)) ?? c.count })).filter((c) => c.kind !== 'other' || hadOther)
+  }
+  const out: ResolvedStyle = { ...fresh, classes: merge(fresh.classes, counted.classes) }
+  if (fresh.size && counted.size) out.size = { ...fresh.size, classes: merge(fresh.size.classes, counted.size.classes) }
+  return out
+}

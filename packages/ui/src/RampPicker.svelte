@@ -62,13 +62,18 @@
     close()
   }
 
-  // Preview the focused ramp (keyboard or pointer) while the list is open.
+  // Preview the focused ramp (keyboard or pointer) while the list is open, once the
+  // pointer rests on it: sweeping across the list must not paint every ramp it crosses.
+  const PREVIEW_DELAY_MS = 90
   $effect(() => {
     if (!open) return
     const r = ramps[active]
     if (!r || r.id === (previewing ?? value.id)) return
-    previewing = r.id
-    onPreview({ id: r.id, reversed: value.reversed })
+    const timer = setTimeout(() => {
+      previewing = r.id
+      onPreview({ id: r.id, reversed: value.reversed })
+    }, PREVIEW_DELAY_MS)
+    return () => clearTimeout(timer)
   })
 
   function onKeydown(e: KeyboardEvent): void {
