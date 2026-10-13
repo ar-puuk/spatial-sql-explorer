@@ -115,6 +115,11 @@
         "icon": "$(globe)"
       },
       {
+        "command": "spatialExplorer.loadAll",
+        "title": "Load All Features",
+        "category": "Spatial Explorer"
+      },
+      {
         "command": "spatialExplorer.exportData",
         "title": "Export Data…",
         "category": "Spatial Explorer",
@@ -162,6 +167,10 @@
         {
           "command": "spatialExplorer.exportData",
           "when": "activeCustomEditorId == spatialExplorer.editor || activeCustomEditorId == spatialExplorer.editorOption"
+        },
+        {
+          "command": "spatialExplorer.loadAll",
+          "when": "false"
         }
       ]
     }

@@ -1,6 +1,6 @@
 // T005 (spec 007, research §4, FR-003/FR-004/FR-015): how the engine reaches each format.
 import { afterEach, describe, expect, it } from 'vitest'
-import { READ_MODES, formatFromFileName, readModeFor, setTestOverrides, testOverrides, VIEW_CAP, WHOLE_READ_THRESHOLD_BYTES } from '@spatial-explorer/core'
+import { READ_MODES, formatFromFileName, readModeFor, setTestOverrides, testOverrides, WHOLE_READ_THRESHOLD_BYTES } from '@spatial-explorer/core'
 
 const MB = 1024 * 1024
 
@@ -19,12 +19,6 @@ describe('read-mode catalog', () => {
     expect(mode('flatgeobuf')).toBe('partial-view')
     for (const f of ['geojson', 'shapefile', 'csv', 'xlsx', 'gml', 'geopackage']) expect(mode(f)).toBe('whole')
     expect(mode('pmtiles')).toBe('tiles')
-  })
-
-  it('caps views at 25,000, and FlatGeobuf read in parts at about 2,500', () => {
-    expect(VIEW_CAP).toBe(25_000)
-    expect(readModeFor('geoparquet', 1 * MB, { partialReads: true }).viewCap).toBe(25_000)
-    expect(readModeFor('flatgeobuf', 2000 * MB, { partialReads: true }).viewCap).toBe(2_500)
   })
 
   it('announces whole reads above 100 MB', () => {
@@ -70,21 +64,21 @@ describe('format detection', () => {
 describe('test overrides', () => {
   it('apply only when set', () => {
     expect(testOverrides()).toEqual({})
-    setTestOverrides({ cap: 1000, wholeThreshold: 1 })
-    expect(readModeFor('geoparquet', MB, { partialReads: true }).viewCap).toBe(1000)
+    setTestOverrides({ wholeThreshold: 1 })
     expect(readModeFor('geojson', MB, { partialReads: true }).wholeReadThresholdBytes).toBe(1)
     expect(readModeFor('flatgeobuf', 2 * MB, { partialReads: true }).mode).toBe('partial-view')
   })
 
   it('parse from a query string, numbers only, and only with e2e=1', async () => {
     const { parseTestOverrides } = await import('@spatial-explorer/core')
-    expect(parseTestOverrides('?cap=1000')).toEqual({})
-    expect(parseTestOverrides('?e2e=1&cap=1000&materializeCap=5000&jenksSample=2000&memoryLimit=64MB&slowViewMs=500&slowParse=1&bogus=3')).toEqual({
-      cap: 1000,
+    expect(parseTestOverrides('?tileRows=1000')).toEqual({})
+    // Spec 010: cap and slowViewMs went with per-pan views (ignored like any unknown key).
+    expect(parseTestOverrides('?e2e=1&tileRows=1000&slowTileMs=200&cap=1000&materializeCap=5000&jenksSample=2000&memoryLimit=64MB&slowViewMs=500&slowParse=1&bogus=3')).toEqual({
+      tileRows: 1000,
+      slowTileMs: 200,
       materializeCap: 5000,
       jenksSample: 2000,
       memoryLimit: '64MB',
-      slowViewMs: 500,
       slowParse: true,
     })
   })

@@ -23,19 +23,14 @@ test.afterAll(() => {
   console.log('SCALE', JSON.stringify(results))
 })
 
-interface ViewState {
-  generation: number
-  drawn: number
-  inView: number
-  thinned: boolean
-  ms: number
-}
 const hook = <T>(page: Page, name: string, ...args: unknown[]): Promise<T> =>
   page.evaluate(([n, a]) => (window as unknown as { __spatialExplorerE2E: Record<string, (...x: unknown[]) => unknown> }).__spatialExplorerE2E[n as string](...(a as unknown[])) as T, [
     name,
     args,
   ] as const)
-const viewState = (page: Page): Promise<ViewState | null> => hook(page, 'viewState')
+/** Settled map frames so far (MapView data-idles). */
+const idles = async (page: Page): Promise<number> => Number((await page.locator('.canvas-host').getAttribute('data-idles')) ?? 0)
+const rendered = async (page: Page): Promise<number> => Number((await page.locator('.canvas-host').getAttribute('data-rendered-features')) ?? 0)
 const statusBar = (page: Page) => page.locator('.status-bar')
 
 /** Records long tasks (SC-004) from the first script on. */
@@ -74,21 +69,18 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   expect(open.factsMs, 'SC-001: facts within 5 s').toBeLessThanOrEqual(5000)
   expect(open.overviewMs, 'SC-001: overview within 10 s').toBeLessThanOrEqual(10000)
 
-  // SC-003: 10 city views, each drawn within 2 s of the pan stopping, at or below the cap.
+  // SC-003 (spec 010: engine tiles): 10 city views, each drawn within 2 s of the jump (the map idle with features).
+  expect((await hook<{ mode: string }>(page, 'drawState')).mode).toBe('tiles')
   const views: number[] = []
   for (const [lon, lat] of CITIES.slice(0, 10)) {
-    const before = (await viewState(page))?.generation ?? 0
-    const paints = Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0)
+    const before = await idles(page)
     const t0 = Date.now()
     await hook(page, 'jumpTo', lon, lat, 13)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 15000 }).toBeGreaterThan(before)
-    await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0), { timeout: 15000 }).toBeGreaterThan(paints)
+    await expect.poll(() => idles(page), { timeout: 15000 }).toBeGreaterThan(before)
     views.push(Date.now() - t0)
-    const v = (await viewState(page))!
-    expect(v.drawn).toBeLessThanOrEqual(25000)
+    expect(await rendered(page)).toBeGreaterThan(0)
   }
   results.sc003_cityViewsMs = { each: views, max: Math.max(...views) }
-  // The 150 ms debounce after moveend is part of "after the pan stops".
   expect(Math.max(...views), 'SC-003: every view within 2 s').toBeLessThanOrEqual(2000)
 
   // SC-004 continues: a query and a style on the whole file.

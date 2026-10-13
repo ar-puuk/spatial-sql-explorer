@@ -341,15 +341,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -404,15 +395,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      1.5
     ],
     "circle-stroke-opacity": [
@@ -864,15 +846,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -927,15 +900,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      1.5
     ],
     "circle-stroke-opacity": [
@@ -1644,15 +1608,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -1707,15 +1662,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      0.75
     ],
     "circle-stroke-opacity": [
@@ -2480,15 +2426,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -2543,15 +2480,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      0.75
     ],
     "circle-stroke-opacity": [
@@ -3758,15 +3686,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -3821,15 +3740,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      0.75
     ],
     "circle-stroke-opacity": [
@@ -5074,15 +4984,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -5137,15 +5038,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      0.75
     ],
     "circle-stroke-opacity": [
@@ -6382,15 +6274,6 @@
      [
       "boolean",
       [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     1.75,
-     [
-      "boolean",
-      [
        "feature-state",
        "hover"
       ],
@@ -6445,15 +6328,6 @@
       ]
      ],
      2,
-     [
-      "boolean",
-      [
-       "get",
-       "__se_dot"
-      ],
-      false
-     ],
-     0,
      0.75
     ],
     "circle-stroke-opacity": [

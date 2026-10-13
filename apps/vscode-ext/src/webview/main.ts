@@ -93,6 +93,9 @@ async function main(): Promise<void> {
       // Test-only (spec 007 T031): move the camera; the map then loads that view.
       const m = event.data as { lon: number; lat: number; zoom: number }
       store.jumpTo([m.lon, m.lat], m.zoom)
+    } else if (msg.type === 'loadAll') {
+      // Spec 010: the status bar's Load all.
+      store.loadAll()
     } else if (msg.type === 'openExport') {
       store.openExport()
     } else if (msg.type === 'testRunExport') {

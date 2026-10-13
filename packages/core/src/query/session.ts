@@ -7,7 +7,7 @@ import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
-import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest, type ViewFeatures, type ViewRequest } from '../models.js'
+import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
@@ -45,20 +45,7 @@ import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
-import {
-  clampWgs84,
-  recordByIdSql,
-  fgbTileSql,
-  featuresByIdsSql,
-  thinnedIdsSql,
-  thinnedRowsSql,
-  viewBoxSql,
-  viewCountSql,
-  viewFeaturesSql,
-  viewTiles,
-  tileMeetsExtent,
-  type ViewTarget,
-} from '../view/viewport.js'
+import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
 import { featureCollector } from '../view/featureBatches.js'
@@ -198,7 +185,7 @@ export function needsLoadMessage(sizeLabel: string): string {
   return `Load the whole file (${sizeLabel}) to query it.`
 }
 
-/** A view request that couldn't run because a query or export holds the engine; the map asks again after. */
+/** A tile that couldn't be built because a query or export holds the engine; the map asks again after. */
 export class ViewSkippedError extends Error {}
 
 /** Background work (a table page, style statistics) interrupted by user work; ask again after `whenIdle()`. */
@@ -217,7 +204,7 @@ export class WorkPreemptedError extends Error {
  */
 export type EngineWorkKind = 'view' | 'tile' | 'background' | 'work'
 
-/** A view row (attributes, `__se_rowid`, `__se_geojson`) as a map Feature. */
+/** A record row (attributes, `__se_rowid`, `__se_geojson`) as a Feature (featureById). */
 function toViewFeature(row: Record<string, unknown>): Feature {
   const { __se_geojson, __se_rowid, ...attributes } = row
   return {
@@ -235,6 +222,8 @@ export class QuerySession {
   private inFlight: Promise<unknown> | null = null
   /** What holds the engine (EngineWorkKind). */
   private inFlightKind: EngineWorkKind | null = null
+  /** User work waiting for in-flight views or tiles to stop (spec 010: they don't start meanwhile). */
+  private workWaiting = 0
   /** Marks the in-flight work as interrupted by newer work, before cancelling it. */
   private preemptInFlight: (() => void) | null = null
   /** Re-registers a source read in parts after an out-of-memory error (its handle reads as empty after). */
@@ -430,9 +419,17 @@ export class QuerySession {
     // Views wait for background work: they fire on every pan and the preview,
     // and would otherwise keep a style from ever finishing.
     const interruptible = (): boolean => this.inFlightKind === 'view' || this.inFlightKind === 'tile' || (kind === 'work' && this.inFlightKind === 'background')
-    while (this.inFlight && interruptible()) {
-      this.preemptInFlight?.()
-      await this.cancel()
+    // Spec 010: user work waiting for the engine goes first. A tile that retried as soon as the
+    // engine went idle would otherwise start again before the work, and be cancelled again, forever.
+    if ((kind === 'view' || kind === 'tile') && this.workWaiting > 0) throw new ViewSkippedError()
+    if (kind === 'work') this.workWaiting++
+    try {
+      while (this.inFlight && interruptible()) {
+        this.preemptInFlight?.()
+        await this.cancel()
+      }
+    } finally {
+      if (kind === 'work') this.workWaiting--
     }
     if (this.inFlight) {
       if (kind === 'view' || kind === 'tile') throw new ViewSkippedError()
@@ -550,11 +547,6 @@ export class QuerySession {
     if (!this.restriction()) return plain
     const target = this.pageTarget()
     return target ? this.narrowed(target.relation) : plain
-  }
-
-  /** Rows of the displayed result, narrowed by the filters when known. */
-  private displayedRows(): number {
-    return this.restriction() ? (this.matchingRows ?? Number.POSITIVE_INFINITY) : (this.facts?.totalRows ?? 0)
   }
 
   /**
@@ -876,119 +868,6 @@ export class QuerySession {
     }
   }
 
-  /**
-   * The features of the displayed result in a map view (spec 007 FR-005):
-   * all of them up to the cap, else one per grid cell, spread across the
-   * view. A newer view or any user work interrupts it (FR-007).
-   */
-  async view(req: ViewRequest): Promise<ViewFeatures> {
-    const started = performance.now()
-    return this.exclusive(async (isCancelled) => {
-      const delay = testOverrides().slowViewMs
-      if (delay) await new Promise((r) => setTimeout(r, delay))
-      const full = this.viewTarget()
-      if (!full) return { generation: req.generation, features: [], inView: 0, thinned: false, ms: 0 }
-      // Only the attributes the map needs (spec 007): a 4M-row overview read 148 MB with all of them.
-      const wanted = req.attrs
-      const target = wanted ? { ...full, attrs: full.attrs.filter((a) => wanted.includes(a)) } : full
-      const partial = target.attrs.length < full.attrs.length
-      let box = clampWgs84(req.bbox)
-      const boxSql = viewBoxSql(box, target.srid)
-      if (boxSql) {
-        const b = await singleRow<{ x0: number; y0: number; x1: number; y1: number }>(this.conn, boxSql, isCancelled)
-        box = [b.x0, b.y0, b.x1, b.y1]
-      }
-      const rows: Record<string, unknown>[] = []
-      const collect = (batch: Record<string, unknown>[]): void => {
-        rows.push(...batch)
-      }
-      // ~2 px in layer units: smaller features travel and draw as points.
-      const minSize = req.widthPx && req.widthPx > 0 ? ((box[2] - box[0]) / req.widthPx) * 2 : undefined
-      let inView: number
-      let thinned = false
-      const fgbReader = target.index === 'fgb' && this.facts?.defaultView !== false ? this.layerView?.fgbReader : undefined
-      if (fgbReader) {
-        // FlatGeobuf in parts, in JS: the features in view, or an overview from the index.
-        const v = await fgbReader.view(box, req.cap, isCancelled)
-        if (isCancelled()) throw new QueryCancelledError()
-        const features = wanted ? v.features.map((f) => ({ ...f, attributes: Object.fromEntries(Object.entries(f.attributes).filter(([k]) => wanted.includes(k))) })) : v.features
-        return {
-          generation: req.generation,
-          features: partial ? features.map((f) => (f.geometry?.type === 'Point' && Object.keys(f.attributes).length === 0 ? f : { ...f, partialAttributes: true })) : features,
-          inView: v.inView,
-          thinned: v.thinned,
-          ms: Math.round(performance.now() - started),
-          ...(v.exact ? {} : { inViewEstimated: true }),
-        }
-      } else if (target.index === 'fgb') {
-        // FlatGeobuf in parts: tiles, each capped (research §4: ~0.74 ms per feature).
-        const tiles = viewTiles(box)
-        const per = Math.max(1, Math.ceil(req.cap / tiles.length))
-        for (const tile of tiles) {
-          if (!tileMeetsExtent(tile, target.extent)) continue
-          const before = rows.length
-          try {
-            await streamRows(this.conn, fgbTileSql(target, tile, per + 1, minSize), isCancelled, collect)
-          } catch (err) {
-            // The engine's empty-filter bug (fgbTileSql): stale rows that don't parse. No features here.
-            if (err instanceof QueryCancelledError || !/Could not parse WKB/i.test(String(err))) throw err
-            rows.length = before
-            continue
-          }
-          if (rows.length - before > per) {
-            rows.length = before + per
-            thinned = true
-          }
-        }
-        inView = rows.length
-      } else {
-        // A result that fits under the cap needs no count: everything in view is fetched, so it IS the count.
-        const resultRows = this.restriction() ? this.displayedRows() : this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
-        if (resultRows <= req.cap) {
-          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
-          inView = rows.length
-        } else {
-          const n = await singleRow<{ n: bigint | number }>(this.conn, viewCountSql(target, box), isCancelled)
-          inView = Number(n.n)
-          thinned = inView > req.cap
-        }
-        if (thinned === false && resultRows <= req.cap) {
-          // Fetched above.
-        } else if (!thinned) {
-          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
-        } else if (target.index === 'columns') {
-          // Overview: dots from bbox columns; geometry only for features large enough to see.
-          await streamRows(this.conn, thinnedRowsSql(target, box, req.cap, inView), isCancelled, collect)
-          const large: number[] = []
-          for (const r of rows) {
-            const small = minSize !== undefined && Number(r.__se_xmax) - Number(r.__se_xmin) < minSize && Number(r.__se_ymax) - Number(r.__se_ymin) < minSize
-            if (small || r.__se_xmin === null) r.__se_geojson = r.__se_dotjson
-            else large.push(Number(r.__se_rowid))
-            delete r.__se_dotjson
-            delete r.__se_xmin
-            delete r.__se_ymin
-            delete r.__se_xmax
-            delete r.__se_ymax
-          }
-          if (large.length) {
-            const shapes = new Map<number, unknown>()
-            await streamRows(this.conn, featuresByIdsSql(target, large.join(', '), minSize), isCancelled, (batch) => {
-              for (const s of batch) shapes.set(Number(s.__se_rowid), s.__se_geojson)
-            })
-            for (const r of rows) if (r.__se_geojson === undefined) r.__se_geojson = shapes.get(Number(r.__se_rowid)) ?? null
-          }
-        } else {
-          await streamRows(this.conn, featuresByIdsSql(target, thinnedIdsSql(target, box, req.cap, inView), minSize), isCancelled, collect)
-        }
-      }
-      const features = rows
-        .filter((r) => r.__se_geojson !== null && r.__se_geojson !== undefined)
-        .map((r) => (partial ? { ...toViewFeature(r), partialAttributes: true } : toViewFeature(r)))
-      const atLeast = target.index === 'fgb' && thinned
-      return { generation: req.generation, features, inView, thinned, ms: Math.round(performance.now() - started), ...(atLeast ? { inViewAtLeast: true } : {}) }
-    }, 'view')
-  }
-
   // --- Spec 010: how the map draws the displayed result ------------------------
 
   /** The opened file's size (openFile): a big file's default view is drawn as tiles. */
@@ -1016,6 +895,8 @@ export class QuerySession {
 
   /** GeoJSON (once, from memory) or engine tiles (spec 010, drawMode.ts). */
   drawMode(): DrawMode {
+    // A FlatGeobuf read in parts has no bbox columns to build tiles from: GeoJSON until spec 010 phase 5 reads it whole.
+    if (this.viewTarget()?.index === 'fgb') return 'geojson'
     return drawModeFor({ rows: this.displayedRowsKnown(), fileBytes: this.fileBytes, defaultView: !!this.facts?.defaultView, loadAll: this.loadAll })
   }
 

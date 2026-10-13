@@ -15,7 +15,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -218,11 +218,14 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   private statusBarCrs: vscode.StatusBarItem
   private statusBarFeatureCount: vscode.StatusBarItem
   private statusBarCursor: vscode.StatusBarItem
+  /** Spec 010: how the map draws the result; in tiles mode, Load all. */
+  private statusBarDraw: vscode.StatusBarItem
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.statusBarCrs = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 30)
     this.statusBarFeatureCount = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 29)
     this.statusBarCursor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 28)
+    this.statusBarDraw = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 31)
   }
 
   openCustomDocument(uri: vscode.Uri): SpatialExplorerDocument {
@@ -252,6 +255,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarCrs.hide()
       this.statusBarFeatureCount.hide()
       this.statusBarCursor.hide()
+      this.statusBarDraw.hide()
     })
     // Status bar items belong to the active viewer: hide them when another
     // editor takes focus, restore them when this one comes back.
@@ -259,10 +263,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       if (panel.active) {
         if (this.statusBarCrs.text) this.statusBarCrs.show()
         if (this.statusBarFeatureCount.text) this.statusBarFeatureCount.show()
+        if (this.statusBarDraw.text) this.statusBarDraw.show()
       } else if (![...this.panels].some((p) => p.active)) {
         this.statusBarCrs.hide()
         this.statusBarFeatureCount.hide()
         this.statusBarCursor.hide()
+        this.statusBarDraw.hide()
       }
     })
 
@@ -471,9 +477,18 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null }
+    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
   ): void {
     if (!panel.active) return
+    if (msg.drawMode) {
+      const tiles = msg.drawMode === 'tiles'
+      this.statusBarDraw.text = tiles ? '$(layers) Tiles · Load all' : '$(layers) All drawn'
+      this.statusBarDraw.tooltip = tiles
+        ? 'Over 100,000 features: drawn from tiles the engine builds as you move. Load all draws every feature at once (slower to open, then no work while panning).'
+        : 'Every feature is drawn from memory: panning needs no engine work.'
+      this.statusBarDraw.command = tiles && msg.drawLoadAllAvailable !== false ? 'spatialExplorer.loadAll' : undefined
+      this.statusBarDraw.show()
+    }
     if (msg.crs) {
       this.statusBarCrs.text = `$(globe) ${msg.crs}`
       this.statusBarCrs.show()
@@ -811,6 +826,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       testOverrides = o ?? {}
     }),
     vscode.commands.registerCommand('spatialExplorer._getMapView', () => lastMapViewState),
+    // Spec 010: the status bar's Load all (hidden from the palette: it acts on the active viewer).
+    vscode.commands.registerCommand('spatialExplorer.loadAll', () => provider.postToActive({ type: 'loadAll' })),
     vscode.commands.registerCommand('spatialExplorer._jumpTo', (lon: number, lat: number, zoom: number) => provider.postToActive({ type: 'testJumpTo', lon, lat, zoom })),
 
     // Spec 005 test hook: write the next data export to this path (no dialog).

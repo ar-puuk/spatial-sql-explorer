@@ -410,12 +410,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
 
-    await page.goto('/?e2e=1&cap=1000')
+    // Spec 010: engine tiles, with the status bar's Load all.
+    await page.goto('/?e2e=1&tileRows=1000')
     await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.parquet'))
-    await expect(page.locator('.map-notice')).toContainText('Zoom in to see all', { timeout: 60000 })
-    await audit(page, 'thinned map with notice')
+    await expect(page.locator('.status-bar').getByRole('button', { name: 'Load all' })).toBeVisible({ timeout: 60000 })
+    await audit(page, 'tiles with Load all')
 
-    await page.goto('/?e2e=1&cap=1000&wholeThreshold=1')
+    await page.goto('/?e2e=1&wholeThreshold=1')
     await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
     await expect(page.getByRole('button', { name: 'Load' }).first()).toBeVisible({ timeout: 60000 })
     await page.keyboard.press('Control+Shift+Q')
@@ -440,7 +441,7 @@ test('keyboard: Cancel opening and Load are reachable and work from the keyboard
   await page.keyboard.press('Enter')
   await expect(page.getByText('Drag a geospatial file here')).toBeVisible({ timeout: 3000 })
 
-  await page.goto('/?e2e=1&cap=1000&wholeThreshold=1')
+  await page.goto('/?e2e=1&wholeThreshold=1')
   await page.locator('input[type="file"]').setInputFiles(fixtureFile('parcels-10k.fgb'))
   const load = page.getByRole('button', { name: 'Load' }).first()
   await expect(load).toBeVisible({ timeout: 60000 })

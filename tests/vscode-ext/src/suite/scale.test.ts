@@ -43,9 +43,10 @@ suite('Spec 007 scale in VS Code (SE_LARGE_DATA=1)', function () {
     await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(large('parcels-6m.parquet')), 'spatialExplorer.editorOption')
     await until(openState, (s) => s?.facts?.rows === 6_000_000, 60000, 'facts')
     const factsMs = Date.now() - t0
+    // Spec 010: 6M rows are drawn from engine tiles; the overview is there once the first tiles are built.
     await until(
-      () => vscode.commands.executeCommand('spatialExplorer._getMapView') as Thenable<{ drawn: number } | null>,
-      (v) => (v?.drawn ?? 0) > 0,
+      () => vscode.commands.executeCommand('spatialExplorer._getMapView') as Thenable<{ mode: string; drawCalls: number } | null>,
+      (v) => v?.mode === 'tiles' && v.drawCalls > 0,
       120000,
       'overview'
     )
@@ -54,8 +55,7 @@ suite('Spec 007 scale in VS Code (SE_LARGE_DATA=1)', function () {
     console.log(`SCALE vscode sc001 ${JSON.stringify({ factsMs, overviewMs, servedMB: Math.round(stats.bytes / 1e6), requests: stats.requests, sizeMB: Math.round(stats.size / 1e6) })}`)
     assert.ok(factsMs <= 5000, `facts ${factsMs} ms`)
     assert.ok(overviewMs <= 10000, `overview ${overviewMs} ms`)
-    // Not a whole-file read. Measured: 676 MB of 1,139 MB for the thinned overview (DuckDB's HTTP
-    // read-ahead fetches whole column chunks of every row group the sample touches; research.md Polish outcomes).
+    // Not a whole-file read (spec 007 measured 676 MB of 1,139 MB for its thinned overview; spec 010 reads tiles).
     assert.ok(stats.bytes < stats.size, `served ${stats.bytes} of ${stats.size} bytes`)
   })
 

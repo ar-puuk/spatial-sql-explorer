@@ -18,7 +18,7 @@ const statusBar = (page: Page) => page.locator('.status-bar')
 
 test.describe('US1: open a large file and see it quickly', () => {
   test('GeoParquet with a covering bbox: whole-file facts, read in parts', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.parquet', '?e2e=1&cap=1000')
+    await openFixture(page, 'parcels-10k.parquet', '?e2e=1')
     await expect(statusBar(page)).toContainText('10,000 features')
     await expect(statusBar(page)).toContainText('EPSG:4326')
     await expect(statusBar(page)).toContainText('Polygon')
@@ -28,24 +28,25 @@ test.describe('US1: open a large file and see it quickly', () => {
   })
 
   test('GeoParquet without a covering bbox: a bbox index is built once', async ({ page }) => {
-    await openFixture(page, 'parcels-10k-nobbox.parquet', '?e2e=1&cap=1000')
+    await openFixture(page, 'parcels-10k-nobbox.parquet', '?e2e=1')
     await expect(statusBar(page)).toContainText('10,000 features')
     await expect.poll(async () => (await openState(page)).facts?.spatialIndex).toBe('built')
     expect((await openState(page)).facts?.readMode).toBe('partial')
   })
 
   test('FlatGeobuf read in parts: facts from the header', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&cap=1000&wholeThreshold=1')
+    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&wholeThreshold=1')
     // Validity isn't scanned when reading in parts: rows, not features (FR-016).
     await expect(statusBar(page)).toContainText('10,000 rows')
     await expect(statusBar(page)).toContainText('EPSG:4326')
     expect((await openState(page)).facts).toMatchObject({ rows: 10000, readMode: 'partial-view', spatialIndex: 'file' })
   })
 
-  test('the map shows a thinned overview of the whole extent, and says so', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.parquet', '?e2e=1&cap=1000')
-    await expect(page.locator('.map-notice')).toContainText(/Showing (9\d\d|1,000) of 10,000 in view\. Zoom in to see all\./)
+  // Spec 010: the whole result is drawn (GeoJSON under 100,000 rows); no subset, no notice.
+  test('the map draws the whole extent, with no subset notice', async ({ page }) => {
+    await openFixture(page, 'parcels-10k.parquet', '?e2e=1')
     await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached' })
+    await expect(page.locator('.map-notice')).toHaveCount(0)
     const rendered = Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
     expect(rendered).toBeGreaterThan(0)
   })
@@ -76,7 +77,7 @@ test.describe('US1: open a large file and see it quickly', () => {
 test.describe('FlatGeobuf: load the whole file to query it', () => {
   test('the query panel, table and export offer Load; after it, queries run on all rows', async ({ page }) => {
     test.setTimeout(120000)
-    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&cap=1000&wholeThreshold=1')
+    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&wholeThreshold=1')
     expect((await openState(page)).facts).toMatchObject({ readMode: 'partial-view', needsLoad: true })
 
     const notice = page.getByRole('status').filter({ hasText: /Load the whole file \(.+ MB\) to list its rows\./ })

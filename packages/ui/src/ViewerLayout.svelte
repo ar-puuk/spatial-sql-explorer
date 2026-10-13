@@ -169,13 +169,14 @@
     else return
     e.preventDefault()
   }
-  // The inspector shows the selected feature from wherever it is: the table's
-  // rows, the drawn view (spec 007), or one fetched outside the view (FR-008).
+  // The inspector shows the selected feature from wherever it is: its full
+  // record (fetched in tiles mode), the features in memory (spec 010), or one
+  // fetched by id (FR-008).
   let inspected = $derived.by(() => {
     const id = session.selectedFeatureId
     if (!inspectorOpen || !layer || id === null) return null
     if (store.detailFeature?.id === id) return store.detailFeature
-    return store.viewFeatures?.features.find((f) => f.id === id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
+    return store.drawnFeature(id) ?? (store.outsideFeature?.id === id ? store.outsideFeature : null)
   })
 
   // Popovers that need a layer close when it goes away (new file, error).
@@ -307,12 +308,12 @@
     <div class="map-pane">
       <MapView
         layer={store.mapLayer ?? layer}
-        viewFeatures={store.viewFeatures}
+        mapData={store.mapData}
+        tileUrl={store.tileUrl}
         extraFeature={store.outsideFeature}
-        viewLoading={store.viewLoading}
+        drawLoading={store.drawLoading}
         cameraRequest={store.cameraRequest}
         onPainted={() => store.notifyPainted()}
-        onViewChange={(bbox, zoom, widthPx) => void store.requestView(bbox, zoom, widthPx)}
         dimmed={store.mapDimmed}
         selectedFeatureId={session.selectedFeatureId}
         style={store.style}
@@ -330,7 +331,7 @@
         fitRequest={store.fitRequest}
         projection={store.projection}
         onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
-        onCameraChange={(c) => store.setMapCamera(c)}
+        onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
         onCursorMove={(c) => store.setCursor(c)}
         tiles={store.tiles}
         onInspectTileFeature={(f) => {

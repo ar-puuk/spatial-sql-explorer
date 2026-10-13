@@ -82,43 +82,60 @@ suite('Spec 007 US1: large files open in VS Code', () => {
   })
 })
 
-interface ViewState {
-  generation: number
-  drawn: number
-  inView: number
-  thinned: boolean
+interface DrawState {
+  mode: 'geojson' | 'tiles'
+  features: number | null
+  tileUrl: string | null
+  drawCalls: number
 }
 
-async function viewAfter(generation: number): Promise<ViewState> {
+async function drawState(until: (s: DrawState) => boolean, what: string): Promise<DrawState> {
   const deadline = Date.now() + 30000
   for (;;) {
-    const v = (await vscode.commands.executeCommand('spatialExplorer._getMapView')) as ViewState | null
-    if (v && v.generation > generation) return v
-    assert.ok(Date.now() < deadline, `no view after generation ${generation}: ${JSON.stringify(v)}`)
+    const v = (await vscode.commands.executeCommand('spatialExplorer._getMapView')) as DrawState | null
+    if (v && until(v)) return v
+    assert.ok(Date.now() < deadline, `${what}: ${JSON.stringify(v)}`)
     await sleep(150)
   }
 }
 
-// T031 (spec 007 US2): the same map views in the VS Code webview.
-suite('Spec 007 US2: map views in VS Code', () => {
+async function renderedFeatures(): Promise<number | null> {
+  const deadline = Date.now() + 30000
+  for (;;) {
+    const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { renderedFeatureCount?: number | null } | null
+    if (typeof s?.renderedFeatureCount === 'number') return s.renderedFeatureCount
+    if (Date.now() > deadline) return null
+    await sleep(200)
+  }
+}
+
+// Spec 010 (replaces spec 007 T031): the map draws a small result once as GeoJSON,
+// a big one from engine vector tiles through a custom protocol (research.md S2, made permanent).
+suite('Spec 010: map drawing in VS Code', () => {
   suiteTeardown(async () => {
     await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', null)
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   })
 
-  test('the full extent is a capped, thinned subset; a city view draws everything in it', async function () {
+  test('10,000 rows: drawn once as GeoJSON', async function () {
     this.timeout(120000)
-    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { cap: 1000 })
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', null)
     await openReady('parcels-10k.parquet')
-    const overview = await viewAfter(0)
-    assert.strictEqual(overview.thinned, true)
-    assert.ok(overview.drawn <= 1000 && overview.drawn > 900, `drawn ${overview.drawn}`)
-    assert.strictEqual(overview.inView, 10000)
-    await vscode.commands.executeCommand('spatialExplorer._jumpTo', -112.6, 37.4, 13)
-    const city = await viewAfter(overview.generation)
-    assert.strictEqual(city.thinned, false)
-    assert.strictEqual(city.drawn, city.inView)
-    assert.ok(city.drawn > 0)
+    const s = await drawState((v) => v.mode === 'geojson' && v.features === 10000, 'GeoJSON mode')
+    assert.strictEqual(s.tileUrl, null)
+    assert.ok(((await renderedFeatures()) ?? 0) > 0, 'features drawn')
+  })
+
+  test('over the tile threshold: engine tiles render in the webview (CSP, worker, promoteId)', async function () {
+    this.timeout(120000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { tileRows: 1000 })
+    await openReady('parcels-10k.geojson')
+    const s = await drawState((v) => v.mode === 'tiles' && v.drawCalls > 0, 'tiles mode with tiles built')
+    assert.match(String(s.tileUrl), /^se-tiles:\/\//)
+    assert.ok(((await renderedFeatures()) ?? 0) > 0, 'tile features drawn')
+    // The status bar offers Load all; the command switches to GeoJSON.
+    await vscode.commands.executeCommand('spatialExplorer.loadAll')
+    await drawState((v) => v.mode === 'geojson' && v.features === 10000, 'GeoJSON after Load all')
   })
 })
 

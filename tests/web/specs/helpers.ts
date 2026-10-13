@@ -98,12 +98,11 @@ export function writeSquares(): string {
  *
  * `search` may carry the spec 007 test overrides, which the app honors only
  * with `e2e=1` (packages/core/src/source/readModes.ts, `TEST_OVERRIDE_KEYS`):
- * - `cap=<n>`: display cap for map views (exercises thinning on small data);
  * - `wholeThreshold=<bytes>`: whole-read announcement / FlatGeobuf in-memory threshold;
  * - `materializeCap=<n>`: results above this many rows stay views;
  * - `jenksSample=<n>`: natural-breaks sample size;
  * - `memoryLimit=<size>`: engine memory limit (out-of-memory tests);
- * - `slowViewMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests.
+ * - `slowTileMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests;
  * - `tileRows=<n>`: results with at least this many rows are drawn as tiles (spec 010).
  */
 export async function openFixture(page: Page, name: string, search = '?e2e=1'): Promise<void> {

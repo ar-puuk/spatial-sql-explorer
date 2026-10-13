@@ -38,7 +38,6 @@ import {
   type RunOutcome,
   planExport,
   loadCrsCatalog,
-  isTemporalType,
   activeExtrusion,
   autoExtrusionScale,
   extrusionColumn,
@@ -58,10 +57,9 @@ import {
   type DatasetFacts,
   type OpenPhase,
   type Feature,
-  type ViewFeatures,
+  type DrawMode,
   type TablePage,
   PAGE_SIZE,
-  viewCapFor,
   ViewSkippedError,
   WorkPreemptedError,
   OutOfMemoryError,
@@ -74,8 +72,19 @@ import {
 import { formatFromFileName, styleDataColumns } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
+import { registerTileProvider } from './engineTiles.js'
 
-/** The attribute columns a style draws from (spec 007: map views read only these). */
+/** Each store's tile URLs are its own (several viewers share the protocol in one page). */
+let viewerSeq = 0
+
+/** A short, stable hash of a string (tile URL keys). */
+function hashKey(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
+/** The attribute columns a style draws from (spec 010: engine tiles carry only these). */
 function styleColumns(style: LayerStyle): string[] {
   // Spec 009: every channel's columns (color, bivariate axes, size).
   const cols = styleDataColumns(style)
@@ -175,7 +184,8 @@ export interface ViewerStore {
   setProjection(projection: 'mercator' | 'globe'): void
   /** The map's camera after its last move (null before the first). */
   readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
-  setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }): void
+  /** The map moved: its camera and (spec 010) its WGS84 bounds. */
+  setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds?: [number, number, number, number]): void
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -316,20 +326,35 @@ export interface ViewerStore {
   readonly openStartedAt: number | null
   readonly openFacts: DatasetFacts | null
   cancelOpen(): Promise<void>
-  /** Spec 007: the features drawn for the current map view (FR-005), and what the map should say about them (FR-006, FR-016). */
-  readonly viewFeatures: ViewFeatures | null
-  readonly viewLoading: boolean
+  /** Spec 010: how the map draws the displayed result: GeoJSON once, or engine tiles. Null before the first draw. */
+  readonly drawMode: DrawMode | null
+  /** GeoJSON mode: every mappable feature of the result (plain objects, never proxied). */
+  readonly mapData: GeoJSON.FeatureCollection | null
+  /** Tiles mode: the vector source URL template (`se-tiles://key/{z}/{x}/{y}`). */
+  readonly tileUrl: string | null
+  /** The GeoJSON load takes longer than 300 ms; drawProgress counts its features so far. */
+  readonly drawLoading: boolean
+  readonly drawProgress: number | null
+  /** "Load all" was chosen for this result: the map offers "Draw as tiles" back. */
+  readonly loadedAll: boolean
+  /** Draws this result as GeoJSON whatever its size. */
+  loadAll(): void
+  /** Back to tiles after "Load all". */
+  drawAsTiles(): void
+  /** Test hook: engine calls made to draw (allFeatures and tiles). */
+  readonly drawCalls: number
+  /** A drawn feature (GeoJSON mode) as the inspector shows it, or null. */
+  drawnFeature(id: string | number): Feature | null
+  /** What the map should say about the drawing (FR-014 out of memory, FR-016 fallback). */
   readonly viewNotice: { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null
   /** A selected feature outside the drawn set, fetched by id and drawn highlighted (FR-008). */
   readonly outsideFeature: Feature | null
   /** The full record of a map-selected feature (view rows carry only the style's columns). */
   readonly detailFeature: Feature | null
-  /** The map drew the latest view data (MapLibre idle after setData). */
+  /** The map drew the latest data (MapLibre idle after setData). */
   notifyPainted(): void
-  /** The map moved (debounced): load the result's features for this WGS84 view. */
-  requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void>
   dismissViewNotice(): void
-  /** The last view the map asked for (WGS84). */
+  /** The map's last bounds (WGS84). */
   readonly lastViewBbox: [number, number, number, number] | null
   /** Moves the camera (test hooks); MapView applies each new request once. */
   readonly cameraRequest: { center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null
@@ -497,7 +522,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const qs = querySession
     tableRevision++
     narrowRevision++
-    if (lastViewArgs) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
+    void refreshDraw()
     if (!qs || (!filters.some((f) => f.valid) && !showSelectedOnly)) {
       filterCounts = null
       filtering = false
@@ -508,6 +533,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     try {
       const counts = await retryWhenBusy(qs, () => qs.filterCounts())
       if (revision === narrowRevision) filterCounts = counts
+      // Once counted, the narrowed rows may fall under (or over) the tile threshold.
+      if (revision === narrowRevision && qs === querySession && qs.drawMode() !== drawMode) void refreshDraw()
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: filter count failed', err)
     } finally {
@@ -628,6 +655,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void displayedLayer
       void narrowRevision
       void untrack(() => refreshStyle())
+      // Spec 010: GeoJSON carries every column; tiles carry the style's, so new ones need new tiles.
+      untrack(() => {
+        if (drawMode === 'tiles' && querySession && styleColumns(style).join('\u0000') !== tileColumnsKey) drawTiles(querySession)
+      })
     })
   })
   let mapDimmed = $state(false)
@@ -832,6 +863,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         resultGeometryColumn = built.geometryColumn
         queryPhase = 'succeeded'
         lastRunText = outcome.statement.text
+        loadedAll = false
+        void refreshDraw()
         break
       }
       case 'ddl':
@@ -864,37 +897,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
-  // Spec 007: map views (research §6). Each request gets a generation; an
-  // older one's features never replace a newer one's, and the previous
-  // features stay drawn until replaced (FR-007).
-  let viewFeatures = $state.raw<ViewFeatures | null>(null)
-  let viewLoading = $state(false)
   let outsideFeature = $state.raw<Feature | null>(null)
-  let viewGeneration = 0
-  let lastViewArgs: { bbox: [number, number, number, number]; zoom: number; widthPx?: number } | null = null
-  /** The attribute columns the drawn view carries (the style's column; spec 007). */
-  let viewAttrs: string[] = []
-  // The map reports each paint of new view data (MapView onPainted).
-  let paintWaiters: Array<() => void> = []
-  function waitForPaint(timeoutMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      const done = (): void => {
-        clearTimeout(timer)
-        paintWaiters = paintWaiters.filter((w) => w !== done)
-        resolve()
-      }
-      const timer = setTimeout(done, timeoutMs)
-      paintWaiters.push(done)
-    })
-  }
-  /** The full record of a map-selected feature whose view row had only the style's columns. */
+  /** The full record of a map-selected feature (tiles carry only the style's columns). */
   let detailFeature = $state.raw<Feature | null>(null)
-  /** The layer whose first view already had its preview (see requestView). */
-  let previewedLayer: Layer | null = null
-  /** Features in the quick first view of a new file or result. */
-  const PREVIEW_CAP = 2_000
   let fallbackDismissed = $state(false)
-  // FR-014: a map view, table page or style that ran out of memory says so (the session has recovered).
+  // FR-014: a draw, table page or style that ran out of memory says so (the session has recovered).
   let memoryNotice = $state<string | null>(null)
   function noteOutOfMemory(err: unknown): boolean {
     if (!(err instanceof OutOfMemoryError)) return false
@@ -903,73 +910,102 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   }
   let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
   let cameraRequest = $state<{ center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null>(null)
-  const viewNf = new Intl.NumberFormat()
 
-  async function requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void> {
-    const qs = querySession
-    const layer = session.layer
-    // A table-only result keeps the previous features, dimmed (spec 002 FR-006).
-    if (!qs || !layer || mapDimmed) return
-    lastViewBbox = bbox
-    const generation = ++viewGeneration
-    const current = (): boolean => generation === viewGeneration && querySession === qs
-    const slow = setTimeout(() => {
-      if (generation === viewGeneration) viewLoading = true
-    }, 300)
-    const cap = viewCapFor(layer.facts?.readMode ?? 'whole')
-    lastViewArgs = { bbox, zoom, widthPx }
+  // --- Spec 010: drawing the displayed result --------------------------------
+  // GeoJSON mode: every feature, read once, drawn from memory (panning does no
+  // engine work). Tiles mode: MapLibre asks the engine for each tile it shows.
+  const viewerId = `v${++viewerSeq}`
+  let drawMode = $state<DrawMode | null>(null)
+  let mapData = $state.raw<GeoJSON.FeatureCollection | null>(null)
+  let tileUrl = $state<string | null>(null)
+  let drawLoading = $state(false)
+  let drawProgress = $state<number | null>(null)
+  let loadedAll = $state(false)
+  let drawCalls = $state(0)
+  let drawGeneration = 0
+  let unregisterTiles: (() => void) | null = null
+  /** The columns the current tiles carry (joined), to notice a style that needs others. */
+  let tileColumnsKey = ''
+
+  /** Tiles mode: a new provider and URL for the current data and style columns. */
+  function drawTiles(qs: QuerySession): void {
+    unregisterTiles?.()
     const attrs = styleColumns(style)
-    viewAttrs = attrs
-    // The first view of a new file or result is drawn in two steps: a quick
-    // spread-out preview, then the full view, which replaces it without a
-    // blank map (FR-007). The preview shows no subset notice (it's replaced at
-    // once). Only for files in memory, where drawing dominates; for files read
-    // in parts the overview is I/O-bound, and a preview would double it.
-    let preview = previewedLayer !== layer && cap > PREVIEW_CAP && (layer.facts?.readMode ?? 'whole') === 'whole'
-    previewedLayer = layer
-    try {
-      // A view never blocks user work (a query, export, autocomplete): it is
-      // skipped or interrupted, then asked again once the engine is free,
-      // unless a newer view came meanwhile. No attempt limit: each retry
-      // waits for the engine to go idle, and background work (styles, the
-      // value distribution, table pages) can take the engine first several
-      // times in a row (spec 008: a view gave up after 5 and the map stayed empty).
-      while (current()) {
+    tileColumnsKey = attrs.join('\u0000')
+    const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey)}`
+    unregisterTiles = registerTileProvider(key, async (z, x, y) => {
+      // A tile never blocks user work: skipped or interrupted, it asks again once the engine is free.
+      for (;;) {
         try {
-          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx, attrs })
-          if (!current()) return
-          if (preview) {
-            viewFeatures = { ...v, thinned: false, preview: true }
-            preview = false
-            // Paint the preview before loading the full view; otherwise a
-            // quick full view replaces it unseen (at most 1 s).
-            await waitForPaint(1000)
-            continue
-          }
-          viewFeatures = v
-          return
+          drawCalls++
+          return await qs.tile(z, x, y, attrs)
         } catch (err) {
-          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError)) throw err
+          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError) || qs !== querySession) throw err
           await qs.whenIdle()
         }
       }
+    })
+    tileUrl = `se-tiles://${key}/{z}/{x}/{y}`
+    mapData = null
+    drawMode = 'tiles'
+    drawLoading = false
+    drawProgress = null
+    hostAdapter.setStatus({ drawMode: 'tiles', drawLoadAllAvailable: true })
+  }
+
+  /** Draws the displayed result in the mode its size calls for (after a new file, result, filter or Load all). */
+  async function refreshDraw(): Promise<void> {
+    const qs = querySession
+    // A table-only result keeps the previous drawing, dimmed (spec 002 FR-006).
+    if (!qs || !session.layer || mapDimmed) return
+    const generation = ++drawGeneration
+    if (qs.drawMode() === 'tiles') {
+      drawTiles(qs)
+      return
+    }
+    const slow = setTimeout(() => {
+      if (generation === drawGeneration) drawLoading = true
+    }, 300)
+    try {
+      const data = await retryWhenBusy(qs, () => {
+        drawCalls++
+        return qs.allFeatures(undefined, (n) => {
+          if (generation === drawGeneration) drawProgress = n
+        })
+      })
+      // An older load never replaces a newer one; the previous drawing stays until this one arrives.
+      if (generation !== drawGeneration || qs !== querySession) return
+      unregisterTiles?.()
+      unregisterTiles = null
+      tileUrl = null
+      mapData = data
+      drawMode = 'geojson'
+      hostAdapter.setStatus({ drawMode: 'geojson', drawLoadAllAvailable: false })
     } catch (err) {
-      if (!noteOutOfMemory(err)) console.warn('Spatial Explorer: map view failed', err)
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: drawing the result failed', err)
     } finally {
       clearTimeout(slow)
-      if (generation === viewGeneration) viewLoading = false
+      if (generation === drawGeneration) {
+        drawLoading = false
+        drawProgress = null
+      }
     }
+  }
+
+  /** A GeoJSON-mode feature as the inspector shows it: the row id, its geometry, its attributes. */
+  function drawnFeature(id: string | number): Feature | null {
+    const f = mapData?.features.find((x) => x.id === id)
+    if (!f) return null
+    // The map's promoteId copy of the row id isn't an attribute.
+    const attributes = { ...((f.properties ?? {}) as Feature['attributes']) }
+    delete attributes.__id
+    return { id: f.id as number, geometry: f.geometry, attributes }
   }
 
   const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
-    const v = viewFeatures
-    if (v?.thinned) {
-      const of = v.inViewEstimated ? `about ${viewNf.format(v.inView)}` : v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
-      return { text: `Showing ${viewNf.format(v.features.length)} of ${of} in view. Zoom in to see all.`, kind: 'info', dismissible: false }
-    }
     return null
   })
 
@@ -1021,8 +1057,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     session.selectedFeatureId = null
     openCancelled = false
     openFacts = null
-    viewFeatures = null
     outsideFeature = null
+    detailFeature = null
+    loadedAll = false
     fallbackDismissed = false
     memoryNotice = null
     openPhase = null
@@ -1042,6 +1079,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       await querySession?.dispose().catch(() => {})
       querySession = null
       tilesArchive = null
+      // The previous file's drawing goes with it.
+      drawGeneration++
+      unregisterTiles?.()
+      unregisterTiles = null
+      mapData = null
+      tileUrl = null
+      drawMode = null
       openStartedAt = performance.now()
       openPhase = 'registering'
       if (formatFromFileName(ref.displayName) === 'pmtiles') {
@@ -1096,6 +1140,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (activeLayer && historyStateKey) loadColumnView(`${historyStateKey}#${activeLayer}`)
       setLayer(layer)
       session.loadState = 'ready'
+      void refreshDraw()
       if (keptStyle) {
         // Loading the whole file (or switching layer) keeps that layer's style.
         style = keptStyle.style
@@ -1231,6 +1276,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         setLayer(original)
         session.selectedFeatureId = null
         applySidecar(original.styleSidecar)
+        loadedAll = false
+        void refreshDraw()
       }
       queryStatus = 'Reset to the original view'
     },
@@ -1408,8 +1455,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get mapCamera() {
       return mapCamera
     },
-    setMapCamera(camera) {
+    setMapCamera(camera, bounds) {
       mapCamera = camera
+      if (bounds) lastViewBbox = bounds
     },
     setProjection(next) {
       projection = next
@@ -1691,26 +1739,25 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     selectFeature(id) {
       session.selectedFeatureId = id
-      // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
-      // So do dates and times (spec 008): the record has them as text, the drawn row as numbers.
-      const drawn = viewFeatures?.features.find((f) => f.id === id)
-      const temporal = querySession?.lastResult?.columns.some((c) => isTemporalType(c.type)) ?? false
-      if ((drawn?.partialAttributes || (drawn && temporal)) && typeof id === 'number' && querySession) {
-        const qs = querySession
-        void retryWhenBusy(qs, () => qs.featureById(id))
-          .then((f) => {
-            if (session.selectedFeatureId === id) detailFeature = f
-          })
-          .catch(() => {})
-      }
+      // Spec 010: GeoJSON features carry every column (dates as text); a tile carries only the style's,
+      // so in tiles mode the full record is fetched, and drawn as the selection overlay too.
+      if (drawMode !== 'tiles' || typeof id !== 'number' || !querySession) return
+      const qs = querySession
+      void retryWhenBusy(qs, () => qs.featureById(id))
+        .then((f) => {
+          if (session.selectedFeatureId !== id) return
+          detailFeature = f
+          outsideFeature = f
+        })
+        .catch(() => {})
     },
     get detailFeature() {
       return detailFeature
     },
     zoomToFeature(id) {
       session.selectedFeatureId = id
-      // FR-008: a feature outside the drawn set is fetched by its stable id, drawn highlighted, then zoomed to.
-      const drawn = viewFeatures?.features.some((f) => f.id === id) || outsideFeature?.id === id
+      // FR-008: a feature not in memory (tiles mode) is fetched by its stable id, drawn highlighted, then zoomed to.
+      const drawn = mapData?.features.some((f) => f.id === id) || outsideFeature?.id === id
       if (drawn || typeof id !== 'number' || !querySession) {
         zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
         return
@@ -1724,21 +1771,50 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         })
         .catch(() => {})
     },
-    get viewFeatures() {
-      return viewFeatures
+    get drawMode() {
+      return drawMode
     },
-    get viewLoading() {
-      return viewLoading
+    get mapData() {
+      return mapData
     },
+    get tileUrl() {
+      return tileUrl
+    },
+    get drawLoading() {
+      return drawLoading
+    },
+    get drawProgress() {
+      return drawProgress
+    },
+    get loadedAll() {
+      return loadedAll
+    },
+    loadAll() {
+      const qs = querySession
+      if (!qs) return
+      qs.setLoadAll(true)
+      loadedAll = true
+      void refreshDraw()
+    },
+    drawAsTiles() {
+      const qs = querySession
+      if (!qs) return
+      qs.setLoadAll(false)
+      loadedAll = false
+      void refreshDraw()
+    },
+    get drawCalls() {
+      return drawCalls
+    },
+    drawnFeature,
     get viewNotice() {
       return viewNotice
     },
     get outsideFeature() {
       return outsideFeature
     },
-    requestView,
     notifyPainted() {
-      for (const w of [...paintWaiters]) w()
+      // MapView reports each paint of new data; tests read the paint counter it keeps.
     },
     get lastViewBbox() {
       return lastViewBbox
@@ -1767,8 +1843,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       }
       style = sanitizeStyle({ ...style, ...patch })
       styleDirty = true
-      // A thematic column the drawn view doesn't carry yet: load the view again with it.
-      if (lastViewArgs && styleColumns(style).some((c) => !viewAttrs.includes(c))) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
     },
     previewStyle(next) {
       if (next === null) {

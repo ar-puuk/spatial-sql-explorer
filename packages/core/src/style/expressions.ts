@@ -117,10 +117,6 @@ function categorizedIndex(r: CategorizedRenderer, resolved: ResolvedStyle): unkn
   return ['let', 'v', ['get', r.column], ['case', ['==', v, null], noValue, ['==', ['to-string', v], ''], noValue, byValue]]
 }
 
-/** Map feature property marking a polygon or line drawn as a dot because it's under ~2 px in the view (spec 007). */
-export const DOT_PROP = '__se_dot'
-const DOT = ['boolean', ['get', DOT_PROP], false]
-const DOT_RADIUS = 1.75
 
 /** A class value per feature: `match` on the class index (single symbol: the value itself). */
 function perClass(index: unknown, symbols: SymbolSpec[], pick: (s: SymbolSpec) => unknown, fallback: unknown): unknown {
@@ -284,10 +280,9 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     circle: {
       'circle-color': ['case', selected, sel, fillColor],
       'circle-opacity': ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
-      // Spec 007: a polygon or line under ~2 px in the current view is drawn as a small dot (DOT_PROP).
-      'circle-radius': ['case', selected, plus(radius, 2), DOT, DOT_RADIUS, hovered, plus(radius, 1), radius],
+      'circle-radius': ['case', selected, plus(radius, 2), hovered, plus(radius, 1), radius],
       'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', s.strokeColor],
-      'circle-stroke-width': ['case', selected, 2, DOT, 0, s.strokeWidth],
+      'circle-stroke-width': ['case', selected, 2, s.strokeWidth],
       'circle-stroke-opacity': ['case', selected, 1, s.strokeOpacity],
     },
     // Hover and selection of shaped markers: a disc in the selection color behind the icon.
