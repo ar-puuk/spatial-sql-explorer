@@ -147,6 +147,27 @@ Phase 4 sets `tolerance: 0` on our GeoJSON source (everything drawn), at a cost 
 Engine tiles have the same blind spot (`ST_AsMVTGeom` drops polygons that collapse on the
 tile grid: 876 of 10,000 parcels drawn at z5), as maplibre-gl-vector's tiles do.
 
+**Option C (user decision 2026-10-13): dots for features too small to see.** The GeoJSON
+load also reads each line or polygon's center and the zoom below which it spans under 2 px
+(`log2((2·360/512) / max(width, height))`); the center goes to the source as a point with the
+same id, `__se_dot` and `__se_dotz`, and the circle layer draws it only below that zoom. The
+GeoJSON source is back to the default tolerance. Engine tiles send a line or polygon under
+2 px of the tile (tile width / 256) as its center with `__se_dot` (all 230k parcels show at
+the overview, against a sparse scatter before). The shared feature id keeps hover, selection
+and ticks on the dot.
+
+Measuring it found the real cost in the earlier pans: MapView counted the rendered features
+(`queryRenderedFeatures`) on every idle for the tests, and with every parcel drawn that count
+was the longest task (77k: 1.8 s at 6×; tiles: 2.5 s). The count is now published only with
+test hooks on (`data-se-test-hooks`: web `?e2e` or `navigator.webdriver`, VS Code outside
+Production mode); the measurement removes it before panning:
+
+| Case (option C, no count) | Drawn at overview | 5 pans at 6× CPU: long tasks / longest | Pan phase |
+|---|---|---|---|
+| parcels-10k.geojson | 10,000 | 0 / 0 ms | 4.0 s |
+| parcels-77k.geojson | 76,924 | 0 / 0 ms | 4.1 s |
+| parcels-230k.geojson (tiles) | 123,187 rendered | 0 / 0 ms | 4.5 s |
+
 Heavy geometry: 72,000 detailed country polygons (`SELECT a.* FROM layer a, range(400) b`
 on world-boundaries) draw in GeoJSON mode in 18–20 s with ~1.5 s long tasks, whatever the
 tolerance; the cost is handing ~72k complex features to MapLibre's worker.

@@ -670,7 +670,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     // catalog (style JSON, vector + raster tiles, sprites, glyphs); a blocked
     // request degrades to blank + message (FR-016), never breaks the viewer.
     return `<!DOCTYPE html>
-<html lang="en" data-theme="vscode">
+<html lang="en" data-theme="vscode"${this.context.extensionMode === vscode.ExtensionMode.Production ? '' : ' data-se-test-hooks'}>
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">

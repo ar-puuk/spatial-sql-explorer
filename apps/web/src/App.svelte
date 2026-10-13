@@ -56,6 +56,8 @@
   // own. The lockdown (duckdbService.lockDown), not this hook, is the
   // security boundary: everything sent here is still refused file, network,
   // extension and settings access.
+  // MapView publishes data-rendered-features for tests (?e2e=1, or a browser under automation).
+  if (navigator.webdriver || new URLSearchParams(location.search).has('e2e')) document.documentElement.dataset.seTestHooks = ''
   if (new URLSearchParams(location.search).has('e2e')) {
     ;(window as unknown as { __spatialExplorerE2E: unknown }).__spatialExplorerE2E = {
       runRaw: (sql: string) => {

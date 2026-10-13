@@ -47,7 +47,7 @@ import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
-import { featureCollector } from '../view/featureBatches.js'
+import { featureCollector, type MapData } from '../view/featureBatches.js'
 import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
 
 /** contracts/query-service.md */
@@ -874,17 +874,17 @@ export class QuerySession {
    * `attrs` undefined: all visible attributes (GeoLibre does this; style changes then never refetch).
    * Background work: user work preempts it, and the caller asks again.
    */
-  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void): Promise<GeoJSON.FeatureCollection> {
+  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void): Promise<MapData> {
     return this.exclusive(async (isCancelled) => {
       const target = this.viewTarget()
-      if (!target) return { type: 'FeatureCollection', features: [] }
+      if (!target) return { type: 'FeatureCollection', features: [], dots: [] }
       const wanted = attrs ? target.attrs.filter((a) => attrs.includes(a)) : target.attrs
       const collector = featureCollector()
       await streamRows(this.conn, allFeaturesSql(target, wanted, (target.textAttrs ?? []).filter((a) => wanted.includes(a))), isCancelled, async (batch) => {
         await collector.add(batch)
         onProgress?.(collector.features.length)
       })
-      return { type: 'FeatureCollection', features: collector.features }
+      return { type: 'FeatureCollection', features: collector.features, dots: collector.dots }
     }, 'background')
   }
 

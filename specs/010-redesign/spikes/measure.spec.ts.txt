@@ -42,6 +42,8 @@ for (const [file, label] of [
     // 5 pans at 6x CPU throttle (VS Code webviews are slower than headless Chromium).
     const cdp = await page.context().newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+    // Users have no test hooks: no rendered-feature count on each idle.
+    await page.evaluate(() => delete document.documentElement.dataset.seTestHooks)
     await page.evaluate(() => ((window as any).__longTasks = []))
     const calls0 = await hook<number>(page, 'drawCalls')
     const tiles0 = await hook<{ calls: number }>(page, 'tileStats')

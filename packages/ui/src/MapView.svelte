@@ -24,6 +24,7 @@
     type Feature,
     type Layer,
     type LayerStyle,
+    type MapData,
     type ResolvedStyle,
     EXTRUSION_PITCH,
   } from '@spatial-explorer/core'
@@ -38,7 +39,7 @@
   interface Props {
     layer: Layer | null
     /** Spec 010 GeoJSON mode: every feature of the result, drawn from memory. */
-    mapData: GeoJSON.FeatureCollection | null
+    mapData: MapData | null
     /** Spec 010 tiles mode: the engine's vector tiles (`se-tiles://…/{z}/{x}/{y}`). */
     tileUrl: string | null
     /** Tiles mode: the selected feature, fetched by id, drawn as the selection overlay (FR-008). */
@@ -148,7 +149,11 @@
   const POLYGON = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
   const LINE = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
   const POINT = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
-  const MARKER_POINT = POINT
+  // Spec 010 option C: points standing in for lines and polygons too small to see.
+  const DOT = ['boolean', ['get', '__se_dot'], false]
+  /** A dot shows below its zoom (__se_dotz, GeoJSON mode); a tile's dots carry none and always show. */
+  const DOT_SHOWN = ['any', ['!', DOT], ['<', ['zoom'], ['coalesce', ['get', '__se_dotz'], 99]]]
+  const MARKER_POINT = ['all', POINT, ['!', DOT]]
   const INTERACTIVE_DEFS = ['fill', 'line', 'circle', 'marker']
 
   /**
@@ -168,7 +173,7 @@
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
-    { id: 'circle', type: 'circle', filter: POINT },
+    { id: 'circle', type: 'circle', filter: ['all', POINT, DOT_SHOWN] },
     // Points of a shape other than the circle: icons, over a disc that shows hover and selection.
     { id: 'marker-select', type: 'circle', filter: MARKER_POINT },
     {
@@ -223,8 +228,8 @@
   /** Each layer's geometry filter, plus the hidden-class filter (FR-009). Shaped markers leave the circle layer only the dots. */
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     const hidden = visibilityFilter(style, resolved)
-    // Shaped markers draw every point; the circle layer then draws none.
-    const geometry = def.id === 'circle' && usesMarkerIcons(style) ? ['==', 1, 0] : def.filter
+    // Shaped markers draw every point; the circle layer then draws only the dots.
+    const geometry = def.id === 'circle' && usesMarkerIcons(style) ? ['all', POINT, DOT, DOT_SHOWN] : def.filter
     return hidden ? ['all', geometry, hidden] : geometry
   }
 
@@ -310,13 +315,18 @@
   // replaces the whole style) can carry it over without a reload.
   let currentData: GeoJSON.FeatureCollection = EMPTY
 
+  /** What the GeoJSON source holds: the features, then their dots (option C), which draw above them. */
+  function sourceData(d: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+    const dots = (d as Partial<MapData>).dots
+    return dots?.length ? { type: 'FeatureCollection', features: d.features.concat(dots) } : d
+  }
+
   /** Our data source for the current mode: PMTiles, the engine's tiles (spec 010), or GeoJSON. */
   function dataSource(): Record<string, unknown> {
     if (styledTiles) return { type: 'vector', url: styledTiles.url }
     if (styledTileUrl) return { type: 'vector', tiles: [styledTileUrl], minzoom: 0, maxzoom: 14, promoteId: { data: ID_PROP } }
-    // tolerance 0: geojson-vt otherwise drops features under its simplification tolerance at low zoom
-    // (10,000 parcels drew nothing at the overview); the engine's tiles keep them, and so must this.
-    return { type: 'geojson', data: currentData, promoteId: ID_PROP, tolerance: 0 }
+    // geojson-vt drops features under its tolerance at low zoom; their dots (option C) keep them visible.
+    return { type: 'geojson', data: sourceData(currentData), promoteId: ID_PROP }
   }
 
   /** Our map layers (data, then the tiles-mode selection overlay), with the current paint, layout and filters. */
@@ -470,7 +480,11 @@
       // Only meaningful once this layer's data is set: an idle before it
       // arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
-      container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: interactiveLayers() }).length)
+      // Test hooks only (`data-se-test-hooks` on <html>): with every small parcel drawn (option C),
+      // counting 77k rendered features on each idle was the longest task while panning (1.8 s at 6x CPU).
+      if (document.documentElement.dataset.seTestHooks !== undefined) {
+        container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: interactiveLayers() }).length)
+      }
       if (paintPending) {
         paintPending = false
         // Monotonic "data was drawn" counter: unlike data-rendered-features
@@ -727,7 +741,7 @@
     if (!current) {
       dataLoaded = false
       currentData = EMPTY
-      ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
+      ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(sourceData(currentData))
       return
     }
     untrack(() => fitExtent(false))
@@ -757,7 +771,7 @@
     if (!mapReady || !map || data === null || tiles || tileUrl) return
     if (data === currentData) return
     currentData = data
-    ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(currentData)
+    ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(sourceData(currentData))
     hoveredId = null
     dataLoaded = true
     paintPending = true

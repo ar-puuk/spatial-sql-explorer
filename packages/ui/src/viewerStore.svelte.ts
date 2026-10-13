@@ -69,7 +69,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName, styleDataColumns } from '@spatial-explorer/core'
+import { formatFromFileName, styleDataColumns, type MapData } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -322,7 +322,7 @@ export interface ViewerStore {
   /** Spec 010: how the map draws the displayed result: GeoJSON once, or engine tiles. Null before the first draw. */
   readonly drawMode: DrawMode | null
   /** GeoJSON mode: every mappable feature of the result (plain objects, never proxied). */
-  readonly mapData: GeoJSON.FeatureCollection | null
+  readonly mapData: MapData | null
   /** Tiles mode: the vector source URL template (`se-tiles://key/{z}/{x}/{y}`). */
   readonly tileUrl: string | null
   /** The GeoJSON load takes longer than 300 ms; drawProgress counts its features so far. */
@@ -903,7 +903,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // engine work). Tiles mode: MapLibre asks the engine for each tile it shows.
   const viewerId = `v${++viewerSeq}`
   let drawMode = $state<DrawMode | null>(null)
-  let mapData = $state.raw<GeoJSON.FeatureCollection | null>(null)
+  let mapData = $state.raw<MapData | null>(null)
   let tileUrl = $state<string | null>(null)
   let drawLoading = $state(false)
   let drawProgress = $state<number | null>(null)
