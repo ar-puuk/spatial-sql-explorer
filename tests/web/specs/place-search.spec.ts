@@ -24,7 +24,7 @@ async function setup(page: Page, reply: (q: string) => unknown[] | 'offline'): P
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   return requests
 }
-const box = (page: Page) => page.getByRole('searchbox', { name: 'Search places' })
+const box = (page: Page) => page.getByRole('combobox', { name: 'Search' })
 
 test('the notice comes first and only once; Enter searches; a result moves the map; only the text is sent', async ({ page }) => {
   test.setTimeout(120000)
@@ -43,7 +43,7 @@ test('the notice comes first and only once; Enter searches; a result moves the m
   await expect(notice).toContainText('sends only the text you type')
   expect(requests).toHaveLength(0)
   await notice.getByRole('button', { name: 'Search' }).click()
-  const places = page.getByRole('listbox', { name: 'Places' })
+  const places = page.getByRole('group', { name: 'Places' })
   await expect(places.getByRole('option')).toHaveCount(2)
   expect(requests).toHaveLength(1)
 
@@ -69,7 +69,7 @@ test('the notice comes first and only once; Enter searches; a result moves the m
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   await box(page).fill('Salt Lake')
   await box(page).press('Enter')
-  await expect(page.getByRole('listbox', { name: 'Places' }).getByRole('option')).toHaveCount(2)
+  await expect(page.getByRole('group', { name: 'Places' }).getByRole('option')).toHaveCount(2)
   await expect(page.getByRole('dialog', { name: 'Place search' })).toHaveCount(0)
 })
 

@@ -314,15 +314,21 @@
           onCaptureReady={(capture) => store.setMapCapture(capture)}
           onExportImage={() => store.openMapImage()}
         />
-        {#if store.placeSearchEnabled || store.fileLayers.length > 1}
-          <div class="map-ov tl">
-            {#if store.placeSearchEnabled}<SearchBox {store} />{/if}
-            {#if store.fileLayers.length > 1}
-              <!-- Spec 008 US3: the file's layers. -->
-              <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
-            {/if}
-          </div>
-        {/if}
+        <div class="map-ov tl">
+          <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. -->
+          <SearchBox
+            {store}
+            layerName={fileName ?? 'layer'}
+            onChooseFeature={(id) => {
+              handleMapSelect(id)
+              store.zoomToFeature(id)
+            }}
+          />
+          {#if store.fileLayers.length > 1}
+            <!-- Spec 008 US3: the file's layers. -->
+            <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+          {/if}
+        </div>
         {#if store.mapDimmed}
           <div class="map-notice no-geometry" role="status">
             <Icon name="info" size={14} />

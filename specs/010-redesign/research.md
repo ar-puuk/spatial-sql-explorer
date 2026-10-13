@@ -306,3 +306,31 @@ excluded (it stacks overlays). Now:
   (spec 010) keeps other files off the map, so they are named by path and read in place
   (no copy), which matches how DuckDB users write `read_parquet('…')` outside the tool.
   Bare unquoted paths after FROM are not wrapped here (not in the plan).
+
+## Phase 10: one search box
+
+- Layer values and coordinates follow the typing (values debounced 200 ms, one background
+  query; a search overtaken by a newer one before it runs returns nothing). Places do
+  **not**: the plan's "on input" would send typed text to Nominatim, which spec 008 FR-033
+  and Nominatim's policy forbid (place-search.spec.ts checks typing sends nothing). Places
+  are one option away, `Search places for "…"` (Enter when it is the highlighted option),
+  after the one-time notice, as before.
+- Values: one hit per column and value with its row count (the plan's per-row hits showed
+  "Africa" eight times on a continent column), exact matches first, then prefixes, then
+  shorter values; table filters apply. Choosing one selects its first row, opens Details
+  and zooms (in tiles mode the row is fetched by id).
+- Coordinates: `lon, lat` by default; `lat, lon` when only that fits (a pasted Google Maps
+  pair); both offered when both fit; hemisphere letters and degree signs fix the order.
+- PlaceSearch.svelte is gone; SearchBox.svelte is always on the map (places only when the
+  setting allows them).
+- How GeoLibre does it (components/panels/LayerPanelPlaceSearch.tsx, lib/feature-search.ts,
+  lib/coordinates.ts): one combined box too, with the same grouping (data matches by layer
+  first, then places) and the same exact > prefix > contains ranking, one row per feature
+  (ours: one per value, with a count). Differences: it geocodes while typing (debounce
+  max(500 ms, the provider's minimum interval)), which our FR-033 rules out; a bare pair
+  is read lat, lon first (ours lon, lat, the plan's example, with the other order offered
+  too when it fits); it also reads MGRS/UTM grid references and H3 cells (not added: not
+  in the plan).
+- Responsiveness at 6× CPU throttle (parcels-10k.geojson, typing `P0000765` at 120 ms per
+  key): values shown 226 ms after the last key in GeoJSON mode and 214 ms in tiles mode
+  (`tileRows=1000`), 200 ms of it the debounce; no long tasks while typing.

@@ -76,7 +76,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName, styleDataColumns, type MapData, type WorkspaceFile } from '@spatial-explorer/core'
+import { formatFromFileName, styleDataColumns, type MapData, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -239,6 +239,8 @@ export interface ViewerStore {
   markPlaceSearchNoticeShown(): void
   /** Fits the map to a WGS84 box (a found place). */
   fitTo(bbox: [number, number, number, number]): void
+  /** Spec 010 phase 10: text values of the displayed result containing `q` (the search box). */
+  searchValues(q: string): Promise<SearchHit[]>
   /** Spec 008 US7: the map image dialog. */
   readonly mapImageOpen: boolean
   openMapImage(): void
@@ -1602,6 +1604,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     fitTo(bbox) {
       fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
+    },
+    async searchValues(q) {
+      const qs = querySession
+      if (!qs) return []
+      return qs.searchValues(q).catch(() => [])
     },
     get placeSearchEnabled() {
       return placeSearchEnabled

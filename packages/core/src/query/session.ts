@@ -49,6 +49,7 @@ import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
+import { searchValuesSql, type SearchHit } from '../view/search.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
 import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
 
@@ -868,6 +869,29 @@ export class QuerySession {
     return this.exclusive(async (isCancelled) => {
       const row = await singleRow<Record<string, bigint | number>>(this.conn, `SELECT ${select} FROM (SELECT * FROM ${relation} LIMIT ${STYLE_VALUES_CAP})`, isCancelled)
       return Object.fromEntries(textual.map((c, i) => [c.name, Number(row[`d${i}`])]))
+    }, 'background')
+  }
+
+  private searchSeq = 0
+
+  /**
+   * Spec 010 phase 10: the displayed result's text values containing `q`
+   * (filters applied), one hit per column and value, best first. A search
+   * overtaken by a newer one before it runs returns nothing.
+   */
+  async searchValues(q: string, limit = 8): Promise<SearchHit[]> {
+    const seq = ++this.searchSeq
+    const target = this.pageTarget()
+    if (!target || this.utilityRows) return []
+    const sql = searchValuesSql(this.narrowed(target.relation), target.columns, q, limit)
+    if (!sql) return []
+    return this.exclusive(async (isCancelled) => {
+      if (seq !== this.searchSeq) return []
+      const hits: SearchHit[] = []
+      await streamRows(this.conn, sql, isCancelled, (batch) => {
+        for (const r of batch) hits.push({ id: Number(r.id), column: String(r.col), value: String(r.value), count: Number(r.n) })
+      })
+      return hits
     }, 'background')
   }
 
