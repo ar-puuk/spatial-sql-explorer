@@ -5,13 +5,13 @@ import { fixture, openFile } from './helpers'
 
 type MapState = { projection: string; extrusion: boolean; pitch?: number; bearing?: number }
 const mapState = (page: Page) => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): MapState } }).__spatialExplorerE2E.mapState())
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const jumpTo = (page: Page, lon: number, lat: number, zoom: number) =>
   page.evaluate(([a, b, z]) => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }).__spatialExplorerE2E.jumpTo(a, b, z), [lon, lat, zoom] as const)
 
 test('points and lines: the 3D section says why it is unavailable', async ({ page }) => {
   await openFile(page, fixture('points.csv'), '?e2e=1')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await expect(panel(page).getByRole('switch', { name: 'Extrude polygons' })).toHaveCount(0)
   await expect(panel(page)).toContainText('3D extrusion applies to polygons.')
 })
@@ -20,7 +20,7 @@ test('extrude by a column: tilts, counts flat polygons, scales, resets, and clic
   test.setTimeout(120000)
   await page.setViewportSize({ width: 1280, height: 800 })
   await openFile(page, fixture('buildings-10k.parquet'), '?e2e=1')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const toggle = panel(page).getByRole('switch', { name: 'Extrude polygons' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await expect(page.getByRole('button', { name: 'Reset view' })).toHaveCount(0)
@@ -45,7 +45,7 @@ test('extrude by a column: tilts, counts flat polygons, scales, resets, and clic
   await panel(page).getByLabel('Height from').selectOption('height_m')
 
   // A click on a raised building still opens the inspector (the hidden fill answers).
-  await page.getByRole('button', { name: 'Close' }).first().click()
+  await page.getByRole('button', { name: 'Close panel' }).click()
   await jumpTo(page, -111.918, 40.74015, 18)
   await page.waitForTimeout(1500)
   const box = (await page.locator('.canvas-host').boundingBox())!
@@ -65,14 +65,16 @@ test('extrude by a column: tilts, counts flat polygons, scales, resets, and clic
   await expect.poll(async () => (await mapState(page)).projection).toBe('globe')
   await jumpTo(page, -111.918, 40.74015, 18)
   await page.waitForTimeout(1500)
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  // Spec 010: the Details panel opened by the first click narrowed the map.
+  const box2 = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2)
   await expect(inspector).toContainText('#4')
 })
 
 test('extrusion is kept in the saved QML and Mapbox GL style, and loads back', async ({ page }) => {
   test.setTimeout(120000)
   await openFile(page, fixture('buildings-10k.parquet'), '?e2e=1')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await panel(page).getByRole('switch', { name: 'Extrude polygons' }).click()
   await panel(page).getByLabel('Height scale').fill('1.5')
   await panel(page).getByLabel('Height scale').press('Enter')
@@ -106,7 +108,7 @@ test('a column that is not a height gets a scale that shows it; Auto picks it ag
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/?e2e=1')
   await page.getByRole('button', { name: /Try sample data/ }).click()
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await panel(page).getByRole('switch', { name: 'Extrude polygons' }).click()
   await panel(page).getByLabel('Height from').selectOption('density')
   // A density of ~40 per km² is 40 m raw: flat at a country's zoom. The 95th

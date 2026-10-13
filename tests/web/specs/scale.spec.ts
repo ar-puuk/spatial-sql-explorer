@@ -88,7 +88,7 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   const { runQuery } = await import('./helpers')
   await runQuery(page, 'SELECT * FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('rows', { timeout: 120000 })
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 120000 })
@@ -212,12 +212,12 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   await expect(page.locator('.query-status')).toContainText('rows', { timeout: 300000 })
   const filtered = (await page.locator('.query-status').textContent()) ?? ''
   await sample('filter')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 300000 })
   await sample('style')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const { bytes } = await exportVia(page, { format: 'GeoParquet' })
   await sample('export')
   results.sc002_session27m = { sizeMB: Math.round(fs.statSync(file).size / 1e6), ...open, filtered: filtered.trim(), exportMB: Math.round(bytes.length / 1e6), engineMemoryMiB: memory }
@@ -264,8 +264,8 @@ test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated colu
   // Points (centroids), so the size channel applies: the same 1,000,166 rows for all three styles.
   await runQuery(page, 'SELECT parcel_id, acres, value, year_built, ST_Centroid(geom) AS geom FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('1,000,166 rows', { timeout: 120000 })
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  const panel = page.getByRole('dialog', { name: 'Layer style' })
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Layer style' })
   const legend = page.getByRole('region', { name: 'Legend' })
   /** Time from an edit to the legend showing `text`. */
   const timed = async (edit: () => Promise<void>, text: string | RegExp) => {

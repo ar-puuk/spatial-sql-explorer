@@ -97,6 +97,8 @@
     extrusionFlat?: number | null
     /** Spec 008 US6: a height scale that makes a column visible at the layer's extent. */
     onSuggestScale?: (column: string) => Promise<number>
+    /** Spec 010: inside the side panel (no title or close button of its own). */
+    embedded?: boolean
   }
   let {
     style,
@@ -120,6 +122,7 @@
     classifyingRows = null,
     extrusionFlat = null,
     onSuggestScale,
+    embedded = false,
   }: Props = $props()
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
@@ -286,14 +289,22 @@
   }
 </script>
 
-<div class="panel" aria-label="Layer style" role="dialog" tabindex="-1" onkeydown={handleKeydown}>
-  <header>
-    <h2>Layer style</h2>
-    <span class="source" title={styleSource ?? undefined}>
-      {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
-    </span>
-    <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
-  </header>
+<div class="panel" class:embedded aria-label="Layer style" role={embedded ? 'region' : 'dialog'} tabindex="-1" onkeydown={handleKeydown}>
+  {#if embedded}
+    <div class="source-row">
+      <span class="source" title={styleSource ?? undefined}>
+        {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
+      </span>
+    </div>
+  {:else}
+    <header>
+      <h2>Layer style</h2>
+      <span class="source" title={styleSource ?? undefined}>
+        {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
+      </span>
+      <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
+    </header>
+  {/if}
 
   <div class="body">
     <!-- Spec 008 FR-001: one flow, top to bottom; only the sections that apply to the chosen type. -->
@@ -817,6 +828,24 @@
     font-size: var(--se-font-size);
     outline: none;
   }
+  /* Spec 010: inside the side panel, which has the title and the close button. */
+  .panel.embedded {
+    /* The side panel can be as narrow as 240 px: the renderer choice wraps (below). */
+    container-type: inline-size;
+    flex: 1;
+    width: auto;
+    min-height: 0;
+    max-height: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .source-row {
+    display: flex;
+    flex: none;
+    padding: 0 12px 4px;
+  }
   header {
     display: flex;
     align-items: center;
@@ -869,6 +898,19 @@
   }
   .renderers button:first-child {
     border-left: 0;
+  }
+  /* Spec 010: four style types don't fit a narrow side panel on one row. */
+  @container (max-width: 330px) {
+    .renderers {
+      grid-auto-flow: row;
+      grid-template-columns: 1fr 1fr;
+    }
+    .renderers button:nth-child(odd) {
+      border-left: 0;
+    }
+    .renderers button:nth-child(n + 3) {
+      border-top: 1px solid var(--se-input-border);
+    }
   }
   .renderers button[aria-checked='true'] {
     background: var(--se-button-bg);
@@ -1095,6 +1137,7 @@
   }
   footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     padding: 8px 8px 8px 12px;

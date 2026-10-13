@@ -221,3 +221,34 @@ VS Code open of the 10 MB performance file with sqlite_scanner loaded at start (
 - **CARTO needs a key** (S6 corrected above): no entry is "key optional" now; the code
   path stays for providers that are.
 - Opening the gallery and typing a search at 6× CPU: longest task 63–68 ms (limit 100).
+
+## Phase 8: layout Option A
+
+Built as the plan says (activity rail, side panel, bottom panel with Table and SQL tabs,
+floating search and layer select, the web status bar as a full-width row under the panels,
+the layout remembered through `saveState('layout')`). Departures and findings:
+
+- **The map keeps its top-left corner when a panel opens or closes.** A MapLibre resize
+  keeps the center, so opening the 300 px side panel slid every feature 150 px under the
+  cursor (a Ctrl-click after the Details panel opened hit the wrong feature). After a
+  resize the map pans by half the size change, unless the app moved the camera itself in
+  the last second (fit, zoom to a feature, a restored link): those views keep their center.
+- **The inspector keeps its id and Zoom row** inside the Details panel (the plan said no
+  header); the style panel keeps its "Default · modified" line. Escape in the SQL editor no
+  longer closes the side panel (Escape closes it when focus is inside it).
+- **The style type choice wraps to two rows** in a side panel under 330 px (container query);
+  four labels didn't fit 300 px.
+- **A completion list left open by Ctrl+Enter** stayed over the hidden SQL tab once the
+  result switched to the Table tab, and the editor could not be clicked again: running now
+  closes it.
+- **Engine scheduling livelock (found while chasing that, fixed):** background work
+  preempted by user work retried at once, restarted while the user work was still
+  cancelling it, and could spin without leaving the microtask queue. Background work now
+  waits while user work is waiting, as views and tiles already did, and `whenIdle()` waits
+  until no user work is waiting.
+- Links (`--se-link`) had no value in either shell; the web's amber accent fails AA on the
+  side panel's cream: amber-800 there; VS Code uses `textLink.foreground`.
+- Screenshot tool: after 72,000 detailed polygons were drawn, a later style change on a
+  180-row result spent ~1.9 s in WebGL `bufferData` and a screenshot took 7–42 s, in
+  headless Chromium's software WebGL only (the source held the 184 new features; VS Code
+  took the same scene in time). The 72k scene now runs after the style and export scenes.

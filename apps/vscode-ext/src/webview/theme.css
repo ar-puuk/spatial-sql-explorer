@@ -29,6 +29,7 @@
   --se-text-muted: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
   --se-accent: var(--vscode-button-background);
   --se-focus: var(--vscode-focusBorder);
+  --se-link: var(--vscode-textLink-foreground, var(--vscode-button-background));
   --se-info: var(--vscode-editorInfo-foreground, var(--vscode-notificationsInfoIcon-foreground));
 
   /* Type: never override the user's VS Code font choices. */
@@ -126,6 +127,18 @@
   --se-statusbar-fg: var(--vscode-statusBar-foreground);
   --se-statusbar-border: var(--vscode-statusBar-border, transparent);
   --se-statusbar-accent: var(--vscode-statusBar-foreground);
+
+  /* Spec 010 layout: the activity rail (on the side bar's background, like the
+     view next to it) and the bottom panel's tabs, in VS Code's own colors. */
+  --se-activity-bg: var(--se-bg-panel);
+  --se-activity-fg: var(--vscode-activityBar-foreground, var(--vscode-foreground));
+  --se-activity-inactive-fg: var(--vscode-activityBar-inactiveForeground, var(--vscode-descriptionForeground));
+  --se-activity-indicator: var(--vscode-activityBar-activeBorder, var(--vscode-focusBorder));
+  --se-activity-badge: var(--vscode-activityBarBadge-background, var(--vscode-button-background));
+  --se-panel-tabs-bg: var(--vscode-panel-background, var(--vscode-editor-background));
+  --se-panel-tab-active-fg: var(--vscode-panelTitle-activeForeground, var(--vscode-foreground));
+  --se-panel-tab-inactive-fg: var(--vscode-panelTitle-inactiveForeground, var(--vscode-descriptionForeground));
+  --se-panel-tab-border: var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder));
 
   /* SQL editor (spec 002). VS Code doesn't expose its syntax-token colors to
      webviews. The debug-hover token colors (debugTokenExpression.*) are

@@ -3,9 +3,9 @@
 // swapping axes, palettes, and accessibility.
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { fixture, openFile, writeSquares } from './helpers'
+import { fixture, openFile, writeSquares, openStyle } from './helpers'
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const grid = (page: Page) => legend(page).getByRole('grid', { name: 'Bivariate cells' })
 const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
@@ -13,7 +13,7 @@ const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data
 async function openCounties(page: Page): Promise<void> {
   await openFile(page, fixture('counties-bivariate.geojson'))
   await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   await page.getByRole('radio', { name: 'Bivariate' }).click()
   // SC-002: the defaults are already the two measures (the id column goes last).
   await expect(panel(page).getByLabel('Axis 1', { exact: true })).toHaveValue('poverty_rate')
@@ -69,7 +69,7 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
 
 test('Bivariate needs two numeric columns, and says why', async ({ page }) => {
   await openFile(page, writeSquares())
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   const radio = page.getByRole('radio', { name: 'Bivariate' })
   await expect(radio).toHaveAttribute('aria-disabled', 'true')
   await expect(radio).toHaveAttribute('title', 'Bivariate maps need two numeric columns.')

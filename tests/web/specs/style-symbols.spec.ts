@@ -3,9 +3,9 @@
 // drawn and clickable), the legend, and the saved QML.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { openFile, writeParcels, writeSquares } from './helpers'
+import { openFile, writeParcels, writeSquares, openStyle } from './helpers'
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legendRows = (page: Page) => page.getByRole('region', { name: 'Legend' }).locator('li')
 const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
 const savedQml = async (page: Page): Promise<string> => {
@@ -16,7 +16,7 @@ const savedQml = async (page: Page): Promise<string> => {
 test('a marker shape draws every point as that shape, in the legend too, and is saved', async ({ page }) => {
   await openFile(page, writeSquares())
   await expect.poll(() => rendered(page), { timeout: 30000 }).toBe('100')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   const shapes = panel(page).getByRole('radiogroup', { name: 'Shape' })
   await expect(shapes.getByRole('radio', { name: 'Circle' })).toHaveAttribute('aria-checked', 'true')
 
@@ -41,7 +41,7 @@ test('a marker shape draws every point as that shape, in the legend too, and is 
 
 test('a line pattern dashes polygon outlines and the legend, and is saved', async ({ page }) => {
   await openFile(page, writeParcels(50))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   // Polygons have no marker shape.
   await expect(panel(page).getByRole('radiogroup', { name: 'Shape' })).toHaveCount(0)
   await panel(page).getByLabel('Pattern').selectOption('dash-dot')
@@ -52,7 +52,7 @@ test('a line pattern dashes polygon outlines and the legend, and is saved', asyn
 // Spec 009: size classes are the size channel (style-channels.spec.ts covers its controls and files).
 test('size classes on points: markers grow class by class, in the legend to scale', async ({ page }) => {
   await openFile(page, writeSquares())
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   await panel(page).getByRole('switch', { name: 'Size by column' }).click()
   await expect(panel(page).getByLabel('Size column')).toHaveValue('value')
   await expect(panel(page).getByLabel('Smallest size')).toHaveValue('2')

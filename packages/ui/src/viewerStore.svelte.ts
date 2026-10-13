@@ -131,6 +131,34 @@ export type MapImageOutcome =
 /** Spec 008: the engine's check of a typed EPSG code. */
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
 
+/** Spec 010 layout (Option A): the side panel and the bottom panel, shared by both shells and remembered. */
+export type SideTab = 'style' | 'details' | 'basemap'
+export interface LayoutState {
+  sideOpen: boolean
+  sideTab: SideTab
+  /** Side panel width in px (240–560). */
+  sideWidth: number
+  bottomTab: 'table' | 'sql'
+  bottomCollapsed: boolean
+  /** Bottom panel height as a fraction of the main column (0.15–0.85). */
+  bottomFraction: number
+}
+export const DEFAULT_LAYOUT: LayoutState = { sideOpen: false, sideTab: 'style', sideWidth: 300, bottomTab: 'table', bottomCollapsed: false, bottomFraction: 0.32 }
+
+/** A saved layout, checked field by field (anything odd falls back to the default). */
+export function readLayout(saved: unknown): LayoutState {
+  const s = (saved && typeof saved === 'object' ? saved : {}) as Partial<Record<keyof LayoutState, unknown>>
+  const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d)
+  return {
+    sideOpen: typeof s.sideOpen === 'boolean' ? s.sideOpen : DEFAULT_LAYOUT.sideOpen,
+    sideTab: s.sideTab === 'style' || s.sideTab === 'details' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
+    sideWidth: num(s.sideWidth, 240, 560, DEFAULT_LAYOUT.sideWidth),
+    bottomTab: s.bottomTab === 'sql' ? 'sql' : 'table',
+    bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,
+    bottomFraction: num(s.bottomFraction, 0.15, 0.85, DEFAULT_LAYOUT.bottomFraction),
+  }
+}
+
 export interface ViewerStore {
   readonly session: ViewerSession
   /** The open file's query session (spec 002), or null before a file is open. */
@@ -139,6 +167,8 @@ export interface ViewerStore {
   readonly queryText: string
   setQueryText(text: string): void
   readonly queryPhase: QueryPhase
+  /** Spec 010: bumps when a query returns a result (the layout then shows the Table tab). */
+  readonly resultSeq: number
   /** The status line text (FR-010), e.g. "✓ 8 rows · 8 mapped · 84 ms". */
   readonly queryStatus: string
   readonly queryError: EngineError | null
@@ -274,6 +304,9 @@ export interface ViewerStore {
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
   readonly legendCollapsed: boolean
   setLegendCollapsed(collapsed: boolean): void
+  /** Spec 010: the panels' arrangement, remembered through HostAdapter.saveState('layout'). */
+  readonly layout: LayoutState
+  setLayout(patch: Partial<LayoutState>): void
   /** FR-009: hide or show one class on the map. */
   setClassVisible(key: string, visible: boolean): void
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
@@ -419,6 +452,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
   let legendCollapsed = $state(false)
+  const LAYOUT_KEY = 'layout'
+  let layout = $state<LayoutState>({ ...DEFAULT_LAYOUT })
+  let layoutTouched = false
+  let layoutSave: ReturnType<typeof setTimeout> | null = null
+  void hostAdapter
+    .loadState<unknown>(LAYOUT_KEY)
+    .then((saved) => {
+      // A change made before the saved layout arrived wins.
+      if (saved !== undefined && !layoutTouched) layout = readLayout(saved)
+    })
+    .catch(() => {})
   void hostAdapter
     .loadState<boolean>(LEGEND_COLLAPSED_KEY)
     .then((saved) => {
@@ -526,6 +570,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // --- spec 002: query state ------------------------------------------------
   let queryText = $state(DEFAULT_QUERY)
   let queryPhase = $state<QueryPhase>('idle')
+  let resultSeq = $state(0)
   let queryStatus = $state('')
   let queryError = $state<EngineError | null>(null)
   let queryErrorRange = $state<{ from: number; to: number } | null>(null)
@@ -937,6 +982,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
         resultGeometryColumn = built.geometryColumn
         queryPhase = 'succeeded'
+        resultSeq++
         lastRunText = outcome.statement.text
         loadedAll = false
         void refreshDraw()
@@ -1352,6 +1398,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       }
       queryStatus = 'Reset to the original view'
     },
+    get resultSeq() {
+      return resultSeq
+    },
     get queryPhase() {
       return queryPhase
     },
@@ -1711,6 +1760,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get legendCollapsed() {
       return legendCollapsed
+    },
+    get layout() {
+      return layout
+    },
+    setLayout(patch) {
+      layoutTouched = true
+      layout = { ...layout, ...patch }
+      // Drags change the layout on every move: save once they settle.
+      if (layoutSave) clearTimeout(layoutSave)
+      layoutSave = setTimeout(() => void hostAdapter.saveState(LAYOUT_KEY, layout).catch(() => {}), 300)
     },
     setLegendCollapsed(collapsed) {
       legendCollapsed = collapsed

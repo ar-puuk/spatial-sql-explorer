@@ -118,6 +118,8 @@ test.describe('export keeps the CRS honestly (US2)', () => {
     await openFile(page, fixture('usa-utm12n.gpkg'), '?e2e=1')
     await openQueryPanel(page)
     await runQuery(page, "SELECT name, ST_Transform(geom, 'EPSG:26912', 'EPSG:3857', always_xy := true) AS geom FROM layer")
+    // Spec 010: the result shows the Table tab; the Result CRS chip is on the SQL tab.
+    await page.getByRole('tab', { name: 'SQL' }).click()
     await page.locator('.result-crs .chip').click()
     await page.getByRole('dialog', { name: 'Result CRS' }).getByLabel('EPSG code').fill('3857')
     await page.getByRole('dialog', { name: 'Result CRS' }).getByRole('button', { name: 'Apply' }).click()

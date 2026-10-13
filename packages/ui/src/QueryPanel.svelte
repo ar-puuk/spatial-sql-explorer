@@ -18,10 +18,12 @@
     store: ViewerStore
     collapsed: boolean
     onToggle: () => void
+    /** Spec 010: inside the bottom panel's SQL tab, which shows and hides it (no toggle of its own). */
+    embedded?: boolean
     schema?: SQLNamespace
     completionSources?: CompletionSource[]
   }
-  let { store, collapsed, onToggle, schema: schemaProp, completionSources: sourcesProp }: Props = $props()
+  let { store, collapsed, onToggle, embedded = false, schema: schemaProp, completionSources: sourcesProp }: Props = $props()
   // FR-015: completion from the live catalog unless a caller supplies its own.
   const schema = $derived(schemaProp ?? schemaFromCatalog(store.catalog))
   const completionSources = $derived<CompletionSource[]>(sourcesProp ?? [functionSource(store.catalog)])
@@ -93,6 +95,11 @@
   export function focusEditor(): void {
     editor?.focus()
   }
+
+  /** Spec 010: inserts text at the editor's cursor (a file name from the Files list). */
+  export function insertText(text: string): void {
+    editor?.insertText(text)
+  }
 </script>
 
 <!-- Esc cancels a running query from anywhere in the panel, handled in the
@@ -110,10 +117,12 @@
   }}
 >
   <header>
-    <button type="button" class="toggle" aria-expanded={!collapsed} aria-controls="query-body" onclick={onToggle} title="Toggle the query panel (Ctrl+Shift+Q)">
-      <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
-      <span class="title">Query</span>
-    </button>
+    {#if !embedded}
+      <button type="button" class="toggle" aria-expanded={!collapsed} aria-controls="query-body" onclick={onToggle} title="Toggle the query panel (Ctrl+Shift+Q)">
+        <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
+        <span class="title">Query</span>
+      </button>
+    {/if}
     {#if store.queryTable}
       <span class="query-table" title="Query the opened file as this table">
         <code>{store.queryTable.name}</code>{#if store.queryTable.alias}<span class="alias"> / <code>{store.queryTable.alias}</code></span>{/if}

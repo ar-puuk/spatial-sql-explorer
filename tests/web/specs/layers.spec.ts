@@ -5,28 +5,28 @@ import os from 'node:os'
 import path from 'node:path'
 import { fixture, openFile, openQueryPanel, rowCount, runQuery } from './helpers'
 
-const layerList = (page: Page) => page.getByRole('listbox', { name: 'Layers in this file' })
+// Spec 010: the file's layers are a select next to the search box.
+const layerPicker = (page: Page) => page.getByRole('combobox', { name: 'Layer' })
 const statusBar = (page: Page) => page.locator('.status-bar')
 
 test('a GeoPackage with three layers: listed, switched, and queryable by name', async ({ page }) => {
   test.setTimeout(120000)
   await openFile(page, fixture('three-layers.gpkg'))
-  await expect(page.getByRole('status').filter({ hasText: 'This file has 3 layers.' })).toBeVisible()
-  const options = layerList(page).getByRole('option')
+  const options = layerPicker(page).locator('option')
   await expect(options).toHaveCount(3)
-  await expect(options.nth(0)).toHaveAccessibleName(/^countries, /)
-  await expect(options.nth(1)).toHaveAccessibleName('city points, Point, 3')
-  await expect(options.nth(2)).toHaveAccessibleName('lookup_table, table, 3')
-  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await expect(options.nth(0)).toHaveText(/^countries, /)
+  await expect(options.nth(1)).toHaveText('city points, Point, 3')
+  await expect(options.nth(2)).toHaveText('lookup_table, table, 3')
+  await expect(layerPicker(page)).toHaveValue('countries')
   await expect(statusBar(page)).toContainText('179 features')
 
   // Style the countries, switch to the points: under 2 s (SC-009), with their own facts.
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Categorized' }).click()
-  await page.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Close panel' }).click()
   const t0 = Date.now()
-  await options.nth(1).click()
-  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await layerPicker(page).selectOption('city points')
+  await expect(layerPicker(page)).toHaveValue('city points')
   await expect(statusBar(page)).toContainText('3 features')
   console.log(`layer switch: ${Date.now() - t0} ms`)
   expect(Date.now() - t0).toBeLessThan(2000 * 3) // 2 s on real hardware; parallel software WebGL is slower
@@ -34,7 +34,7 @@ test('a GeoPackage with three layers: listed, switched, and queryable by name', 
   await expect(page.getByRole('region', { name: 'Legend' })).toHaveCount(0) // points start with the default style
 
   // Back to the countries: their style comes back.
-  await options.nth(0).click()
+  await layerPicker(page).selectOption('countries')
   await expect(statusBar(page)).toContainText('179 features')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('categories')
 
@@ -48,23 +48,23 @@ test('a GeoPackage with three layers: listed, switched, and queryable by name', 
 
 test('a table without geometry shows its rows; the map says it has none', async ({ page }) => {
   await openFile(page, fixture('three-layers.gpkg'))
-  await layerList(page).getByRole('option', { name: /^lookup_table/ }).click()
-  await expect(layerList(page).getByRole('option', { name: /^lookup_table/ })).toHaveAttribute('aria-selected', 'true')
+  await layerPicker(page).selectOption('lookup_table')
+  await expect(layerPicker(page)).toHaveValue('lookup_table')
   await expect.poll(() => rowCount(page)).toBe(3)
   await expect(page.locator('.query-status')).toContainText(/no geometry|not drawn|table/i)
 })
 
-test('keyboard: arrows move, Enter switches', async ({ page }) => {
+test('keyboard: an arrow key switches the layer', async ({ page }) => {
   await openFile(page, fixture('three-layers.gpkg'))
-  await layerList(page).focus()
+  await layerPicker(page).focus()
   await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await expect(layerList(page).getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(layerPicker(page)).toHaveValue('city points')
+  await expect(page.locator('.status-bar')).toContainText('3 features')
 })
 
 test('a single-layer file shows no layer list', async ({ page }) => {
   await openFile(page, fixture('sample.gpkg'))
-  await expect(layerList(page)).toHaveCount(0)
+  await expect(layerPicker(page)).toHaveCount(0)
 })
 
 test('a File Geodatabase (as a zip) is refused with a way forward', async ({ page }) => {

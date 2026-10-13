@@ -2,7 +2,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { fixture, openFile } from './helpers'
 
-const picker = (page: Page) => page.getByRole('dialog', { name: 'Basemap' })
+const picker = (page: Page) => page.getByRole('region', { name: 'Basemap' })
 
 test('Satellite, Topographic and OpenStreetMap are offered, draw, and show their attribution', async ({ page }) => {
   // Tiles from the network are stubbed with a tiny PNG (no third-party traffic in tests).

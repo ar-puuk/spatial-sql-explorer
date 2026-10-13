@@ -407,8 +407,9 @@
       />
     {:else}
       <ViewerLayout {store} {fileName}>
-        {#snippet mapOverlay()}
+        {#snippet statusBar()}
           <StatusBar
+            docked
             session={store.session}
             facts={store.openFacts}
             draw={{

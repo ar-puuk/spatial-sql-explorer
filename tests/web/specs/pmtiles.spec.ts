@@ -65,8 +65,8 @@ test('a PMTiles archive: tiles at two zooms, partial reads, the inspector, and t
   // FR-009a: SQL, the table, styling and export say why they're unavailable.
   await expect(page.getByRole('status').filter({ hasText: REASON }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Export data…' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Layer style' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Layer style' })).toHaveAttribute('title', REASON)
+  await expect(page.getByRole('button', { name: 'Style', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Style', exact: true })).toHaveAttribute('title', REASON)
   await page.keyboard.press('Control+Shift+Q')
   await expect(page.getByRole('button', { name: 'Run' })).toBeDisabled()
   await expect(page.getByRole('region', { name: 'Query' }).getByRole('status').filter({ hasText: REASON })).toBeVisible()

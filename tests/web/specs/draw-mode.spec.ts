@@ -92,7 +92,7 @@ test('tiles: a categorized style asks for tiles with its column; the legend stil
   await expect.poll(() => rendered(page)).toBeGreaterThan(0)
   const url = (await drawState(page)).tileUrl
   const before = await drawCalls(page)
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Categorized' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('zone')
   await expect.poll(async () => (await drawState(page)).tileUrl).not.toBe(url)

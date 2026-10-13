@@ -39,7 +39,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.attribute-table tbody tr:not(.spacer)').nth(2).click()
     await audit(page, 'row selected')
 
-    await page.getByRole('button', { name: 'Layer style' }).click()
+    await page.getByRole('button', { name: 'Style', exact: true }).click()
     await audit(page, 'style panel')
     await page.getByRole('button', { name: 'More style formats' }).click()
     await audit(page, 'export menu')
@@ -77,7 +77,7 @@ test('keyboard: every control is reachable and the grid is navigable without a m
     })
     reached.add(label)
   }
-  for (const name of ['Zoom in', 'Zoom out', 'Zoom to layer', 'Layer style', 'Basemap', 'Resize attribute table', 'Attribute table']) {
+  for (const name of ['Zoom in', 'Zoom out', 'Zoom to layer', 'Style', 'Basemap', 'Resize panel', 'Attribute table']) {
     expect([...reached], `Tab should reach "${name}"`).toContain(name)
   }
 
@@ -92,12 +92,12 @@ test('keyboard: every control is reachable and the grid is navigable without a m
   await page.keyboard.press('Escape')
   await expect(page.locator('.attribute-table tbody tr.selected')).toHaveCount(0)
 
-  // Sash: the drawer collapses and expands from the keyboard.
-  await page.getByRole('separator', { name: 'Resize attribute table' }).focus()
+  // Sash: the bottom panel collapses and expands from the keyboard.
+  await page.getByRole('separator', { name: 'Resize panel' }).focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: /Attributes/ })).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: /(Hide|Show) panel/ })).toHaveAttribute('aria-expanded', 'false')
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: /Attributes/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('button', { name: /(Hide|Show) panel/ })).toHaveAttribute('aria-expanded', 'true')
 
   // Basemap picker: arrow keys move between options, Escape closes.
   await page.getByRole('button', { name: 'Basemap', exact: true }).click()
@@ -105,12 +105,18 @@ test('keyboard: every control is reachable and the grid is navigable without a m
   await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('radio', { checked: true })).toBeFocused()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'Basemap' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Basemap' })).toHaveCount(0)
 })
 
 const editor = (page: Page) => page.getByRole('textbox', { name: 'SQL query' })
 
+/** Spec 010: a result shows the Table tab; the editor and its buttons are on the SQL tab. */
+async function showSql(page: Page): Promise<void> {
+  if (!(await editor(page).isVisible())) await page.getByRole('tab', { name: 'SQL' }).click()
+}
+
 async function runSql(page: Page, sql: string): Promise<void> {
+  await showSql(page)
   await editor(page).click()
   await page.keyboard.press('Control+A')
   await page.keyboard.press('Delete')
@@ -147,6 +153,7 @@ for (const scheme of ['light', 'dark'] as const) {
     })
     await audit(page, 'paged table')
 
+    await showSql(page)
     await page.getByRole('button', { name: 'Query history' }).click()
     await expect(page.getByRole('listbox', { name: 'Query history' })).toBeVisible()
     await audit(page, 'history popover')
@@ -242,7 +249,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/')
     await page.locator('input[type="file"]').setInputFiles(squares())
     await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
-    await page.getByRole('button', { name: 'Layer style' }).click()
+    await page.getByRole('button', { name: 'Style', exact: true }).click()
     await page.getByRole('radio', { name: 'Categorized' }).click()
     await audit(page, 'categorized panel + legend')
 
@@ -270,7 +277,7 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   await page.goto('/')
   await page.locator('input[type="file"]').setInputFiles(squares())
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
-  const styleButton = page.getByRole('button', { name: 'Layer style' })
+  const styleButton = page.getByRole('button', { name: 'Style', exact: true })
   await styleButton.click()
 
   // Radio group: arrows move and apply.
@@ -305,16 +312,16 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   // Esc closes the panel and returns focus to its button.
   await page.getByLabel('Method', { exact: true }).focus()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Layer style' })).toHaveCount(0)
   await expect(styleButton).toBeFocused()
 
-  // Esc while typing in the SQL editor closes the popover but leaves the caret there.
+  // Spec 010: Esc while typing in the SQL editor leaves the side panel open and the caret where it is.
   await styleButton.click()
   await page.keyboard.press('Control+Shift+Q')
   const editor = page.getByRole('textbox', { name: 'SQL query' })
   await expect(editor).toBeFocused()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'Layer style' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Layer style' })).toHaveCount(1)
   await expect(editor).toBeFocused()
 })
 

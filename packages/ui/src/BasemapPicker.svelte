@@ -24,8 +24,10 @@
     onMore: () => void
     onBlankColor: (color: string | null) => void
     onClose: () => void
+    /** Spec 010: inside the side panel (its title and close button are the panel's). */
+    embedded?: boolean
   }
-  let { activeId, followingTheme, appearance, blankColor, notice, galleryEntry, onChoose, onMore, onBlankColor, onClose }: Props = $props()
+  let { activeId, followingTheme, appearance, blankColor, notice, galleryEntry, onChoose, onMore, onBlankColor, onClose, embedded = false }: Props = $props()
 
   let themeDefaultId = $derived(getDefaultBasemap(appearance).id)
   let blankInput = $state<HTMLInputElement>()
@@ -48,11 +50,13 @@
   }
 </script>
 
-<div class="panel" role="dialog" aria-label="Basemap" tabindex="-1" onkeydown={handleKeydown}>
-  <header>
-    <h2>Basemap</h2>
-    <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
-  </header>
+<div class="panel" class:embedded role={embedded ? 'region' : 'dialog'} aria-label="Basemap" tabindex="-1" onkeydown={handleKeydown}>
+  {#if !embedded}
+    <header>
+      <h2>Basemap</h2>
+      <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
+    </header>
+  {/if}
   <div class="options" role="radiogroup" aria-label="Basemap">
     {#each BASEMAP_CATALOG as entry (entry.id)}
       <div class="row" class:checked={entry.id === activeId}>
@@ -143,6 +147,17 @@
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
     outline: none;
+  }
+  /* Spec 010: inside the side panel, which has the title and the close button. */
+  .panel.embedded {
+    flex: 1;
+    width: auto;
+    min-height: 0;
+    max-height: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
   header {
     display: flex;

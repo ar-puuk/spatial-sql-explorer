@@ -2,9 +2,9 @@
 // channel. Lines keep their class colors and step through width classes; the
 // legend shows one group per channel.
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, writeParcels } from './helpers'
+import { fixture, openFile, writeParcels, openStyle } from './helpers'
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const sizeGroup = (page: Page) => legend(page).getByRole('group', { name: /^aadt · / })
 const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
@@ -12,7 +12,7 @@ const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data
 async function openRoads(page: Page): Promise<void> {
   await openFile(page, fixture('roads-traffic.geojson'))
   await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
 }
 
 test('color by class, width by traffic: two legend groups, live edits, and off again (US1)', async ({ page }) => {
@@ -60,7 +60,7 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
 
 test('polygons have no size channel, and the old Graduated "Vary" switch is gone', async ({ page }) => {
   await openFile(page, writeParcels(50))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await openStyle(page)
   await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)
   await expect(panel(page)).toContainText('Polygons have no size')
   await page.getByRole('radio', { name: 'Graduated' }).click()

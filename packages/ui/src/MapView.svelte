@@ -66,10 +66,6 @@
     /** Spec 002 FR-006: a table-only result keeps the last layer visible, dimmed. */
     dimmed?: boolean
     onBasemapFailure: (message: string) => void
-    openPanel: 'style' | 'basemap' | 'search' | null
-    onTogglePanel: (panel: 'style' | 'basemap' | 'search') => void
-    /** Spec 008 US8: show the Search places button (the host's setting). */
-    placeSearch?: boolean
     /** `additive`: Ctrl/Cmd was held (spec 008 FR-012: add to the selection). */
     onSelectFeature: (id: string | number | null, additive?: boolean) => void
     /** Spec 008 FR-012: the ticked rows, highlighted like the selected feature ('all': every drawn feature). */
@@ -86,8 +82,6 @@
     tiles?: TilesArchive | null
     /** A clicked PMTiles feature, for the inspector (tiles carry no table to look it up in). */
     onInspectTileFeature?: (feature: Feature | null) => void
-    /** Why the Layer style button is unavailable (PMTiles), or null. */
-    styleUnavailable?: string | null
     /** Spec 008 US6: polygons are raised (the style's extrusion applies to this layer). */
     extruded?: boolean
     /** Spec 008 US7: hands the store the map's PNG capture once the map is ready. */
@@ -113,8 +107,6 @@
     blankColor,
     dimmed = false,
     onBasemapFailure,
-    openPanel,
-    onTogglePanel,
     onSelectFeature,
     tickedIds = new Set<number>(),
     fitRequest = null,
@@ -124,9 +116,7 @@
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
-    styleUnavailable = null,
     extruded = false,
-    placeSearch = false,
     onCaptureReady,
     onExportImage,
   }: Props = $props()
@@ -492,6 +482,9 @@
       if (t !== tilted) tilted = t
     })
     m.on('mouseout', () => onCursorMove(null))
+    m.on('movestart', (e: { originalEvent?: unknown }) => {
+      if (!e.originalEvent) programmaticMoveAt = performance.now()
+    })
 
     // Tile/sprite/glyph failures after the style document itself loaded
     // (e.g. tiles blocked by CSP): degrade to blank + message (FR-016).
@@ -618,11 +611,23 @@
   // doing so (GeoLibre map-resize.ts; their post-launch fixes #2173/#2201).
   // One resize per animation frame, and none mid-drag.
   let resizeFrame = 0
+  /** When the app last moved the camera itself (no user input behind the move). */
+  let programmaticMoveAt = -Infinity
   function scheduleResize(): void {
     if (!map || resizing || resizeFrame) return
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = 0
-      map?.resize()
+      if (!map) return
+      // Spec 010: a panel opening or closing beside the map keeps what is under
+      // its top-left corner in place (resize alone keeps the center, so the
+      // features would slide under the cursor).
+      // A view the app just set (fit, zoom to a feature, a restored link) keeps its center.
+      const canvas = map.getCanvas()
+      const [w0, h0] = [canvas.clientWidth, canvas.clientHeight]
+      map.resize()
+      const [dw, dh] = [canvas.clientWidth - w0, canvas.clientHeight - h0]
+      const setByApp = map.isMoving() || performance.now() - programmaticMoveAt < 1000
+      if (w0 > 0 && h0 > 0 && (dw || dh) && !setByApp) map.panBy([dw / 2, dh / 2], { animate: false })
       scheduleSky()
     })
   }
@@ -979,41 +984,6 @@
         <!-- Spec 008 FR-026: back to flat and north-up. -->
         <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
       {/if}
-    </div>
-    <div class="group">
-      <button
-        type="button"
-        title={styleUnavailable ?? 'Layer style'}
-        aria-label="Layer style"
-        aria-pressed={openPanel === 'style'}
-        class:active={openPanel === 'style'}
-        disabled={!layer || styleUnavailable !== null}
-        onclick={() => onTogglePanel('style')}
-      >
-        <Icon name="paint" />
-      </button>
-      {#if placeSearch}
-        <button
-          type="button"
-          title="Search places"
-          aria-label="Search places"
-          aria-pressed={openPanel === 'search'}
-          class:active={openPanel === 'search'}
-          onclick={() => onTogglePanel('search')}
-        >
-          <Icon name="search" />
-        </button>
-      {/if}
-      <button
-        type="button"
-        title="Basemap: {basemap.name}"
-        aria-label="Basemap"
-        aria-pressed={openPanel === 'basemap'}
-        class:active={openPanel === 'basemap'}
-        onclick={() => onTogglePanel('basemap')}
-      >
-        <Icon name="layers" />
-      </button>
     </div>
   </div>
 </div>

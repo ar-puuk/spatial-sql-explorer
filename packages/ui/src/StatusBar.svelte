@@ -26,15 +26,17 @@
     /** Spec 007 FR-001: whole-file facts while the file is still opening. */
     facts?: DatasetFacts | null
     draw?: DrawStatus | null
+    /** Spec 010: a full-width row under the panels, not over the map. */
+    docked?: boolean
   }
-  let { session, facts = null, draw = null }: Props = $props()
+  let { session, facts = null, draw = null, docked = false }: Props = $props()
   const LOAD_ALL_TIP = 'Over 100,000 features: drawn from tiles the engine builds as you move. Load all draws every feature at once (slower to open, then no work while panning).'
   const nf = new Intl.NumberFormat()
 </script>
 
 {#if session.layer}
   {@const layer = session.layer}
-  <div class="status-bar" role="status">
+  <div class="status-bar" class:docked role="status">
     <span class="item crs" class:assumed={layer.crsAssumed} title={layer.crsAssumed ? 'No CRS information found in the file — WGS84 was assumed' : 'Source CRS (reprojected to WGS84 for display)'}>
       {layer.sourceCrs.label}{layer.crsAssumed ? ' · assumed' : ''}
     </span>
@@ -94,7 +96,7 @@
   </div>
 {:else if facts}
   {@const n = facts.rows - (facts.invalid ?? 0)}
-  <div class="status-bar" role="status">
+  <div class="status-bar" class:docked role="status">
     <span class="item crs" class:assumed={facts.crsAssumed}>{facts.crs.label}{facts.crsAssumed ? ' · assumed' : ''}</span>
     <span class="sep" aria-hidden="true"></span>
     <span class="item">{nf.format(n)} {facts.invalid === null ? (n === 1 ? 'row' : 'rows') : n === 1 ? 'feature' : 'features'}</span>
@@ -104,6 +106,11 @@
 {/if}
 
 <style>
+  .status-bar.docked {
+    position: static;
+    flex: none;
+    backdrop-filter: none;
+  }
   .status-bar {
     position: absolute;
     left: 0;

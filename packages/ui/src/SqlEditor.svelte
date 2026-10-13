@@ -9,7 +9,7 @@
   import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from '@codemirror/view'
   import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands'
   import { bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
-  import { autocompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
+  import { autocompletion, closeCompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
   import { sql, StandardSQL, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql'
   import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
   import { tags } from '@lezer/highlight'
@@ -113,6 +113,8 @@
               preventDefault: true,
               run: (v) => {
                 const sel = v.state.selection.main
+                // Spec 010: a result shows the Table tab; an open completion list would be left over a hidden editor.
+                closeCompletion(v)
                 onRun({ from: sel.from, to: sel.to })
                 return true
               },
@@ -177,6 +179,14 @@
   /** Focus the editor (used by the panel's keyboard shortcut). */
   export function focus(): void {
     view?.focus()
+  }
+
+  /** Spec 010: puts text at the selection (replacing it) and the cursor after it. */
+  export function insertText(text: string): void {
+    if (!view) return
+    const { from, to } = view.state.selection.main
+    view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, scrollIntoView: true })
+    view.focus()
   }
 </script>
 

@@ -403,6 +403,9 @@ export class QuerySession {
     // Spec 010: user work waiting for the engine goes first. A tile that retried as soon as the
     // engine went idle would otherwise start again before the work, and be cancelled again, forever.
     if ((kind === 'view' || kind === 'tile') && this.workWaiting > 0) throw new ViewSkippedError()
+    // The same for background work: retried at once, it restarted while the user work was still
+    // cancelling it, was preempted again, and the page never left the microtask queue (a hang).
+    if (kind === 'background' && this.workWaiting > 0) throw new WorkPreemptedError()
     if (kind === 'work') this.workWaiting++
     try {
       while (this.inFlight && interruptible()) {
@@ -803,9 +806,17 @@ export class QuerySession {
     return outOfMemoryMessage('work', limit)
   }
 
-  /** Resolves when nothing holds the engine (a skipped view waits for this, then asks again). */
+  /**
+   * Resolves when nothing holds the engine and no user work is waiting for it
+   * (a skipped view or preempted background work waits for this, then asks again).
+   */
   async whenIdle(): Promise<void> {
-    while (this.inFlight) await this.inFlight.catch(() => {})
+    for (;;) {
+      if (this.inFlight) await this.inFlight.catch(() => {})
+      // User work cancelling what held the engine: wait on a timer, not a microtask, so it can run.
+      else if (this.workWaiting > 0) await new Promise((resolve) => setTimeout(resolve, 10))
+      else return
+    }
   }
 
   /** Called once by openFile: how views reach `layer`. */

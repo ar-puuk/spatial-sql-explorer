@@ -3,7 +3,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openFile, writeParcels, writeSquares } from './helpers'
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
 const swatchFillOpacity = (page: Page) => legendRows(page).first().locator('.swatch svg > *').evaluate((el) => Number(el.getAttribute('fill-opacity')))
@@ -11,7 +11,7 @@ const swatch = (page: Page, i: number) => legendRows(page).nth(i).locator('.swat
 
 test('sections in a fixed order, and only those that apply', async ({ page }) => {
   await openFile(page, writeSquares())
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const headings = () => panel(page).locator('section h3').allTextContents()
   expect(await headings()).toEqual(['Style', 'Size', 'Appearance', '3D'])
   await page.getByRole('radio', { name: 'Categorized' }).click()
@@ -26,7 +26,7 @@ test('sections in a fixed order, and only those that apply', async ({ page }) =>
 test('a graduated style in three interactions or fewer (SC-001)', async ({ page }) => {
   await openFile(page, writeSquares())
   // 1: open the panel; 2: Graduated (the numeric column is picked by default). Classes are on the map.
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await expect(legend(page)).toContainText('value · Quantile, 5 classes')
   await expect(legendRows(page)).toHaveCount(5)
@@ -35,7 +35,7 @@ test('a graduated style in three interactions or fewer (SC-001)', async ({ page 
 test('the value distribution shows the breaks and follows the method and class count', async ({ page }) => {
   test.setTimeout(120000)
   await openFile(page, writeParcels(2000))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   const chart = panel(page).getByRole('img', { name: 'Value distribution' })
@@ -55,7 +55,7 @@ test('the value distribution shows the breaks and follows the method and class c
 
 test('ramps preview on the map while browsing; Escape restores; Enter commits', async ({ page }) => {
   await openFile(page, writeSquares())
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await expect(legendRows(page)).toHaveCount(5)
   const original = await swatch(page, 0)
@@ -96,7 +96,7 @@ test('ramps preview on the map while browsing; Escape restores; Enter commits', 
 
 test('opacity applies live to the map and the legend', async ({ page }) => {
   await openFile(page, writeParcels(200))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const slider = page.getByRole('slider', { name: 'Fill opacity' })
   await slider.fill('0.25')
   await expect(slider).toHaveAttribute('aria-valuetext', '25%')
@@ -107,7 +107,7 @@ test('opacity applies live to the map and the legend', async ({ page }) => {
 
 test('layer opacity fades the whole layer, live, and is saved in the QML (user request)', async ({ page }) => {
   await openFile(page, writeParcels(200))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const slider = page.getByRole('slider', { name: 'Layer opacity' })
   await expect(slider).toHaveAttribute('aria-valuetext', '100%')
   await slider.fill('0.5')

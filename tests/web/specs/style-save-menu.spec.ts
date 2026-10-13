@@ -4,11 +4,11 @@
 import { test, expect, type Page } from '@playwright/test'
 import { fixture, openFile, writeSquares } from './helpers'
 
-const panel = (page: Page) => page.getByRole('dialog', { name: 'Layer style' })
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 
 async function open(page: Page): Promise<void> {
   await openFile(page, writeSquares())
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
 }
 
@@ -70,7 +70,7 @@ test('keyboard: open, move, jump, and Escape back to the arrow', async ({ page }
 // Spec 008 (user request): loading a style is a labelled button beside Save.
 test('Load style… picks a .qml and applies it', async ({ page }) => {
   await openFile(page, fixture('points.csv'))
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const load = panel(page).getByRole('button', { name: 'Load style…' })
   await expect(load).toBeVisible()
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), load.click()])

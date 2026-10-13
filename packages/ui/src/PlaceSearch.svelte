@@ -12,8 +12,13 @@
   interface Props {
     store: ViewerStore
     onClose: () => void
+    /**
+     * Spec 010: always on the map (SearchBox) rather than a popover: no focus
+     * on mount, Escape clears instead of closing, results drop down below.
+     */
+    floating?: boolean
   }
-  let { store, onClose }: Props = $props()
+  let { store, onClose, floating = false }: Props = $props()
 
   let text = $state('')
   let results = $state.raw<Place[] | null>(null)
@@ -26,7 +31,7 @@
   let controller: AbortController | null = null
 
   onMount(() => {
-    void tick().then(() => input?.focus())
+    if (!floating) void tick().then(() => input?.focus())
     return () => controller?.abort()
   })
 
@@ -86,7 +91,10 @@
       e.preventDefault()
       e.stopPropagation()
       if (results) results = null
-      else onClose()
+      else if (floating) {
+        if (message) message = null
+        else input?.blur()
+      } else onClose()
       return
     }
     if (!results?.length) return
@@ -100,7 +108,7 @@
   }
 </script>
 
-<div class="panel" role="dialog" aria-label="Search places">
+<div class="panel" class:floating role={floating ? undefined : 'dialog'} aria-label={floating ? undefined : 'Search places'}>
   <div role="search" class="search">
     <form
       onsubmit={(e) => {
@@ -114,10 +122,10 @@
         bind:value={text}
         type="search"
         aria-label="Search places"
-        placeholder="City, address or landmark"
+        placeholder={floating ? 'Search places' : 'City, address or landmark'}
         autocomplete="off"
         spellcheck="false"
-        aria-controls="place-results"
+        aria-controls={results?.length ? 'place-results' : undefined}
         aria-activedescendant={results && active >= 0 ? `place-${active}` : undefined}
         oninput={() => {
           // Typing sends nothing (FR-033): results go stale until the next search.
@@ -129,6 +137,8 @@
     </form>
   </div>
 
+  {#if !floating || results?.length || message || noticeOpen}
+  <div class="drop">
   {#if results && results.length}
     <ul id="place-results" role="listbox" aria-label="Places">
       {#each results as p, i (i)}
@@ -173,6 +183,8 @@
       </div>
     </div>
   {/if}
+  </div>
+  {/if}
 </div>
 
 <style>
@@ -189,6 +201,34 @@
     box-shadow: var(--se-shadow-elevated);
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
+  }
+  /* SearchBox: a map widget; what it finds drops down below the input. */
+  .panel.floating {
+    width: 300px;
+    max-width: 100%;
+    padding: 0;
+    gap: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  .panel.floating form {
+    background: var(--se-control-bg);
+    border-color: var(--se-control-border);
+    box-shadow: var(--se-shadow-card);
+  }
+  .drop {
+    display: contents;
+  }
+  .panel.floating .drop {
+    display: grid;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 6px;
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius-sm);
+    box-shadow: var(--se-shadow-elevated);
   }
   form {
     display: flex;

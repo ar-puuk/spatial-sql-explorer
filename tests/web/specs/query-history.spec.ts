@@ -2,7 +2,7 @@
 // history that survives reopening the file, newest first with outcomes, and
 // loads an entry into the editor without running it.
 import { test, expect, type Page } from '@playwright/test'
-import { editor, fixture, openFile, openQueryPanel, rowCount, runQuery, status } from './helpers'
+import { editor, fixture, openFile, openQueryPanel, rowCount, runQuery, status, showSql } from './helpers'
 
 const historyButton = (page: Page) => page.getByRole('button', { name: 'Query history' })
 const historyList = (page: Page) => page.getByRole('listbox', { name: 'Query history' })
@@ -19,6 +19,7 @@ test('history survives reopening, lists outcomes newest first, and loads without
   await openFile(page, file)
   await openQueryPanel(page)
   const before = await rowCount(page)
+  await showSql(page)
   await historyButton(page).click()
   await expect(historyList(page)).toBeFocused()
   const options = historyList(page).getByRole('option')
@@ -42,6 +43,7 @@ test('history survives reopening, lists outcomes newest first, and loads without
   expect(await rowCount(page)).toBe(before)
 
   // Esc closes the popover and returns focus to the button.
+  await showSql(page)
   await historyButton(page).click()
   await expect(historyList(page)).toBeFocused()
   await page.keyboard.press('Escape')
@@ -56,6 +58,7 @@ test('history is per file', async ({ page }) => {
 
   await openFile(page, fixture('points.csv'))
   await openQueryPanel(page)
+  await showSql(page)
   await historyButton(page).click()
   await expect(page.getByText('No queries yet for this file.')).toBeVisible()
 })
