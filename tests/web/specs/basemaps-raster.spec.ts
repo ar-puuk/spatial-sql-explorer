@@ -14,9 +14,9 @@ test('Satellite, Topographic and OpenStreetMap are offered, draw, and show their
     ['Topographic', /OpenTopoMap/],
     ['OpenStreetMap', /OpenStreetMap contributors/],
   ] as const) {
-    if (!(await picker(page).isVisible())) await page.getByRole('button', { name: 'Basemap' }).click()
+    if (!(await picker(page).isVisible())) await page.getByRole('button', { name: 'Basemap', exact: true }).click()
     await picker(page).getByRole('radio', { name: new RegExp(`^${name}`) }).click()
-    await expect(page.getByRole('button', { name: 'Basemap' })).toHaveAttribute('title', `Basemap: ${name}`)
+    await expect(page.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('title', `Basemap: ${name}`)
     await page.locator('.maplibregl-ctrl-attrib-button').click()
     await expect(page.locator('.maplibregl-ctrl-attrib-inner')).toContainText(attribution)
     await page.locator('.maplibregl-ctrl-attrib-button').click()
@@ -26,11 +26,11 @@ test('Satellite, Topographic and OpenStreetMap are offered, draw, and show their
 test('a raster basemap that fails falls back to Blank with a message', async ({ page }) => {
   await page.route(/opentopomap\.org/, (route) => route.abort())
   await openFile(page, fixture('sample.geojson'))
-  await page.getByRole('button', { name: 'Basemap' }).click()
+  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await picker(page).getByRole('radio', { name: /^Topographic/ }).click()
   // The picker is open: the message shows there (on the map once it closes).
   await expect(picker(page)).toContainText(/Topographic basemap unavailable/, { timeout: 20000 })
-  await expect(page.getByRole('button', { name: 'Basemap' })).toHaveAttribute('title', 'Basemap: Blank')
+  await expect(page.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('title', 'Basemap: Blank')
   await page.keyboard.press('Escape')
   await expect(page.locator('.map-notice')).toContainText(/Topographic basemap unavailable/)
 })

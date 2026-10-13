@@ -73,7 +73,7 @@ temporary harness (test hooks, a tile render helper, a stub tile protocol): `spi
 | S3 basemap swap keeps data | **Pass for both approaches**, 12 swaps (raster↔raster, raster↔vector, vector↔vector with different sprite and glyphs, ↔blank): 0 metadata reloads of the GeoJSON source, 0 repeated tile calls of a vector data source, data stays drawn and on top. | Proposed: approach (a) for every swap (see below). |
 | S4 `file_search_path` | **Fail.** `SET GLOBAL file_search_path = '/se-source/ws'` takes (a plain `SET` did not reach other connections), but relative paths still fail: read_parquet/read_csv are refused by the access check on the raw relative path; GDAL ignores the setting. Absolute `/se-source/ws/...` paths work. | Phase 9 fallback: rewrite literals to absolute paths with an offset map. |
 | S5 GeoPackage fid (revised) | **Engine returns the real ids.** Every layer GDAL streams returns `fid` equal to the file's key (9 layers in 5 files, incl. attribute tables). Layers with ids not 1..N still fail in WASM ("thread constructor failed": gapped-ids `zones`, `notes`); through the SQLite-driver copy they return the real `fid` too (101…123; 7, 9, 11). `ST_Read_Meta` has no FID field (keys: name, feature_count, geometry_fields, fields). | Phase 6 changes (see below): no row-number fid, no sql.js for ids. |
-| S6 CARTO without key | **Pass.** `light_all`, `dark_all`, `voyager` 200 OK with and without `?key=`. | CARTO is "key optional". |
+| S6 CARTO without key | ~~**Pass.**~~ **Corrected in phase 7: fail.** `light_all`, `dark_all`, `voyager` answer 200 OK with and without `?key=`, but every tile without a valid key (or with a fake one) is the same 2,049-byte "API KEY REQUIRED" image; the spike checked only the status. | CARTO is "key required". |
 | S7 GDAL `COPY … (FORMAT GDAL)` | **Fail by the plan's rule, but close.** GPKG: `sqlite3_exec(CREATE TABLE gpkg_spatial_ref_sys …)` IO error. FlatGeobuf, Shapefile, KML, GeoJSONSeq, GeoJSON now write to a plain `/se-source/` path (new since 1.4.3/1.5.4), but every file has **one garbage byte prepended** (differs per file), so the engine can't read its own output. With that byte dropped, GeoJSON, FlatGeobuf and KML are byte-identical to native DuckDB 1.5.6 output. `/vsimem/` is now refused by the lockdown; a pre-registered buffer gets 0 bytes. | JS writers kept for now; decision asked (see below). |
 | S8 sqlite_scanner | **Pass with a workaround.** It refuses registered files ("its -journal sidecar holds a hot rollback journal") unless an empty `<file>-journal` is registered next to the database. Then `sqlite_scan` and `ATTACH … (TYPE sqlite, READ_ONLY)` read GeoPackage and SQLite: `sqlite_master` lists every table; real ids (incl. the gapped `zones` GDAL can't stream; Cube `n`). `duckdb_tables()` on the attached SpatiaLite file fails (`no such module: VirtualSpatialIndex`): list through `sqlite_master`. The lockdown still refuses other paths. | Phase 6: list tables with sqlite_scanner; keep sqlite_scanner in EXTENSIONS. |
 | S9 excel | **Reads well; writes with the same stray first byte.** `COPY … (FORMAT xlsx)` writes 180 rows; the engine and openpyxl read it (zip readers tolerate a prefix), but the bytes start with one garbage byte before `PK`. `read_xlsx` reads an openpyxl workbook with types (lon/lat DOUBLE → ST_Point works). | Decision asked (see below). |
@@ -203,3 +203,21 @@ without preemption, so it can't hit this; our engine lets user work preempt tile
 
 VS Code open of the 10 MB performance file with sqlite_scanner loaded at start (3 runs, median):
 1,949 ms, against 2,047 ms without it: no measurable cost.
+
+## Phase 7: basemaps
+
+- **One swap path (S3 approach a, user decision).** A basemap change removes the old
+  basemap's layers and sources and adds the new ones under our first `se-` layer, then
+  sets glyphs and sprite; there is no `setStyle`. Tests: six quick switches leave only
+  the last basemap (one raster source, under the data); across raster, vector and blank
+  swaps our GeoJSON source is never loaded again (`metadata` events), and in tiles mode
+  MapLibre asks for no tile again (no engine call, no cache hit).
+- **Gallery** (`scripts/basemap-catalog.mjs` → `basemapGallery.json`): 82 of the package's
+  142 basemaps after the exclusions and dropping the featured duplicates; 22 CSP hosts.
+  Two upstream MapTiler URLs lack the `{api-key}` placeholder (`?key`, `?key=`) and answer
+  403 without a key: the script fixes them. The plan's search example ("esri imagery") is
+  the featured Satellite row, so the gallery test searches "esri topographic"; Esri's
+  entries are named "World …" (provider "ESRI").
+- **CARTO needs a key** (S6 corrected above): no entry is "key optional" now; the code
+  path stays for providers that are.
+- Opening the gallery and typing a search at 6× CPU: longest task 63–68 ms (limit 100).

@@ -18,7 +18,7 @@ async function makeLink(page: Page): Promise<string> {
   await page.getByRole('button', { name: 'Layer style' }).click()
   await page.getByRole('radio', { name: 'Categorized' }).click()
   await page.getByRole('button', { name: 'Layer style' }).click()
-  await page.getByRole('button', { name: 'Basemap' }).click()
+  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await page.getByRole('dialog', { name: 'Basemap' }).getByRole('radio', { name: /^Blank/ }).click()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Globe view' }).click()
@@ -49,7 +49,7 @@ test('Copy link: a #v1= link without data; opening it asks for the file, then re
   await openQueryPanel(other)
   await expect(editor(other)).toContainText("name LIKE 'S%'")
   await expect(other.getByRole('region', { name: 'Legend' })).toContainText('id · ')
-  await expect(other.getByRole('button', { name: 'Basemap' })).toHaveAttribute('title', 'Basemap: Blank')
+  await expect(other.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('title', 'Basemap: Blank')
   await expect(other.getByRole('button', { name: 'Globe view' })).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(async () => (await mapState(other)).zoom ?? 0).toBeCloseTo(2.5, 1)
   const center = (await mapState(other)).center!

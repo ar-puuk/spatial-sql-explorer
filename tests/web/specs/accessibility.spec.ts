@@ -45,7 +45,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'export menu')
     await page.keyboard.press('Escape')
 
-    await page.getByRole('button', { name: 'Basemap' }).click()
+    await page.getByRole('button', { name: 'Basemap', exact: true }).click()
     await audit(page, 'basemap picker')
     await page.keyboard.press('Escape')
 
@@ -100,7 +100,7 @@ test('keyboard: every control is reachable and the grid is navigable without a m
   await expect(page.getByRole('button', { name: /Attributes/ })).toHaveAttribute('aria-expanded', 'true')
 
   // Basemap picker: arrow keys move between options, Escape closes.
-  await page.getByRole('button', { name: 'Basemap' }).click()
+  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await page.getByRole('radio', { checked: true }).focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('radio', { checked: true })).toBeFocused()

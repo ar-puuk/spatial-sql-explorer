@@ -124,7 +124,7 @@ export async function planSqliteSource(input: SqlitePlanInput): Promise<SqlitePl
     try {
       bytes = await input.wholeBytes()
     } catch (err) {
-      throw new Error(`This GeoPackage layer can't be read in this engine without loading the file into memory, and that failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`This GeoPackage layer can't be read in this engine without loading the file into memory, and that failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
     }
     plainPath = `${SOURCE_DIR}__se_plain_${path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')}.sqlite`
     await db.registerFileBuffer(plainPath, clearGeoPackageId(bytes))
@@ -134,9 +134,9 @@ export async function planSqliteSource(input: SqlitePlanInput): Promise<SqlitePl
 
   const readers = new Map<string, string>()
   for (const l of layers) {
-    const plain = plainPath !== null && blocked.has(l.name)
-    const reader = plain ? stReadSql(plainPath!, l.name, SQLITE_OPEN_OPTIONS) : stReadSql(path, l.name, gpkg ? [] : SQLITE_OPEN_OPTIONS)
-    readers.set(l.name, layerReadSql({ reader, decodeGeometry: plain ? l.geometryColumn : null }))
+    const plain = plainPath !== null && blocked.has(l.name) ? plainPath : null
+    const reader = plain !== null ? stReadSql(plain, l.name, SQLITE_OPEN_OPTIONS) : stReadSql(path, l.name, gpkg ? [] : SQLITE_OPEN_OPTIONS)
+    readers.set(l.name, layerReadSql({ reader, decodeGeometry: plain !== null ? l.geometryColumn : null }))
   }
   return { layers, readers, paths }
 }

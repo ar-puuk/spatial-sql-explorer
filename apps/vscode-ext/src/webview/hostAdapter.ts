@@ -378,6 +378,16 @@ export function createVsCodeHostAdapter(): HostAdapter {
     async saveState(key: string, value: unknown): Promise<void> {
       await request({ type: 'saveState', key, value })
     },
+    secretLocation: 'vscode',
+    async getSecret(name: string): Promise<string | undefined> {
+      const result = await request<{ value?: string; error?: string }>({ type: 'getSecret', name })
+      if (result?.error) throw new Error(result.error)
+      return result?.value
+    },
+    async setSecret(name: string, value: string | null): Promise<void> {
+      const result = await request<{ error?: string }>({ type: 'setSecret', name, value })
+      if (result?.error) throw new Error(result.error)
+    },
     log(line: string): void {
       post({ type: 'log', detail: line })
     },

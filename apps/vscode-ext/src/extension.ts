@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import * as vscode from 'vscode'
 import * as sourceServer from './sourceServer'
 import * as path from 'path'
+import { BASEMAP_HOSTS } from './basemapHosts.generated'
 
 // SpatialExplorerDocument — minimal CustomDocument wrapper. No in-memory
 // model beyond the URI: DuckDB-WASM (inside the webview) owns the actual
@@ -46,6 +47,8 @@ type WebviewToHostMessage =
   | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
+  | { type: 'getSecret'; requestId: number; name: string }
+  | { type: 'setSecret'; requestId: number; name: string; value: string | null }
   | { type: 'saveFile'; requestId: number; name: string; text: string }
   | { type: 'saveSidecar'; requestId: number; name: string; text: string }
   | { type: 'pickTextFile'; requestId: number; title: string; extensions: string[] }
@@ -76,12 +79,15 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
 }
 
 /**
- * Spec 008 (research §7–§8): hosts of the keyless raster basemaps in
+ * Spec 008 (research §7–§8): hosts of the featured raster basemaps in
  * packages/core/src/basemapCatalog.ts (MapLibre fetches tiles, then decodes
- * them as images, so both connect-src and img-src), plus the opt-out place
- * search. Keep in sync with the catalog.
+ * them as images, so both connect-src and img-src). Keep in sync with the
+ * catalog. Spec 010: the gallery's hosts are generated (BASEMAP_HOSTS).
  */
-const RASTER_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
+/** Spec 010: the only secrets a webview may read or write. */
+const SECRET_NAME = /^basemapKey\.[a-z0-9-]+$/
+
+const FEATURED_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
 
 /**
  * Spec 008 FR-018: the same text as GDB_UNSUPPORTED in
@@ -329,6 +335,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         void this.context.globalState
           .update(`spatialExplorer.${msg.key}`, msg.value ?? undefined)
           .then(() => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result: {} }))
+      } else if (msg.type === 'getSecret' || msg.type === 'setSecret') {
+        void this.handleSecret(panel, msg)
       } else if (msg.type === 'queryState') {
         lastQueryState = msg.state
       } else if (msg.type === 'styleState') {
@@ -655,6 +663,27 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     }
   }
 
+  /** Spec 010: basemap API keys in SecretStorage; only `basemapKey.<provider>` names. */
+  private async handleSecret(panel: vscode.WebviewPanel, msg: Extract<WebviewToHostMessage, { type: 'getSecret' | 'setSecret' }>): Promise<void> {
+    const reply = (result: unknown): Thenable<boolean> => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+    if (!SECRET_NAME.test(msg.name)) {
+      await reply({ error: `Not a basemap key name: ${msg.name}` })
+      return
+    }
+    const key = `spatialExplorer.${msg.name}`
+    try {
+      if (msg.type === 'getSecret') {
+        await reply({ value: await this.context.secrets.get(key) })
+      } else {
+        if (msg.value) await this.context.secrets.store(key, msg.value)
+        else await this.context.secrets.delete(key)
+        await reply({})
+      }
+    } catch (err) {
+      await reply({ error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   private getHtml(webview: vscode.Webview, webviewRoot: vscode.Uri): string {
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.js'))
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'main.css'))
@@ -673,7 +702,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode"${this.context.extensionMode === vscode.ExtensionMode.Production ? '' : ' data-se-test-hooks'}>
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${RASTER_TILE_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${RASTER_TILE_HOSTS}; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>

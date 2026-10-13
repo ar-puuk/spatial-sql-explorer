@@ -2,13 +2,24 @@
 // Pure logic with an injectable fetch, so failure handling is unit-tested
 // (tests/core/basemap.test.ts) without a browser or network.
 import { BASEMAP_CATALOG, getDefaultBasemap, type BasemapCatalogEntry } from './basemapCatalog.js'
+import { applyKey, findGalleryBasemap, toCatalogEntry } from './basemapGallery.js'
 
-/** `'auto'` follows the host theme (FR-017); anything else is a catalog id. */
+/** `'auto'` follows the host theme (FR-017); anything else is a catalog or gallery (`g-…`) id. */
 export type BasemapChoice = 'auto' | string
 
+/**
+ * The entry for a choice. Gallery entries resolve here without a key (keyless,
+ * or key-optional); one that needs a key resolves to the theme default, and the
+ * store supplies the keyed entry itself (spec 010 T042).
+ */
 export function resolveBasemap(choice: BasemapChoice, appearance: 'light' | 'dark'): BasemapCatalogEntry {
   if (choice === 'auto') return getDefaultBasemap(appearance)
-  return BASEMAP_CATALOG.find((e) => e.id === choice) ?? getDefaultBasemap(appearance)
+  const featured = BASEMAP_CATALOG.find((e) => e.id === choice)
+  if (featured) return featured
+  const g = findGalleryBasemap(choice)
+  const resolved = g ? applyKey(g, null) : null
+  if (g && resolved && !('needsKey' in resolved)) return toCatalogEntry(g, resolved)
+  return getDefaultBasemap(appearance)
 }
 
 /** A loaded MapLibre style document (style spec v8), kept opaque here. */
@@ -27,6 +38,8 @@ export const BASEMAP_TIMEOUT_MS = 8000
 
 /** The FR-016 message: short, visible, and says what the user now sees. */
 export function basemapFailureMessage(entry: BasemapCatalogEntry, reason: string): string {
+  // Spec 010: with a key in the URL, a wrong key is the likely cause.
+  if (entry.keyed) return `${entry.name} basemap unavailable (check the ${entry.providerName ?? entry.provider ?? ''} API key). Showing a blank background.`
   return `${entry.name} basemap unavailable (${reason}). Showing a blank background.`
 }
 
@@ -79,10 +92,19 @@ export async function loadBasemapStyle(
  */
 export function rasterStyle(entry: BasemapCatalogEntry): BasemapStyle {
   const template = entry.url.replace('{r}', '')
-  const tiles = template.includes('{s}') ? (entry.subdomains ?? ['a']).map((s) => template.replace('{s}', s)) : [template]
+  const tiles = entry.tiles ?? (template.includes('{s}') ? (entry.subdomains ?? ['a']).map((s) => template.replace('{s}', s)) : [template])
   return {
     version: 8,
-    sources: { 'basemap-raster': { type: 'raster', tiles, tileSize: 256, maxzoom: entry.maxzoom ?? 19, attribution: entry.attribution } },
+    sources: {
+      'basemap-raster': {
+        type: 'raster',
+        tiles,
+        tileSize: entry.tileSize ?? 256,
+        maxzoom: entry.maxzoom ?? 19,
+        attribution: entry.attribution,
+        ...(entry.scheme ? { scheme: entry.scheme } : {}),
+      },
+    },
     // No cross-fade: on the globe, fading tiles draw their stretched borders
     // past the limb while spinning (spec 008, user report: green patches in space).
     layers: [{ id: 'basemap-raster', type: 'raster', source: 'basemap-raster', paint: { 'raster-fade-duration': 0 } }],

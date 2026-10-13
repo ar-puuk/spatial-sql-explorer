@@ -11,6 +11,12 @@ import {
   openFile,
   prewarmDuckDb,
   resolveBasemap,
+  applyKey,
+  basemapKeyName,
+  BASEMAP_CATALOG,
+  findGalleryBasemap,
+  KEY_SIGNUP,
+  toCatalogEntry,
   themeAppearance,
   type BasemapCatalogEntry,
   type BasemapChoice,
@@ -292,6 +298,22 @@ export interface ViewerStore {
   readonly sourceChanged: boolean
   reloadSource(): void
   setBasemap(choice: BasemapChoice): void
+  /**
+   * Spec 010: a "More basemaps…" entry. Reads the provider's key; without a
+   * needed key it asks for one (`keyRequest`) and returns 'needsKey'.
+   */
+  chooseGalleryBasemap(id: string): Promise<'applied' | 'needsKey'>
+  /** Which keyed providers have a stored key (never the keys themselves). */
+  readonly basemapKeys: Readonly<Record<string, boolean>>
+  /** Stores (or with null, removes) a provider's key, then retries a choice that was waiting for it. */
+  setBasemapKey(provider: string, key: string | null): Promise<void>
+  /** A gallery choice waiting for its provider's key (the gallery shows the key form). */
+  readonly keyRequest: { basemapId: string; provider: string; providerName: string } | null
+  cancelKeyRequest(): void
+  /** A gallery entry's URLs with the stored key (previews); null when it needs a key the user hasn't given. */
+  galleryPreviewUrls(id: string): Promise<{ url?: string; tiles?: string[] } | null>
+  /** Where basemap keys are kept (the key form says so). */
+  readonly keyStorage: 'vscode' | 'browser'
   reportBasemapFailure(message: string): void
   dismissBasemapNotice(): void
   prewarm(): void
@@ -389,6 +411,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let sourceChanged = $state(false)
   let blankColor = $state<string | null>(null)
   const BLANK_COLOR_KEY = 'basemap.blankColor'
+  // Spec 010 T042: the basemap choice is remembered; gallery entries with a key resolve here.
+  const BASEMAP_CHOICE_KEY = 'basemap.choice'
+  let resolvedGallery = $state.raw<BasemapCatalogEntry | null>(null)
+  let basemapKeys = $state<Record<string, boolean>>({})
+  let keyRequest = $state<{ basemapId: string; provider: string; providerName: string } | null>(null)
+  let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
   let legendCollapsed = $state(false)
   void hostAdapter
@@ -421,9 +449,69 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   })
 
   const basemap = $derived.by(() => {
-    const entry = resolveBasemap(basemapChoice, session.basemapAppearance)
-    return basemapFailed ? resolveBasemap('blank', session.basemapAppearance) : entry
+    if (basemapFailed) return resolveBasemap('blank', session.basemapAppearance)
+    if (resolvedGallery && resolvedGallery.id === basemapChoice) return resolvedGallery
+    return resolveBasemap(basemapChoice, session.basemapAppearance)
   })
+
+  function applyBasemapChoice(choice: BasemapChoice, persist: boolean): void {
+    basemapChoice = choice
+    basemapFailed = false
+    basemapNotice = null
+    syncBasemapEnabled()
+    if (persist) void hostAdapter.saveState(BASEMAP_CHOICE_KEY, choice).catch(() => {})
+  }
+
+  async function readKey(provider: string): Promise<string | null> {
+    try {
+      return (await hostAdapter.getSecret?.(basemapKeyName(provider))) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * A gallery choice with its key. Without a needed key: a user's pick asks for
+   * one; a restored choice falls back to the theme default with a notice.
+   */
+  async function useGalleryBasemap(id: string, from: 'user' | 'restore'): Promise<'applied' | 'needsKey'> {
+    const seq = ++basemapSeq
+    const g = findGalleryBasemap(id)
+    if (!g) {
+      if (from === 'restore') applyBasemapChoice('auto', false)
+      return 'applied'
+    }
+    const key = g.key === 'none' ? null : await readKey(g.provider)
+    if (seq !== basemapSeq) return 'applied' // a newer choice won
+    const urls = applyKey(g, key)
+    if ('needsKey' in urls) {
+      if (from === 'user') {
+        keyRequest = { basemapId: g.id, provider: g.provider, providerName: g.providerName }
+        return 'needsKey'
+      }
+      applyBasemapChoice('auto', true)
+      basemapNotice = `${g.name} needs an API key. Showing ${resolveBasemap('auto', session.basemapAppearance).name}.`
+      return 'needsKey'
+    }
+    resolvedGallery = toCatalogEntry(g, urls, key !== null && g.key !== 'none')
+    keyRequest = null
+    applyBasemapChoice(g.id, from === 'user')
+    return 'applied'
+  }
+
+  // Which keyed providers have a key, and the remembered choice.
+  void Promise.all(Object.keys(KEY_SIGNUP).map(async (p) => [p, (await readKey(p)) !== null] as const)).then((pairs) => {
+    basemapKeys = Object.fromEntries(pairs)
+  })
+  void hostAdapter
+    .loadState<string>(BASEMAP_CHOICE_KEY)
+    .then((saved) => {
+      // Only while nothing was chosen in this session.
+      if (typeof saved !== 'string' || saved === 'auto' || basemapChoice !== 'auto' || basemapSeq > 0) return
+      if (findGalleryBasemap(saved)) void useGalleryBasemap(saved, 'restore')
+      else if (BASEMAP_CATALOG.some((e) => e.id === saved)) applyBasemapChoice(saved, false)
+    })
+    .catch(() => {})
   /** Keeps the session's informational flag in step with the derived entry. */
   function syncBasemapEnabled(): void {
     session.basemapEnabled = basemap.type !== 'blank'
@@ -1678,10 +1766,45 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return basemapNotice
     },
     setBasemap(choice) {
-      basemapChoice = choice
-      basemapFailed = false
-      basemapNotice = null
-      syncBasemapEnabled()
+      if (findGalleryBasemap(choice)) {
+        void useGalleryBasemap(choice, 'user')
+        return
+      }
+      basemapSeq++
+      keyRequest = null
+      applyBasemapChoice(choice, true)
+    },
+    chooseGalleryBasemap: (id) => useGalleryBasemap(id, 'user'),
+    get basemapKeys() {
+      return basemapKeys
+    },
+    async setBasemapKey(provider, key) {
+      const value = key?.trim() || null
+      await hostAdapter.setSecret?.(basemapKeyName(provider), value)
+      basemapKeys = { ...basemapKeys, [provider]: value !== null }
+      const waiting = keyRequest
+      if (value && waiting?.provider === provider) {
+        await useGalleryBasemap(waiting.basemapId, 'user')
+        return
+      }
+      // The current basemap uses this provider: resolve it again with (or without) the key.
+      const current = findGalleryBasemap(basemapChoice)
+      if (current?.provider === provider) await useGalleryBasemap(current.id, value ? 'user' : 'restore')
+    },
+    get keyRequest() {
+      return keyRequest
+    },
+    cancelKeyRequest() {
+      keyRequest = null
+    },
+    async galleryPreviewUrls(id) {
+      const g = findGalleryBasemap(id)
+      if (!g) return null
+      const urls = applyKey(g, g.key === 'none' ? null : await readKey(g.provider))
+      return 'needsKey' in urls ? null : urls
+    },
+    get keyStorage() {
+      return hostAdapter.secretLocation ?? 'browser'
     },
     reportBasemapFailure(message) {
       basemapFailed = true

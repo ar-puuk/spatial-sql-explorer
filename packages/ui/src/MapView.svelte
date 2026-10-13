@@ -12,6 +12,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte'
   import {
     BasemapHealth,
+    basemapFailureMessage,
     loadBasemapStyle,
     paintFor,
     layoutFor,
@@ -272,7 +273,7 @@
     const layouts = layoutFor(style, resolved)
     pruneMarkerIcons(map)
     for (const l of layerInstances()) {
-      if (!map.getLayer(l.id)) continue // mid basemap switch; buildStyle carries the current paints
+      if (!map.getLayer(l.id)) continue // mid data-source switch; replaceDataSource carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
       // An undefined value (a solid line's dash array) goes back to the default.
       for (const [prop, value] of Object.entries(layerPaint(l.def.id, p))) {
@@ -311,8 +312,8 @@
     return raw === undefined || raw === null ? null : (raw as string | number)
   }
 
-  // The data the source currently holds, so a basemap switch (which
-  // replaces the whole style) can carry it over without a reload.
+  // The data the source currently holds, so a rebuilt data source
+  // (replaceDataSource) starts with it.
   let currentData: GeoJSON.FeatureCollection = EMPTY
 
   /** What the GeoJSON source holds: the features, then their dots (option C), which draw above them. */
@@ -369,33 +370,69 @@
     tickedApplied = new Set()
   }
 
-  /**
-   * One MapLibre style = the basemap's own style (nothing, for blank) + our
-   * data source and layers on top, so basemap labels sit under the data.
-   */
-  function buildStyle(base: BasemapStyle | null, entry: BasemapCatalogEntry): StyleSpecification {
-    const doc = (base ? JSON.parse(JSON.stringify(base)) : { version: 8, sources: {}, layers: [] }) as StyleSpecification & {
-      sources: Record<string, Record<string, unknown>>
-    }
-    // A basemap style's own camera (OpenFreeMap styles ship `center`/`zoom`)
-    // must never move the map: the view belongs to the data (fit-to-extent),
-    // and switching basemaps keeps wherever the user is.
-    const camera = doc as unknown as Record<string, unknown>
-    for (const key of ['center', 'zoom', 'bearing', 'pitch', 'roll']) delete camera[key]
-    // Spec 008: the projection belongs to the viewer too, not to the basemap style.
-    camera.projection = { type: untrack(() => projection) }
-    // Spec 008 (user request): the globe's atmosphere glow; space is drawn behind the map (globeSky.ts).
-    if (untrack(() => projection) === 'globe') camera.sky = GLOBE_SKY
+  /** A basemap's own sources and layers (blank: one background layer), plus its glyphs and sprite. */
+  interface BasemapDoc {
+    sources: Record<string, Record<string, unknown>>
+    layers: Array<Record<string, unknown> & { id: string }>
+    glyphs?: string
+    sprite?: unknown
+  }
+  function basemapDoc(base: BasemapStyle | null, entry: BasemapCatalogEntry): BasemapDoc {
+    if (!base) return { sources: {}, layers: [{ id: BLANK_BG, type: 'background', paint: { 'background-color': blankBackground() } }] }
+    // The style's own camera, projection, sky, light and terrain are ignored: the view belongs
+    // to the data (fit-to-extent), and the projection to the viewer (spec 008).
+    const copy = JSON.parse(JSON.stringify(base)) as BasemapStyle
+    const sources = copy.sources as BasemapDoc['sources']
     // Always show the catalog's attribution (CLAUDE.md "Basemaps").
-    if (base && entry.attribution) {
-      const first = Object.values(doc.sources).find((src) => src.type === 'vector') ?? Object.values(doc.sources)[0]
+    if (entry.attribution) {
+      const first = Object.values(sources).find((src) => src.type === 'vector') ?? Object.values(sources)[0]
       if (first && !first.attribution) first.attribution = entry.attribution
     }
-    if (!base) doc.layers.unshift({ id: BLANK_BG, type: 'background', paint: { 'background-color': blankBackground() } } as never)
-    doc.sources[SOURCE_ID] = dataSource() as never
-    doc.sources[SELECTION_SOURCE] = { type: 'geojson', data: selectionData() }
-    for (const l of dataLayers()) doc.layers.push(l as never)
-    return doc
+    return {
+      sources,
+      layers: copy.layers as BasemapDoc['layers'],
+      glyphs: typeof copy.glyphs === 'string' ? copy.glyphs : undefined,
+      sprite: copy.sprite,
+    }
+  }
+
+  /** What the current basemap added to the style: everything that isn't ours (`se-`). */
+  let basemapLayerIds: string[] = []
+  let basemapSourceIds: string[] = []
+
+  /** The map's first style: the blank basemap, then our data source and layers on top. */
+  function firstStyle(entry: BasemapCatalogEntry): StyleSpecification {
+    const base = basemapDoc(null, entry)
+    basemapLayerIds = base.layers.map((l) => l.id)
+    basemapSourceIds = []
+    return {
+      version: 8,
+      // Spec 008: the projection belongs to the viewer; the globe's atmosphere glow (space is drawn behind the map, globeSky.ts).
+      projection: { type: untrack(() => projection) },
+      ...(untrack(() => projection) === 'globe' ? { sky: GLOBE_SKY } : {}),
+      sources: { [SOURCE_ID]: dataSource(), [SELECTION_SOURCE]: { type: 'geojson', data: selectionData() } },
+      layers: [...base.layers, ...dataLayers()],
+    } as unknown as StyleSpecification
+  }
+
+  /**
+   * Spec 010 (research.md S3, approach a): one swap path for every basemap change.
+   * The old basemap's layers and sources are removed and the new ones added under our
+   * first layer; there is no setStyle, so the data source, its tiles and feature-state
+   * stay as they are, and exactly one basemap is in the style.
+   */
+  function swapBasemap(m: MapLibreMap, doc: BasemapDoc): void {
+    for (const id of basemapLayerIds) if (m.getLayer(id)) m.removeLayer(id)
+    for (const id of basemapSourceIds) if (m.getSource(id)) m.removeSource(id)
+    const before = (m.getStyle().layers ?? []).find((l) => l.id.startsWith('se-'))?.id
+    for (const [id, src] of Object.entries(doc.sources)) m.addSource(id, src as never)
+    for (const l of doc.layers) m.addLayer(l as never, before)
+    if (doc.glyphs) m.setGlyphs(doc.glyphs)
+    // A raster or blank basemap keeps the previous sprite: nothing of it is drawn.
+    if (doc.sprite) m.setSprite(doc.sprite as never)
+    basemapLayerIds = doc.layers.map((l) => l.id)
+    basemapSourceIds = Object.keys(doc.sources)
+    container.dataset.basemapLayers = basemapLayerIds.join(',')
   }
 
   /**
@@ -463,7 +500,7 @@
       if (!activeBasemap || activeBasemap.type === 'blank') return
       const fromBasemap = (e.sourceId !== undefined && !e.sourceId.startsWith('se-')) || (basemapHost !== '' && String(e.error?.message ?? '').includes(basemapHost))
       if (fromBasemap && health.recordFailure()) {
-        onBasemapFailure(`${activeBasemap.name} basemap unavailable (tiles could not be loaded). Showing a blank background.`)
+        onBasemapFailure(basemapFailureMessage(activeBasemap, 'tiles could not be loaded'))
       }
     })
     // Observable proof the data was actually drawn, not just that a canvas
@@ -475,7 +512,7 @@
       // Spec 010 (scale tests): a monotonic count of settled frames, so "tiles in view are drawn" is observable.
       container.dataset.idles = String(Number(container.dataset.idles ?? 0) + 1)
       if (activeBasemap && activeBasemap.type !== 'blank' && health.settledWithoutTiles()) {
-        onBasemapFailure(`${activeBasemap.name} basemap unavailable (tiles could not be loaded). Showing a blank background.`)
+        onBasemapFailure(basemapFailureMessage(activeBasemap, 'tiles could not be loaded'))
       }
       // Only meaningful once this layer's data is set: an idle before it
       // arrives must not publish a premature "0".
@@ -493,8 +530,10 @@
         onPainted?.()
       }
     })
-    m.on('sourcedata', (e: { sourceId?: string; tile?: unknown }) => {
+    m.on('sourcedata', (e: { sourceId?: string; tile?: unknown; sourceDataType?: string }) => {
       if (e.sourceId && !e.sourceId.startsWith('se-') && e.tile) health.recordSuccess()
+      // Spec 010 (tests): each (re)load of our data source, by setData or a rebuilt style; a basemap swap makes none.
+      if (e.sourceId === SOURCE_ID && e.sourceDataType === 'metadata') container.dataset.sourceLoads = String(Number(container.dataset.sourceLoads ?? 0) + 1)
     })
   }
 
@@ -515,16 +554,7 @@
     // Raster templates hold `{s}` in the host (spec 008): match on the part after it.
     basemapHost = entry.url ? (/^https?:\/\/([^/]+)/.exec(entry.url)?.[1] ?? '').replace(/^\{s\}\./, '') : ''
     health = new BasemapHealth()
-    const m = map
-    m.setStyle(buildStyle(result.style, entry), { diff: false })
-    m.once('style.load', () => {
-      // A new style is a new source: restore the state that lived on the old one.
-      hoveredId = null
-      if (selectedFeatureId !== null && selectedFeatureId !== undefined) m.setFeatureState(stateTarget(selectedFeatureId), { selected: true })
-      previousSelected = selectedFeatureId ?? null
-      tickedApplied = new Set()
-      applyTicked()
-    })
+    swapBasemap(map, basemapDoc(result.style, entry))
   }
 
   function fitExtent(animate: boolean): void {
@@ -689,9 +719,9 @@
     ensureEngineTilesProtocol()
     map = new MapLibreMap({
       container,
-      // Data only at first; the basemap effect swaps in the basemap style
-      // (with the data on top) as soon as the map is ready.
-      style: buildStyle(null, basemap),
+      // Data only at first (on a blank background); the basemap effect swaps
+      // in the chosen basemap under it as soon as the map is ready.
+      style: firstStyle(basemap),
       center: [0, 0],
       zoom: 1,
       attributionControl: false,
@@ -704,6 +734,8 @@
       pitchWithRotate: true,
       touchPitch: false,
     })
+    // Test hooks only: the tests read the style itself (spec 010: exactly one basemap in it).
+    if (document.documentElement.dataset.seTestHooks !== undefined) (container as unknown as { seMap: MapLibreMap }).seMap = map
     map.touchZoomRotate.disableRotation()
     map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-left')
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')

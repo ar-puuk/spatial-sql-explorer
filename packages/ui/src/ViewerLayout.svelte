@@ -13,6 +13,7 @@
   import LayerStylePanel from './LayerStylePanel.svelte'
   import MapLegend from './MapLegend.svelte'
   import BasemapPicker from './BasemapPicker.svelte'
+  import BasemapGallery from './BasemapGallery.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
@@ -109,6 +110,8 @@
   let panes: HTMLDivElement
   /** One map popover at a time. */
   let openPanel = $state<'style' | 'basemap' | 'search' | null>(null)
+  /** Spec 010: the "More basemaps…" modal. */
+  let galleryOpen = $state(false)
   let exportButton = $state<HTMLButtonElement>()
   /** Opened by a map click (FR-010); then follows the selection until closed. */
   let inspectorOpen = $state(false)
@@ -368,7 +371,9 @@
             appearance={session.basemapAppearance}
             blankColor={store.blankColor}
             notice={store.basemapNotice}
+            galleryEntry={store.basemap.id.startsWith('g-') ? { id: store.basemap.id, name: store.basemap.name } : null}
             onChoose={(choice) => store.setBasemap(choice)}
+            onMore={() => (galleryOpen = true)}
             onBlankColor={(color) => store.setBlankColor(color)}
             onClose={closePanel}
           />
@@ -568,6 +573,16 @@
       onClose={() => {
         store.closeMapImage()
         void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Export map image…"]')?.focus())
+      }}
+    />
+  {/if}
+  {#if galleryOpen}
+    <BasemapGallery
+      {store}
+      onClose={() => {
+        galleryOpen = false
+        store.cancelKeyRequest()
+        void tick().then(() => document.querySelector<HTMLElement>('.more-button')?.focus())
       }}
     />
   {/if}

@@ -207,6 +207,23 @@ export function createWebHostAdapter(): HostAdapter {
         // Not persisted; the choice still applies for this session.
       }
     },
+    // Spec 010: basemap keys stay in this browser (localStorage); unavailable storage means no key.
+    secretLocation: 'browser',
+    async getSecret(name: string): Promise<string | undefined> {
+      try {
+        return window.localStorage.getItem(`spatialExplorer.secret.${name}`) ?? undefined
+      } catch {
+        return undefined
+      }
+    },
+    async setSecret(name: string, value: string | null): Promise<void> {
+      try {
+        if (value) window.localStorage.setItem(`spatialExplorer.secret.${name}`, value)
+        else window.localStorage.removeItem(`spatialExplorer.secret.${name}`)
+      } catch {
+        // Not kept; the key still applies for this session.
+      }
+    },
     setStatus(_fields: StatusFields): void {
       // No-op on the web shell (CLAUDE.md: "no-op on web" for setStatus).
     },

@@ -111,6 +111,16 @@ export interface HostAdapter {
   saveState(key: string, value: unknown): Promise<void>
 
   /**
+   * Spec 010: a basemap provider's API key (names `basemapKey.<provider>`).
+   * VS Code: SecretStorage. Web: localStorage (this browser only). A null
+   * value removes it.
+   */
+  getSecret?(name: string): Promise<string | undefined>
+  setSecret?(name: string, value: string | null): Promise<void>
+  /** Where secrets live, for the key form's wording. */
+  readonly secretLocation?: 'vscode' | 'browser'
+
+  /**
    * Fires when the opened file changes on disk (spec.md edge case: stale data
    * must not be presented as current without an indication). Optional: only
    * hosts that can watch files implement it (VS Code). Returns unsubscribe.

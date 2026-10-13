@@ -89,7 +89,7 @@ test('a raster basemap whose tiles can not be read: the image is still made, and
   // the tiles (they can't taint the canvas); the basemap falls back to blank.
   await page.route(/arcgisonline\.com/, (route) => route.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  await page.getByRole('button', { name: 'Basemap' }).click()
+  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await page.getByRole('dialog', { name: 'Basemap' }).getByRole('radio', { name: /^Satellite/ }).click()
   await page.keyboard.press('Escape')
   await expect(page.locator('.map-notice')).toContainText(/Satellite basemap unavailable/, { timeout: 30000 })
