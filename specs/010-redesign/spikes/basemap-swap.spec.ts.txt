@@ -1,0 +1,94 @@
+// SPIKE (spec 010 S3): does a basemap swap keep the data source? Temporary.
+import { test } from '@playwright/test'
+import { fixture, openFile } from './helpers'
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+
+test('S3: basemap swaps, (a) without setStyle and (b) setStyle diff + transformStyle', async ({ page }) => {
+  test.setTimeout(240000)
+  await page.route('https://bm.invalid/**', (route) =>
+    route.request().url().endsWith('.png') ? route.fulfill({ body: PNG, contentType: 'image/png' }) : route.fulfill({ body: Buffer.alloc(0), contentType: 'application/x-protobuf' })
+  )
+  await openFile(page, fixture('parcels-10k.geojson'), '?e2e=1')
+  const [z, x, y] = [8, 48, 97]
+  const where = `__se_xmin <= -111.09375 AND __se_xmax >= -112.5 AND __se_ymin <= 41.0130657870063 AND __se_ymax >= 39.909736234537185`
+  const tile = await page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s), `SELECT ST_AsMVT({'__id': __se_rowid, 'geometry': ST_AsMVTGeom(ST_Transform(geom, 'EPSG:4326', 'EPSG:3857', always_xy := true), ST_Extent(ST_TileEnvelope(${z}, ${x}, ${y})))}, 'data') AS tile FROM (SELECT * FROM __se_layer WHERE ${where})`)
+  await page.evaluate((b64) => (window as any).__spatialExplorerE2E.spike010.addStub('spkdata', b64), tile.rows[0].tile.b64)
+
+  const result = await page.evaluate(async () => {
+    const map = (window as any).__spike010Map
+    const idle = () => new Promise<void>((r) => { const t = setTimeout(r, 8000); map.once('idle', () => { clearTimeout(t); r() }); map.triggerRepaint() })
+    const calls = () => (window as any).__spatialExplorerE2E.spike010.stubCalls('spkdata') as Promise<number>
+    map.addSource('se-spk', { type: 'vector', tiles: ['spkdata://{z}/{x}/{y}'], minzoom: 8, maxzoom: 8, promoteId: { data: '__id' } })
+    map.addLayer({ id: 'se-spk-fill', type: 'fill', source: 'se-spk', 'source-layer': 'data', paint: { 'fill-color': '#f0f' } })
+    map.jumpTo({ center: [-111.8, 40.46], zoom: 8.5 })
+    await idle()
+    const OURS = new Set(['layer-source', 'se-spk'])
+    let meta: Record<string, number> = {}
+    map.on('sourcedata', (e: any) => { if (OURS.has(e.sourceId) && e.sourceDataType === 'metadata') meta[e.sourceId] = (meta[e.sourceId] ?? 0) + 1 })
+    const oursLayers = (layers: any[]) => layers.filter((l) => OURS.has(l.source))
+    let basemapLayers: string[] = map.getStyle().layers.filter((l: any) => !OURS.has(l.source)).map((l: any) => l.id)
+    let basemapSources: string[] = Object.keys(map.getStyle().sources).filter((s) => !OURS.has(s))
+    const raster = (k: string) => ({ sources: { [`bm-${k}`]: { type: 'raster', tiles: [`https://bm.invalid/${k}/{z}/{x}/{y}.png`], tileSize: 256 } }, layers: [{ id: `bm-${k}`, type: 'raster', source: `bm-${k}` }] })
+    const vector = (k: string) => ({ glyphs: `https://bm.invalid/${k}/fonts/{fontstack}/{range}.pbf`, sprite: `https://bm.invalid/${k}/sprite`, sources: { [`bm-${k}`]: { type: 'vector', tiles: [`https://bm.invalid/${k}/{z}/{x}/{y}.pbf`] } }, layers: [{ id: `bm-${k}-bg`, type: 'background', paint: { 'background-color': '#eee' } }, { id: `bm-${k}-water`, type: 'fill', source: `bm-${k}`, 'source-layer': 'water', paint: { 'fill-color': '#9cf' } }] })
+    const blank = () => ({ sources: {}, layers: [{ id: 'basemap-blank', type: 'background', paint: { 'background-color': '#fafafa' } }] })
+    const swapA = (doc: any) => {
+      for (const id of basemapLayers) if (map.getLayer(id)) map.removeLayer(id)
+      for (const id of basemapSources) if (map.getSource(id)) map.removeSource(id)
+      const before = map.getStyle().layers.find((l: any) => OURS.has(l.source))?.id
+      for (const [id, s] of Object.entries(doc.sources)) map.addSource(id, s)
+      for (const l of doc.layers) map.addLayer(l, before)
+      if (doc.glyphs) map.setGlyphs(doc.glyphs)
+      if (doc.sprite) map.setSprite(doc.sprite)
+      basemapLayers = doc.layers.map((l: any) => l.id)
+      basemapSources = Object.keys(doc.sources)
+    }
+    const swapB = (doc: any) => new Promise<void>((resolve) => {
+      map.setStyle({ version: 8, ...doc }, {
+        diff: true,
+        transformStyle: (prev: any, next: any) => ({
+          ...next,
+          sources: { ...next.sources, ...Object.fromEntries(Object.entries(prev?.sources ?? {}).filter(([k]) => OURS.has(k))) },
+          layers: [...next.layers, ...oursLayers(prev?.layers ?? [])],
+        }),
+      })
+      basemapLayers = doc.layers.map((l: any) => l.id)
+      basemapSources = Object.keys(doc.sources)
+      map.once('style.load', () => resolve())
+      setTimeout(resolve, 3000)
+    })
+    const steps: Array<[string, 'a' | 'b', any]> = [
+      ['stub -> raster r1', 'a', raster('r1')],
+      ['raster r1 -> raster r2', 'a', raster('r2')],
+      ['raster r2 -> blank', 'a', blank()],
+      ['blank -> raster r1', 'a', raster('r1')],
+      ['raster r1 -> vector v1 (a)', 'a', vector('v1')],
+      ['vector v1 -> vector v2 (a)', 'a', vector('v2')],
+      ['vector v2 -> blank (a)', 'a', blank()],
+      ['blank -> vector v1 (b)', 'b', vector('v1')],
+      ['vector v1 -> vector v2 (b)', 'b', vector('v2')],
+      ['vector v2 -> raster r1 (b)', 'b', raster('r1')],
+      ['raster r1 -> vector v1 (b)', 'b', vector('v1')],
+      ['vector v1 -> blank (b)', 'b', blank()],
+    ]
+    const out: unknown[] = []
+    for (const [name, how, doc] of steps) {
+      meta = {}
+      const c0 = await calls()
+      if (how === 'a') swapA(doc)
+      else await swapB(doc)
+      await idle()
+      const style = map.getStyle()
+      out.push({
+        name,
+        dataMetadataEvents: meta,
+        tileCallsDelta: (await calls()) - c0,
+        renderedData: map.queryRenderedFeatures({ layers: style.layers.filter((l: any) => OURS.has(l.source)).map((l: any) => l.id) }).length,
+        basemapLayers: style.layers.filter((l: any) => !OURS.has(l.source)).map((l: any) => l.id).join(','),
+        oursOnTop: style.layers.slice(-oursLayers(style.layers).length).every((l: any) => OURS.has(l.source)),
+      })
+    }
+    return out
+  })
+  for (const r of result) console.log('S3', JSON.stringify(r))
+})

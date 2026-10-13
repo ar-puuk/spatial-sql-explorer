@@ -59,3 +59,37 @@ export), unless S8 (`sqlite_scanner`) replaces that too.
   GPKG/FGB/SHP/GeoParquet, EPSG:4326 for GeoJSON/GeoJSONSeq/KML; 1 and 180 features;
   geometry types as before. In a GeoPackage export of a layer with a `fid` attribute, the
   writer's own primary key is `fid` and the attribute becomes `fid_1` (as before the upgrade).
+
+## Phase 2 spikes (DuckDB 1.5.6)
+
+All spikes ran in the real web build (headless Chromium, software WebGL) except S2 (VS Code
+test host). Spike tests: `spikes/*.spec.ts.txt`, `spikes/vscode-tiles.test.ts.txt`; the
+temporary harness (test hooks, a tile render helper, a stub tile protocol): `spikes/harness.patch`.
+
+| Spike | Result | Path taken |
+|---|---|---|
+| S1 ST_AsMVT | **Pass.** Builds tiles; MapLibre decodes them; `__id` promotes; properties decode. Median ms per tile on parcels-230k (20 tiles around the data center; the same with or without `LIMIT 50000`): z8 275 (p95 539, ~917 KB/tile), z10 16 (p95 109), z12 4, z14 2–3. | Phase 3 as planned. |
+| S2 vector tiles in the VS Code webview | **Pass.** A custom-protocol vector source renders (717 features), `promoteId` works, `setFeatureState` applies. No CSP or worker issue. | Phase 4 as planned. |
+| S3 basemap swap keeps data | **Pass for both approaches**, 12 swaps (raster↔raster, raster↔vector, vector↔vector with different sprite and glyphs, ↔blank): 0 metadata reloads of the GeoJSON source, 0 repeated tile calls of a vector data source, data stays drawn and on top. | Proposed: approach (a) for every swap (see below). |
+| S4 `file_search_path` | **Fail.** `SET GLOBAL file_search_path = '/se-source/ws'` takes (a plain `SET` did not reach other connections), but relative paths still fail: read_parquet/read_csv are refused by the access check on the raw relative path; GDAL ignores the setting. Absolute `/se-source/ws/...` paths work. | Phase 9 fallback: rewrite literals to absolute paths with an offset map. |
+| S5 GeoPackage fid (revised) | **Engine returns the real ids.** Every layer GDAL streams returns `fid` equal to the file's key (9 layers in 5 files, incl. attribute tables). Layers with ids not 1..N still fail in WASM ("thread constructor failed": gapped-ids `zones`, `notes`); through the SQLite-driver copy they return the real `fid` too (101…123; 7, 9, 11). `ST_Read_Meta` has no FID field (keys: name, feature_count, geometry_fields, fields). | Phase 6 changes (see below): no row-number fid, no sql.js for ids. |
+| S6 CARTO without key | **Pass.** `light_all`, `dark_all`, `voyager` 200 OK with and without `?key=`. | CARTO is "key optional". |
+| S7 GDAL `COPY … (FORMAT GDAL)` | **Fail by the plan's rule, but close.** GPKG: `sqlite3_exec(CREATE TABLE gpkg_spatial_ref_sys …)` IO error. FlatGeobuf, Shapefile, KML, GeoJSONSeq, GeoJSON now write to a plain `/se-source/` path (new since 1.4.3/1.5.4), but every file has **one garbage byte prepended** (differs per file), so the engine can't read its own output. With that byte dropped, GeoJSON, FlatGeobuf and KML are byte-identical to native DuckDB 1.5.6 output. `/vsimem/` is now refused by the lockdown; a pre-registered buffer gets 0 bytes. | JS writers kept for now; decision asked (see below). |
+| S8 sqlite_scanner | **Pass with a workaround.** It refuses registered files ("its -journal sidecar holds a hot rollback journal") unless an empty `<file>-journal` is registered next to the database. Then `sqlite_scan` and `ATTACH … (TYPE sqlite, READ_ONLY)` read GeoPackage and SQLite: `sqlite_master` lists every table; real ids (incl. the gapped `zones` GDAL can't stream; Cube `n`). `duckdb_tables()` on the attached SpatiaLite file fails (`no such module: VirtualSpatialIndex`): list through `sqlite_master`. The lockdown still refuses other paths. | Phase 6: list tables with sqlite_scanner; keep sqlite_scanner in EXTENSIONS. |
+| S9 excel | **Reads well; writes with the same stray first byte.** `COPY … (FORMAT xlsx)` writes 180 rows; the engine and openpyxl read it (zip readers tolerate a prefix), but the bytes start with one garbage byte before `PK`. `read_xlsx` reads an openpyxl workbook with types (lon/lat DOUBLE → ST_Point works). | Decision asked (see below). |
+
+Where the stray byte comes from (`spikes/straybyte.spec.ts.txt`): the engine itself sees it
+(`read_blob`), so the extension writers put it there. DuckDB's own CSV, Parquet and JSON
+writers are clean.
+
+Engine start (page load to "SQL engine ready", warm, 5 reloads, median): base 3.31–3.51 s;
+with sqlite_scanner + excel 3.51–3.52 s. No measurable cost (plan limit: 1.5 s). The VS Code
+warm start will be measured when phase 6 adds the extension.
+
+How GeoLibre handles the same points (checked at the user's request):
+- Basemap swap: `MapController.applyStyleToMap` calls `setStyle(url, { diff: false })` and
+  rebuilds every own layer and source in `style.load`, so its data reloads on every swap.
+  Only maplibre-gl-basemap-control uses `transformStyle` (to rewrite Mapbox styles).
+- Vector export in the browser: pure-JS writers, plus a separate ~18 MB WASI GDAL tool
+  (`geolibre-wasm`, `vector_convert`) for FlatGeobuf and others. It does not use DuckDB's
+  GDAL `COPY` in the browser.

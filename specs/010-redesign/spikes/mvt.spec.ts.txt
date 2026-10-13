@@ -1,0 +1,108 @@
+// SPIKE (spec 010 S1): ST_AsMVT in the WASM build. Temporary; moved to specs/010-redesign/spikes after.
+import { test, type Page } from '@playwright/test'
+import { fixture, largeData, openFile } from './helpers'
+
+type Run = { ms: number; rows: Array<Record<string, any>> }
+const run = (page: Page, sql: string): Promise<Run | { error: string }> =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).catch((e: Error) => ({ error: e.message.slice(0, 400) })), sql)
+
+function tileOf(lon: number, lat: number, z: number): [number, number] {
+  const n = 2 ** z
+  const x = Math.floor(((lon + 180) / 360) * n)
+  const r = (lat * Math.PI) / 180
+  const y = Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n)
+  return [x, y]
+}
+function tileBounds(z: number, x: number, y: number): [number, number, number, number] {
+  const n = 2 ** z
+  const lon = (i: number) => (i / n) * 360 - 180
+  const lat = (j: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * j) / n))) * 180) / Math.PI
+  return [lon(x), lat(y + 1), lon(x + 1), lat(y)]
+}
+const merc = (g: string) => `ST_Transform(${g}, 'EPSG:4326', 'EPSG:3857', always_xy := true)`
+const env = (z: number, x: number, y: number) => `ST_Extent(ST_TileEnvelope(${z}, ${x}, ${y}))`
+
+function tileSql(z: number, x: number, y: number, props: string, limit: number | null): string {
+  const [x0, y0, x1, y1] = tileBounds(z, x, y)
+  const where = `__se_xmin <= ${x1} AND __se_xmax >= ${x0} AND __se_ymin <= ${y1} AND __se_ymax >= ${y0}`
+  return `SELECT ST_AsMVT({'__id': __se_rowid${props}, 'geometry': ST_AsMVTGeom(${merc('geom')}, ${env(z, x, y)})}, 'data') AS tile FROM (SELECT * FROM __se_layer WHERE ${where}${limit ? ` LIMIT ${limit}` : ''})`
+}
+
+test('S1a: ST_AsMVT basics, property types, render', async ({ page }) => {
+  test.setTimeout(180000)
+  await openFile(page, fixture('parcels-10k.geojson'), '?e2e=1')
+  console.log('version', JSON.stringify(await run(page, 'SELECT version() AS v')))
+  console.log('layer cols', JSON.stringify(await run(page, "SELECT list(column_name || ' ' || column_type) AS c FROM (DESCRIBE __se_layer)")))
+  const ext = (await run(page, 'SELECT ST_XMin(e) AS x0, ST_YMin(e) AS y0, ST_XMax(e) AS x1, ST_YMax(e) AS y1 FROM (SELECT ST_Extent_Agg(geom) AS e FROM layer)')) as Run
+  console.log('extent', JSON.stringify(ext))
+  const e = ext.rows[0]
+  const [z, cx, cy] = [10, (e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2]
+  const [x, y] = tileOf(cx, cy, z)
+  console.log('tile', z, x, y)
+
+  // The plan's literal form (step 2).
+  const plain = await run(page, `SELECT ST_AsMVT({'geometry': ST_AsMVTGeom(${merc('geom')}, ${env(z, x, y)})}, 'data') AS tile FROM layer WHERE ST_Intersects(geom, ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 'EPSG:3857', 'EPSG:4326', always_xy := true))`)
+  console.log('plain', JSON.stringify(plain).slice(0, 300))
+
+  // Property types one at a time (step 3).
+  const types: Record<string, string> = {
+    n_int: '1::INTEGER',
+    n_big: '1::BIGINT',
+    n_dbl: '1.5::DOUBLE',
+    b: 'true',
+    s: "'x'",
+    d: "DATE '2020-01-01'",
+    dec: '1.25::DECIMAL(10,2)',
+    nul: 'NULL::DOUBLE',
+    hugeint: '1::HUGEINT',
+    ubig: '1::UBIGINT',
+    flt: '1.5::FLOAT',
+    ts: "TIMESTAMP '2020-01-01 10:00:00'",
+  }
+  for (const [k, v] of Object.entries(types)) {
+    const r = await run(page, `SELECT ST_AsMVT({'__id': 7::BIGINT, '${k}': ${v}, 'geometry': ST_AsMVTGeom(${merc('geom')}, ${env(z, x, y)})}, 'data') AS tile FROM (SELECT * FROM layer LIMIT 50)`)
+    console.log('type', k, 'error' in r ? 'ERROR ' + r.error : `ok ${r.rows[0]?.tile?.bytes ?? 'null'} bytes`)
+  }
+
+  // The full tile with __id and casts as T012 would build it, then decoded and drawn by MapLibre (steps 4, 6).
+  const props = ", 'pop': CAST(1.5 AS DOUBLE), 'name': CAST('a''b' AS VARCHAR), 'flag': true"
+  const [rz, rx, ry] = [8, ...tileOf(cx, cy, 8)] as [number, number, number]
+  console.log('render tile', rz, rx, ry, JSON.stringify(await run(page, `SELECT count(*) AS n FROM __se_layer WHERE __se_xmin <= ${tileBounds(rz, rx, ry)[2]} AND __se_xmax >= ${tileBounds(rz, rx, ry)[0]} AND __se_ymin <= ${tileBounds(rz, rx, ry)[3]} AND __se_ymax >= ${tileBounds(rz, rx, ry)[1]}`)))
+  const full = (await run(page, tileSql(rz, rx, ry, props, 50000))) as Run
+  console.log('full', full.ms.toFixed(1), 'ms', full.rows[0]?.tile?.bytes, 'bytes')
+  const id = (await run(page, `SELECT min(__se_rowid) AS id FROM __se_layer WHERE __se_xmin >= ${tileBounds(rz, rx, ry)[0]} AND __se_xmax <= ${tileBounds(rz, rx, ry)[2]} AND __se_ymin >= ${tileBounds(rz, rx, ry)[1]} AND __se_ymax <= ${tileBounds(rz, rx, ry)[3]}`)) as Run
+  const check = await page.evaluate(([b64, zz, xx, yy, ii]) => (window as any).__spatialExplorerE2E.spike010.renderTile(b64, zz, xx, yy, ii), [full.rows[0].tile.b64, rz, rx, ry, id.rows[0].id] as const)
+  console.log('render', JSON.stringify(check))
+})
+
+test('S1b: timing on parcels-230k', async ({ page }) => {
+  test.setTimeout(600000)
+  await openFile(page, largeData('parcels-230k.geojson'), '?e2e=1&wholeThreshold=1000000000')
+  const ext = (await run(page, 'SELECT ST_XMin(e) AS x0, ST_YMin(e) AS y0, ST_XMax(e) AS x1, ST_YMax(e) AS y1, (SELECT count(*) FROM layer) AS n FROM (SELECT ST_Extent_Agg(geom) AS e FROM layer)')) as Run
+  console.log('extent', JSON.stringify(ext.rows[0]))
+  const e = ext.rows[0]
+  const [cx, cy] = [(e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2]
+  const attrs = (await run(page, "SELECT list(column_name) AS c FROM (DESCRIBE layer) WHERE column_type NOT LIKE 'GEOMETRY%'")) as Run
+  const cols: string[] = attrs.rows[0].c
+  const props = cols.map((c) => `, '${c}': CAST("${c}" AS VARCHAR)`).join('')
+  console.log('attrs', cols.join(','))
+  for (const z of [8, 10, 12, 14]) {
+    for (const limit of [50000, null]) {
+      const [tx, ty] = tileOf(cx, cy, z)
+      const times: number[] = []
+      let bytes = 0
+      // 20 tiles: a 5 x 4 block around the center.
+      for (let i = 0; i < 20; i++) {
+        const x = tx - 2 + (i % 5)
+        const y = ty - 2 + Math.floor(i / 5)
+        const r = (await run(page, tileSql(z, x, y, props, limit))) as Run
+        times.push(r.ms)
+        bytes += r.rows[0]?.tile?.bytes ?? 0
+      }
+      times.sort((a, b) => a - b)
+      const med = times[10]
+      const p95 = times[Math.min(19, Math.ceil(20 * 0.95) - 1)]
+      console.log(`TIMING z${z} limit=${limit ?? 'none'} median ${med.toFixed(0)} ms p95 ${p95.toFixed(0)} ms max ${times[19].toFixed(0)} ms avg ${(bytes / 20 / 1024).toFixed(0)} KB`)
+    }
+  }
+})

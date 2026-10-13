@@ -1,0 +1,18 @@
+// SPIKE (spec 010 S8/S9): engine start time (page load to "SQL engine ready"), mirror served, warm cache. Temporary.
+import { test, expect } from '@playwright/test'
+
+test('engine start', async ({ page }) => {
+  test.setTimeout(240000)
+  // First start fills the browser's Cache Storage copy; the timed ones are warm.
+  await page.goto('/?e2e=1')
+  await expect(page.getByText('SQL engine ready')).toBeVisible({ timeout: 60000 })
+  const times: number[] = []
+  for (let i = 0; i < 5; i++) {
+    const t0 = Date.now()
+    await page.reload()
+    await expect(page.getByText('SQL engine ready')).toBeVisible({ timeout: 60000 })
+    times.push(Date.now() - t0)
+  }
+  times.sort((a, b) => a - b)
+  console.log(`TIMING engine start (${process.env.SPIKE_LABEL ?? ''}) warm: ${times.join(', ')} ms; median ${times[2]} ms`)
+})

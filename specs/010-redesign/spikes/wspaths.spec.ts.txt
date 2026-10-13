@@ -1,0 +1,30 @@
+// SPIKE (spec 010 S4): relative workspace paths through file_search_path. Temporary.
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import { fixture, openFile } from './helpers'
+
+const run = (page: Page, sql: string) =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).then((r: any) => JSON.stringify(r.rows)).catch((e: Error) => 'ERROR ' + e.message.slice(0, 250)), sql)
+const reg = (page: Page, path: string, file: string) =>
+  page.evaluate(([p, b]) => (window as any).__spatialExplorerE2E.spike010.register(p, b), [path, fs.readFileSync(fixture(file)).toString('base64')] as const)
+
+test('S4: relative paths resolve under /se-source/ws', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  console.log('setting', await run(page, "SELECT current_setting('file_search_path') AS p"))
+  await reg(page, '/se-source/ws/data/sample.geojson', 'sample.geojson')
+  await reg(page, '/se-source/ws/data/x.parquet', 'sample.parquet')
+  await reg(page, '/se-source/ws/data/points.csv', 'points.csv')
+  for (const ext of ['shp', 'shx', 'dbf', 'prj', 'cpg']) await reg(page, `/se-source/ws/data/sample.${ext}`, `sample.${ext}`)
+  await reg(page, '/se-source/ws/multi-layer.gpkg', 'multi-layer.gpkg')
+  for (const sql of [
+    "SELECT count(*) AS n FROM ST_Read('data/sample.geojson')",
+    "SELECT count(*) AS n FROM read_parquet('data/x.parquet')",
+    "SELECT count(*) AS n FROM read_csv_auto('data/points.csv')",
+    "SELECT count(*) AS n FROM ST_Read('data/sample.shp')",
+    "SELECT count(*) AS n FROM ST_Read('multi-layer.gpkg')",
+    "SELECT count(*) AS n FROM ST_Read('/se-source/ws/data/sample.geojson')",
+    "SELECT count(*) AS n FROM read_parquet('data/*.parquet')",
+    "SELECT count(*) AS n FROM ST_Read('../ws/data/sample.geojson')",
+    "SELECT count(*) AS n FROM read_csv_auto('../../etc/passwd')",
+  ]) console.log('S4', sql, '=>', await run(page, sql))
+})

@@ -1,0 +1,34 @@
+// SPIKE (spec 010 S2), temporary: a vector source on a custom protocol in the VS Code
+// webview (CSP, worker), with promoteId and feature-state.
+import * as assert from 'assert'
+import * as vscode from 'vscode'
+import { openAndWait } from './query.test'
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+suite('Spec 010 S2: engine vector tiles in the webview', () => {
+  test('a tile from ST_AsMVT renders through addProtocol, promoteId and feature-state work', async function () {
+    this.timeout(90000)
+    await openAndWait('parcels-10k.geojson', 'spatialExplorer.editorOption')
+    const [z, x, y] = [8, 48, 97]
+    const n = 2 ** z
+    const lon = (i: number): number => (i / n) * 360 - 180
+    const lat = (j: number): number => (Math.atan(Math.sinh(Math.PI * (1 - (2 * j) / n))) * 180) / Math.PI
+    const [x0, y0, x1, y1] = [lon(x), lat(y + 1), lon(x + 1), lat(y)]
+    const where = `__se_xmin <= ${x1} AND __se_xmax >= ${x0} AND __se_ymin <= ${y1} AND __se_ymax >= ${y0}`
+    const sql = `SELECT ST_AsMVT({'__id': __se_rowid, 'zone': CAST(zone AS VARCHAR), 'geometry': ST_AsMVTGeom(ST_Transform(geom, 'EPSG:4326', 'EPSG:3857', always_xy := true), ST_Extent(ST_TileEnvelope(${z}, ${x}, ${y})))}, 'data') AS tile FROM (SELECT * FROM __se_layer WHERE ${where} LIMIT 50000)`
+    await vscode.commands.executeCommand('spatialExplorer._spike010', { sql, z, x, y, id: 7978 })
+    type S = { spike010?: Record<string, unknown> } | null
+    let s = null as S
+    const deadline = Date.now() + 60000
+    while (Date.now() < deadline) {
+      s = (await vscode.commands.executeCommand('spatialExplorer._getMapView')) as S
+      if (s?.spike010) break
+      await sleep(250)
+    }
+    console.log('SPIKE010 S2', JSON.stringify(s?.spike010))
+    const r = s?.spike010 as { rendered: number; selectedState: { selected?: boolean }; error: string | null } | undefined
+    assert.ok(r && r.rendered > 0, JSON.stringify(r))
+    assert.strictEqual(r.selectedState.selected, true)
+  })
+})
