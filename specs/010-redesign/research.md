@@ -252,3 +252,29 @@ the layout remembered through `saveState('layout')`). Departures and findings:
   180-row result spent ~1.9 s in WebGL `bufferData` and a screenshot took 7–42 s, in
   headless Chromium's software WebGL only (the source held the 184 new features; VS Code
   took the same scene in time). The 72k scene now runs after the style and export scenes.
+
+### Basemap gallery, revised (user feedback 2026-10-13)
+
+The user found 82 basemaps not exhaustive (no CARTO vector styles, no OpenFreeMap in the
+gallery, Protomaps hidden behind keys) and chose to lift the provider exclusions. How
+GeoLibre does it: a short curated picker (OpenFreeMap incl. Liberty 3D, Protomaps, ArcGIS,
+Mapbox, regional, custom URL) plus the full maplibre-gl-basemap-control panel with nothing
+excluded (it stacks overlays). Now:
+
+- 129 basemaps from 26 providers, grouped in collapsible provider sections with counts, a
+  Vector/Raster filter, and the featured basemaps listed in their providers' sections
+  (choosing one chooses its featured row).
+- Added keyless vector styles the package lacks: CARTO GL (Positron, Voyager, Dark Matter,
+  each with a no-labels variant; styles, tiles, sprites and fonts answer without a key) and
+  VersaTiles (Colorful, Colorful Dark, Gray, Gray Dark, Muted).
+- Google: keyless public tiles, or with a key Map Tiles API sessions (`createSession`,
+  cached per key and map type). Mapbox: the style's mapbox:// sprite, font and tileset URLs
+  are rewritten with the token. Amazon Location: key and AWS region (a saved setting).
+  Amap and Tencent carry a GCJ-02 offset warning. All adapted from the package (MIT).
+- Still out: overlays meant to stack on another basemap (labels-only, traffic, transparent
+  overlays tagged as such) and Liberty 3D (the Liberty style with a saved tilted camera;
+  Liberty's own `building-3d` extrusions are in the Liberty style we draw).
+- Overture Maps: PMTiles themes but no MapLibre style, and "not designed to be a
+  production-ready cartographic basemap" (docs); not added (user: not needed).
+- Gallery open + search at 6× CPU: rendered progressively (8 rows, then 12 per task);
+  longest task 73–86 ms over five runs (the flat virtualized list: 69–79 ms).

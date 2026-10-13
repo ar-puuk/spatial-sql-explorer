@@ -89,7 +89,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - API keys: non-secret values in settings, secrets in context.secrets (SecretStorage).
 - CSP: webview needs img-src/connect-src for style, sprite, glyph and tile hosts; worker-src blob:;
   script-src 'wasm-unsafe-eval'.
-- Spec 010: a short featured list in the Basemap panel, plus "More basemaps…": a searchable modal over the maplibre-gl-basemap-control catalog (generated into packages/core by scripts/basemap-catalog.mjs). Excluded: Chinese providers, Google, traffic/label/route overlays, 3D, Mapbox and Amazon (they need request rewriting). Keys for MapTiler, Stadia, Protomaps, CARTO: VS Code SecretStorage, web localStorage. Rerun scripts/basemap-catalog.mjs after upgrading maplibre-gl-basemap-control.
+- Spec 010: a short featured list in the Basemap panel, plus "More basemaps…": a searchable modal, grouped by provider, over the maplibre-gl-basemap-control catalog plus keyless CARTO GL and VersaTiles styles (generated into packages/core by scripts/basemap-catalog.mjs). Every provider is offered (user decision 2026-10-13: Google with an optional key and Map Tiles API sessions, Mapbox with its mapbox:// URLs rewritten, Amazon with key and AWS region, Chinese providers with their datum warnings). Still excluded: overlays meant to stack (labels-only, traffic) and 3D styles. Keys: VS Code SecretStorage, web localStorage; the AWS region is a saved setting. Rerun scripts/basemap-catalog.mjs after upgrading maplibre-gl-basemap-control.
 - Exactly one basemap is drawn at a time; switching replaces it and never touches the data source.
 
 ## Scale and performance rules

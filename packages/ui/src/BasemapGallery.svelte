@@ -1,11 +1,13 @@
 <script lang="ts">
   // Spec 010 T043: "More basemaps…", a searchable modal over the generated
-  // gallery (basemapGallery.ts, from maplibre-gl-basemap-control). A click
-  // applies a basemap and keeps the modal open to compare; Enter or a
-  // double-click applies and closes. Rows are virtualized (fixed 64 px) and
-  // previews load only for rows in view. Modal mechanics follow ExportDialog.
+  // gallery (basemapGallery.ts: maplibre-gl-basemap-control's catalog plus
+  // keyless CARTO GL and VersaTiles styles). Grouped by provider in
+  // collapsible sections, as GeoLibre's basemap picker is. A click applies a
+  // basemap and keeps the modal open to compare; Enter or a double-click
+  // applies and closes. Arrow keys move through the section headers and rows.
+  // Previews load only for rows in view. Modal mechanics follow ExportDialog.
   import { onDestroy, onMount, tick } from 'svelte'
-  import { GALLERY, galleryCategories, galleryProviders, KEY_SIGNUP, searchGallery, type GalleryBasemap } from '@spatial-explorer/core'
+  import { GALLERY, galleryCategories, galleryGroups, galleryProviders, KEY_SIGNUP, searchGallery, type GalleryBasemap } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
@@ -15,8 +17,6 @@
   }
   let { store, onClose }: Props = $props()
 
-  const ROW = 64
-  const OVERSCAN = 4
   const categories = galleryCategories()
   const providers = galleryProviders()
 
@@ -27,20 +27,20 @@
   let search = $state('')
   let category = $state<string | null>(null)
   let provider = $state('')
+  let kind = $state<'' | 'vector' | 'raster'>('')
   let keylessOnly = $state(false)
   let showKeys = $state(false)
   let keyValue = $state('')
+  let regionValue = $state('')
   let keyError = $state<string | null>(null)
-  let scrollTop = $state(0)
-  let viewport = $state(0)
-  let cursor = $state(0)
+  /** Providers whose section is collapsed (all open by default; a search opens every match). */
+  const collapsed = $state<Record<string, boolean>>({})
 
   let debounce: ReturnType<typeof setTimeout> | null = null
   function onSearchInput(): void {
     if (debounce) clearTimeout(debounce)
     debounce = setTimeout(() => {
       search = query
-      cursor = 0
       if (list) list.scrollTop = 0
     }, 120)
   }
@@ -48,24 +48,65 @@
     if (debounce) clearTimeout(debounce)
   })
 
-  const results = $derived(searchGallery(search, { category, provider: provider || null, keylessOnly }))
-  const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN))
-  const last = $derived(Math.min(results.length, Math.ceil((scrollTop + viewport) / ROW) + OVERSCAN))
-  const visible = $derived(results.slice(first, last))
+  const results = $derived(searchGallery(search, { category, provider: provider || null, kind: kind || null, keylessOnly }))
+
+  // All rows at once is a long task at 6x CPU (225 ms for 129): the first rows
+  // render at once, the rest in small batches on later tasks.
+  const BATCH = 12
+  const FIRST = 8
+  let limit = $state(FIRST)
+  let grow: ReturnType<typeof setTimeout> | null = null
+  $effect(() => {
+    void results
+    limit = FIRST
+    if (grow) clearTimeout(grow)
+    const step = (): void => {
+      if (limit >= results.length) return
+      limit += BATCH
+      grow = setTimeout(step, 16)
+    }
+    grow = setTimeout(step, 16)
+    return () => {
+      if (grow) clearTimeout(grow)
+    }
+  })
+  const groups = $derived.by(() => {
+    let left = limit
+    const out: ReturnType<typeof galleryGroups> = []
+    for (const g of galleryGroups(results)) {
+      if (left <= 0) break
+      const open = filtering || !collapsed[g.provider]
+      out.push(open ? { ...g, basemaps: g.basemaps.slice(0, left) } : g)
+      if (open) left -= g.basemaps.length
+    }
+    return out
+  })
+  /** Row counts per provider (the header shows all, while rows are still being added). */
+  const counts = $derived(new Map(galleryGroups(results).map((g) => [g.provider, g.basemaps.length])))
+  const filtering = $derived(!!search.trim() || !!category || !!provider || !!kind || keylessOnly)
+  const isOpen = (p: string): boolean => filtering || !collapsed[p]
   const activeId = $derived(store.basemap.id)
   const keyRequest = $derived(store.keyRequest)
   const storedKeys = $derived(providers.filter((p) => store.basemapKeys[p.id]))
+  const providerCount = $derived(new Set(GALLERY.map((g) => g.provider)).size)
 
-  function badge(g: GalleryBasemap): string | null {
-    if (g.key === 'required') return store.basemapKeys[g.provider] ? null : 'Needs key'
-    if (g.key === 'optional') return 'Key optional'
-    return null
+  /** A gallery row is the active basemap, or stands for the active featured row. */
+  const isActive = (g: GalleryBasemap): boolean => g.id === activeId || (!!g.featuredId && g.featuredId === activeId)
+
+  function badges(g: GalleryBasemap): string[] {
+    const out: string[] = []
+    if (g.featuredId) out.push('Featured')
+    out.push(g.kind === 'vector' ? 'Vector' : 'Raster')
+    if (g.key === 'required' && !store.basemapKeys[g.provider]) out.push('Needs key')
+    if (g.key === 'optional') out.push('Key optional')
+    return out
   }
 
   async function apply(g: GalleryBasemap, close: boolean): Promise<void> {
     const outcome = await store.chooseGalleryBasemap(g.id)
     if (outcome === 'needsKey') {
       keyValue = ''
+      regionValue = store.awsRegion ?? ''
       keyError = null
       void tick().then(() => keyInput?.focus())
       return
@@ -74,12 +115,12 @@
   }
 
   async function saveKey(): Promise<void> {
-    if (!keyRequest || !keyValue.trim()) return
+    if (!keyRequest || !keyValue.trim() || (keyRequest.needsRegion && !regionValue.trim())) return
     try {
-      await store.setBasemapKey(keyRequest.provider, keyValue)
+      await store.setBasemapKey(keyRequest.provider, keyValue, keyRequest.needsRegion ? regionValue : undefined)
       keyValue = ''
       keyError = null
-      void tick().then(() => list?.focus())
+      void tick().then(() => list?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.focus())
     } catch (err) {
       keyError = err instanceof Error ? err.message : String(err)
     }
@@ -88,26 +129,30 @@
   function cancelKey(): void {
     store.cancelKeyRequest()
     keyValue = ''
-    void tick().then(() => list?.focus())
+    void tick().then(() => list?.querySelector<HTMLElement>('[data-nav]')?.focus())
   }
 
-  function moveCursor(to: number): void {
-    if (!results.length || !list) return
-    cursor = Math.max(0, Math.min(results.length - 1, to))
-    const top = cursor * ROW
-    if (top < list.scrollTop) list.scrollTop = top
-    else if (top + ROW > list.scrollTop + list.clientHeight) list.scrollTop = top + ROW - list.clientHeight
-  }
-
+  /** Arrow keys move through every section header and row, in order. */
   function onListKeydown(e: KeyboardEvent): void {
-    const page = Math.max(1, Math.floor((list?.clientHeight ?? ROW) / ROW) - 1)
-    const moves: Record<string, number> = { ArrowDown: cursor + 1, ArrowUp: cursor - 1, PageDown: cursor + page, PageUp: cursor - page, Home: 0, End: results.length - 1 }
-    if (e.key in moves) {
+    const items = Array.from(list?.querySelectorAll<HTMLElement>('[data-nav]') ?? [])
+    const i = items.indexOf(document.activeElement as HTMLElement)
+    const page = 6
+    const moves: Record<string, number> = { ArrowDown: i + 1, ArrowUp: i - 1, PageDown: i + page, PageUp: i - page, Home: 0, End: items.length - 1 }
+    if (e.key in moves && items.length) {
       e.preventDefault()
-      moveCursor(moves[e.key])
-    } else if (e.key === 'Enter' && results[cursor]) {
+      const next = items[Math.max(0, Math.min(items.length - 1, moves[e.key]))]
+      next.focus()
+      next.scrollIntoView({ block: 'nearest' })
+    }
+  }
+
+  function onRowKeydown(e: KeyboardEvent, g: GalleryBasemap): void {
+    if (e.key === 'Enter') {
       e.preventDefault()
-      void apply(results[cursor], true)
+      void apply(g, true)
+    } else if (e.key === ' ') {
+      e.preventDefault()
+      void apply(g, false)
     }
   }
 
@@ -121,7 +166,7 @@
     }
     // Keep focus inside the modal.
     if (e.key === 'Tab' && dialog) {
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [role="listbox"]'))
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex="0"]'))
       if (!focusable.length) return
       const firstEl = focusable[0]
       const lastEl = focusable[focusable.length - 1]
@@ -206,9 +251,12 @@
       { root: list }
     )
     for (const node of observed.keys()) observer.observe(node)
-    const current = results.findIndex((g) => g.id === activeId)
-    if (current > 0) moveCursor(current)
-    void tick().then(() => dialog?.querySelector<HTMLElement>('.search input')?.focus())
+    // The active basemap's row in view.
+    // After the first frame: focusing forces a layout, which the first paint has then already done.
+    requestAnimationFrame(() => {
+      dialog?.querySelector<HTMLElement>('.search input')?.focus()
+      list?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: 'center' })
+    })
   })
   onDestroy(() => observer?.disconnect())
 </script>
@@ -217,7 +265,7 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="basemap-gallery-title" bind:this={dialog}>
     <header>
       <h2 id="basemap-gallery-title">Basemaps</h2>
-      <span class="count">{GALLERY.length} basemaps</span>
+      <span class="count">{GALLERY.length} basemaps from {providerCount} providers</span>
       <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
     </header>
 
@@ -230,12 +278,17 @@
         }}
       >
         <p>
-          {keyRequest.providerName} needs an API key. Keys stay {store.keyStorage === 'vscode' ? 'on this computer (VS Code secret storage)' : 'in this browser'}.
+          {keyRequest.providerName} needs an API key{keyRequest.needsRegion ? ' and the AWS region it was made in' : ''}. Keys stay {store.keyStorage === 'vscode'
+            ? 'on this computer (VS Code secret storage)'
+            : 'in this browser'}.
           {#if KEY_SIGNUP[keyRequest.provider]}<a href={KEY_SIGNUP[keyRequest.provider]} target="_blank" rel="noreferrer">Get a key</a>{/if}
         </p>
         <div class="key-row">
           <input bind:this={keyInput} type="password" autocomplete="off" spellcheck="false" aria-label="{keyRequest.providerName} API key" bind:value={keyValue} />
-          <button type="submit" class="primary" disabled={!keyValue.trim()}>Save and use</button>
+          {#if keyRequest.needsRegion}
+            <input class="region" type="text" autocomplete="off" spellcheck="false" placeholder="us-east-1" aria-label="AWS region" bind:value={regionValue} />
+          {/if}
+          <button type="submit" class="primary" disabled={!keyValue.trim() || (keyRequest.needsRegion && !regionValue.trim())}>Save and use</button>
           <button type="button" onclick={cancelKey}>Cancel</button>
         </div>
         {#if keyError}<p class="error" role="alert">{keyError}</p>{/if}
@@ -247,9 +300,14 @@
         <Icon name="search" size={14} />
         <input type="search" placeholder="Search basemaps" aria-label="Search basemaps" bind:value={query} oninput={onSearchInput} />
       </label>
-      <select aria-label="Provider" bind:value={provider} onchange={() => moveCursor(0)}>
+      <select aria-label="Provider" bind:value={provider}>
         <option value="">All providers</option>
         {#each providers as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+      </select>
+      <select aria-label="Type" bind:value={kind}>
+        <option value="">Vector and raster</option>
+        <option value="vector">Vector</option>
+        <option value="raster">Raster</option>
       </select>
       <label class="check"><input type="checkbox" bind:checked={keylessOnly} /> No API key needed</label>
     </div>
@@ -260,67 +318,78 @@
       {/each}
     </div>
 
-    <div
-      class="results"
-      role="listbox"
-      tabindex="0"
-      aria-label="Basemaps"
-      aria-activedescendant={results[cursor] ? `bg-${results[cursor].id}` : undefined}
-      bind:this={list}
-      bind:clientHeight={viewport}
-      onscroll={() => (scrollTop = list?.scrollTop ?? 0)}
-      onkeydown={onListKeydown}
-    >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="results" bind:this={list} onkeydown={onListKeydown}>
       {#if !results.length}
         <p class="empty">No basemap matches.</p>
       {/if}
-      <div class="spacer" style:height="{results.length * ROW}px">
-        {#each visible as g, i (g.id)}
-          {@const index = first + i}
-          {@const preview = previews[g.id]}
-          {@const tag = badge(g)}
-          <div
-            id="bg-{g.id}"
-            class="row"
-            class:cursor={index === cursor}
-            class:active={g.id === activeId}
-            role="option"
-            aria-selected={g.id === activeId}
-            style:top="{index * ROW}px"
-            use:inView={g}
-            tabindex="-1"
-            onclick={() => {
-              cursor = index
-              void apply(g, false)
-            }}
-            ondblclick={() => void apply(g, true)}
-            onkeydown={() => {}}
-          >
-            <span class="preview" aria-hidden="true">
-              {#if preview?.kind === 'image'}
-                <img src={preview.src} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={() => (previews[g.id] = { kind: 'none' })} />
-              {:else if preview?.kind === 'colors'}
-                <span class="land" style:background={preview.land}></span>
-                {#if preview.water}<span class="water" style:background={preview.water}></span>{/if}
-              {:else}
-                <span class="provider-swatch">{g.providerName}</span>
-              {/if}
-            </span>
-            <span class="text">
-              <span class="name">{g.name}</span>
-              <span class="meta">{g.providerName} · {g.category}</span>
-              <span class="description">{g.description}</span>
-            </span>
-            {#if tag}<span class="badge">{tag}</span>{/if}
-            <span class="mark">{#if g.id === activeId}<Icon name="check" size={14} />{/if}</span>
-          </div>
-        {/each}
-      </div>
+      {#each groups as group (group.provider)}
+        {@const open = isOpen(group.provider)}
+        <section class="group" aria-label={group.providerName}>
+          <h3>
+            <button
+              type="button"
+              class="group-head"
+              data-nav
+              aria-expanded={open}
+              aria-controls="bg-group-{group.provider}"
+              disabled={filtering}
+              onclick={() => (collapsed[group.provider] = !collapsed[group.provider])}
+            >
+              <Icon name={open ? 'chevron-down' : 'chevron-up'} size={12} />
+              <span class="group-name">{group.providerName}</span>
+              <span class="group-count">{counts.get(group.provider) ?? group.basemaps.length}</span>
+            </button>
+          </h3>
+          {#if open}
+            <div id="bg-group-{group.provider}" role="listbox" aria-label="{group.providerName} basemaps">
+              {#each group.basemaps as g (g.id)}
+                {@const preview = previews[g.id]}
+                {@const active = isActive(g)}
+                <div
+                  id="bg-{g.id}"
+                  class="row"
+                  class:active
+                  role="option"
+                  aria-selected={active}
+                  tabindex="-1"
+                  data-nav
+                  use:inView={g}
+                  onclick={() => void apply(g, false)}
+                  ondblclick={() => void apply(g, true)}
+                  onkeydown={(e) => onRowKeydown(e, g)}
+                >
+                  <span class="preview" aria-hidden="true">
+                    {#if preview?.kind === 'image'}
+                      <img src={preview.src} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={() => (previews[g.id] = { kind: 'none' })} />
+                    {:else if preview?.kind === 'colors'}
+                      <span class="land" style:background={preview.land}></span>
+                      {#if preview.water}<span class="water" style:background={preview.water}></span>{/if}
+                    {:else}
+                      <span class="provider-swatch">{g.providerName}</span>
+                    {/if}
+                  </span>
+                  <span class="text">
+                    <span class="name">{g.name}</span>
+                    <span class="meta">{g.category}</span>
+                    <span class="description">{g.description}</span>
+                    {#if g.warning}<span class="warning"><Icon name="warning" size={12} />{g.warning}</span>{/if}
+                  </span>
+                  <span class="badges">
+                    {#each badges(g) as b (b)}<span class="badge" class:strong={b === 'Needs key'}>{b}</span>{/each}
+                  </span>
+                  <span class="mark">{#if active}<Icon name="check" size={14} />{/if}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/each}
     </div>
 
     <footer>
       <button type="button" aria-expanded={showKeys} onclick={() => (showKeys = !showKeys)}>API keys…</button>
-      <span class="credit">Catalog: maplibre-gl-basemap-control (MIT)</span>
+      <span class="credit">Catalog: maplibre-gl-basemap-control (MIT), plus CARTO and VersaTiles vector styles</span>
     </footer>
     {#if showKeys}
       <div class="keys" role="region" aria-label="Stored API keys">
@@ -414,7 +483,9 @@
     padding: 8px 12px 4px;
   }
   .search {
-    flex: 1 1 220px;
+    /* Narrow enough that the provider, type and "No API key needed" filters share its row. */
+    flex: 1 1 160px;
+    max-width: 280px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -438,6 +509,7 @@
     font: inherit;
   }
   input[type='password'],
+  input.region,
   select {
     padding: 4px 6px;
     background: var(--se-input-bg);
@@ -481,12 +553,45 @@
     overflow-y: auto;
     outline: none;
   }
-  .results:focus-visible {
+  .group h3 {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0;
+    background: var(--se-bg-elevated);
+    border-bottom: 1px solid var(--se-border);
+  }
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    background: transparent;
+    color: var(--se-section-title-fg);
+    font: var(--se-section-title-font);
+    text-transform: var(--se-section-title-transform);
+    letter-spacing: var(--se-section-title-tracking);
+    text-align: left;
+    cursor: pointer;
+  }
+  .group-head:disabled {
+    cursor: default;
+    opacity: 1;
+  }
+  .group-head:hover:not(:disabled) {
+    background: var(--se-bg-hover);
+  }
+  .group-head:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }
-  .spacer {
-    position: relative;
+  .group-count {
+    margin-left: auto;
+    color: var(--se-text-secondary);
+    font-weight: normal;
   }
   .empty {
     margin: 0;
@@ -494,10 +599,8 @@
     color: var(--se-text-secondary);
   }
   .row {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 64px;
+    position: relative;
+    min-height: 64px;
     box-sizing: border-box;
     display: flex;
     align-items: center;
@@ -512,7 +615,7 @@
     background: var(--se-selected-inactive-bg);
     color: var(--se-selected-inactive-fg);
   }
-  .results:focus .row.cursor {
+  .row:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }
@@ -569,6 +672,28 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  .warning {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--se-warning-fg);
+    font-size: 0.88em;
+  }
+  .badges {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+    max-width: 180px;
+  }
+  .badge.strong {
+    border-color: var(--se-text-secondary);
+    color: var(--se-text-primary);
+  }
+  .key-row input.region {
+    flex: 0 0 120px;
   }
   .badge {
     flex: none;

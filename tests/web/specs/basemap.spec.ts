@@ -58,9 +58,10 @@ test('Blank keeps the data drawn, and a custom blank color is remembered', async
   await expect(page.getByRole('radio', { name: /Blank/ })).toContainText('#123456')
 
   // Remembered across sessions: reload, reopen, the blank color is still set.
+  // (Spec 010: the side panel is remembered too, so it may be open already.)
   await page.reload()
   await open(page)
-  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
+  if (!(await page.getByRole('region', { name: 'Basemap' }).isVisible())) await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await expect(page.getByRole('radio', { name: /Blank/ })).toContainText('#123456')
 
   // And "Match theme color" clears it.

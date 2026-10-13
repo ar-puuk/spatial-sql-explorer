@@ -16,6 +16,7 @@ import {
   BASEMAP_CATALOG,
   findGalleryBasemap,
   KEY_SIGNUP,
+  resolveGalleryUrls,
   toCatalogEntry,
   themeAppearance,
   type BasemapCatalogEntry,
@@ -339,9 +340,11 @@ export interface ViewerStore {
   /** Which keyed providers have a stored key (never the keys themselves). */
   readonly basemapKeys: Readonly<Record<string, boolean>>
   /** Stores (or with null, removes) a provider's key, then retries a choice that was waiting for it. */
-  setBasemapKey(provider: string, key: string | null): Promise<void>
+  setBasemapKey(provider: string, key: string | null, region?: string | null): Promise<void>
+  /** Amazon Location: the AWS region its styles are served from (not a secret: a saved setting). */
+  readonly awsRegion: string | null
   /** A gallery choice waiting for its provider's key (the gallery shows the key form). */
-  readonly keyRequest: { basemapId: string; provider: string; providerName: string } | null
+  readonly keyRequest: { basemapId: string; provider: string; providerName: string; needsRegion: boolean } | null
   cancelKeyRequest(): void
   /** A gallery entry's URLs with the stored key (previews); null when it needs a key the user hasn't given. */
   galleryPreviewUrls(id: string): Promise<{ url?: string; tiles?: string[] } | null>
@@ -448,7 +451,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   const BASEMAP_CHOICE_KEY = 'basemap.choice'
   let resolvedGallery = $state.raw<BasemapCatalogEntry | null>(null)
   let basemapKeys = $state<Record<string, boolean>>({})
-  let keyRequest = $state<{ basemapId: string; provider: string; providerName: string } | null>(null)
+  let keyRequest = $state<{ basemapId: string; provider: string; providerName: string; needsRegion: boolean } | null>(null)
+  const AWS_REGION_KEY = 'basemap.awsRegion'
+  let awsRegion = $state<string | null>(null)
+  void hostAdapter
+    .loadState<string>(AWS_REGION_KEY)
+    .then((saved) => {
+      if (typeof saved === 'string' && /^[a-z]{2}(-[a-z]+)+-\d$/.test(saved)) awsRegion = saved
+    })
+    .catch(() => {})
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
   let legendCollapsed = $state(false)
@@ -525,12 +536,28 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (from === 'restore') applyBasemapChoice('auto', false)
       return 'applied'
     }
+    // The same basemap as a featured row: that row is the choice (its preview, its theme default).
+    if (g.featuredId) {
+      basemapSeq++
+      keyRequest = null
+      applyBasemapChoice(g.featuredId, from === 'user')
+      return 'applied'
+    }
     const key = g.key === 'none' ? null : await readKey(g.provider)
     if (seq !== basemapSeq) return 'applied' // a newer choice won
-    const urls = applyKey(g, key)
+    let urls: Awaited<ReturnType<typeof resolveGalleryUrls>>
+    try {
+      urls = await resolveGalleryUrls(g, key, g.region ? awsRegion : null)
+    } catch (err) {
+      // Google's session request failed: the key is likely wrong or lacks the Map Tiles API.
+      if (seq !== basemapSeq) return 'applied'
+      basemapNotice = `${g.name}: ${err instanceof Error ? err.message : String(err)}`
+      return 'applied'
+    }
+    if (seq !== basemapSeq) return 'applied'
     if ('needsKey' in urls) {
       if (from === 'user') {
-        keyRequest = { basemapId: g.id, provider: g.provider, providerName: g.providerName }
+        keyRequest = { basemapId: g.id, provider: g.provider, providerName: g.providerName, needsRegion: !!g.region }
         return 'needsKey'
       }
       applyBasemapChoice('auto', true)
@@ -1837,8 +1864,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get basemapKeys() {
       return basemapKeys
     },
-    async setBasemapKey(provider, key) {
+    async setBasemapKey(provider, key, region) {
       const value = key?.trim() || null
+      if (region !== undefined) {
+        awsRegion = region?.trim() || null
+        await hostAdapter.saveState(AWS_REGION_KEY, awsRegion).catch(() => {})
+      }
       await hostAdapter.setSecret?.(basemapKeyName(provider), value)
       basemapKeys = { ...basemapKeys, [provider]: value !== null }
       const waiting = keyRequest
@@ -1853,13 +1884,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get keyRequest() {
       return keyRequest
     },
+    get awsRegion() {
+      return awsRegion
+    },
     cancelKeyRequest() {
       keyRequest = null
     },
     async galleryPreviewUrls(id) {
       const g = findGalleryBasemap(id)
       if (!g) return null
-      const urls = applyKey(g, g.key === 'none' ? null : await readKey(g.provider))
+      const key = g.key === 'required' ? await readKey(g.provider) : null
+      const urls = applyKey(g, key, g.region ? awsRegion : null)
       return 'needsKey' in urls ? null : urls
     },
     get keyStorage() {

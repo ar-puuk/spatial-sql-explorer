@@ -78,7 +78,9 @@ export async function loadBasemapStyle(
     if (style?.version !== 8 || typeof style.sources !== 'object' || !Array.isArray(style.layers)) {
       return { ok: false, entry, message: basemapFailureMessage(entry, 'invalid style') }
     }
-    return { ok: true, entry, style: style as BasemapStyle }
+    // Spec 010: Mapbox styles name their sprites, fonts and tilesets as mapbox:// URLs.
+    const token = entry.provider === 'mapbox' ? new URL(entry.url).searchParams.get('access_token') : null
+    return { ok: true, entry, style: token ? transformMapboxStyle(style as BasemapStyle, token) : (style as BasemapStyle) }
   } finally {
     clearTimeout(timer)
   }
@@ -140,3 +142,34 @@ export class BasemapHealth {
 }
 
 
+
+// Adapted from maplibre-gl-basemap-control (MIT, © 2026 Qiusheng Wu), BasemapControl._transformMapboxStyle.
+/** A Mapbox style with its mapbox:// sprite, font and tileset URLs turned into API URLs that carry the token. */
+export function transformMapboxStyle(style: BasemapStyle, accessToken: string): BasemapStyle {
+  const token = encodeURIComponent(accessToken)
+  const resolve = (url: string): string => {
+    const sprite = /^mapbox:\/\/sprites\/([^/]+)\/(.+)$/.exec(url)
+    if (sprite) return `https://api.mapbox.com/styles/v1/${sprite[1]}/${sprite[2]}/sprite?access_token=${token}`
+    const font = /^mapbox:\/\/fonts\/([^/]+)\/(.+)$/.exec(url)
+    if (font) return `https://api.mapbox.com/fonts/v1/${font[1]}/${font[2]}?access_token=${token}`
+    if (url.startsWith('mapbox://')) return `https://api.mapbox.com/v4/${url.slice('mapbox://'.length)}.json?secure&access_token=${token}`
+    return url
+  }
+  const sources = Object.fromEntries(
+    Object.entries(style.sources).map(([id, source]) => {
+      const s = source as { url?: unknown }
+      return [id, typeof s.url === 'string' ? { ...s, url: resolve(s.url) } : source]
+    })
+  )
+  const sprite = style.sprite
+  return {
+    ...style,
+    sources,
+    ...(typeof style.glyphs === 'string' ? { glyphs: resolve(style.glyphs) } : {}),
+    ...(typeof sprite === 'string'
+      ? { sprite: resolve(sprite) }
+      : Array.isArray(sprite)
+        ? { sprite: sprite.map((s: { id: string; url: string }) => ({ ...s, url: resolve(s.url) })) }
+        : {}),
+  }
+}

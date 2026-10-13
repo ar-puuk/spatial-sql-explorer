@@ -30,7 +30,8 @@ async function openGallery(page: Page): Promise<void> {
 }
 
 const gallery = (page: Page) => page.getByRole('dialog', { name: 'Basemaps' })
-const rows = (page: Page) => gallery(page).getByRole('listbox', { name: 'Basemaps' }).getByRole('option')
+// Rows are options in one listbox per provider section.
+const rows = (page: Page) => gallery(page).locator('[role="option"]')
 
 /** Types a search and waits for the debounced list to match it. */
 async function searchFor(page: Page, text: string, expected: RegExp): Promise<void> {
@@ -66,7 +67,7 @@ test('search, category and the keyless filter narrow the list', async ({ page })
 
 test('a click applies a basemap and keeps the modal open; exactly one basemap is in the style', async ({ page }) => {
   await openGallery(page)
-  await searchFor(page, 'esri topographic', /ESRI/)
+  await searchFor(page, 'esri topographic', /World Topographic/)
   await rows(page).filter({ hasText: 'World Topographic' }).click()
   await expect.poll(async () => (await basemapSources(page)).map((s) => s.tiles?.[0] ?? '')).toEqual([expect.stringContaining('World_Topo_Map')])
   await expect(gallery(page)).toBeVisible()
@@ -75,10 +76,11 @@ test('a click applies a basemap and keeps the modal open; exactly one basemap is
 
   // Enter applies and closes; focus returns to "More basemaps…".
   // Two rows (sorted: NatGeo World Map, World Street Map): the arrow keys move to the second.
-  await searchFor(page, 'esri street', /ESRI/)
+  await searchFor(page, 'esri street', /NatGeo World Map|World Street Map/)
   await expect(rows(page)).toHaveText([/NatGeo World Map/, /World Street Map/])
-  await page.getByRole('listbox', { name: 'Basemaps' }).focus()
+  await rows(page).first().focus()
   await page.keyboard.press('ArrowDown')
+  await expect(rows(page).nth(1)).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(gallery(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'More basemaps…' })).toBeFocused()
@@ -120,4 +122,42 @@ test('Escape closes and focus returns to More basemaps…; no axe violations', a
   await page.keyboard.press('Escape')
   await expect(gallery(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'More basemaps…' })).toBeFocused()
+})
+
+test('sections by provider, collapsible; a type filter; featured basemaps are listed too', async ({ page }) => {
+  await openGallery(page)
+  const section = (name: string) => gallery(page).getByRole('region', { name, exact: true })
+  await expect(section('OpenFreeMap').getByRole('option')).toHaveCount(5)
+  await expect(section('OpenFreeMap').getByRole('option').first()).toContainText('Featured')
+  await expect(section('CARTO (vector)').getByRole('option')).toHaveCount(6)
+  const head = section('CARTO (vector)').getByRole('button', { name: /CARTO \(vector\)/ })
+  await head.click()
+  await expect(head).toHaveAttribute('aria-expanded', 'false')
+  await expect(section('CARTO (vector)').getByRole('option')).toHaveCount(0)
+  await head.click()
+  await gallery(page).getByRole('combobox', { name: 'Type' }).selectOption('raster')
+  await expect(section('CARTO (vector)')).toHaveCount(0)
+  for (const text of await rows(page).allInnerTexts()) expect(text).toContain('Raster')
+})
+
+test('choosing a featured basemap in the gallery chooses its featured row', async ({ page }) => {
+  await openGallery(page)
+  await gallery(page).getByRole('region', { name: 'OpenFreeMap', exact: true }).getByRole('option', { name: /Fiord/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('radio', { checked: true })).toContainText('Fiord')
+})
+
+test('Amazon asks for a key and an AWS region, and puts both in the style URL', async ({ page }) => {
+  await openGallery(page)
+  const urls: string[] = []
+  await page.route('https://*.amazonaws.com/**', (route) => {
+    urls.push(route.request().url())
+    return route.fulfill({ json: STUB_STYLE })
+  })
+  await searchFor(page, 'amazon standard', /Amazon Standard/)
+  await rows(page).first().click()
+  await page.getByLabel('Amazon Location API key').fill('ak-1')
+  await page.getByLabel('AWS region').fill('eu-west-1')
+  await gallery(page).getByRole('button', { name: 'Save and use' }).click()
+  await expect.poll(() => urls).toContainEqual('https://maps.geo.eu-west-1.amazonaws.com/v2/styles/Standard/descriptor?key=ak-1')
 })

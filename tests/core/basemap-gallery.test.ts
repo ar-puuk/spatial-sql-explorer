@@ -1,14 +1,38 @@
 // Spec 010 T041: the generated "More basemaps…" gallery and its key handling.
 import { describe, expect, it } from 'vitest'
-import { applyKey, BASEMAP_CATALOG, GALLERY, galleryCategories, rasterStyle, searchGallery, toCatalogEntry, type GalleryBasemap } from '@spatial-explorer/core'
+import {
+  applyKey,
+  BASEMAP_CATALOG,
+  GALLERY,
+  galleryCategories,
+  galleryGroups,
+  rasterStyle,
+  resolveGalleryUrls,
+  searchGallery,
+  toCatalogEntry,
+  transformMapboxStyle,
+  type BasemapStyle,
+  type GalleryBasemap,
+} from '@spatial-explorer/core'
 
 describe('gallery catalog', () => {
-  it('has no excluded provider, category or overlay', () => {
+  // User decision 2026-10-13: every provider; overlays (stacked basemaps) and 3D styles stay out.
+  it('offers every provider, with keyless CARTO GL and VersaTiles styles, but no overlay or 3D style', () => {
     const providers = new Set(GALLERY.map((g) => g.provider))
-    for (const p of ['google', 'tianditu', 'amap', 'tencent', 'here', 'tomtom', 'mapbox', 'amazon', 'waymarkedtrails', 'openrailwaymap']) expect(providers.has(p)).toBe(false)
+    for (const p of ['google', 'mapbox', 'amazon', 'tianditu', 'amap', 'tencent', 'openfreemap', 'carto-gl', 'versatiles', 'protomaps']) expect(providers.has(p)).toBe(true)
     for (const c of ['Labels', 'Traffic', '3D']) expect(galleryCategories()).not.toContain(c)
     expect(GALLERY.some((g) => g.tags.includes('overlay'))).toBe(false)
-    expect(GALLERY.some((g) => JSON.stringify(g).includes('{session}'))).toBe(false)
+    expect(GALLERY.filter((g) => g.provider === 'carto-gl' && g.key === 'none' && g.kind === 'vector')).toHaveLength(6)
+  })
+
+  it('shows the featured basemaps too, linked to their featured rows', () => {
+    const linked = GALLERY.filter((g) => g.featuredId).map((g) => g.featuredId)
+    const featured = BASEMAP_CATALOG.filter((e) => e.type !== 'blank').map((e) => e.id)
+    expect([...linked].sort()).toEqual([...featured].sort())
+  })
+
+  it('marks the GCJ-02 datum offset of Amap and Tencent', () => {
+    for (const g of GALLERY.filter((x) => x.provider === 'amap' || x.provider === 'tencent')) expect(g.warning).toMatch(/GCJ-02/)
   })
 
   it('every entry has a name and either a style URL or tiles, and an id that is not a featured one', () => {
@@ -32,10 +56,15 @@ describe('gallery catalog', () => {
 })
 
 describe('searchGallery', () => {
-  // The plan's example ("esri imagery") is the featured Satellite row, so it isn't in the gallery.
-  it('"esri topo" finds World Topographic, and the featured Satellite is not repeated', () => {
-    expect(searchGallery('esri topo').map((g) => g.name)).toContain('World Topographic')
-    expect(searchGallery('esri imagery')).toEqual([])
+  it('"esri imagery" finds World Imagery (the featured Satellite, in its provider group too)', () => {
+    const found = searchGallery('esri imagery')
+    expect(found.map((g) => g.name)).toContain('World Imagery')
+    expect(found.find((g) => g.name === 'World Imagery')?.featuredId).toBe('esri-imagery')
+  })
+  it('filters vector or raster, and groups by provider', () => {
+    expect(searchGallery('', { kind: 'vector' }).every((g) => g.kind === 'vector')).toBe(true)
+    const groups = galleryGroups(searchGallery('carto'))
+    expect(groups.map((g) => g.providerName)).toEqual(['CARTO (vector)', 'Carto']) // keyless vector first, keyed-only providers last
   })
   it('every word must match, in any case', () => {
     expect(searchGallery('ESRI zzzz')).toEqual([])
@@ -69,5 +98,45 @@ describe('applyKey', () => {
     const entry = toCatalogEntry(none, { tiles: none.tiles })
     expect(entry).toMatchObject({ id: 'g-x', type: 'raster', url: 'https://t.example.com/{z}/{x}/{y}.png', provider: 'p' })
     expect((rasterStyle(entry).sources['basemap-raster'] as { tiles: string[] }).tiles).toEqual(none.tiles)
+  })
+})
+
+describe('provider specifics', () => {
+  const base = { id: 'g-x', name: 'X', providerName: 'P', category: 'Street', description: '', attribution: '', tags: [] }
+
+  it('Amazon needs a key and an AWS region; both go in the URL', () => {
+    const g: GalleryBasemap = { ...base, provider: 'amazon', kind: 'vector', url: 'https://maps.geo.{aws-region}.amazonaws.com/v2/styles/Standard/descriptor?key={api-key}', key: 'required', region: true }
+    expect(applyKey(g, 'k', null)).toEqual({ needsKey: true })
+    expect(applyKey(g, 'k', 'eu-west-1')).toEqual({ url: 'https://maps.geo.eu-west-1.amazonaws.com/v2/styles/Standard/descriptor?key=k' })
+  })
+
+  it('Google works without a key; with one it mints a Map Tiles API session', async () => {
+    const g = GALLERY.find((x) => x.id === 'g-google-maps')!
+    expect(g.key).toBe('optional')
+    expect(applyKey(g, null)).toEqual({ tiles: g.tiles })
+    const calls: string[] = []
+    const fetchStub = (async (url: string, init?: RequestInit) => {
+      calls.push(`${url} ${init?.body ?? ''}`)
+      return new Response(JSON.stringify({ session: 'S1', expiry: String(Date.now() / 1000 + 3600) }))
+    }) as typeof fetch
+    const resolved = await resolveGalleryUrls(g, 'KEY', null, fetchStub)
+    expect(resolved).toEqual({ tiles: ['https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=S1&key=KEY'] })
+    expect(calls[0]).toContain('https://tile.googleapis.com/v1/createSession?key=KEY')
+    expect(calls[0]).toContain('"mapType":"roadmap"')
+  })
+
+  it('a Mapbox style gets API URLs, with the token, for its mapbox:// sprite, fonts and tilesets', () => {
+    const style = {
+      version: 8,
+      sprite: 'mapbox://sprites/mapbox/streets-v12',
+      glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
+      sources: { composite: { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' }, plain: { type: 'vector', url: 'https://example.com/t.json' } },
+      layers: [],
+    } as unknown as BasemapStyle
+    const out = transformMapboxStyle(style, 'pk.T')
+    expect(out.sprite).toBe('https://api.mapbox.com/styles/v1/mapbox/streets-v12/sprite?access_token=pk.T')
+    expect(out.glyphs).toBe('https://api.mapbox.com/fonts/v1/mapbox/{fontstack}/{range}.pbf?access_token=pk.T')
+    expect((out.sources as Record<string, { url: string }>).composite.url).toBe('https://api.mapbox.com/v4/mapbox.mapbox-streets-v8.json?secure&access_token=pk.T')
+    expect((out.sources as Record<string, { url: string }>).plain.url).toBe('https://example.com/t.json')
   })
 })

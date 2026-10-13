@@ -18,7 +18,7 @@ async function offline(page: Page): Promise<void> {
 }
 
 const gallery = (page: Page) => page.getByRole('dialog', { name: 'Basemaps' })
-const rows = (page: Page) => gallery(page).getByRole('listbox', { name: 'Basemaps' }).getByRole('option')
+const rows = (page: Page) => gallery(page).locator('[role="option"]')
 
 test('opening the modal and typing in search: no long task over 100 ms at 6x CPU', async ({ page }) => {
   await page.addInitScript(() => {
