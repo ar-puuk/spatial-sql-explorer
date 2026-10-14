@@ -26,8 +26,10 @@
     /** Table -> columns for completion (FR-015). */
     schema?: SQLNamespace
     completionSources?: CompletionSource[]
+    /** Shown while the editor is empty. */
+    placeholderText?: string
   }
-  let { value, onChange, onRun, onCancel, running = false, diagnostics = [], schema = {}, completionSources = [] }: Props = $props()
+  let { value, onChange, onRun, onCancel, running = false, diagnostics = [], schema = {}, completionSources = [], placeholderText = 'SELECT * FROM layer' }: Props = $props()
 
   let host: HTMLDivElement
   let view: EditorView | null = null
@@ -99,7 +101,7 @@
           drawSelection(),
           history(),
           bracketMatching(),
-          placeholder('SELECT * FROM layer'),
+          placeholder(placeholderText),
           language.of(languageExtension(schema)),
           completion.of(completionExtension(schema, completionSources)),
           syntaxHighlighting(highlight),

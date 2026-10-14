@@ -1,6 +1,6 @@
 // Autocomplete data from the live engine catalog (spec 002 FR-015; research
-// §7): tables and views (the file's `layer`, its alias, the user's temp
-// objects) with their columns and types, every function with its overload
+// §7): tables and views (the file's `layer`, its own name, a multi-layer
+// file's schema of layers, the user's temp objects) with their columns and types, every function with its overload
 // signatures and description, and the engine's keyword list. Internal
 // objects (`__se_*`) and engine internals (pg_*, __*) are hidden.
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
@@ -20,23 +20,29 @@ async function rows(conn: AsyncDuckDBConnection, sql: string, isCancelled: () =>
 export async function loadCatalog(conn: AsyncDuckDBConnection, isCancelled: () => boolean): Promise<CatalogSnapshot> {
   const objects = await rows(
     conn,
-    `SELECT table_name AS name, 'table' AS kind FROM duckdb_tables() WHERE NOT internal
-     UNION ALL SELECT view_name, 'view' FROM duckdb_views() WHERE NOT internal`,
+    `SELECT schema_name AS schema, table_name AS name, 'table' AS kind FROM duckdb_tables() WHERE NOT internal
+     UNION ALL SELECT schema_name, view_name, 'view' FROM duckdb_views() WHERE NOT internal`,
     isCancelled
   )
-  const columns = await rows(conn, `SELECT table_name, column_name, data_type FROM duckdb_columns() WHERE NOT internal ORDER BY table_name, column_index`, isCancelled)
+  const columns = await rows(conn, `SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() WHERE NOT internal ORDER BY schema_name, table_name, column_index`, isCancelled)
   const byTable = new Map<string, Array<{ name: string; type: string }>>()
+  const key = (schema: unknown, table: unknown): string => `${String(schema)}.${String(table)}`
   for (const c of columns) {
-    const t = String(c.table_name)
+    const t = key(c.schema_name, c.table_name)
     const list = byTable.get(t) ?? []
     // Hidden engine columns (spec 007: __se_rowid, bbox) are never offered.
     if (!String(c.column_name).startsWith('__se_')) list.push({ name: String(c.column_name), type: String(c.data_type) })
     byTable.set(t, list)
   }
   const tables = objects
-    .map((o) => ({ name: String(o.name), kind: String(o.kind) as 'table' | 'view' }))
-    .filter((o) => !HIDDEN(o.name))
-    .map((o) => ({ ...o, columns: byTable.get(o.name) ?? [] }))
+    .filter((o) => !HIDDEN(String(o.name)))
+    .map((o) => ({
+      name: String(o.name),
+      // A multi-layer file's schema (user decision 2026-10-14); main and temp objects are named bare.
+      ...(String(o.schema) === 'main' ? {} : { schema: String(o.schema) }),
+      kind: String(o.kind) as 'table' | 'view',
+      columns: byTable.get(key(o.schema, o.name)) ?? [],
+    }))
 
   const fns = await rows(
     conn,

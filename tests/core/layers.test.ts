@@ -2,9 +2,9 @@
 // and named, and File Geodatabase detection. Listing runs in the real engine
 // in tests/web/specs/layers.spec.ts.
 import { describe, expect, it } from 'vitest'
-import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, mayHaveLayers, readLayerSql, type FileLayer } from '@spatial-explorer/core'
+import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, mayHaveLayers, readLayerSql, type FileLayer } from '@spatial-explorer/core'
 
-const L = (name: string, geometryType: FileLayer['geometryType']): FileLayer => ({ name, geometryType, geometryColumn: geometryType ? 'geom' : null, featureCount: 1, srid: 4326, sqlName: `"${name}"` })
+const L = (name: string, geometryType: FileLayer['geometryType']): FileLayer => ({ name, geometryType, geometryColumn: geometryType ? 'geom' : null, featureCount: 1, srid: 4326 })
 const layers = [L('lookup', null), L('roads', 'LineString'), L('parcels', 'Polygon')]
 
 describe('activeLayerOf', () => {
@@ -26,14 +26,6 @@ describe('reading a layer', () => {
     expect(mayHaveLayers('geopackage')).toBe(true)
     expect(mayHaveLayers('sqlite')).toBe(true)
     expect(mayHaveLayers('geojson')).toBe(false)
-  })
-  it('names that would shadow layer, an alias or internals are not views', () => {
-    const taken = new Set(['world'])
-    expect(layerViewSkipped('layer', taken)).toBe(true)
-    expect(layerViewSkipped('LAYER', taken)).toBe(true)
-    expect(layerViewSkipped('__se_bbox', taken)).toBe(true)
-    expect(layerViewSkipped('World', taken)).toBe(true)
-    expect(layerViewSkipped('roads', taken)).toBe(false)
   })
 })
 

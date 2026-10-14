@@ -39,8 +39,8 @@ test('a GeoPackage layer with ids that do not start at 1 opens, with its fid', a
   await expect(statusBar(page)).toContainText('EPSG:4326')
 
   // The other layers: ids 1..5 (GDAL's fast path) and 7, 9, 11 (no geometry, SQLite driver).
-  expect(await sql(page, 'SELECT list(fid ORDER BY fid) AS ids, count(geom) AS g FROM stops')).toEqual([{ ids: [1, 2, 3, 4, 5], g: 5 }])
-  expect(await sql(page, 'SELECT list(fid ORDER BY fid) AS ids, list(note ORDER BY fid) AS notes FROM notes')).toEqual([{ ids: [7, 9, 11], notes: ['note 7', 'note 9', 'note 11'] }])
+  expect(await sql(page, 'SELECT list(fid ORDER BY fid) AS ids, count(geom) AS g FROM gapped_ids.stops')).toEqual([{ ids: [1, 2, 3, 4, 5], g: 5 }])
+  expect(await sql(page, 'SELECT list(fid ORDER BY fid) AS ids, list(note ORDER BY fid) AS notes FROM gapped_ids.notes')).toEqual([{ ids: [7, 9, 11], notes: ['note 7', 'note 9', 'note 11'] }])
 })
 
 test('a GeoPackage with ids 1..N keeps the fast reader and gains its fid', async ({ page }) => {
@@ -65,11 +65,11 @@ test('a SQLite network (Cube 7 shape): nodes keep n, links and attribute tables 
   expect(await sql(page, 'SELECT list(n ORDER BY n) AS ids FROM layer')).toEqual([{ ids: [1, 2, 3, 10, 11, 12, 105, 106] }])
   expect(await sql(page, "SELECT n FROM layer WHERE nodename = 'node 105'")).toEqual([{ n: 105 }])
   // Links join to nodes by a/b (OGC_FID, GDAL's own id, is not added).
-  const joined = await sql(page, `SELECT count(*) AS n FROM cubedb__BY__link l JOIN layer f ON f.n = l.a JOIN layer t ON t.n = l.b
+  const joined = await sql(page, `SELECT count(*) AS n FROM cube_network.cubedb__by__link l JOIN layer f ON f.n = l.a JOIN layer t ON t.n = l.b
     WHERE ST_Distance(ST_StartPoint(l.geom), f.geom) < 0.001 AND ST_Distance(ST_EndPoint(l.geom), t.geom) < 0.001`)
   expect(joined).toEqual([{ n: 8 }])
-  expect((await sql(page, 'DESCRIBE cubedb__BY__link')).map((r) => r.column_name)).not.toContain('OGC_FID')
-  expect(await sql(page, 'SELECT list(mode ORDER BY mode) AS ids, list(name ORDER BY mode) AS names FROM cubedb__BY__transit_mode')).toEqual([
+  expect((await sql(page, 'DESCRIBE cube_network.cubedb__by__link')).map((r) => r.column_name)).not.toContain('OGC_FID')
+  expect(await sql(page, 'SELECT list(mode ORDER BY mode) AS ids, list(name ORDER BY mode) AS names FROM cube_network.cubedb__by__transit_mode')).toEqual([
     { ids: [4, 5, 6], names: ['Local bus', 'Core bus', 'Light rail'] },
   ])
 

@@ -16,6 +16,7 @@ import { registerSource, type RegisteredSource } from '../source/register.js'
 import type { WorkspaceResolution } from '../hostAdapter.js'
 import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { isDefaultQuery } from './resultModel.js'
+import { defaultQueryFor } from '../sql/names.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
@@ -226,7 +227,6 @@ function toViewFeature(row: Record<string, unknown>): Feature {
 export const SOURCE_TABLE = '__se_source'
 
 export class QuerySession {
-  readonly defaultQuery = DEFAULT_QUERY
   private inFlight: Promise<unknown> | null = null
   /** What holds the engine (EngineWorkKind). */
   private inFlightKind: EngineWorkKind | null = null
@@ -312,7 +312,7 @@ export class QuerySession {
       outcome = await this.exclusive(async (isCancelled): Promise<RunOutcome> => {
         if (policy.kind === 'query') {
           // The default query reads `layer` directly (spec 007 research §9): no copy, no scan.
-          if (isDefaultQuery(span.text, this.defaultQuery) && request.crsOverride === null) {
+          if ((isDefaultQuery(span.text, this.defaultQuery) || isDefaultQuery(span.text, DEFAULT_QUERY)) && request.crsOverride === null) {
             const result = defaultResult(this.table)
             this.facts = resultFacts(result, this.table, true)
             this.resultChanged()
@@ -461,9 +461,15 @@ export class QuerySession {
     return { rewritten: rewritePaths(text, new Set(this.wsRegistered.keys())) }
   }
 
+  /** The query showing the whole file, by the file's own name (`SELECT * FROM us_counties`). */
+  get defaultQuery(): string {
+    return defaultQueryFor(this.table.alias)
+  }
+
   /** Names users can't replace or drop (statement policy). */
   get protectedNames(): string[] {
-    return ['layer', ...(this.table.alias ? [this.table.alias] : [])]
+    const alias = this.table.alias && !this.table.schema ? [this.table.alias.replace(/^"|"$/g, '')] : []
+    return ['layer', ...alias]
   }
 
   get running(): boolean {
@@ -1550,7 +1556,8 @@ export class QuerySession {
     await drop(`DROP TABLE IF EXISTS ${RESULT_TABLE}`)
     await drop(`DROP VIEW IF EXISTS ${RESULT_TABLE}`)
     await drop(`DROP TABLE IF EXISTS ${RESULT_STAGING}`)
-    if (this.table.alias) await drop(`DROP VIEW IF EXISTS ${quoteIdent(this.table.alias)}`)
+    if (this.table.schema) await drop(`DROP SCHEMA IF EXISTS ${this.table.schema} CASCADE`)
+    else if (this.table.alias) await drop(`DROP VIEW IF EXISTS ${this.table.alias}`)
     await drop('DROP VIEW IF EXISTS layer')
     await drop('DROP VIEW IF EXISTS __se_layer')
     await drop('DROP TABLE IF EXISTS __se_bbox')

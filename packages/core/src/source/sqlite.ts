@@ -165,7 +165,7 @@ async function attributeTables(
     for (const name of names) {
       const count = await conn.query(`SELECT count(*) AS n FROM sqlite_scan(${quoteLiteral(path)}, ${quoteLiteral(name)})`)
       const rows = Number(count.toArray()[0]?.toJSON().n ?? 0)
-      tables.push({ name, geometryType: null, geometryColumn: null, featureCount: rows, srid: null, sqlName: quoteIdent(name) })
+      tables.push({ name, geometryType: null, geometryColumn: null, featureCount: rows, srid: null })
     }
     return tables
   } catch (err) {

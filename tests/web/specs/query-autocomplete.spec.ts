@@ -41,3 +41,17 @@ test('columns with types, spatial functions with docs, and temp tables are sugge
   await page.keyboard.press('Control+Space')
   await expect(list(page).locator('li', { hasText: '__se_' })).toHaveCount(0)
 })
+
+test("the file's own name is suggested; a multi-layer file's layers after its name and a dot", async ({ page }) => {
+  await openFile(page, fixture('three-layers.gpkg'))
+  await openQueryPanel(page)
+  await complete(page, 'SELECT * FROM ', 'three')
+  await expect(list(page).locator('.cm-completionLabel', { hasText: /^three_layers$/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await complete(page, 'SELECT * FROM ', 'three_layers.')
+  for (const name of ['countries', 'city_points', 'lookup_table']) await expect(list(page).locator('.cm-completionLabel', { hasText: new RegExp(`^${name}$`) })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Columns of a layer in the schema.
+  await complete(page, 'SELECT * FROM three_layers.city_points p WHERE p.', '')
+  await expect(list(page).locator('li').first()).toBeVisible()
+})

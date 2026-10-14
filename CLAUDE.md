@@ -52,6 +52,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   priority "option" for .geojson .csv .parquet .json (do not hijack text/data viewers).
 - Explorer/editor-tab context menu: "Open in Spatial Explorer" (gated on resourceExtname).
 - Folder-based formats (.gdb) cannot bind to a custom editor: use an explorer/context command.
+- SQL names (user decision 2026-10-14, packages/core/src/sql/names.ts): the open file is `layer` and also its own cleaned name (`us_counties`, `"2020_tracts"`); a multi-layer file's layers are views in a schema named after the file (`us_boundaries.counties`).
 - One layer on the map at a time (user decision 2026-10-12, spec 010). Multi-file work is SQL: a query names other workspace files by their path relative to the workspace root (`ST_Read('data/links.shp')`), and the result is drawn. The web app does the same with files the user adds.
 - Status bar items: CRS, feature count, cursor coordinates. Output channel for query logs/timings.
 - Works under Remote-SSH/WSL/Containers where possible; must not break on vscode.dev if avoidable.

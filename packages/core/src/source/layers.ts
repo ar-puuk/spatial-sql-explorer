@@ -2,12 +2,12 @@
 // GeoPackage (and any GDAL format with more than one layer) is listed with
 // ST_Read_Meta, which reads only the file's catalog (~50 ms): every layer's
 // name, feature count, geometry type and CRS, attribute-only tables included.
-// One layer is read as `layer`; the others are lazy views named after them,
-// read only when a query uses them. File Geodatabase has no driver in this
+// One layer is read as `layer`; every layer is a view in the file's schema
+// (`us_boundaries.counties`), the others read only when a query uses them. File Geodatabase has no driver in this
 // runtime (research §2): it is refused with a conversion hint.
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { GeometryType } from '../models.js'
-import { normalizeGeometryType, quoteIdent, quoteLiteral } from '../query/util.js'
+import { normalizeGeometryType, quoteLiteral } from '../query/util.js'
 
 export interface FileLayer {
   name: string
@@ -18,8 +18,6 @@ export interface FileLayer {
   featureCount: number | null
   /** EPSG code of the layer's geometry, when the file states one. */
   srid: number | null
-  /** The quoted SQL name of its lazy view. */
-  sqlName: string
 }
 
 /** A format GDAL may hold several layers in (ST_Read_Meta applies). */
@@ -69,7 +67,6 @@ export async function listLayers(conn: AsyncDuckDBConnection, path: string): Pro
       geometryColumn: hasGeometry && j.gname ? String(j.gname) : null,
       featureCount: j.n === null || j.n === undefined || Number(j.n) < 0 ? null : Number(j.n),
       srid: code !== null && Number.isFinite(code) ? code : null,
-      sqlName: quoteIdent(String(j.name)),
     }
   })
 }
@@ -86,10 +83,4 @@ export function activeLayerOf(layers: readonly FileLayer[], requested?: string):
 /** ST_Read of one layer of a registered file. */
 export function readLayerSql(path: string, layer: string | null): string {
   return layer === null ? `ST_Read(${quoteLiteral(path)})` : `ST_Read(${quoteLiteral(path)}, layer = ${quoteLiteral(layer)})`
-}
-
-/** Names that can't be layer views: `layer` itself, the alias, and internal names. */
-export function layerViewSkipped(name: string, taken: ReadonlySet<string>): boolean {
-  const lower = name.toLowerCase()
-  return lower === 'layer' || lower.startsWith('__se_') || taken.has(lower)
 }

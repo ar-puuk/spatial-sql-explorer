@@ -286,6 +286,8 @@ export interface ViewerStore {
   readonly catalog: CatalogSnapshot | null
   /** True when the editor holds edits that haven't run yet (Reset asks first). */
   readonly queryEdited: boolean
+  /** The query showing the whole file, by the file's own name. */
+  readonly defaultQuery: string
   /** FR-011: back to the view as opened: default query, rows, extent, style. */
   resetQuery(): Promise<void>
   cancelQuery(): Promise<void>
@@ -363,7 +365,7 @@ export interface ViewerStore {
   prewarm(): void
   load(): Promise<void>
   /** Spec 008 US3: the layers of a multi-layer file, and the one shown; empty for single-layer files. */
-  readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>
+  readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null; sqlName?: string }>
   /** Spec 010 phase 9: data files a query can name (VS Code: the workspace; web: the open file and added ones). */
   readonly workspaceFiles: ReadonlyArray<WorkspaceFile>
   /** Web: files can be added for queries (a picker or a drop). */
@@ -983,8 +985,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       .catch(() => {})
   }
 
+  /** The query showing the whole file, by the file's own name (`SELECT * FROM us_counties`). */
+  const defaultQuery = (): string => querySession?.defaultQuery ?? DEFAULT_QUERY
+
   function resetQueryState(): void {
-    queryText = DEFAULT_QUERY
+    queryText = defaultQuery()
     queryPhase = 'idle'
     queryStatus = ''
     queryError = null
@@ -1213,7 +1218,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
 
   // --- Spec 008 US3: layers of a multi-layer file -----------------------------
-  let fileLayers = $state.raw<ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>>([])
+  let fileLayers = $state.raw<ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null; sqlName?: string }>>([])
   let activeLayer = $state<string | null>(null)
   /** Each layer's style for this session (FR-016: switching back restores it). */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
@@ -1224,7 +1229,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (!target || !openedRef || name === activeLayer) return
     if (target.geometryType === null) {
       // A table without geometry can't be `layer`: show it as a result (the map dims, the table lists it).
-      queryText = `SELECT * FROM "${name.replace(/"/g, '""')}"`
+      queryText = `SELECT * FROM ${target.sqlName ?? `"${name.replace(/"/g, '""')}"`}`
       activeLayer = name
       await runQuery({ from: 0, to: queryText.length })
       return
@@ -1453,7 +1458,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return catalog
     },
     get queryEdited() {
-      return queryText !== DEFAULT_QUERY && queryText !== (lastRunText ?? DEFAULT_QUERY)
+      return queryText !== defaultQuery() && queryText !== (lastRunText ?? defaultQuery())
+    },
+    get defaultQuery() {
+      return defaultQuery()
     },
     async resetQuery() {
       if (queryPhase === 'running') await this.cancelQuery()

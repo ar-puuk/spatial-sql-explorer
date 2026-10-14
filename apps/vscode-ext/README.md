@@ -56,8 +56,9 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
     it saves OGC SLD or Mapbox GL style JSON. **Load…** imports any of the
     three.
 - **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to open
-  the query panel, and query the file as the table `layer` with DuckDB spatial
-  SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the selection.
+  the query panel, and query the file by its own name (`us-counties.parquet` is
+  `us_counties`, a GeoPackage's layers are `us_boundaries.counties`) or as
+  `layer`, with DuckDB spatial SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the selection.
   Results go to the map and the table. Autocomplete covers your columns and the
   spatial functions, errors are underlined where they happen, and recent
   queries are kept per file. A query can read **other files in the
@@ -81,7 +82,7 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 ## Query examples
 
 ```sql
--- Filter (the initial view is SELECT * FROM layer: the whole file)
+-- Filter (the initial view is SELECT * FROM <file name>: the whole file; `layer` is the same table)
 SELECT * FROM layer WHERE name LIKE 'S%';
 
 -- Measure: areas in the layer's own CRS units

@@ -87,6 +87,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   from 0.3.0 sidecars and saved states exactly as before. QML files also carry
   the whole style in a `spatialExplorer/style` property.
 - The Basemap button on the side rail shows a folded map (it showed a layer stack, which suggested a layer list).
+- SQL names the opened file by its own name: `us-counties.parquet` is
+  `us_counties` (lower case, other characters as `_`; quoted when it starts
+  with a digit or is a reserved word, as in `"2020_tracts"`). The default query
+  uses it. The layers of a GeoPackage or SQLite file are `<file>.<layer>`
+  (`us_boundaries.counties`, `us_boundaries.states`), and autocomplete offers
+  them after the dot. `layer` still works for the open file or layer.
 - Legend groups are headings (`h2`) and name their property when two would
   share a title; dashed lines show their gaps in swatches.
 

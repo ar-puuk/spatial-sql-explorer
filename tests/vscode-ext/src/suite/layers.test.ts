@@ -53,7 +53,7 @@ suite('Spec 008 US3: layers in VS Code', () => {
     const s = await waitFor((x) => x.layers.length === 3 && x.rowCount === 12, 'zones did not open')
     assert.strictEqual(s.activeLayer, 'zones')
     assert.strictEqual((await run('SELECT * FROM layer WHERE fid BETWEEN 101 AND 123'))?.rowCount, 12)
-    assert.strictEqual((await run('SELECT * FROM notes WHERE fid IN (7, 9, 11)'))?.rowCount, 3)
+    assert.strictEqual((await run('SELECT * FROM gapped_ids.notes WHERE fid IN (7, 9, 11)'))?.rowCount, 3)
   })
 
   test('a SQLite network (Cube 7 shape) opens with its node numbers and tables', async function () {
@@ -69,7 +69,7 @@ suite('Spec 008 US3: layers in VS Code', () => {
       ]
     )
     assert.strictEqual((await run('SELECT * FROM layer WHERE n IN (10, 105, 106)'))?.rowCount, 3)
-    assert.strictEqual((await run('SELECT l.* FROM cubedb__BY__link l JOIN layer f ON f.n = l.a'))?.rowCount, 8)
+    assert.strictEqual((await run('SELECT l.* FROM cube_network.cubedb__by__link l JOIN layer f ON f.n = l.a'))?.rowCount, 8)
   })
 
   test('a .gdb folder gets the "not supported" message with a conversion hint', async function () {

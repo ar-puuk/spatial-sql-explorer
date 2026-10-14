@@ -19,7 +19,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   from vector tiles the engine builds as you pan, with a "Load all" option.
   129 basemaps from 26 providers (keyed ones with your own key), a globe view,
   one search box for layer values, coordinates and places, and any source CRS.
-- **Query**: DuckDB spatial SQL against the file as the table `layer`, with
+- **Query**: DuckDB spatial SQL against the file by its own name
+  (`us-counties.parquet` is `us_counties`; a GeoPackage's layers are
+  `us_boundaries.counties`) or as `layer`, with
   autocomplete and inline errors; results replace the map and the table. A
   query can read other files too: workspace files by relative path in VS Code
   (`ST_Read('data/links.shp')`), added files on the web.

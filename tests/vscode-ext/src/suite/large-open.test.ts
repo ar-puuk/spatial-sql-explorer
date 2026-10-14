@@ -181,7 +181,7 @@ suite('Spec 007 US3: whole-result queries in VS Code', () => {
     this.timeout(120000)
     await openReady('parcels-10k.parquet')
     const initial = (await vscode.commands.executeCommand('spatialExplorer._getQueryState')) as { queryText?: string } | null
-    assert.strictEqual(initial?.queryText, 'SELECT * FROM layer')
+    assert.strictEqual(initial?.queryText, 'SELECT * FROM parcels_10k')
 
     const s = await run('SELECT * FROM layer WHERE value > 1000000')
     assert.strictEqual(s?.phase, 'succeeded', s?.errorMessage ?? s?.refusedReason ?? '')

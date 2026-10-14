@@ -87,7 +87,8 @@ export interface DatasetFacts {
    * in file order; absent for single-layer files. `activeLayer` names the
    * one opened as `layer`.
    */
-  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null }>
+  /** `sqlName`: what a query names the layer by (`us_boundaries.counties`). */
+  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null; sqlName?: string }>
   activeLayer?: string
   rows: number
   /** True only while a count is still pending. */
@@ -156,8 +157,13 @@ export const DEFAULT_QUERY = 'SELECT * FROM layer'
 export interface QueryableTable {
   /** Always `layer`. */
   name: 'layer'
-  /** The file's base name, when it's a valid identifier (e.g. `parcels`). */
+  /**
+   * The file's own name in SQL (fileSqlNames): `us_counties`, `"2020_tracts"`,
+   * or `us_boundaries.counties` for a layer of a multi-layer file. Null: only `layer`.
+   */
   alias: string | null
+  /** The schema holding a multi-layer file's layers (as SQL), or null. */
+  schema?: string | null
   columns: Array<{ name: string; type: string }>
   /** The file's original CRS. `geom` stays in it (FR-014). */
   crs: CrsInfo
@@ -183,7 +189,8 @@ export interface QueryHistoryEntry {
 }
 
 export interface CatalogSnapshot {
-  tables: Array<{ name: string; kind: 'table' | 'view'; columns: Array<{ name: string; type: string }> }>
+  /** `schema`: set for a multi-layer file's layers (`us_boundaries.counties`); absent for `main` and temp objects. */
+  tables: Array<{ name: string; schema?: string; kind: 'table' | 'view'; columns: Array<{ name: string; type: string }> }>
   functions: Array<{ name: string; signatures: string[]; description: string; spatial: boolean }>
   keywords: string[]
 }

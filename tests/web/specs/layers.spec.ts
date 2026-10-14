@@ -38,11 +38,12 @@ test('a GeoPackage with three layers: listed, switched, and queryable by name', 
   await expect(statusBar(page)).toContainText('179 features')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('categories')
 
-  // Every layer is a table in SQL.
+  // Every layer is a table in SQL, named <file>.<layer> (user decision 2026-10-14).
   await openQueryPanel(page)
-  await runQuery(page, 'SELECT count(*) AS n FROM "city points"')
+  await expect(page.getByRole('textbox', { name: 'SQL query' })).toHaveText('SELECT * FROM three_layers.countries')
+  await runQuery(page, 'SELECT count(*) AS n FROM three_layers.city_points')
   await expect(page.locator('.query-status')).toContainText('1 row')
-  await runQuery(page, 'SELECT * FROM lookup_table')
+  await runQuery(page, 'SELECT * FROM three_layers.lookup_table')
   expect(await rowCount(page)).toBe(3)
 })
 

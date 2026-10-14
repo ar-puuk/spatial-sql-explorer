@@ -3,11 +3,17 @@ import type { Completion, CompletionContext, CompletionResult, CompletionSource 
 import type { SQLNamespace } from '@codemirror/lang-sql'
 import type { CatalogSnapshot } from '@spatial-explorer/core'
 
-/** Table -> columns, with each column's type shown next to it. */
+/** Table -> columns, with each column's type shown next to it; a multi-layer file's layers under its schema. */
 export function schemaFromCatalog(catalog: CatalogSnapshot | null): SQLNamespace {
-  const schema: Record<string, Completion[]> = {}
+  const schema: Record<string, Completion[] | Record<string, Completion[]>> = {}
   for (const t of catalog?.tables ?? []) {
-    schema[t.name] = t.columns.map((c) => ({ label: c.name, type: 'property', detail: c.type }))
+    const columns = t.columns.map((c) => ({ label: c.name, type: 'property', detail: c.type }))
+    if (!t.schema) schema[t.name] = columns
+    else {
+      const inner = schema[t.schema]
+      const layers = inner && !Array.isArray(inner) ? inner : (schema[t.schema] = {})
+      layers[t.name] = columns
+    }
   }
   return schema
 }

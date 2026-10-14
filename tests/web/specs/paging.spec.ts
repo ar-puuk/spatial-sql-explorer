@@ -26,7 +26,7 @@ test('a result over the materialize cap: exact count, every row in the table, wh
   test.setTimeout(180000)
   await openFixture(page, 'parcels-10k.parquet', '?e2e=1&materializeCap=4000&jenksSample=2000')
   await openQueryPanel(page)
-  await expect(editor(page)).toHaveText('SELECT * FROM layer')
+  await expect(editor(page)).toHaveText('SELECT * FROM parcels_10k')
 
   const [{ n }] = await raw(page, 'SELECT count(*) AS n FROM layer WHERE value > 1000000')
   expect(n).toBe(FILTERED_ROWS)

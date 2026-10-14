@@ -23,7 +23,8 @@ import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
 import { planSqliteSource } from './source/sqlite.js'
-import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, layerViewSkipped, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
+import { fileSqlNames, RESERVED_NAMES_SQL, type FileSqlNames } from './sql/names.js'
+import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -235,14 +236,11 @@ async function detectSourceSrid(conn: AsyncDuckDBConnection, vfsPath: string, st
  */
 const MATERIALIZE_MAX_BYTES = 64 * 1024 * 1024
 
-/** A file name usable as an unquoted SQL alias for `layer` (e.g. `parcels`). */
-async function aliasFor(conn: AsyncDuckDBConnection, primaryFileName: string): Promise<string | null> {
-  const base = primaryFileName.replace(/\.[^.]+$/, '')
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) return null
-  const lower = base.toLowerCase()
-  if (lower === 'layer' || lower.startsWith('__se_')) return null
-  const kw = await conn.query(`SELECT count(*) AS n FROM duckdb_keywords() WHERE keyword_name = '${lower}'`)
-  return Number(kw.toArray()[0]?.toJSON().n ?? 0) > 0 ? null : base
+/** The file's SQL names (user decision 2026-10-14): `us_counties`, or `us_boundaries.counties` per layer. */
+async function sqlNamesFor(conn: AsyncDuckDBConnection, fileName: string, layers: readonly FileLayer[] | null, active: FileLayer | null): Promise<FileSqlNames> {
+  const res = await conn.query(RESERVED_NAMES_SQL)
+  const reserved = new Set(res.toArray().map((r) => String(r.toJSON().k).toLowerCase()))
+  return fileSqlNames(fileName, layers ? layers.map((l) => l.name) : null, active?.name ?? null, reserved)
 }
 
 /** How to open (spec 007 T044). */
@@ -417,10 +415,11 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     const multi = layers.length > 1
     const active = layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
+    const names = await sqlNamesFor(conn, source.name, multi ? layers : null, active)
     const ctx: ModeContext = {
       conn,
       path: registered.primaryPath,
-      name: source.name,
+      names,
       hostAdapter,
       ref,
       hooks,
@@ -451,7 +450,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // Spec 010: a big file's default view is drawn as tiles whatever its rows (TILE_BYTES).
     session.setFileBytes(source.size)
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
-    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, table.alias ?? null, readers)
+    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -473,7 +472,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       loadTimings: timings,
       facts: {
         ...factsOf(table, opened, mode.mode, fallback),
-        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount })), activeLayer: active.name } : {}),
+        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name) })), activeLayer: active.name } : {}),
       },
     }
     hooks.onPhase?.('ready', detail)
@@ -507,7 +506,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
 interface ModeContext {
   conn: AsyncDuckDBConnection
   path: string
-  name: string
+  /** What queries name the file by. */
+  names: FileSqlNames
   hostAdapter: HostAdapter
   ref: OpenedFileRef
   hooks: OpenHooks
@@ -521,18 +521,15 @@ interface ModeContext {
 }
 
 /**
- * Spec 008 FR-017: every other layer of the file as a view named after it,
- * read only when a query uses it. Names that would shadow `layer`, the
- * file's alias or an internal name are skipped (and logged by nobody: the
- * layer list still shows them).
+ * Spec 008 FR-017: every other layer of the file as a view in the file's
+ * schema (`us_boundaries.states`), read only when a query uses it.
  */
-async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layers: readonly FileLayer[], active: FileLayer | null, alias: string | null, readers: ReadonlyMap<string, string>): Promise<void> {
-  const taken = new Set<string>(alias ? [alias.toLowerCase()] : [])
+async function createLayerViews(conn: AsyncDuckDBConnection, path: string, layers: readonly FileLayer[], active: FileLayer | null, names: FileSqlNames, readers: ReadonlyMap<string, string>): Promise<void> {
   for (const l of layers) {
-    if (l === active || layerViewSkipped(l.name, taken)) continue
-    taken.add(l.name.toLowerCase())
+    const name = names.layers.get(l.name)
+    if (l === active || !name) continue
     // DuckDB 1.5's ST_Read returns GDAL's synthetic OGC_FID; `layer` drops it (openWhole), and so do these.
-    await conn.query(`CREATE OR REPLACE VIEW ${l.sqlName} AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ${readers.get(l.name) ?? readLayerSql(path, l.name)}`)
+    await conn.query(`CREATE OR REPLACE VIEW ${name} AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ${readers.get(l.name) ?? readLayerSql(path, l.name)}`)
   }
 }
 
@@ -587,10 +584,11 @@ async function describeLayer(conn: AsyncDuckDBConnection): Promise<QueryableTabl
   })
 }
 
-async function createAlias(conn: AsyncDuckDBConnection, name: string): Promise<string | null> {
-  const alias = await aliasFor(conn, name)
-  if (alias) await conn.query(`CREATE OR REPLACE VIEW ${quoteIdent(alias)} AS SELECT * FROM layer`)
-  return alias
+/** The file's own name for `layer` (in its schema, for a multi-layer file). */
+async function createAlias(conn: AsyncDuckDBConnection, names: FileSqlNames): Promise<string | null> {
+  if (names.schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS ${names.schema}`)
+  if (names.alias) await conn.query(`CREATE OR REPLACE VIEW ${names.alias} AS SELECT * FROM layer`)
+  return names.alias
 }
 
 /** The geometry column's name in `layer`: `geom`, unless an attribute already uses it. */
@@ -611,7 +609,7 @@ async function openParquetInParts(ctx: ModeContext): Promise<OpenedTable> {
   const src = { kind: 'parquet' as const, path: ctx.path, attrs, geomExpr: pf.geomExpr, geomName, covering: pf.covering }
   await conn.query(internalLayerViewSql(src))
   await conn.query(publicLayerViewSql(src))
-  const alias = await createAlias(conn, ctx.name)
+  const alias = await createAlias(conn, ctx.names)
   const crs = resolveCrsInfo(pf.srid)
 
   let sourceExtent = pf.sourceExtent
@@ -642,6 +640,7 @@ async function openParquetInParts(ctx: ModeContext): Promise<OpenedTable> {
   const table: QueryableTable = {
     name: 'layer',
     alias,
+    schema: ctx.names.schema,
     columns: await describeLayer(conn),
     crs: crs.crs,
     crsAssumed: crs.assumed,
@@ -696,7 +695,7 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<Open
   const src = { kind: 'table' as const, table: SOURCE_TABLE, attrs, geomExpr: g0, geomName }
   await conn.query(internalLayerViewSql(src))
   await conn.query(publicLayerViewSql(src))
-  const alias = await createAlias(conn, ctx.name)
+  const alias = await createAlias(conn, ctx.names)
 
   // Whole-file metadata in one scan (FR-006): totals, extent in the source
   // CRS (for result-CRS detection) and in WGS84 (for the initial fit), and
@@ -728,6 +727,7 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<Open
   const table: QueryableTable = {
     name: 'layer',
     alias,
+    schema: ctx.names.schema,
     columns: await describeLayer(conn),
     crs: crs.crs,
     crsAssumed: crs.assumed,
