@@ -128,3 +128,18 @@ test('the session reports which result is displayed (default view, query, Reset)
   await expect.poll(async () => (await facts()).defaultView).toBe(true)
 })
 
+test('the copy button at the top right of the editor copies the query', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await openFile(page, fixture('world-boundaries.geojson'))
+  await openQueryPanel(page)
+  await setQuery(page, "SELECT name FROM layer WHERE name LIKE 'U%'")
+  const copy = queryPanel(page).getByRole('button', { name: 'Copy the query' })
+  // Top right of the editor.
+  const [b, e] = [await copy.boundingBox(), await editor(page).boundingBox()]
+  expect(b!.y - e!.y).toBeLessThan(12)
+  expect(e!.x + e!.width - (b!.x + b!.width)).toBeLessThan(24)
+  await copy.click()
+  await expect(queryPanel(page).getByRole('button', { name: 'Query copied' })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("SELECT name FROM layer WHERE name LIKE 'U%'")
+  await expect(queryPanel(page).getByRole('button', { name: 'Copy the query' })).toBeVisible()
+})

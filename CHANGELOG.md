@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A Copy button at the top right of the SQL editor copies the query.
 - **Heatmap style** for points.
   - Shows where points cluster, as a smooth density surface. Zero density is
     transparent, and the densest areas take the ramp's last color.

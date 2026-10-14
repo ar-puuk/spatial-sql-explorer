@@ -42,6 +42,20 @@
     if (refocus) historyButton?.focus()
   }
 
+  /** The query was just copied: the button shows a check for a moment. */
+  let copied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  async function copyQuery(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(store.queryText)
+    } catch {
+      return
+    }
+    copied = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied = false), 1500)
+  }
+
   function reset(): void {
     if (store.queryEdited && !confirmReset) {
       confirmReset = true
@@ -195,6 +209,16 @@
         {completionSources}
         placeholderText={store.defaultQuery}
       />
+      <button
+        type="button"
+        class="icon-button copy"
+        onclick={() => void copyQuery()}
+        title={copied ? 'Copied' : 'Copy the query'}
+        aria-label={copied ? 'Query copied' : 'Copy the query'}
+        disabled={!store.queryText.trim()}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={14} />
+      </button>
     </div>
     <footer>
       <div class="query-status" role="status" aria-live="polite" class:error={store.queryPhase === 'failed'} class:refused={store.queryPhase === 'refused'}>
@@ -376,8 +400,22 @@
     display: none;
   }
   .editor {
+    position: relative;
     flex: 1;
     min-height: 60px;
+  }
+  /* Top right of the editor, over its text: a backdrop keeps it readable. */
+  .copy {
+    position: absolute;
+    top: 4px;
+    right: 14px;
+    z-index: 1;
+    background: var(--se-sql-bg, var(--se-bg-base));
+    opacity: 0.85;
+  }
+  .copy:hover,
+  .copy:focus-visible {
+    opacity: 1;
   }
   footer {
     display: flex;
