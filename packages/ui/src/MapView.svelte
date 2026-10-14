@@ -27,13 +27,17 @@
     markerIconIds,
     drawsMarkerIcons,
     layerFilters,
+    labelFeatures,
     labelLayers,
+    TILE_LABEL_LAYER,
+    TILE_LAYER,
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
     type Feature,
     type Layer,
     type LayerStyle,
+    type LabelPoint,
     type MapData,
     type ResolvedStyle,
     EXTRUSION_PITCH,
@@ -50,6 +54,8 @@
     layer: Layer | null
     /** Spec 010 GeoJSON mode: every feature of the result, drawn from memory. */
     mapData: MapData | null
+    /** GeoJSON mode, labels on: polygons' label points for mapData (one label each), once the engine has read them. */
+    labelPoints?: readonly LabelPoint[] | null
     /** Spec 010 tiles mode: the engine's vector tiles (`se-tiles://…/{z}/{x}/{y}`). */
     tileUrl: string | null
     /** Tiles mode: the selected feature, fetched by id, drawn as the selection overlay (FR-008). */
@@ -101,6 +107,7 @@
   let {
     layer,
     mapData,
+    labelPoints = null,
     tileUrl,
     extraFeature = null,
     drawLoading = false,
@@ -146,6 +153,8 @@
   /** MapLibre's workers (its default is one outside Safari). */
   const MAP_WORKERS = 2
   /** Tiles mode: the selected feature's geometry, fetched by id (a tile may clip it, or not hold it). */
+  /** GeoJSON mode: polygons' label points (one label each), filled only while labels are on. */
+  const LABEL_SOURCE = 'se-labels'
   const SELECTION_SOURCE = 'se-selection'
   const SELECTION_HALO = 'se-selection-halo'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
@@ -201,12 +210,16 @@
     // Spec 011 US6: labels, above everything (on the ground in 3D: research §3); not interactive.
     { id: 'label', type: 'symbol', filter: ['any', POINT, POLYGON] },
     { id: 'label-line', type: 'symbol', filter: LINE },
+    // Polygons' labels, over their label points (the engine's: one per feature); PMTiles have none, `label` takes them there.
+    { id: 'label-area', type: 'symbol', filter: true },
   ]
-  const LABEL_DEFS = new Set(['label', 'label-line'])
+  const LABEL_DEFS = new Set(['label', 'label-line', 'label-area'])
+  /** A label point shows while its polygon isn't a dot (__se_dotz, GeoJSON mode; tiles send none for dots). */
+  const AREA_LABEL_SHOWN = ['>=', ['zoom'], ['coalesce', ['get', '__se_dotz'], 0]]
 
   /** Spec 011 US6: a label layer's filter, layout and paint now (null: labels off). */
   function labelSpec(id: string) {
-    return labelLayers(style, resolved)?.[id as 'label' | 'label-line'] ?? null
+    return labelLayers(style, resolved, !styledTiles)?.[id as 'label' | 'label-line' | 'label-area'] ?? null
   }
 
   /**
@@ -244,10 +257,16 @@
   /** The engine tile URL the data source was built for (null: GeoJSON or PMTiles). */
   let styledTileUrl: string | null = null
   function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string; source?: string }> {
-    if (styledTiles) return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.map((def) => ({ id: `se-${def.id}::${sourceLayer}`, def, sourceLayer })))
-    if (styledTileUrl) return LAYER_DEFS.map((def) => ({ id: `se-${def.id}`, def, sourceLayer: 'data' }))
-    // GeoJSON mode: the circle layer once more, over the dots' own source.
-    return LAYER_DEFS.flatMap((def) => (def.id === 'circle' ? [{ id: 'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }] : [{ id: `se-${def.id}`, def }]))
+    if (styledTiles) return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.filter((def) => def.id !== 'label-area').map((def) => ({ id: `se-${def.id}::${sourceLayer}`, def, sourceLayer })))
+    if (styledTileUrl) return LAYER_DEFS.map((def) => ({ id: `se-${def.id}`, def, sourceLayer: def.id === 'label-area' ? TILE_LABEL_LAYER : TILE_LAYER }))
+    // GeoJSON mode: the circle layer once more, over the dots' own source; polygons' labels over theirs.
+    return LAYER_DEFS.flatMap((def) =>
+      def.id === 'circle'
+        ? [{ id: 'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }]
+        : def.id === 'label-area'
+          ? [{ id: 'se-label-area', def, source: LABEL_SOURCE }]
+          : [{ id: `se-${def.id}`, def }]
+    )
   }
   function interactiveLayers(): string[] {
     return layerInstances()
@@ -269,6 +288,7 @@
   const CLUSTER_DEFS = new Set(['cluster', 'cluster-count'])
   function baseFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     // Dots standing in for features too small to see (option C) get no label.
+    if (def.id === 'label-area') return ['all', labelSpec(def.id)?.filter ?? def.filter, AREA_LABEL_SHOWN]
     if (LABEL_DEFS.has(def.id)) return ['all', labelSpec(def.id)?.filter ?? def.filter, ['!', DOT]]
     const hidden = visibilityFilter(style, resolved)
     const extra = layerFilters(style, resolved)
@@ -343,6 +363,7 @@
   function applyPaint(): void {
     if (!map || !mapReady) return
     applyClusters(map)
+    applyLabelData(map)
     if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
     const p = paintFor(style, resolved, selectionColor(), layerLatitude())
     const layouts = layoutFor(style, resolved)
@@ -412,17 +433,34 @@
     return { type: 'FeatureCollection', features: (d as Partial<MapData>).dots ?? [] }
   }
 
-  /** GeoJSON mode: new data for the features and their dots. */
+  /** GeoJSON mode: polygons' label points while labels are on (sent only then: labels off cost nothing). */
+  let labelsSent: readonly LabelPoint[] | null = null
+  function labelData(d: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+    labelsSent = labelSpec('label-area') && d === mapData ? labelPoints : null
+    return { type: 'FeatureCollection', features: labelsSent ? labelFeatures(d.features, labelsSent) : [] }
+  }
+
+  /** GeoJSON mode: new data for the features, their dots and label points. */
   function setSourceData(m: MapLibreMap, d: GeoJSON.FeatureCollection): void {
     ;(m.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(d)
     ;(m.getSource(DOT_SOURCE) as GeoJSONSource | undefined)?.setData(dotData(d))
+    ;(m.getSource(LABEL_SOURCE) as GeoJSONSource | undefined)?.setData(labelData(d))
+  }
+
+  /** Labels turned on or off: the label points follow (the layer itself is never reloaded). */
+  function applyLabelData(m: MapLibreMap): void {
+    const source = m.getSource(LABEL_SOURCE) as GeoJSONSource | undefined
+    const want = labelSpec('label-area') && currentData === mapData ? labelPoints : null
+    if (source && want !== labelsSent) source.setData(labelData(currentData))
   }
 
   /** Our sources: the data (and in GeoJSON mode its dots), and the tiles-mode selection overlay. */
   function dataSources(): Record<string, unknown> {
     return {
       [SOURCE_ID]: dataSource(),
-      ...(styledTiles || styledTileUrl ? {} : { [DOT_SOURCE]: { type: 'geojson', data: dotData(currentData), promoteId: ID_PROP } }),
+      ...(styledTiles || styledTileUrl
+        ? {}
+        : { [DOT_SOURCE]: { type: 'geojson', data: dotData(currentData), promoteId: ID_PROP }, [LABEL_SOURCE]: { type: 'geojson', data: labelData(currentData), promoteId: ID_PROP } }),
       [SELECTION_SOURCE]: { type: 'geojson', data: selectionData() },
     }
   }
@@ -430,7 +468,7 @@
   /** Our data source for the current mode: PMTiles, the engine's tiles (spec 010), or GeoJSON. */
   function dataSource(): Record<string, unknown> {
     if (styledTiles) return { type: 'vector', url: styledTiles.url }
-    if (styledTileUrl) return { type: 'vector', tiles: [styledTileUrl], minzoom: 0, maxzoom: 14, promoteId: { data: ID_PROP } }
+    if (styledTileUrl) return { type: 'vector', tiles: [styledTileUrl], minzoom: 0, maxzoom: 14, promoteId: { [TILE_LAYER]: ID_PROP, [TILE_LABEL_LAYER]: ID_PROP } }
     // geojson-vt drops features under its tolerance at low zoom; their dots (option C) keep them visible.
     appliedClusters = JSON.stringify(clusterSourceOptions(style, resolved))
     return { type: 'geojson', data: currentData, promoteId: ID_PROP, ...clusterSourceOptions(style, resolved) }
@@ -467,7 +505,7 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, DOT_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
+    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
     for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
@@ -970,6 +1008,13 @@
       delete container.dataset.renderedFeatures
     delete container.dataset.renderedLabels
     }
+  })
+
+  // GeoJSON mode: the label points arrive (labels on) after their drawing.
+  $effect(() => {
+    void labelPoints
+    const m = map
+    if (mapReady && m) untrack(() => applyLabelData(m))
   })
 
   // GeoJSON mode: the one setData per new result (spec 010: never per pan).

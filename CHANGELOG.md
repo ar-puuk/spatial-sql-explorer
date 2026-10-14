@@ -95,6 +95,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Labels: one per polygon.** A polygon made of several parts (Canada,
+  Indonesia) is labeled once, on its largest part, as QGIS does by default;
+  a big polygon spread over several map tiles no longer repeats its label in
+  each. The label sits at the polygon's representative point (always inside
+  it), which the engine computes only while labels are on.
 - Web app header: Copy link and Open file (now the primary button) are
   grouped, and a divider sets them apart from the theme menu and a new link
   to the source code on GitHub.

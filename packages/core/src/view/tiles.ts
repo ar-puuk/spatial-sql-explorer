@@ -7,9 +7,16 @@ import { quoteIdent } from '../query/util.js'
 import { candidates, hiddenOverlap, validGeometry, type ViewTarget } from './viewport.js'
 import { TILE_FEATURE_LIMIT } from './drawMode.js'
 import { DOT_PROP } from '../style/expressions.js'
+import { LABEL_POINT, labelPointSql } from './labelPoint.js'
 
 /** The MVT layer name every engine tile uses (MapLibre `source-layer`). */
 export const TILE_LAYER = 'data'
+
+/** The MVT layer of polygons' label points (labelPoint.ts), in tiles drawn while labels are on. */
+export const TILE_LABEL_LAYER = 'labels'
+
+/** MVT tile coordinates (ST_AsMVTGeom's default extent). */
+const EXTENT = 4096
 
 /** WGS84 bounds of an XYZ tile (standard slippy-map math). */
 export function tileBoundsWgs84(z: number, x: number, y: number): Bbox {
@@ -56,8 +63,30 @@ function tileValue(a: TileAttr): string {
  * `__se_dot` (user decision 2026-10-13, option C): ST_AsMVTGeom would drop it,
  * and a map of small parcels would be sparse at its overview.
  */
-export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[], cluster: TileClusters | null = null): string {
-  if (cluster && z <= cluster.maxZoom) return clusteredTileSql(t, z, x, y, box, attrs, cluster)
+export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[], cluster: TileClusters | null = null, labels = false): string {
+  const data = cluster && z <= cluster.maxZoom ? clusteredTileSql(t, z, x, y, box, attrs, cluster) : plainTileSql(t, z, x, y, box, attrs)
+  if (!labels) return data
+  // Two layers in one tile: their encodings joined (a tile is a list of layers).
+  return `SELECT coalesce((${data}), ''::BLOB) || coalesce((${labelTileSql(t, z, x, y, box, attrs)}), ''::BLOB) AS tile`
+}
+
+/**
+ * The tile's `labels` layer: one point per polygon, at its label point, in the
+ * one tile that holds it (a polygon spread over many tiles is labeled once).
+ * Polygons under ~2 px are dots and get no label.
+ */
+function labelTileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[]): string {
+  const g = t.geom
+  const span = num((box[2] - box[0]) / 256)
+  const [x0, y0, x1, y1] = t.index === 'columns' ? ['__se_xmin', '__se_ymin', '__se_xmax', '__se_ymax'] : [`ST_XMin(${g})`, `ST_YMin(${g})`, `ST_XMax(${g})`, `ST_YMax(${g})`]
+  const near = t.index === 'bbox-table' ? `__se_rowid IN (SELECT rn FROM (${candidates(t, box)}))` : hiddenOverlap(box)
+  const polygons = `SELECT * FROM ${t.relation} WHERE ${near} AND ${validGeometry(t.geom, t.allValid)} AND ST_Dimension(${g}) = 2 AND NOT (${x1} - ${x0} < ${span} AND ${y1} - ${y0} < ${span}) LIMIT ${TILE_FEATURE_LIMIT}`
+  const placed = `SELECT *, ST_AsMVTGeom(${toWebMercatorSql(LABEL_POINT, t.srid)}, ST_Extent(ST_TileEnvelope(${z}, ${x}, ${y}))) AS __lg FROM (${labelPointSql(polygons, g)})`
+  const struct = [`'__id': __se_rowid`, ...attrs.map((a) => `'${a.name.replace(/'/g, "''")}': ${tileValue(a)}`), `'geometry': __lg`]
+  return `SELECT ST_AsMVT({${struct.join(', ')}}, '${TILE_LABEL_LAYER}') FROM (${placed}) WHERE __lg IS NOT NULL AND ST_X(__lg) >= 0 AND ST_X(__lg) < ${EXTENT} AND ST_Y(__lg) >= 0 AND ST_Y(__lg) < ${EXTENT}`
+}
+
+function plainTileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[]): string {
   const g = t.geom
   // 2 px of a 512 px tile, in the layer's units.
   const span = num((box[2] - box[0]) / 256)
@@ -81,8 +110,6 @@ export interface TileClusters {
   maxZoom: number
 }
 
-/** MVT tile coordinates (ST_AsMVTGeom's default extent). */
-const EXTENT = 4096
 
 /**
  * A tile with its points grouped (clusters, the tiles counterpart of

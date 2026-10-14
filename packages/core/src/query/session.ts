@@ -56,6 +56,7 @@ import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
+import { labelPointsSql, type LabelPoint } from '../view/labelPoint.js'
 import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
@@ -1353,8 +1354,21 @@ export class QuerySession {
     }, 'background')
   }
 
-  /** Spec 010 tiles mode: one MVT tile of the displayed result. Empty tiles are a 0-byte array. */
-  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = [], cluster: TileClusters | null = null): Promise<Uint8Array> {
+  /** GeoJSON mode, labels on: every polygon's one label point (labelPoint.ts). Background work, as allFeatures. */
+  async labelPoints(): Promise<LabelPoint[]> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.viewTarget()
+      if (!target) return []
+      const points: LabelPoint[] = []
+      await streamRows(this.conn, labelPointsSql(target), isCancelled, (batch) => {
+        for (const r of batch) points.push([Number(r.__se_rowid), Number(r.x), Number(r.y), Number(r.dotz)])
+      })
+      return points
+    }, 'background')
+  }
+
+  /** Spec 010 tiles mode: one MVT tile of the displayed result (with `labels`, its polygons' label points too). Empty tiles are a 0-byte array. */
+  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = [], cluster: TileClusters | null = null, labels = false): Promise<Uint8Array> {
     return this.exclusive(async (isCancelled) => {
       const delay = testOverrides().slowTileMs
       if (delay) await new Promise((r) => setTimeout(r, delay))
@@ -1369,7 +1383,7 @@ export class QuerySession {
       const columns = this.facts?.columns ?? this.table.columns
       const typeOf = (name: string): string => computed.find((c) => c.name === name)?.type ?? columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
       const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: typeOf(name) }))
-      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed, cluster), isCancelled)
+      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed, cluster, labels), isCancelled)
       return row.tile ?? new Uint8Array(0)
     }, 'tile')
   }

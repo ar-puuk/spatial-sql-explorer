@@ -94,6 +94,19 @@ describe('label layers (spec 011 US6)', () => {
     expect(evaluate(L['label-line'].filter, { name: 'Main St' }, 'Point', FILTER_SPEC)).toBe(false)
   })
 
+  it("with the engine's label points, polygons are labeled once, from their point, and the point layer takes points only", () => {
+    const s = setLabels(on(), { placement: { anchor: 'right', offset: 6 } })
+    const L = labelLayers(s, resolveStyle(s, layer), true)!
+    expect(evaluate(L.label.filter, { name: 'X' }, 'Point', FILTER_SPEC)).toBe(true)
+    expect(evaluate(L.label.filter, { name: 'X' }, 'Polygon', FILTER_SPEC)).toBe(false)
+    expect(L['label-area']!.layout['text-anchor']).toBe('center')
+    expect(evaluate(L['label-area']!.filter, { name: 'X' }, 'Point', FILTER_SPEC)).toBe(true)
+    expect(evaluate(L['label-area']!.filter, { name: '' }, 'Point', FILTER_SPEC)).toBe(false)
+    expect(L.label.layout['text-anchor']).toBe('left')
+    // Without them (PMTiles, the Mapbox GL file), polygons stay on the point layer.
+    expect(labelLayers(s, resolveStyle(s, layer))!['label-area']).toBeUndefined()
+  })
+
   it('no halo is width 0; empty and missing text get no label', () => {
     const s = setLabels(on(), { halo: { enabled: false } })
     const L = labelLayers(s, resolveStyle(s, layer))!

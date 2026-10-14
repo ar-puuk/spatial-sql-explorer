@@ -172,3 +172,36 @@ test('tiles mode: labels from a column and from an expression draw from the engi
   expect(String(props?.__se_lbl)).toMatch(/^County \d+ \d+$/)
   await page.screenshot({ path: info.outputPath('tiles.png') })
 })
+
+/** A country of three islands (one MultiPolygon) and one wide polygon that spans several map tiles. */
+function islands(): string {
+  const square = (x: number, y: number, s: number) => [[[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]]]
+  const features = [
+    { type: 'Feature', properties: { name: 'Islands' }, geometry: { type: 'MultiPolygon', coordinates: [square(-112, 40, 1.6), square(-108, 43, 1), square(-104, 39, 1)] } },
+    { type: 'Feature', properties: { name: 'Wide' }, geometry: { type: 'Polygon', coordinates: square(-112, 34, 3).map((r) => r.map(([x, y]) => [x === -112 ? x : x + 7, y])) } },
+  ]
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-labels-')), 'islands.geojson')
+  fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features }))
+  return file
+}
+
+for (const mode of ['GeoJSON', 'engine tiles'] as const) {
+  test(`${mode}: one label per polygon, however many parts or tiles it has (user report)`, async ({ page }, info) => {
+    test.setTimeout(120000)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openFile(page, islands(), mode === 'GeoJSON' ? '?e2e=1' : '?e2e=1&tileRows=1')
+    await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+    await blank(page)
+    await openLabels(page)
+    await side(page).getByRole('checkbox', { name: 'Show labels' }).check()
+    await page.getByRole('button', { name: 'Zoom to layer' }).click()
+    const placed = () => host(page).evaluate((el) => (el as HTMLElement & { seLabels: () => Array<{ id: unknown }> }).seLabels().map((l) => Number(l.id)).sort())
+    // Row ids 0 and 1: each labeled exactly once.
+    await expect.poll(placed, { timeout: 20000 }).toEqual([0, 1])
+    // Zoomed in, the wide polygon covers several tiles: still one label.
+    await page.getByRole('button', { name: 'Zoom in' }).click()
+    await page.getByRole('button', { name: 'Zoom in' }).click()
+    await expect.poll(async () => (await placed()).filter((id) => id === 1).length, { timeout: 20000 }).toBe(1)
+    await page.screenshot({ path: info.outputPath('one-label.png') })
+  })
+}

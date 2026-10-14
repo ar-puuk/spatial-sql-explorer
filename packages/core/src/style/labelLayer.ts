@@ -3,12 +3,14 @@
 // point, polygons centered at their label point) and `label-line` (along the
 // lines, never upside down). Both skip features the legend hides, and labels
 // never overlap (MapLibre's collision detection drops the ones that would).
+// Where the engine gives polygons one label point each (view/labelPoint.ts),
+// a third, `label-area`, draws polygons' labels from those points, centered.
 import { LABEL_COLUMN } from './channels.js'
 import { visibilityFilter } from './expressions.js'
 import type { LabelAnchor, LabelSettings } from './labels.js'
 import type { LayerStyle, ResolvedStyle } from './model.js'
 
-export type LabelLayerId = 'label' | 'label-line'
+export type LabelLayerId = 'label' | 'label-line' | 'label-area'
 
 export interface LabelLayerSpec {
   filter: unknown
@@ -53,11 +55,12 @@ export function drawsLabels(style: LayerStyle, resolved: ResolvedStyle | null): 
 }
 
 /**
- * Both label layers' filter, layout and paint, or null when labels are off.
+ * The label layers' filter, layout and paint, or null when labels are off.
  * Features hidden through the legend (`visibilityFilter`) get no label, and
- * empty text draws nothing.
+ * empty text draws nothing. With `areaPoints`, polygons are labeled by
+ * `label-area`, over their label points, and `label` takes points only.
  */
-export function labelLayers(style: LayerStyle, resolved: ResolvedStyle): Record<LabelLayerId, LabelLayerSpec> | null {
+export function labelLayers(style: LayerStyle, resolved: ResolvedStyle, areaPoints = false): ({ label: LabelLayerSpec; 'label-line': LabelLayerSpec; 'label-area'?: LabelLayerSpec }) | null {
   const l = style.labels
   if (!l || !drawsLabels(style, resolved)) return null
   const hidden = visibilityFilter(style, resolved)
@@ -80,6 +83,12 @@ export function labelLayers(style: LayerStyle, resolved: ResolvedStyle): Record<
   }
   const anchor = l.placement.kind === 'point' ? l.placement.anchor : 'above'
   const offset = l.placement.kind === 'point' ? l.placement.offset : 0
+  if (areaPoints)
+    return {
+      label: { filter: filterOf(POINTS), layout: { ...shared, 'text-anchor': ANCHOR[anchor], 'text-offset': ['literal', labelOffset(anchor, offset, l.size)], 'symbol-placement': 'point' }, paint },
+      'label-area': { filter: filterOf(true), layout: { ...shared, 'text-anchor': 'center', 'symbol-placement': 'point' }, paint },
+      'label-line': lineLabel(shared, paint, filterOf(LINES)),
+    }
   return {
     label: {
       filter: filterOf(['any', POINTS, POLYGONS]),
@@ -92,11 +101,15 @@ export function labelLayers(style: LayerStyle, resolved: ResolvedStyle): Record<
       },
       paint,
     },
-    'label-line': {
-      filter: filterOf(LINES),
-      // Just above the line (QGIS's default, "Above line"): on it, the line shows through each word gap, where no glyph has a halo.
-      layout: { ...shared, 'symbol-placement': 'line', 'text-keep-upright': true, 'text-rotation-alignment': 'map', 'text-max-angle': 45, 'text-anchor': 'bottom', 'text-offset': ['literal', [0, -0.2]] },
-      paint,
-    },
+    'label-line': lineLabel(shared, paint, filterOf(LINES)),
+  }
+}
+
+function lineLabel(shared: Record<string, unknown>, paint: Record<string, unknown>, filter: unknown): LabelLayerSpec {
+  return {
+    filter,
+    // Just above the line (QGIS's default, "Above line"): on it, the line shows through each word gap, where no glyph has a halo.
+    layout: { ...shared, 'symbol-placement': 'line', 'text-keep-upright': true, 'text-rotation-alignment': 'map', 'text-max-angle': 45, 'text-anchor': 'bottom', 'text-offset': ['literal', [0, -0.2]] },
+    paint,
   }
 }

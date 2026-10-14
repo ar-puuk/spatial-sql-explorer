@@ -1,6 +1,6 @@
 // Spec 010 T012: the SQL building one engine vector tile (ST_AsMVT). Pure builders.
 import { describe, expect, it } from 'vitest'
-import { tileBoundsWgs84, tileSql, TILE_LAYER, type ViewTarget } from '@spatial-explorer/core'
+import { tileBoundsWgs84, tileSql, TILE_LABEL_LAYER, TILE_LAYER, type ViewTarget } from '@spatial-explorer/core'
 
 const covering: ViewTarget = { relation: '__se_layer', index: 'columns', geom: '"geom"', srid: 4326, attrs: ['zone', 'pop'] }
 const box: [number, number, number, number] = [-112.5, 39.9, -111.1, 41.01]
@@ -34,6 +34,18 @@ describe('tileSql', () => {
     expect(sql).toContain(`'pop': CAST("pop" AS DOUBLE)`)
     expect(sql).toContain(`'zone': CAST("zone" AS VARCHAR)`)
     expect(sql).toContain(`ST_AsMVTGeom(ST_Transform(CASE WHEN ${small} THEN ST_Centroid("geom") ELSE "geom" END, 'EPSG:4326', 'EPSG:3857', always_xy := true), ST_Extent(ST_TileEnvelope(8, 48, 97)))`)
+  })
+
+  it("with labels, adds a layer of polygons' label points, each in the one tile that holds it", () => {
+    const attrs = [{ name: 'zone', type: 'VARCHAR' }]
+    const plain = tileSql(covering, 8, 48, 97, box, attrs)
+    const labeled = tileSql(covering, 8, 48, 97, box, attrs, null, true)
+    expect(TILE_LABEL_LAYER).toBe('labels')
+    expect(plain).not.toContain(`'labels'`)
+    expect(labeled).toMatch(/^SELECT coalesce\(\(SELECT ST_AsMVT\(.*'data'\) AS tile .*\), ''::BLOB\) \|\| coalesce\(\(SELECT ST_AsMVT\(.*'labels'\) .*\), ''::BLOB\) AS tile$/s)
+    expect(labeled).toContain('ST_PointOnSurface(CASE WHEN ST_Dimension("geom") <> 2 THEN NULL')
+    expect(labeled).toContain('ST_Dimension("geom") = 2 AND NOT (__se_xmax - __se_xmin <')
+    expect(labeled).toContain('ST_X(__lg) >= 0 AND ST_X(__lg) < 4096 AND ST_Y(__lg) >= 0 AND ST_Y(__lg) < 4096')
   })
 
   it('sends lines and polygons under ~2 px of the tile as their center, marked as dots (option C)', () => {

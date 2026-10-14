@@ -835,6 +835,11 @@ each idle was itself the 1–2 s long task, as spec 010 had found.
   needs one label point per feature from the engine (`ST_PointOnSurface` of
   the largest part, as a point source or a tile layer), in both drawing
   modes. That is a follow-up, not a tweak.
+  **Done (2026-10-14):** `view/labelPoint.ts`. GeoJSON mode reads the points
+  in a separate query only while labels are on: `ST_PointOnSurface` in the
+  one-time load raised its engine memory by ~4 MB on 10k parcels (the 24 MB
+  out-of-memory test no longer fit). Tiles mode adds a `labels` MVT layer,
+  each point in the one tile holding it. PMTiles keep MapLibre's own.
 
 ## Final gates (T076) (2026-10-14)
 

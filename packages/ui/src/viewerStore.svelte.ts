@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -396,6 +396,8 @@ export interface ViewerStore {
   readonly drawMode: DrawMode | null
   /** GeoJSON mode: every mappable feature of the result (plain objects, never proxied). */
   readonly mapData: MapData | null
+  /** GeoJSON mode, labels on: polygons' label points for the current mapData (null until read). */
+  readonly labelPoints: readonly LabelPoint[] | null
   /** Tiles mode: the vector source URL template (`se-tiles://key/{z}/{x}/{y}`). */
   readonly tileUrl: string | null
   /** The GeoJSON load takes longer than 300 ms; drawProgress counts its features so far. */
@@ -854,6 +856,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         if (drawMode === 'tiles' && querySession && tileKeyOf(style) !== tileColumnsKey) drawTiles(querySession)
       })
     })
+    // GeoJSON mode: labels turned on, or a new drawing while they are on, read the polygons' label points.
+    $effect(() => {
+      void mapData
+      void style.labels?.enabled
+      void untrack(() => refreshLabelPoints())
+    })
   })
   let mapDimmed = $state(false)
   let runCount = $state(0)
@@ -1116,9 +1124,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let drawCalls = $state(0)
   let drawGeneration = 0
   let unregisterTiles: (() => void) | null = null
-  /** The columns the current tiles carry (joined), and clusters' settings, to notice a style that needs other tiles. */
+  /** The columns the current tiles carry (joined), clusters' settings and label points, to notice a style that needs other tiles. */
   let tileColumnsKey = ''
-  const tileKeyOf = (s: LayerStyle): string => styleColumns(s).join('\u0000') + '\u0002' + JSON.stringify(clusterTiles(s))
+  const tileKeyOf = (s: LayerStyle): string => styleColumns(s).join('\u0000') + '\u0002' + JSON.stringify(clusterTiles(s)) + (tileLabels(s) ? '\u0003' : '')
+  /** Tiles carry polygons' label points (one label each) while labels are on for a layer that may have polygons. */
+  const tileLabels = (s: LayerStyle): boolean => !!s.labels?.enabled && (displayedLayer?.geometryType === 'Polygon' || displayedLayer?.geometryType === 'Mixed')
   /** Spec 010: the computed columns (rules, expressions) of the current drawing, as one key. */
   let drawnComputedKey = ''
   const computedKey = (c: readonly ComputedColumn[]): string => c.map((x) => `${x.name}=${x.sql}`).join('\u0000')
@@ -1132,6 +1142,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const computed = currentComputed()
     // Clusters are grouped in the engine's tiles: their settings are part of what a tile draws.
     const cluster = clusterTiles(style)
+    const labels = tileLabels(style)
     tileColumnsKey = tileKeyOf(style)
     drawnComputedKey = computedKey(computed)
     const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey + '\u0001' + drawnComputedKey)}`
@@ -1140,7 +1151,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       for (;;) {
         try {
           drawCalls++
-          return await qs.tile(z, x, y, attrs, computed, cluster)
+          return await qs.tile(z, x, y, attrs, computed, cluster, labels)
         } catch (err) {
           if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError) || qs !== querySession) throw err
           await qs.whenIdle()
@@ -1197,6 +1208,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         drawLoading = false
         drawProgress = null
       }
+    }
+  }
+
+  /**
+   * GeoJSON mode: polygons' label points (one label each, labelPoint.ts), read
+   * once per drawing while labels are on; kept with the drawing they belong to.
+   */
+  let labelPoints = $state.raw<{ data: MapData; points: LabelPoint[] } | null>(null)
+  let labelPointsFor: MapData | null = null
+  async function refreshLabelPoints(): Promise<void> {
+    const qs = querySession
+    const data = mapData
+    const polygons = displayedLayer?.geometryType === 'Polygon' || displayedLayer?.geometryType === 'Mixed'
+    if (!qs || !data || drawMode !== 'geojson' || !style.labels?.enabled || !polygons || labelPointsFor === data) return
+    labelPointsFor = data
+    try {
+      const points = await retryWhenBusy(qs, () => qs.labelPoints())
+      if (mapData === data && qs === querySession) labelPoints = { data, points }
+    } catch (err) {
+      labelPointsFor = null
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: label points failed', err)
     }
   }
 
@@ -2079,6 +2111,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get drawMode() {
       return drawMode
+    },
+    get labelPoints() {
+      return labelPoints && labelPoints.data === mapData ? labelPoints.points : null
     },
     get mapData() {
       return mapData

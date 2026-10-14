@@ -332,6 +332,7 @@
         <MapView
           layer={store.mapLayer ?? layer}
           mapData={store.mapData}
+          labelPoints={store.labelPoints}
           tileUrl={store.tileUrl}
           extraFeature={store.outsideFeature}
           drawLoading={store.drawLoading}
