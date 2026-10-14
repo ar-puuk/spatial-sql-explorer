@@ -3086,6 +3086,13 @@ SOFTWARE.
 
 ---
 
+## Octicons (GitHub mark)
+
+The web app's header links to the source code with GitHub's mark, the
+`mark-github` icon from Octicons (https://github.com/primer/octicons),
+© GitHub Inc., MIT License. Used as GitHub's logo guidelines allow, to link to
+the project's repository.
+
 ## Fetched at runtime, not bundled
 
 These are downloaded by the running app and are not redistributed with it.
