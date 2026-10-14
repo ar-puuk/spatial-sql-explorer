@@ -8,6 +8,7 @@ import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
   parseColor,
+  rendererOf,
   rgbToHex,
   round,
   sanitizeStyle,
@@ -18,7 +19,8 @@ import {
 } from './model.js'
 import type { StyleExport } from './qml.js'
 import { symbolExpressions, visibilityFilter } from './expressions.js'
-import { MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
+import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
@@ -26,6 +28,21 @@ const METADATA_KEY = 'spatial-explorer:layer-style'
 const POLYGON_FILTER = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
 const LINE_FILTER = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
 const POINT_FILTER = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false]
+
+/**
+ * Spec 010: a simple rule condition as a MapLibre expression, with SQL's
+ * rules for missing values (a comparison with NULL matches nothing): numbers
+ * and ordered text compare only when the value has the literal's type.
+ */
+function whereExpression(w: SimpleWhere): unknown {
+  if (w.kind !== 'cmp') return [w.kind === 'and' ? 'all' : 'any', ...w.items.map(whereExpression)]
+  const get = ['get', w.column]
+  const op = w.op === '=' ? '==' : w.op
+  if (typeof w.value === 'number' || (w.op !== '=' && w.op !== '!=')) {
+    return ['all', ['==', ['typeof', get], typeof w.value === 'number' ? 'number' : 'string'], [op, get, w.value]]
+  }
+  return w.op === '=' ? ['==', get, w.value] : ['all', ['!=', get, null], ['!=', get, w.value]]
+}
 
 export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerName: string, dataFileName: string, resolved?: ResolvedStyle): StyleExport {
   const style = sanitizeStyle(input)
@@ -35,15 +52,35 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
   // Thematic: the same class-index expression the viewer draws with (null and
   // "" guarded, upper-inclusive ranges), so any MapLibre/Mapbox renderer
   // shows the same classes; hidden classes become a layer filter.
-  const { notes } = thematicForExport(style, resolved)
+  const { notes } = thematicForExport(style, resolved, 'mapbox')
+  // Spec 010: rules and expressions are drawn from columns the engine computes, which a style file can't
+  // rely on: rules become a `case` on the data's own columns (when simple), an expression the single color.
+  const r = rendererOf(style)
+  const computed = r.kind === 'rules' || (r.kind === 'graduated' && !!r.expression)
+  const portable = r.kind === 'rules' && resolved?.status === 'ok' ? portableRules(style, resolved, 'mapbox') : null
+  if (resolved?.status === 'ok' && r.kind === 'graduated' && r.expression) notes.push(EXPRESSION_NOTE('mapbox'))
+  if (resolved?.status === 'ok' && r.kind === 'rules' && !portable) notes.push(COMPLEX_RULES_NOTE)
+  const drawn: LayerStyle = computed ? { ...style, renderer: { kind: 'single' } } : style
   // Per-class colors and sizes (size classes) as the viewer draws them.
   // Spec 009: the size channel applies with any color channel, so the expressions come whenever the style is resolved.
-  const sym = resolved ? symbolExpressions(style, resolved) : null
+  const sym = resolved ? symbolExpressions(drawn, resolved) : null
+  let ruleColor: unknown = null
+  let ruleHidden: unknown = null
+  if (r.kind === 'rules' && portable) {
+    const arms = portable.flatMap((p) => [whereExpression(p.where), p.rule.color])
+    ruleColor = arms.length ? ['case', ...arms, r.elseColor] : r.elseColor
+    const index = portable.length ? ['case', ...portable.flatMap((p) => [whereExpression(p.where), p.index]), -1] : -1
+    const hiddenIdx = [...portable.filter((p) => !p.rule.visible).map((p) => p.index), ...(r.elseVisible ? [] : [-1])]
+    if (hiddenIdx.length) ruleHidden = ['!', ['in', index, ['literal', hiddenIdx]]]
+  }
   const roundSize = (v: unknown): unknown => (typeof v === 'number' ? round(v) : v)
   const pattern = dashPattern(style.lineDash)
   const dash = pattern ? { 'line-dasharray': pattern } : {}
   if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point')) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
-  const hidden = resolved ? visibilityFilter(style, resolved) : null
+  const colorHidden = resolved ? visibilityFilter(drawn, resolved) : null
+  const hidden = colorHidden && ruleHidden ? ['all', colorHidden, ruleHidden] : (colorHidden ?? ruleHidden)
+  const fillColor = ruleColor ?? sym?.fillColor ?? style.fillColor
+  const lineColor = ruleColor ?? sym?.lineColor ?? style.strokeColor
   const filter = (f: unknown): unknown => (hidden ? ['all', f, hidden] : f)
   if (wants('Polygon')) {
     layers.push({
@@ -51,7 +88,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       type: 'fill',
       source,
       filter: filter(POLYGON_FILTER),
-      paint: { 'fill-color': sym?.fillColor ?? style.fillColor, 'fill-opacity': round(style.fillOpacity) },
+      paint: { 'fill-color': fillColor, 'fill-opacity': round(style.fillOpacity) },
     })
     if (style.strokeWidth > 0) {
       layers.push({
@@ -72,7 +109,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       source,
       filter: filter(POLYGON_FILTER),
       paint: {
-        'fill-extrusion-color': sym?.fillColor ?? style.fillColor,
+        'fill-extrusion-color': fillColor,
         'fill-extrusion-height': extrusionHeightExpression(style.extrusion),
         'fill-extrusion-base': 0,
         'fill-extrusion-opacity': round(style.layerOpacity ?? 1),
@@ -87,7 +124,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       filter: filter(LINE_FILTER),
       layout: { 'line-join': 'round', 'line-cap': pattern ? 'butt' : 'round' },
       paint: {
-        'line-color': sym?.lineColor ?? style.strokeColor,
+        'line-color': lineColor,
         'line-width': roundSize(sym?.lineWidth ?? style.strokeWidth),
         'line-opacity': round(style.strokeOpacity),
         ...dash,
@@ -101,7 +138,7 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       source,
       filter: filter(POINT_FILTER),
       paint: {
-        'circle-color': sym?.fillColor ?? style.fillColor,
+        'circle-color': fillColor,
         'circle-opacity': round(style.fillOpacity),
         'circle-radius': roundSize(sym?.radius ?? style.pointRadius),
         'circle-stroke-color': style.strokeColor,

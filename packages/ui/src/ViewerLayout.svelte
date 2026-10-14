@@ -540,6 +540,7 @@
               classifyingRows={store.classifying ? (store.styleInput?.rowCount ?? null) : null}
               extrusionFlat={store.extrusionFlat}
               onSuggestScale={(column) => store.suggestExtrusionScale(column)}
+              onSuggestRules={() => store.ruleSuggestions()}
             />
           {/if}
         {:else if layout.sideTab === 'details'}

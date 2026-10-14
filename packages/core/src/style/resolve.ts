@@ -3,11 +3,12 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
+import { checkExpression } from './sqlExpression.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -38,6 +39,12 @@ export interface ResolveInput {
   dataByColumn?: Record<string, ColumnData>
   /** Distinct-value counts per column, when known (renderer suggestions). */
   distinct?: Record<string, number>
+  /** Spec 010, rules: features per rule index (-1: everything else), counted by the engine. */
+  ruleCounts?: ReadonlyMap<number, number>
+  /** Spec 010, rules: why a rule's condition can't be used, by rule id (from the engine). */
+  ruleErrors?: Readonly<Record<string, string>>
+  /** Spec 010, graduated by expression: why the expression can't be used (from the engine). */
+  expressionError?: string
 }
 
 /** Rows in the result. */
@@ -124,7 +131,36 @@ function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedSt
       return graduated(style, r, layer)
     case 'bivariate':
       return bivariate(style, r, layer)
+    case 'rules':
+      return rules(style, r, layer)
   }
+}
+
+/**
+ * Spec 010: rules. One class per rule, in order (the first matching rule
+ * colors a feature), then "Everything else". Counts come from the engine;
+ * a rule whose condition can't be used keeps its place, with its error, and
+ * matches nothing.
+ */
+function rules(style: LayerStyle, r: RulesRenderer, layer: ResolveInput | null): ResolvedStyle {
+  if (!layer) return single(style, layer)
+  const counts = layer.ruleCounts
+  const classes: ResolvedClass[] = r.rules.map((rule, i) => {
+    const error = checkExpression(rule.where, 'condition') ?? layer.ruleErrors?.[rule.id]
+    return {
+      key: `rule:${rule.id}`,
+      kind: 'rule',
+      ruleId: rule.id,
+      label: ruleLabel(rule),
+      color: rule.color,
+      visible: rule.visible,
+      count: error ? 0 : (counts?.get(i) ?? 0),
+      ...(error ? { error } : {}),
+    }
+  })
+  classes.push({ key: '__else', kind: 'other', label: r.elseLabel, color: r.elseColor, visible: r.elseVisible, count: counts ? (counts.get(-1) ?? 0) : rowsOf(layer) })
+  const n = r.rules.length
+  return { status: 'ok', caption: `Rules · ${n} ${n === 1 ? 'rule' : 'rules'}`, classes, notes: [] }
 }
 
 const nf = new Intl.NumberFormat('en-US')
@@ -361,12 +397,19 @@ function notNumeric(layer: ResolveInput, column: string): string | null {
  * non-numbers are "No value"; values outside manual ranges are "Other".
  */
 function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput | null): ResolvedStyle {
-  const missing = missingColumn(style, layer, r.column)
+  // Spec 010: an expression is classified from the value the engine computes for it.
+  const column = r.expression ? EXPRESSION_VALUE_COLUMN : r.column
+  if (r.expression && layer) {
+    const why = checkExpression(r.expression, 'value') ?? layer.expressionError
+    if (why) return fallback(style, layer, why)
+    if (!layer.columns.some((c) => c.name === column)) return fallback(style, layer, 'The expression is computed by the engine.')
+  }
+  const missing = missingColumn(style, layer, column)
   if (missing || !layer) return missing ?? single(style, layer)
-  const type = layer.columns.find((c) => c.name === r.column)?.type ?? ''
+  const type = layer.columns.find((c) => c.name === column)?.type ?? ''
   if (!isNumericType(type)) return fallback(style, layer, `Column "${r.column}" is not numeric in this result.`)
 
-  const c = classifyRanges(r.column, r.method, r.classCount, r.classes, layer)
+  const c = classifyRanges(column, r.method, r.classCount, r.classes, layer)
   const colors = rampColors(r.ramp, c.ranges.length)
   const overrides = new Map(r.classes.map((o) => [o.index, o]))
   const classes: ResolvedClass[] = c.ranges.map((range, i) => {
@@ -376,7 +419,7 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
   // A big result's class counts arrive from SQL afterwards (QuerySession.resolveStyle), "Other" included.
   if (c.outside > 0 || (c.fromStats && r.method === 'manual')) classes.push({ key: '__other', kind: 'other', label: 'Other (outside the classes)', color: OTHER_COLOR, visible: true, count: c.outside })
   if (c.nulls > 0) classes.push({ key: '__null', kind: 'noValue', label: r.noValue.label ?? 'No value', color: r.noValue.color ?? NO_VALUE_COLOR, visible: r.noValue.visible !== false, count: c.nulls })
-  return { status: 'ok', caption: rangesCaption(r.column, r.method, c), classes, notes: c.notes }
+  return { status: 'ok', caption: rangesCaption(r.expression ? r.column || r.expression : r.column, r.method, c), classes, notes: c.notes }
 }
 
 /**

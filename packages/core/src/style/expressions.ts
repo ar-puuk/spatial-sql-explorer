@@ -7,7 +7,7 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
 
@@ -48,7 +48,22 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
       return graduatedIndex(r, resolved)
     case 'bivariate':
       return bivariateIndexExpression(style, resolved)
+    case 'rules':
+      return rulesIndex(resolved)
   }
+}
+
+/**
+ * Spec 010: the engine's rule index per feature (RULE_CLASS_COLUMN; -1 or
+ * missing: everything else). Rule classes come first, in rule order, so a
+ * rule's index is its class position.
+ */
+function rulesIndex(resolved: ResolvedStyle): unknown {
+  const n = resolved.classes.filter((c) => c.kind === 'rule').length
+  const rest = resolved.classes.findIndex((c) => c.key === '__else')
+  const c = ['var', 'c']
+  // `to-number` makes a missing value 0 (the first rule): features drawn before the column arrives are "else".
+  return ['let', 'c', ['to-number', ['coalesce', ['get', RULE_CLASS_COLUMN], -1], -1], ['case', ['<', c, 0], rest, ['>=', c, n], rest, c]]
 }
 
 /** `to-number` fallback for text: far outside any real value, caught with the non-finite guard. */
@@ -62,7 +77,8 @@ const NOT_A_NUMBER = -Number.MAX_VALUE
  * first class also including its lower bound; anything else is "Other".
  */
 function graduatedIndex(r: GraduatedRenderer, resolved: ResolvedStyle): unknown {
-  return rangeIndex(r.column, resolved.classes)
+  // Spec 010: an expression's value is computed by the engine per feature.
+  return rangeIndex(r.expression ? EXPRESSION_VALUE_COLUMN : r.column, resolved.classes)
 }
 
 /**

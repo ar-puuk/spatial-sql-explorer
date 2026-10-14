@@ -52,7 +52,7 @@ export interface LayerStyle {
 // --- Renderers (spec 003, data-model.md) ----------------------------------
 
 /** The color channel. */
-export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer
+export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer | RulesRenderer
 
 export interface SingleRenderer {
   kind: 'single'
@@ -104,7 +104,14 @@ export interface RangeClassDef extends ClassOverride {
 
 export interface GraduatedRenderer {
   kind: 'graduated'
+  /** The numeric column; with `expression`, the label shown for it (defaults to the expression text). */
   column: string
+  /**
+   * Spec 010: a SQL expression over the result's columns, classified instead
+   * of `column` (e.g. `gdp_md * 1e6 / pop_est`). The engine computes it per
+   * feature as EXPRESSION_VALUE_COLUMN.
+   */
+  expression?: string
   method: GraduatedMethod
   /** 2..10 */
   classCount: number
@@ -148,6 +155,43 @@ export interface SizeChannel {
    * Set from the geometry when the channel starts; absent means linear.
    */
   scale?: 'linear' | 'area'
+}
+
+// --- Spec 010: rule-based styling --------------------------------------------
+
+/** One rule: a SQL condition over the result's columns and its color. */
+export interface RuleDef {
+  /** Stable across edits (legend keys, reorder). */
+  id: string
+  /** Empty: the legend shows the condition (truncated). */
+  label: string
+  /** A SQL boolean expression, e.g. `pop_est > 1e8 AND continent = 'Asia'`. */
+  where: string
+  /** `#rrggbb` */
+  color: string
+  visible: boolean
+}
+
+/** Spec 010: the first matching rule colors a feature; the rest are "Everything else". */
+export interface RulesRenderer {
+  kind: 'rules'
+  rules: RuleDef[]
+  elseColor: string
+  elseVisible: boolean
+  elseLabel: string
+}
+
+/** The engine-computed class of each feature under a rules renderer: the matching rule's index, or -1. */
+export const RULE_CLASS_COLUMN = '__se_cls'
+/** The engine-computed value of a graduated renderer's expression. */
+export const EXPRESSION_VALUE_COLUMN = '__se_val'
+export const DEFAULT_ELSE_LABEL = 'Everything else'
+
+/** A rule's legend label: its own, or its condition shortened to 40 characters. */
+export function ruleLabel(rule: Pick<RuleDef, 'label' | 'where'>): string {
+  if (rule.label.trim()) return rule.label.trim()
+  const w = rule.where.trim().replace(/\s+/g, ' ')
+  return w.length > 40 ? `${w.slice(0, 39)}…` : w || 'Rule'
 }
 
 export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
@@ -215,7 +259,7 @@ export interface ResolvedSizeChannel {
 export interface ResolvedClass {
   /** Stable: `v:<value>`, `range:<i>`, `cell:<i>-<j>`, `__other`, `__null`, or `single`. */
   key: string
-  kind: 'single' | 'value' | 'range' | 'other' | 'noValue' | 'cell'
+  kind: 'single' | 'value' | 'range' | 'other' | 'noValue' | 'cell' | 'rule'
   label: string
   color: string
   visible: boolean
@@ -236,6 +280,9 @@ export interface ResolvedClass {
   /** kind 'cell': the x and y value ranges (same rules as 'range'). */
   x?: { lower: number; upper: number }
   y?: { lower: number; upper: number }
+  /** Spec 010, kind 'rule': the rule's id, and why its condition can't be used (it then matches nothing). */
+  ruleId?: string
+  error?: string
 }
 
 /** Items not exported, not imported, or not applied (FR-015). */
@@ -265,6 +312,9 @@ export function rendererOf(style: Pick<LayerStyle, 'renderer'>): Renderer {
 export function rendererColumns(renderer: Renderer): string[] {
   if (renderer.kind === 'single') return []
   if (renderer.kind === 'bivariate') return [renderer.x.column, renderer.y.column].filter(Boolean)
+  // Spec 010: rules and expressions draw from a column the engine computes per feature.
+  if (renderer.kind === 'rules') return [RULE_CLASS_COLUMN]
+  if (renderer.kind === 'graduated' && renderer.expression) return [EXPRESSION_VALUE_COLUMN]
   return renderer.column ? [renderer.column] : []
 }
 
@@ -277,6 +327,8 @@ export function styleDataColumns(style: Pick<LayerStyle, 'renderer' | 'size'>): 
 
 /** A short title for the color channel's columns: `zone`, `poverty_rate × obesity_rate`, or '' (single). */
 export function rendererTitle(renderer: Renderer): string {
+  if (renderer.kind === 'rules') return 'Rules'
+  if (renderer.kind === 'graduated' && renderer.expression) return renderer.column || renderer.expression
   return rendererColumns(renderer).join(' × ')
 }
 
@@ -482,6 +534,29 @@ function sanitizeSizes(g: { sizeMin?: unknown; sizeMax?: unknown }): { sizeMin: 
  */
 export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
   if (!r || typeof r !== 'object') return { kind: 'single' }
+  if (r.kind === 'rules') {
+    const x = r as Partial<RulesRenderer>
+    const color = (c: unknown, fallback: string): string => {
+      const rgba = typeof c === 'string' ? parseColor(c) : null
+      return rgba ? rgbToHex(rgba) : fallback
+    }
+    const seen = new Set<string>()
+    const rules = (Array.isArray(x.rules) ? x.rules : [])
+      .filter((k) => k && typeof k === 'object')
+      .map((k, i) => {
+        let id = typeof k.id === 'string' && k.id ? k.id : `r${i + 1}`
+        while (seen.has(id)) id = `${id}_`
+        seen.add(id)
+        return { id, label: typeof k.label === 'string' ? k.label : '', where: typeof k.where === 'string' ? k.where : '', color: color(k.color, DEFAULT_LAYER_STYLE.fillColor), visible: k.visible !== false }
+      })
+    return {
+      kind: 'rules',
+      rules,
+      elseColor: color(x.elseColor, OTHER_COLOR),
+      elseVisible: x.elseVisible !== false,
+      elseLabel: typeof x.elseLabel === 'string' && x.elseLabel.trim() ? x.elseLabel : DEFAULT_ELSE_LABEL,
+    }
+  }
   if (r.kind === 'categorized') {
     const c = r as Partial<CategorizedRenderer>
     return {
@@ -521,6 +596,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
       method,
       classCount: clamp(Math.round(Number(g.classCount ?? DEFAULT_CLASS_COUNT)) || DEFAULT_CLASS_COUNT, MIN_CLASS_COUNT, MAX_CLASS_COUNT),
       ramp: sanitizeRamp(g.ramp, 'viridis'),
+      ...(typeof g.expression === 'string' && g.expression.trim() ? { expression: g.expression.trim() } : {}),
       classes: (Array.isArray(g.classes) ? g.classes : [])
         .filter((k) => k && Number.isInteger(k.index))
         .map((k) => {
@@ -550,7 +626,7 @@ export function validateStyle(style: LayerStyle): string[] {
     }
     for (const o of [...r.classes, r.other, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
   } else if (r.kind === 'graduated') {
-    if (!r.column) errors.push('Choose a column.')
+    if (!r.column && !r.expression) errors.push('Choose a column.')
     if (!Number.isInteger(r.classCount) || r.classCount < MIN_CLASS_COUNT || r.classCount > MAX_CLASS_COUNT) {
       errors.push(`The number of classes must be between ${MIN_CLASS_COUNT} and ${MAX_CLASS_COUNT}.`)
     }
@@ -568,6 +644,7 @@ export function validateStyle(style: LayerStyle): string[] {
     for (const o of [...r.classes, r.noValue]) if (!colorOk(o.color)) errors.push(`"${o.color}" is not a #rrggbb color.`)
   }
   if (r.kind === 'bivariate' && (!r.x.column || !r.y.column || r.x.column === r.y.column)) errors.push('Choose two different numeric columns.')
+  if (r.kind === 'rules') for (const k of [...r.rules.map((x) => x.color), r.elseColor]) if (!colorOk(k)) errors.push(`"${k}" is not a #rrggbb color.`)
   // Spec 009: the size channel.
   const size = style.size
   if (size) {

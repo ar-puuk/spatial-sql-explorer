@@ -334,3 +334,50 @@ excluded (it stacks overlays). Now:
 - Responsiveness at 6× CPU throttle (parcels-10k.geojson, typing `P0000765` at 120 ms per
   key): values shown 226 ms after the last key in GeoJSON mode and 214 ms in tiles mode
   (`tileRows=1000`), 200 ms of it the debounce; no long tasks while typing.
+
+## Phase 11: rules and graduated by expression
+
+- MapLibre can't evaluate SQL, so the engine computes one hidden column per feature:
+  `__se_cls` (the first matching rule's index, -1 none) or `__se_val` (the expression's
+  value, `TRY_CAST(... AS DOUBLE)`). It rides along in the GeoJSON load and in each tile
+  (the tile URL key includes the computed SQL); a change to a condition or expression
+  redraws. A rule with an empty or invalid condition keeps its index and matches nothing.
+- Checks: words that make a statement (SELECT, FROM, ATTACH, COPY…), `;` and unbalanced
+  parentheses are refused before the engine sees the text; then `DESCRIBE SELECT (expr)`
+  gives its type without reading rows (a condition must be BOOLEAN, a value numeric). The
+  engine's "Referenced column … not found in FROM clause! Candidate bindings" is shown as
+  `No column "x" in this layer. Closest: …`. Answers are cached per data version.
+- Found by the core tests: MapLibre's `to-number` turns a missing property into 0, which
+  colored features drawn before the computed column arrived as the first rule; the index
+  now goes through `coalesce(…, -1)` ("Everything else").
+- Counts: one GROUP BY over the CASE for rules; graduated by expression is the existing
+  classification over `(SELECT *, <value> AS __se_val FROM …)` (small results exact, big
+  ones by order statistics, as spec 007), and its value distribution chart too.
+- Suggestions: a first Rules style gets `<first measure column> > <median>` and
+  `<first text column with repeated values> = <its most common value>`.
+- The plan's web test used `continent` and `pop_est` on world-boundaries.geojson, which
+  has only `name`: the test generates 80 country-like squares with those columns, and
+  computes expected counts with a first-match `runRaw` query.
+- QML: a RuleRenderer. QGIS draws every rule that matches (not the first), so each rule's
+  filter excludes the earlier ones (`(b) AND NOT coalesce((a), FALSE)`), removed again on
+  import; the exact renderer rides in `spatialExplorer/rules`. A QGIS RuleRenderer we didn't
+  write imports as rules (nested rules and scale ranges noted); one with no readable rules
+  keeps the single-symbol fallback. Graduated by expression writes the expression as
+  `attr` and comes back as the expression.
+- QGIS check (PyQGIS 4.2.3, `tests/qgis/check_010_rules.py`): QGIS loads the rules QML as
+  RuleRenderer with 3 rules (two guarded filters and ELSE) and paints all 6 test features
+  the app's color, including a feature matching both rules (the first wins) and one with
+  nulls; the expression QML loads as graduatedSymbol with
+  `classAttribute: gdp_md * 1e6 / pop_est`. `symbolsForFeature` lists the ELSE symbol even
+  for matched features (also for a renderer built in PyQGIS), so the check renders the
+  layer and samples pixels instead.
+- SLD and Mapbox GL: rules are written when every condition is a simple comparison chain
+  (`col op literal`, AND/OR, parentheses; SLD also LIKE); otherwise the single color and
+  "Rules with complex conditions are only kept in QML." Graduated by expression: single
+  color with a notice in both.
+- How GeoLibre does it (style-panel/RuleBasedRulesEditor.tsx, rule-tree.ts): rule filters
+  are MapLibre JSON expressions (typed, or made in an expression-builder dialog), so the map
+  evaluates them itself; rules can nest (parentId) and the else rule has an on/off toggle.
+  Ours are SQL (the plan's choice: users of this tool write SQL, and QGIS reads the same
+  `col > 5 AND name = 'x'` text), which needs the engine-computed column; no nesting (not in
+  the plan). Its else rule toggle is our "Everything else" show/hide.

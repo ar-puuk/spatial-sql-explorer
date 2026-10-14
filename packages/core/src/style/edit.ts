@@ -4,8 +4,10 @@ import {
   DEFAULT_BIVARIATE_PALETTE,
   DEFAULT_CATEGORY_CAP,
   DEFAULT_CLASS_COUNT,
+  DEFAULT_ELSE_LABEL,
   DEFAULT_LAYER_STYLE,
   MAX_CLASS_COUNT,
+  OTHER_COLOR,
   MIN_CLASS_COUNT,
   rendererOf,
   type CategorizedRenderer,
@@ -19,11 +21,13 @@ import {
   type RangeClassDef,
   type Renderer,
   type ResolvedStyle,
+  type RuleDef,
+  type RulesRenderer,
   type SizeChannel,
   type SizeMode,
 } from './model.js'
 import { toCategory } from './classify.js'
-import { defaultRamp } from './ramps.js'
+import { defaultRamp, rampColors } from './ramps.js'
 import { DEFAULT_SIZE_RANGE } from './symbol.js'
 import { eligibleColumns, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
 
@@ -58,6 +62,8 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
     const y = numeric.find((c) => c !== x) ?? ''
     return { kind: 'bivariate', x: { column: x, method: 'quantile' }, y: { column: y, method: 'quantile' }, palette: DEFAULT_BIVARIATE_PALETTE, hidden: [], noValue: {} }
   }
+  // Spec 010: rules start empty; the panel fills in suggestions from the data (suggestedRules).
+  if (kind === 'rules') return { kind: 'rules', rules: [], elseColor: OTHER_COLOR, elseVisible: true, elseLabel: DEFAULT_ELSE_LABEL }
   const columns = eligibleColumns(layer?.columns, kind)
   if (kind === 'categorized') {
     const pick =
@@ -84,6 +90,17 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
 function patchClass(style: LayerStyle, key: string, patch: ClassOverride): LayerStyle {
   const r = rendererOf(style)
   if (r.kind === 'single' || r.kind === 'bivariate') return style
+  // Spec 010: `rule:<id>` and `__else`.
+  if (r.kind === 'rules') {
+    if (key === RULES_ELSE_KEY) {
+      return setRulesElse(style, {
+        ...(patch.color !== undefined ? { elseColor: patch.color } : {}),
+        ...(patch.label !== undefined ? { elseLabel: patch.label } : {}),
+        ...(patch.visible !== undefined ? { elseVisible: patch.visible } : {}),
+      })
+    }
+    return key.startsWith('rule:') ? updateRule(style, key.slice(5), patch as Partial<RuleDef>) : style
+  }
   if (key === '__null') return { ...style, renderer: { ...r, noValue: { ...r.noValue, ...patch } } }
   if (r.kind === 'categorized') {
     if (key === '__other') return { ...style, renderer: { ...r, other: { ...r.other, ...patch } } }
@@ -140,6 +157,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
   if (trimmed) return patchClass(style, key, { label: trimmed })
   const r = rendererOf(style)
   if (r.kind === 'single' || r.kind === 'bivariate') return style
+  if (r.kind === 'rules') return key === RULES_ELSE_KEY ? setRulesElse(style, { elseLabel: DEFAULT_ELSE_LABEL }) : key.startsWith('rule:') ? updateRule(style, key.slice(5), { label: '' }) : style
   const strip = <T extends ClassOverride>(o: T): T => {
     const rest = { ...o }
     delete rest.label
@@ -155,7 +173,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
 
 export function setRamp(style: LayerStyle, ramp: RampRef): LayerStyle {
   const r = rendererOf(style)
-  return r.kind === 'single' || r.kind === 'bivariate' ? style : { ...style, renderer: { ...r, ramp } }
+  return r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'rules' ? style : { ...style, renderer: { ...r, ramp } }
 }
 
 /** A method recomputes the classes; color, label and visibility overrides by index are kept. */
@@ -449,4 +467,81 @@ export function setCellVisible(style: LayerStyle, key: string, visible: boolean)
     const hidden = r.hidden.filter((k) => k !== cell)
     return { ...r, hidden: visible ? hidden : [...hidden, cell] }
   })
+}
+
+// --- Spec 010: rules -----------------------------------------------------------
+
+/** The "Everything else" class key of a rules renderer (`rule:<id>` for the rules). */
+export const RULES_ELSE_KEY = '__else'
+
+function withRules(style: LayerStyle, patch: (r: RulesRenderer) => Partial<RulesRenderer>): LayerStyle {
+  const r = rendererOf(style)
+  return r.kind === 'rules' ? { ...style, renderer: { ...r, ...patch(r) } } : style
+}
+
+/** A rule id not used yet. */
+function newRuleId(rules: readonly RuleDef[]): string {
+  const used = new Set(rules.map((r) => r.id))
+  let i = rules.length + 1
+  while (used.has(`r${i}`)) i++
+  return `r${i}`
+}
+
+/** A qualitative color for the n-th rule (Set2, as categorized starts with). */
+function ruleColor(n: number): string {
+  const colors = rampColors({ id: 'brewer-set2', reversed: false }, 8)
+  return colors[n % colors.length]
+}
+
+/** Adds a rule at the end (empty condition: it matches nothing until written). */
+export function addRule(style: LayerStyle, where = '', label = ''): LayerStyle {
+  return withRules(style, (r) => ({ rules: [...r.rules, { id: newRuleId(r.rules), label, where, color: ruleColor(r.rules.length), visible: true }] }))
+}
+
+export function updateRule(style: LayerStyle, id: string, patch: Partial<Omit<RuleDef, 'id'>>): LayerStyle {
+  return withRules(style, (r) => ({ rules: r.rules.map((x) => (x.id === id ? { ...x, ...patch, id } : x)) }))
+}
+
+export function removeRule(style: LayerStyle, id: string): LayerStyle {
+  return withRules(style, (r) => ({ rules: r.rules.filter((x) => x.id !== id) }))
+}
+
+/** Moves a rule up (-1) or down (+1): order matters, the first matching rule wins. */
+export function moveRule(style: LayerStyle, id: string, by: -1 | 1): LayerStyle {
+  return withRules(style, (r) => {
+    const i = r.rules.findIndex((x) => x.id === id)
+    const j = i + by
+    if (i < 0 || j < 0 || j >= r.rules.length) return {}
+    const rules = [...r.rules]
+    ;[rules[i], rules[j]] = [rules[j], rules[i]]
+    return { rules }
+  })
+}
+
+export function setRulesElse(style: LayerStyle, patch: Partial<Pick<RulesRenderer, 'elseColor' | 'elseLabel' | 'elseVisible'>>): LayerStyle {
+  return withRules(style, () => patch)
+}
+
+/** What the data suggests for a first rule set (the engine finds these: QuerySession.ruleSuggestions). */
+export interface RuleSuggestions {
+  /** The first numeric (measure) column and its median. */
+  numeric?: { column: string; median: number }
+  /** The first text column and its most common value. */
+  text?: { column: string; value: string }
+}
+
+/** A column name as SQL: bare when it is a plain lower-case identifier, else double-quoted. */
+export function sqlColumnName(name: string): string {
+  return /^[a-z_][a-z0-9_]*$/.test(name) ? name : `"${name.replace(/"/g, '""')}"`
+}
+
+/** Two example rules from the data: the numeric column above its median, the text column equal to its most common value. */
+export function suggestedRules(s: RuleSuggestions): RuleDef[] {
+  const out: RuleDef[] = []
+  if (s.numeric) {
+    const m = Number(s.numeric.median.toPrecision(3))
+    out.push({ id: 'r1', label: '', where: `${sqlColumnName(s.numeric.column)} > ${m}`, color: ruleColor(0), visible: true })
+  }
+  if (s.text) out.push({ id: `r${out.length + 1}`, label: '', where: `${sqlColumnName(s.text.column)} = '${s.text.value.replace(/'/g, "''")}'`, color: ruleColor(out.length), visible: true })
+  return out
 }

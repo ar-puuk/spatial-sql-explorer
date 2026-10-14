@@ -514,6 +514,9 @@
       // counting 77k rendered features on each idle was the longest task while panning (1.8 s at 6x CPU).
       if (document.documentElement.dataset.seTestHooks !== undefined) {
         container.dataset.renderedFeatures = String(m.queryRenderedFeatures({ layers: interactiveLayers() }).length)
+        // Spec 010 (style tests): the drawn features' ids and properties, on demand (e.g. the engine's rule index).
+        ;(container as HTMLElement & { seRendered?: () => Array<{ id: unknown; properties: unknown }> }).seRendered = () =>
+          m.queryRenderedFeatures({ layers: interactiveLayers() }).map((f) => ({ id: f.id, properties: f.properties }))
       }
       if (paintPending) {
         paintPending = false

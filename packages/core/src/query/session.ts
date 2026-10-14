@@ -36,8 +36,10 @@ import {
   STYLE_VALUES_CAP,
   topCategoriesSql,
 } from '../view/stats.js'
-import { resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type SizeChannel } from '../style/model.js'
+import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
+import { EXPRESSION_VALUE_COLUMN, rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
+import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
@@ -631,6 +633,8 @@ export class QuerySession {
     const facts = this.facts
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
+    // Spec 010: rules and graduated expressions are evaluated by the engine.
+    if (facts && !this.utilityRows && (r.kind === 'rules' || (r.kind === 'graduated' && r.expression))) return this.resolveSqlStyle(style, base)
     const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
     // Spec 009: every channel column the style classifies.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
@@ -649,6 +653,119 @@ export class QuerySession {
     const out = await (axes ? this.resolveBivariate(style, axes, base, relation) : this.resolveClassified(style, r, base, relation, colorColumn, size))
     if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
     return out
+  }
+
+  /**
+   * Spec 010: rules (each condition checked, then one count per rule) and
+   * graduated expressions (checked, then classified as a column of a derived
+   * relation, size channel included). Cached like the other renderers.
+   */
+  private async resolveSqlStyle(style: LayerStyle, base: ResolveInput): Promise<ResolvedStyle> {
+    const r = rendererOf(style)
+    const relation = this.statsRelation()
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
+    const hit = this.styleCache
+    if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
+    this.styleInput = null
+    let out: ResolvedStyle
+    if (r.kind === 'rules') out = await this.resolveRules(style, r, base, relation)
+    else if (r.kind === 'graduated' && r.expression) {
+      const why = await this.expressionError(relation, r.expression, 'value')
+      if (why) return resolveStyleFrom(style, { ...base, expressionError: why })
+      const derived = `(SELECT *, ${expressionValueSql(r.expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${relation})`
+      const withValue: ResolveInput = { ...base, columns: [...base.columns, { name: EXPRESSION_VALUE_COLUMN, type: 'DOUBLE' }] }
+      const has = (c: string | undefined): c is string => !!c && withValue.columns.some((x) => x.name === c)
+      const size = style.size && has(style.size.column) ? style.size : null
+      out = await this.resolveClassified(style, r, withValue, derived, EXPRESSION_VALUE_COLUMN, size)
+    } else return resolveStyleFrom(style, base)
+    if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
+    return out
+  }
+
+  /** Engine answers about style expressions, by relation, purpose and text (a type or an error). */
+  private expressionChecks = new Map<string, string | null>()
+
+  /**
+   * Why a style expression can't be used over `relation`, or null: refused
+   * words first (checkExpression), then the engine's type for it (a condition
+   * must be true/false; a value, a number). No rows are read.
+   */
+  private async expressionError(relation: string, expression: string, purpose: ExpressionPurpose): Promise<string | null> {
+    const early = checkExpression(expression, purpose)
+    if (early) return early
+    const key = `${this.dataVersion}\u0000${relation}\u0000${purpose}\u0000${expression}`
+    const known = this.expressionChecks.get(key)
+    if (known !== undefined) return known
+    const why = await this.exclusive(async (isCancelled) => {
+      try {
+        const row = await singleRow<{ column_type: string }>(this.conn, expressionTypeSql(relation, expression), isCancelled)
+        const type = String(row.column_type ?? '')
+        if (purpose === 'condition' && !/^BOOL/i.test(type)) return `This gives ${type.toLowerCase() || 'a value'}, not true or false. Compare it, like pop > 1000.`
+        if (purpose === 'value' && !isNumericType(type)) return `This gives ${type.toLowerCase() || 'a value'}, not a number.`
+        return null
+      } catch (err) {
+        if (err instanceof QueryCancelledError) throw err
+        const info = parseEngineError(err instanceof Error ? err.message : String(err), { editorText: expression, statementOffset: 0, ctasLineOffset: 0 })
+        // The engine's wording ("not found in FROM clause! Candidate bindings: …") in plain words.
+        const missing = /Referenced column "([^"]+)" not found/i.exec(info.message)
+        const close = [...(info.hints.find((h) => /Candidate bindings/i.test(h)) ?? info.message).matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter((c) => c !== missing?.[1])
+        if (missing) return `No column "${missing[1]}" in this layer.${close.length ? ` Closest: ${close.slice(0, 4).join(', ')}.` : ''}`
+        return info.message
+      }
+    }, 'background')
+    if (this.expressionChecks.size > 200) this.expressionChecks.clear()
+    this.expressionChecks.set(key, why)
+    return why
+  }
+
+  /** Spec 010 rules: each condition checked, then features per rule in one pass. */
+  private async resolveRules(style: LayerStyle, r: RulesRenderer, base: ResolveInput, relation: string): Promise<ResolvedStyle> {
+    const ruleErrors: Record<string, string> = {}
+    for (const rule of r.rules) {
+      const why = await this.expressionError(relation, rule.where, 'condition')
+      if (why) ruleErrors[rule.id] = why
+    }
+    const usable = new Set(r.rules.filter((x) => !ruleErrors[x.id]).map((x) => x.id))
+    const ruleCounts = await this.exclusive(async (isCancelled) => {
+      const counts = new Map<number, number>()
+      await streamRows(this.conn, ruleCountsSql(relation, r.rules, usable), isCancelled, (batch) => {
+        for (const row of batch) counts.set(Number(row.cls), Number(row.n))
+      })
+      return counts
+    }, 'background')
+    return resolveStyleFrom(style, (this.styleInput = { ...base, ruleCounts, ruleErrors }))
+  }
+
+  /**
+   * Spec 010: what the data suggests for first rules: the first measure
+   * column's median, and the most common value of the first text column
+   * whose values repeat.
+   */
+  async ruleSuggestions(): Promise<RuleSuggestions> {
+    const facts = this.facts
+    if (!facts || this.utilityRows) return {}
+    const relation = this.statsRelation()
+    const numeric = measureColumns(facts.columns)[0]?.name
+    const texts = facts.columns.filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM)/i.test(c.type)).map((c) => c.name).slice(0, 6)
+    return this.exclusive(async (isCancelled) => {
+      const out: RuleSuggestions = {}
+      if (numeric) {
+        const m = await singleRow<{ m: number | null }>(this.conn, `SELECT median(TRY_CAST(${quoteIdent(numeric)} AS DOUBLE)) AS m FROM ${relation}`, isCancelled)
+        if (m.m !== null && Number.isFinite(Number(m.m))) out.numeric = { column: numeric, median: Number(m.m) }
+      }
+      for (const column of texts) {
+        const v = `CAST(${quoteIdent(column)} AS VARCHAR)`
+        const rows: Array<{ v: string; n: number }> = []
+        await streamRows(this.conn, `SELECT ${v} AS v, count(*) AS n FROM ${relation} WHERE nullif(${v}, '') IS NOT NULL GROUP BY 1 ORDER BY n DESC, v LIMIT 1`, isCancelled, (batch) => {
+          for (const row of batch) rows.push({ v: String(row.v), n: Number(row.n) })
+        })
+        if (rows[0] && rows[0].n > 1) {
+          out.text = { column, value: rows[0].v }
+          break
+        }
+      }
+      return out
+    }, 'background')
   }
 
   /** The input the last engine classification used (the cache's data). */
@@ -829,8 +946,14 @@ export class QuerySession {
     }, 'background')
   }
 
-  async valueHistogram(column: string): Promise<ValueHistogram | null> {
+  async valueHistogram(column: string, expression?: string): Promise<ValueHistogram | null> {
     const facts = this.facts
+    // Spec 010: a graduated expression's values, from a relation that computes them (checked first).
+    if (expression && facts && !this.utilityRows) {
+      const plain = this.statsRelation()
+      if (await this.expressionError(plain, expression, 'value')) return null
+      return this.histogramOf(`(SELECT ${expressionValueSql(expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${plain})`, EXPRESSION_VALUE_COLUMN)
+    }
     if (!facts || !facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) {
       const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => Number.isFinite(v))
@@ -841,7 +964,10 @@ export class QuerySession {
       const rows = values.map((v) => ({ b: Math.min(n - 1, Math.floor(((v - min) / (max - min || 1)) * n)), n: 1 }))
       return histogramFrom(min, max, rows)
     }
-    const relation = this.statsRelation()
+    return this.histogramOf(this.statsRelation(), column)
+  }
+
+  private histogramOf(relation: string, column: string): Promise<ValueHistogram | null> {
     return this.exclusive(async (isCancelled) => {
       const totals = await singleRow<{ n: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, column), isCancelled)
       if (!Number(totals.n) || totals.min === null || totals.max === null) return null
@@ -1001,11 +1127,12 @@ export class QuerySession {
    * `attrs` undefined: all visible attributes (GeoLibre does this; style changes then never refetch).
    * Background work: user work preempts it, and the caller asks again.
    */
-  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void): Promise<MapData> {
+  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void, computed: readonly ComputedColumn[] = []): Promise<MapData> {
     return this.exclusive(async (isCancelled) => {
-      const target = this.viewTarget()
+      // Spec 010: columns the style needs computed (a rule index, an expression's value) ride along.
+      const target = withComputed(this.viewTarget(), computed)
       if (!target) return { type: 'FeatureCollection', features: [], dots: [] }
-      const wanted = attrs ? target.attrs.filter((a) => attrs.includes(a)) : target.attrs
+      const wanted = attrs ? target.attrs.filter((a) => attrs.includes(a) || computed.some((c) => c.name === a)) : target.attrs
       const collector = featureCollector()
       await streamRows(this.conn, allFeaturesSql(target, wanted, (target.textAttrs ?? []).filter((a) => wanted.includes(a))), isCancelled, async (batch) => {
         await collector.add(batch)
@@ -1016,11 +1143,11 @@ export class QuerySession {
   }
 
   /** Spec 010 tiles mode: one MVT tile of the displayed result. Empty tiles are a 0-byte array. */
-  async tile(z: number, x: number, y: number, attrs: string[]): Promise<Uint8Array> {
+  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = []): Promise<Uint8Array> {
     return this.exclusive(async (isCancelled) => {
       const delay = testOverrides().slowTileMs
       if (delay) await new Promise((r) => setTimeout(r, delay))
-      const target = this.viewTarget()
+      const target = withComputed(this.viewTarget(), computed)
       if (!target) return new Uint8Array(0)
       let box = tileBoundsWgs84(z, x, y)
       const boxSql = viewBoxSql(clampWgs84(box), target.srid)
@@ -1029,7 +1156,8 @@ export class QuerySession {
         box = [b.x0, b.y0, b.x1, b.y1]
       }
       const columns = this.facts?.columns ?? this.table.columns
-      const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: columns.find((c) => c.name === name)?.type ?? 'VARCHAR' }))
+      const typeOf = (name: string): string => computed.find((c) => c.name === name)?.type ?? columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
+      const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: typeOf(name) }))
       const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed), isCancelled)
       return row.tile ?? new Uint8Array(0)
     }, 'tile')
@@ -1260,10 +1388,18 @@ export function describeOutcome(o: RunOutcome): string {
   }
 }
 
+/** A draw target with the style's computed columns added (spec 010), or null. */
+function withComputed(t: ViewTarget | null, computed: readonly ComputedColumn[]): ViewTarget | null {
+  if (!t || !computed.length) return t
+  return { ...t, relation: withComputedSql(t.relation, computed), attrs: [...t.attrs, ...computed.map((c) => c.name)] }
+}
+
 /** Fields that only change how classes look, never which classes there are or their counts. */
 const PRESENTATION_KEYS = new Set([
   'color', 'ramp', 'palette', 'label', 'visible', 'hidden', 'fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity',
   'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash', 'sizeMin', 'sizeMax', 'extrusion',
+  // Spec 010 rules: the "Everything else" row's look.
+  'elseColor', 'elseLabel', 'elseVisible',
 ])
 
 /** The style without its presentation: two styles with the same key classify the same data the same way. */

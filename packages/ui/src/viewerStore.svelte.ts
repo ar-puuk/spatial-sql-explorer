@@ -76,7 +76,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName, styleDataColumns, type MapData, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -302,6 +302,8 @@ export interface ViewerStore {
   readonly extrusionFlat: number | null
   /** Spec 008 US6: a height scale that makes `column` visible at the layer's extent (1 when unknown). */
   suggestExtrusionScale(column: string): Promise<number>
+  /** Spec 010: example rules from the data (a numeric column's median, a text column's most common value). */
+  ruleSuggestions(): Promise<RuleSuggestions>
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
@@ -733,17 +735,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
   async function refreshHistogram(s: LayerStyle, layer: Layer | null, qs: QuerySession | null): Promise<void> {
     const r = rendererOf(s)
-    if (r.kind !== 'graduated' || !r.column || !layer || !qs) {
+    if (r.kind !== 'graduated' || !(r.column || r.expression) || !layer || !qs) {
       histogramKey = null
       styleHistogram = null
       return
     }
-    if (histogramKey && histogramKey.layer === layer && histogramKey.column === r.column) return
-    const key = { layer, column: r.column }
+    // Spec 010: an expression's values are charted like a column's.
+    const column = r.expression ? `=${r.expression}` : r.column
+    if (histogramKey && histogramKey.layer === layer && histogramKey.column === column) return
+    const key = { layer, column }
     histogramKey = key
     styleHistogram = null
     try {
-      const h = await retryWhenBusy(qs, () => qs.valueHistogram(key.column))
+      const h = await retryWhenBusy(qs, () => qs.valueHistogram(r.column, r.expression))
       if (histogramKey === key) styleHistogram = h
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: value distribution failed', err)
@@ -793,6 +797,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
       if (generation === styleGeneration) {
         resolvedStyle = r
+        // Spec 010: rules and expressions are computed per feature by the engine; new SQL, new drawing.
+        if (computedKey(computedColumns(s, r)) !== drawnComputedKey) void refreshDraw()
         // After the style: the chart is secondary, and must not compete with it for the engine.
         void refreshHistogram(s, layer, qs).then(() => refreshFlat(s, layer, qs))
       }
@@ -1091,19 +1097,26 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let unregisterTiles: (() => void) | null = null
   /** The columns the current tiles carry (joined), to notice a style that needs others. */
   let tileColumnsKey = ''
+  /** Spec 010: the computed columns (rules, expressions) of the current drawing, as one key. */
+  let drawnComputedKey = ''
+  const computedKey = (c: readonly ComputedColumn[]): string => c.map((x) => `${x.name}=${x.sql}`).join('\u0000')
+  /** The columns the current style needs computed by the engine for the map. */
+  const currentComputed = (): ComputedColumn[] => computedColumns(style, resolvedStyle)
 
   /** Tiles mode: a new provider and URL for the current data and style columns. */
   function drawTiles(qs: QuerySession): void {
     unregisterTiles?.()
     const attrs = styleColumns(style)
+    const computed = currentComputed()
     tileColumnsKey = attrs.join('\u0000')
-    const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey)}`
+    drawnComputedKey = computedKey(computed)
+    const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey + '\u0001' + drawnComputedKey)}`
     unregisterTiles = registerTileProvider(key, async (z, x, y) => {
       // A tile never blocks user work: skipped or interrupted, it asks again once the engine is free.
       for (;;) {
         try {
           drawCalls++
-          return await qs.tile(z, x, y, attrs)
+          return await qs.tile(z, x, y, attrs, computed)
         } catch (err) {
           if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError) || qs !== querySession) throw err
           await qs.whenIdle()
@@ -1131,12 +1144,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const slow = setTimeout(() => {
       if (generation === drawGeneration) drawLoading = true
     }, 300)
+    const computed = currentComputed()
     try {
       const data = await retryWhenBusy(qs, () => {
         drawCalls++
-        return qs.allFeatures(undefined, (n) => {
-          if (generation === drawGeneration) drawProgress = n
-        })
+        return qs.allFeatures(
+          undefined,
+          (n) => {
+            if (generation === drawGeneration) drawProgress = n
+          },
+          computed
+        )
       })
       // An older load never replaces a newer one; the previous drawing stays until this one arrives.
       if (generation !== drawGeneration || qs !== querySession) return
@@ -1144,6 +1162,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       unregisterTiles = null
       tileUrl = null
       mapData = data
+      drawnComputedKey = computedKey(computed)
       drawMode = 'geojson'
       hostAdapter.setStatus({ drawMode: 'geojson', drawLoadAllAvailable: false })
     } catch (err) {
@@ -1792,6 +1811,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get extrusionFlat() {
       return extrusionFlat
+    },
+    async ruleSuggestions() {
+      const qs = querySession
+      if (!qs) return {}
+      return retryWhenBusy(qs, () => qs.ruleSuggestions()).catch(() => ({}))
     },
     async suggestExtrusionScale(column) {
       const qs = querySession

@@ -15,9 +15,12 @@ import {
   type LayerStyle,
   type RampRef,
   type ResolvedStyle,
+  type RuleDef,
   type StyleFormat,
   type StyleNotice,
 } from './model.js'
+import { checkExpression } from './sqlExpression.js'
+import { hasLike, parseSimpleWhere, type SimpleWhere } from './simpleWhere.js'
 
 export interface ExportClass {
   kind: 'value' | 'range' | 'other' | 'noValue'
@@ -51,17 +54,19 @@ export interface Thematic {
  * A style whose column isn't usable (FR-012) exports its single symbol, and
  * says why in `notes`.
  */
-export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined): { thematic: Thematic | null; notes: string[] } {
+export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined, format?: StyleFormat): { thematic: Thematic | null; notes: string[] } {
   const r = rendererOf(style)
   if (r.kind === 'single') return { thematic: null, notes: [] }
+  // Spec 010: only QML can classify an expression; SLD and Mapbox GL get the single symbol (previewExportNotice says so).
+  if (r.kind === 'graduated' && r.expression && format && format !== 'qml') return { thematic: null, notes: [] }
   if (!resolved || resolved.status !== 'ok') {
     const why = resolved?.reason ?? 'The classes could not be computed.'
     return { thematic: null, notes: [`${why} The single symbol was exported instead of the ${r.kind} classes.`] }
   }
-  // Spec 009: bivariate cells are written by each format itself (bivariateForExport).
-  if (r.kind === 'bivariate') return { thematic: null, notes: [] }
+  // Spec 009: bivariate cells are written by each format itself (bivariateForExport); spec 010: so are rules.
+  if (r.kind === 'bivariate' || r.kind === 'rules') return { thematic: null, notes: [] }
   const classes: ExportClass[] = resolved.classes.flatMap((c) =>
-    c.kind === 'single' || c.kind === 'cell' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
+    c.kind === 'single' || c.kind === 'cell' || c.kind === 'rule' ? [] : [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, ...(c.size !== undefined ? { size: c.size } : {}) }]
   )
   return { thematic: { renderer: r, classes }, notes: [] }
 }
@@ -73,8 +78,19 @@ export const MAPBOX_SHAPE_NOTE = (shape: string): string =>
 /** What a format can't hold for this style (FR-015), known before writing. */
 export function previewExportNotice(style: LayerStyle, format: StyleFormat, resolved: ResolvedStyle | undefined): StyleNotice {
   const items: string[] = []
-  const { thematic, notes } = thematicForExport(style, resolved)
+  const { thematic, notes } = thematicForExport(style, resolved, format)
   items.push(...notes)
+  // Spec 010: rules and expressions outside QML.
+  const r = rendererOf(style)
+  if (format !== 'qml' && r.kind === 'graduated' && r.expression && resolved?.status === 'ok') items.push(EXPRESSION_NOTE(format))
+  if (format !== 'qml' && r.kind === 'rules') {
+    const portable = portableRules(style, resolved, format)
+    if (!portable) items.push(COMPLEX_RULES_NOTE)
+    else if (format === 'sld') {
+      const hidden = portable.filter((p) => !p.rule.visible).length + (r.elseVisible ? 0 : 1)
+      if (hidden) items.push(`SLD can't mark a rule as hidden: ${hidden} hidden ${hidden === 1 ? 'rule' : 'rules'} will be left out.`)
+    }
+  }
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
@@ -95,6 +111,40 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
     if (hidden) items.push(`SLD can't mark a class as hidden: ${hidden} hidden ${hidden === 1 ? 'class' : 'classes'} will be left out.`)
   }
   return { direction: 'export', format, items }
+}
+
+// --- Spec 010: rules and expressions in SLD and Mapbox GL ------------------------
+
+/** Shown when a rule set can't be written to SLD or Mapbox GL. */
+export const COMPLEX_RULES_NOTE = 'Rules with complex conditions are only kept in QML.'
+export const EXPRESSION_NOTE = (format: StyleFormat): string =>
+  `${format === 'sld' ? 'SLD' : 'Mapbox GL styles'} can't classify an expression: the single symbol is exported (QML keeps the classes).`
+
+/** A rule whose condition the format can carry. */
+export interface PortableRule {
+  rule: RuleDef
+  /** The rule's index (its place in the first-match order). */
+  index: number
+  where: SimpleWhere
+}
+
+/**
+ * The rules SLD (or Mapbox GL) can carry, in order, or null when one of them
+ * isn't a simple comparison chain (Mapbox GL: or uses LIKE). Rules that match
+ * nothing (an empty or invalid condition) are left out: they color nothing.
+ */
+export function portableRules(style: LayerStyle, resolved: ResolvedStyle | undefined, format: StyleFormat): PortableRule[] | null {
+  const r = rendererOf(style)
+  if (r.kind !== 'rules') return null
+  const errors = new Map((resolved?.classes ?? []).flatMap((c) => (c.kind === 'rule' && c.ruleId && c.error ? [[c.ruleId, c.error] as const] : [])))
+  const out: PortableRule[] = []
+  for (const [index, rule] of r.rules.entries()) {
+    if (checkExpression(rule.where, 'condition') || errors.has(rule.id)) continue
+    const where = parseSimpleWhere(rule.where)
+    if (!where || (format === 'mapbox' && hasLike(where))) return null
+    out.push({ rule, index, where })
+  }
+  return out
 }
 
 // --- import -------------------------------------------------------------------

@@ -18,6 +18,13 @@
     type GraduatedMethod,
     rendererOf,
     startStyle,
+    addRule,
+    updateRule,
+    removeRule,
+    moveRule,
+    setRulesElse,
+    suggestedRules,
+    type RuleSuggestions,
     addClass,
     deleteClass,
     setCategorizedAuto,
@@ -67,6 +74,7 @@
   import SymbolSwatch from './style/SymbolSwatch.svelte'
   import BivariatePicker from './style/BivariatePicker.svelte'
   import BivariateLegend from './style/BivariateLegend.svelte'
+  import RulesEditor from './style/RulesEditor.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -99,6 +107,8 @@
     onSuggestScale?: (column: string) => Promise<number>
     /** Spec 010: inside the side panel (no title or close button of its own). */
     embedded?: boolean
+    /** Spec 010: example rules from the data, for a first rules style. */
+    onSuggestRules?: () => Promise<RuleSuggestions>
   }
   let {
     style,
@@ -123,6 +133,7 @@
     extrusionFlat = null,
     onSuggestScale,
     embedded = false,
+    onSuggestRules,
   }: Props = $props()
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
@@ -173,6 +184,7 @@
     { kind: 'categorized', label: 'Categorized', hint: 'A color per value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a numeric column' },
     { kind: 'bivariate', label: 'Bivariate', hint: 'Colors by two numeric columns, from a 3×3 square' },
+    { kind: 'rules', label: 'Rules', hint: 'Colors by SQL conditions: the first that holds colors a feature' },
   ]
   const renderer = $derived(rendererOf(style))
   const thematic = $derived(renderer.kind !== 'single')
@@ -181,6 +193,7 @@
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
+    if (kind === 'rules') return layer?.columns.length ? null : 'This result has no attribute columns.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -188,6 +201,38 @@
   function chooseRenderer(kind: Renderer['kind']): void {
     if (kind === renderer.kind || unavailable(kind)) return
     onChange(startStyle(style, kind, layer))
+    if (kind === 'rules') void suggestRules()
+  }
+
+  // --- Spec 010: rules and graduated by expression ----------------------------
+  /** A first rules style gets two example rules from the data (unless rules were added meanwhile). */
+  async function suggestRules(): Promise<void> {
+    const s = await onSuggestRules?.().catch(() => ({}))
+    const now = rendererOf(style)
+    if (!s || now.kind !== 'rules' || now.rules.length) return
+    const rules = suggestedRules(s)
+    if (rules.length) onChange({ renderer: { ...now, rules } })
+  }
+
+  const EXPRESSION = '__expression'
+  /** "Expression…" chosen in the Value select, before an expression is written. */
+  let expressionMode = $state(false)
+  const usingExpression = $derived(renderer.kind === 'graduated' && (!!renderer.expression || expressionMode))
+  function chooseValue(value: string): void {
+    if (value === EXPRESSION) {
+      expressionMode = true
+      return
+    }
+    expressionMode = false
+    chooseColumn(value)
+  }
+  function commitExpression(text: string): void {
+    if (renderer.kind !== 'graduated') return
+    const expression = text.trim()
+    if (!expression) return
+    if (expression === renderer.expression) return
+    // A new expression starts new classes (as a new column does); the label follows the text.
+    apply({ ...style, renderer: { ...renderer, expression, column: '', method: renderer.method === 'manual' ? 'quantile' : renderer.method, classes: [] } })
   }
 
   /** Radio group keys: arrows move and apply, skipping unavailable entries (WAI-ARIA radio group). */
@@ -230,7 +275,7 @@
   }
 
   function chooseColumn(column: string): void {
-    if (renderer.kind === 'single') return
+    if (renderer.kind === 'single' || renderer.kind === 'rules') return
     onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
   }
 
@@ -353,15 +398,37 @@
         <h3 id="style-sec-by">Color by</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
-          <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
-            {#if !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
+          <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
+            {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
               <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
             {/if}
             {#each columnsFor(renderer.kind) as c (c.name)}
               <option value={c.name}>{c.name} · {c.type}</option>
             {/each}
+            {#if renderer.kind === 'graduated'}
+              <option value={EXPRESSION}>Expression…</option>
+            {/if}
           </select>
         </div>
+        {#if renderer.kind === 'graduated' && usingExpression}
+          <div class="expression">
+            <input
+              type="text"
+              class="mono"
+              aria-label="Expression"
+              aria-describedby="style-expression-hint"
+              placeholder="gdp_md * 1e6 / pop_est"
+              spellcheck="false"
+              autocomplete="off"
+              value={renderer.expression ?? ''}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              onchange={(e) => commitExpression(e.currentTarget.value)}
+            />
+            <p class="hint" id="style-expression-hint">A SQL expression over this layer's columns, e.g. gdp_md * 1e6 / pop_est</p>
+          </div>
+        {/if}
       </section>
 
       {#if renderer.kind === 'graduated'}
@@ -431,6 +498,26 @@
           {#each resolved.notes as note (note)}
             <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
           {/each}
+        {/if}
+      </section>
+    {/if}
+
+    <!-- Spec 010: rules (the first matching condition colors a feature). -->
+    {#if renderer.kind === 'rules'}
+      <section aria-labelledby="style-sec-rules">
+        <h3 id="style-sec-rules">Rules</h3>
+        <p class="hint">SQL conditions on this layer's columns. The first rule a feature matches colors it.</p>
+        <RulesEditor
+          {renderer}
+          {resolved}
+          onUpdate={(id, patch) => apply(updateRule(style, id, patch))}
+          onAdd={() => apply(addRule(style))}
+          onRemove={(id) => apply(removeRule(style, id))}
+          onMove={(id, by) => apply(moveRule(style, id, by))}
+          onElse={(patch) => apply(setRulesElse(style, patch))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
         {/if}
       </section>
     {/if}
@@ -899,18 +986,43 @@
   .renderers button:first-child {
     border-left: 0;
   }
-  /* Spec 010: four style types don't fit a narrow side panel on one row. */
-  @container (max-width: 330px) {
+  /* Spec 010: five style types don't fit a side panel on one row: three per row. */
+  @container (max-width: 420px) {
     .renderers {
       grid-auto-flow: row;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
     }
-    .renderers button:nth-child(odd) {
+    .renderers button:nth-child(3n + 1) {
       border-left: 0;
     }
-    .renderers button:nth-child(n + 3) {
+    .renderers button:nth-child(n + 4) {
       border-top: 1px solid var(--se-input-border);
     }
+  }
+  .expression {
+    display: grid;
+    gap: 3px;
+  }
+  .expression input {
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-input-fg, var(--se-text-primary));
+    font-family: var(--se-font-mono);
+    font-size: 0.92em;
+  }
+  .expression input:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .hint {
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.88em;
+    line-height: 1.35;
   }
   .renderers button[aria-checked='true'] {
     background: var(--se-button-bg);
