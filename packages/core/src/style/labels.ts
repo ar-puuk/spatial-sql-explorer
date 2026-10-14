@@ -60,3 +60,12 @@ export function sanitizeLabels(raw: unknown): LabelSettings | undefined {
     placement,
   }
 }
+
+/** The column a label reads in formats without SQL (SLD, Mapbox GL): its column, or the first column its expression names. */
+export function labelColumnOf(labels: LabelSettings): string | null {
+  if (labels.source.kind === 'column') return labels.source.column
+  const words = labels.source.expression.replace(/'(?:[^']|'')*'/g, ' ').match(/"(?:[^"]|"")+"|\b[A-Za-z_][A-Za-z0-9_]*\b(?!\s*\()/g) ?? []
+  const keyword = /^(and|or|not|is|null|true|false|case|when|then|else|end|as|in|like|ilike|between|cast|try_cast|varchar|integer|double)$/i
+  const found = words.find((w) => !keyword.test(w))
+  return found ? found.replace(/^"|"$/g, '').replace(/""/g, '"') : null
+}

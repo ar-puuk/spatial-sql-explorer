@@ -2,10 +2,10 @@
 // property, titled with its column; US5 merges groups that share a column and
 // classes). Each class's swatch is the layer's symbol with that property's
 // output, so the legend shows what the map draws.
-import { CHANNEL_ORDER, channelDataColumns, type ChannelId, type Output } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, channelDataColumns, isColorChannel, type ChannelId, type ContinuousScale, type Output } from './channels.js'
 import { legacyView, rendererOf } from './legacy.js'
 import { EXPRESSION_VALUE_COLUMN, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
-import { isGenericChannel } from './resolve.js'
+import { CONTINUOUS_STOPS, continuousOutput, isGenericChannel } from './resolve.js'
 import { baseSymbol, classSymbols, sizeSymbols, type LineDash, type MarkerShape, type SymbolSpec } from './symbol.js'
 
 export interface ChannelLegendGroup {
@@ -15,7 +15,14 @@ export interface ChannelLegendGroup {
   classes: ResolvedClass[]
   /** One per class: the layer symbol with the class's output. */
   symbols: SymbolSpec[]
+  /** Spec 011 US4, continuous colors: the ramp drawn as a bar, with the domain's ends. */
+  gradient?: { stops: string[]; min: string; max: string }
+  /** Spec 011 US4, as is: what the property reads. */
+  note?: string
 }
+
+/** Spec 011 US4: legend samples of a continuous property are drawn, not toggled (their keys start so). */
+export const SAMPLE_KEY_PREFIX = 'sample:'
 
 /** The symbol of a class of `channel`: the layer's own, with this output. */
 export function withOutput(base: SymbolSpec, channel: ChannelId, output: Output | undefined): SymbolSpec {
@@ -56,9 +63,28 @@ export function channelLegendGroups(style: LayerStyle, resolved: ResolvedStyle):
     const enc = s.channels?.[id]
     const rc = resolved.channels?.[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc) || enc.legend?.hidden) return []
+    // Size and width share one encoding (markers and lines alike): one group.
+    if (id === 'width' && s.channels?.size && JSON.stringify(s.channels.size) === JSON.stringify(enc)) return []
     // A turned circle looks the same: rotation swatches use a triangle unless the shape is another.
     const shown = id === 'rotation' && base.shape === 'circle' ? { ...base, shape: 'triangle' as MarkerShape } : base
-    return [{ channel: id, title: enc.legend?.title ? `${enc.legend.title} · ${rc.caption.split(' · ').slice(1).join(' · ')}` : rc.caption, classes: rc.classes, symbols: rc.classes.map((c) => withOutput(shown, id, c.output)) }]
+    const title = enc.legend?.title ? `${enc.legend.title} · ${rc.caption.split(' · ').slice(1).join(' · ')}` : rc.caption
+    // Spec 011 US4: continuous colors as a bar; continuous numbers as three samples; as is, said in words.
+    let classes = rc.classes
+    let gradient: ChannelLegendGroup['gradient']
+    let note: string | undefined
+    if (rc.scale === 'continuous' && rc.domain && enc.scale.kind === 'continuous') {
+      const domain = rc.domain
+      const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+      if (isColorChannel(id)) {
+        const span = domain.max - domain.min
+        const stops = Array.from({ length: CONTINUOUS_STOPS }, (_, i) => String(continuousOutput(id, enc.scale as ContinuousScale, domain, domain.min + (span * i) / (CONTINUOUS_STOPS - 1))))
+        gradient = { stops, min: fmt.format(domain.min), max: fmt.format(domain.max) }
+      } else {
+        const samples: ResolvedClass[] = (rc.samples ?? []).map((x, i) => ({ key: `${SAMPLE_KEY_PREFIX}${i}`, kind: 'value', label: x.label, color: base.fillColor, visible: true, count: -1, output: x.output }))
+        classes = [...samples, ...rc.classes]
+      }
+    } else if (rc.scale === 'identity') note = isColorChannel(id) ? 'Colors read from the column' : `Read from the column${id === 'opacity' ? ' (0–1)' : id === 'rotation' ? ' (degrees)' : ' (pixels)'}`
+    return [{ channel: id, title, classes, symbols: classes.map((c) => withOutput(shown, id, c.output)), ...(gradient ? { gradient } : {}), ...(note ? { note } : {}) }]
   })
 }
 
@@ -83,11 +109,17 @@ export interface LegendGroup {
   channels: ChannelId[]
   title: string
   entries: LegendEntry[]
+  /** Spec 011 US4: a continuous color's bar. */
+  gradient?: { stops: string[]; min: string; max: string }
+  /** Spec 011 US4: an as-is property's line. */
+  note?: string
 }
 
 interface Member {
   channel: ChannelId
   title: string
+  gradient?: LegendGroup['gradient']
+  note?: string
   column: string
   scale: 'categories' | 'classes' | 'other'
   classes: ResolvedClass[]
@@ -135,7 +167,7 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
   for (const g of channelLegendGroups(s, resolved)) {
     const enc = s.channels?.[g.channel]
     const column = enc ? (channelDataColumns(g.channel, enc)[0] ?? '') : ''
-    members.push({ channel: g.channel, title: g.title, column, scale: enc?.scale.kind === 'categories' ? 'categories' : enc?.scale.kind === 'classes' ? 'classes' : 'other', classes: g.classes, symbols: g.symbols })
+    members.push({ channel: g.channel, title: g.title, column, scale: enc?.scale.kind === 'categories' ? 'categories' : enc?.scale.kind === 'classes' ? 'classes' : 'other', classes: g.classes, symbols: g.symbols, ...(g.gradient ? { gradient: g.gradient } : {}), ...(g.note ? { note: g.note } : {}) })
   }
 
   const groups: Array<{ first: Member; rest: Member[] }> = []
@@ -150,10 +182,17 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
       if (sig !== null) bySignature.set(sig, g)
     }
   }
+  // Two groups with the same title (two properties on one column, by different scales): each names its properties.
+  const titles = new Map<string, number>()
+  for (const g of groups) titles.set(g.first.title, (titles.get(g.first.title) ?? 0) + 1)
+  const titleOf = (first: Member, rest: Member[]): string =>
+    (titles.get(first.title) ?? 0) > 1 ? `${[first, ...rest].map((m) => CHANNEL_NAMES[m.channel]).join(', ')} · ${first.title}` : first.title
   return groups.map(({ first, rest }) => ({
     key: [first, ...rest].map((m) => m.channel).join('+'),
     channels: [first, ...rest].map((m) => m.channel),
-    title: first.title,
+    title: titleOf(first, rest),
+    ...(first.gradient ? { gradient: first.gradient } : {}),
+    ...(first.note ? { note: first.note } : {}),
     entries: first.classes.map((c, i) => ({
       key: c.key,
       kind: c.kind,
@@ -161,7 +200,8 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
       count: c.count,
       visible: c.visible,
       symbol: rest.reduce((sym, m) => apply(sym, m, m.classes[i]), first.symbols[i]),
-      toggles: [first, ...rest].map((m) => ({ channel: m.channel, key: m.classes[i].key })),
+      // Samples of a continuous property are drawn, not hidden.
+      toggles: c.key.startsWith(SAMPLE_KEY_PREFIX) ? [] : [first, ...rest].map((m) => ({ channel: m.channel, key: m.classes[i].key })),
     })),
   }))
 }

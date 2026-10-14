@@ -101,13 +101,29 @@
       {@const kind = kindOf(g)}
       {@const list = shown(g)}
       {@const sc = Math.min(1, (SWATCH / 2 - 1) / reachOf(list))}
-      {@const label = gi === 0 && g.channels[0] === 'color' ? heading : g.title}
-      {#if !(gi === 0 && g.channels[0] === 'color')}
-        <h4 class="group-title" title={g.title}>{g.title}</h4>
+      <!-- The color's classes are the layer's own (the heading names them); a continuous or as-is color has its own title. -->
+      {@const ownTitle = !(gi === 0 && g.channels[0] === 'color') || !!g.gradient || !!g.note}
+      {@const label = ownTitle ? g.title : heading}
+      {#if ownTitle}
+        <h2 class="group-title" title={g.title}>{g.title}</h2>
       {/if}
       <div role="group" aria-label={label} class="group" data-channels={g.channels.join(' ')}>
+        {#if g.gradient}
+          <!-- Spec 011 US4: a continuous color, as its ramp from the smallest value to the largest. -->
+          <div class="heat-ramp" role="img" aria-label="{g.title}: colors from {g.gradient.min} to {g.gradient.max}" style:background="linear-gradient(to right, {g.gradient.stops.join(', ')})"></div>
+          <div class="heat-ends"><span>{g.gradient.min}</span><span>{g.gradient.max}</span></div>
+        {/if}
+        {#if g.note}<p class="group-note">{g.note}</p>{/if}
         <ul>
           {#each g.entries as e, i (e.key)}
+            {#if !e.toggles.length}
+              <!-- Spec 011 US4: a continuous property's sample: drawn, not a class to hide. -->
+              <li>
+                <span class="swatch"><SymbolSwatch symbol={list[i]} {kind} scale={sc} size={kind === 'point' ? SWATCH : 18} /></span>
+                <span class="label" title={e.label}>{e.label}</span>
+                <span class="count"></span>
+              </li>
+            {:else}
             <li class:hidden={!e.visible}>
               <button
                 type="button"
@@ -123,13 +139,14 @@
               <span class="label" title={e.label}>{e.label}</span>
               <span class="count">{nf.format(e.count)}</span>
             </li>
+            {/if}
           {/each}
         </ul>
       </div>
     {/each}
     {#if proportional}
       {@const sc = Math.min(1, (SWATCH / 2 - 1) / propReach)}
-      <h4 class="group-title" title={proportional.channel.caption}>{proportional.channel.caption}</h4>
+      <h2 class="group-title" title={proportional.channel.caption}>{proportional.channel.caption}</h2>
       <div role="group" aria-label={proportional.channel.caption} class="group">
         <ul>
           <!-- Spec 009 US2: proportional reference sizes, smallest first; not classes, so not toggles. -->
@@ -254,6 +271,16 @@
     display: flex;
     justify-content: space-between;
     gap: 8px;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
+  /* Spec 011 US4: a continuous color's bar, and an as-is property's line, inside a property's group. */
+  .group:not(.heat) > .heat-ramp,
+  .group:not(.heat) > .heat-ends {
+    margin: 2px 8px 0;
+  }
+  .group-note {
+    margin: 0 8px 4px;
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }

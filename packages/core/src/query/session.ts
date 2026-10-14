@@ -35,11 +35,12 @@ import {
   quantilePositions,
   STYLE_VALUES_CAP,
   topCategoriesSql,
+  invalidColorsSql,
 } from '../view/stats.js'
 import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
 import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
 import { legacyView, rendererOf, sizeOf } from '../style/legacy.js'
-import { CHANNEL_ORDER } from '../style/channels.js'
+import { CHANNEL_ORDER, isColorChannel, type ChannelId, type ConditionsScale } from '../style/channels.js'
 import { isGenericChannel } from '../style/resolve.js'
 import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
 import type { RuleSuggestions } from '../style/edit.js'
@@ -634,8 +635,54 @@ export class QuerySession {
    * connection like any user work.
    */
   async resolveStyle(style: LayerStyle): Promise<ResolvedStyle> {
-    const out = await this.resolveColorAndSize(style)
-    return this.withGenericChannels(style, out)
+    const out = await this.withConditionChannels(style, await this.withGenericChannels(style, await this.resolveColorAndSize(style)))
+    // Spec 011 US6: an expression label is checked by the engine (any type is shown as text).
+    const l = style.labels
+    if (!l?.enabled || l.source.kind !== 'expression' || !this.facts || this.utilityRows) return out
+    const why = await this.expressionError(this.statsRelation(), l.source.expression, 'text')
+    return why ? { ...out, labelError: why } : out
+  }
+
+  private conditionsCache: { key: string; ruleCountsByChannel: Partial<Record<ChannelId, Map<number, number>>>; ruleErrorsByChannel: Partial<Record<ChannelId, Record<string, string>>> } | null = null
+
+  /**
+   * Spec 011 US4: properties by conditions (spec 010's rules, per property):
+   * each condition checked by the engine, then the features per rule in one
+   * pass, each property's rules counted by the first that holds.
+   */
+  private async withConditionChannels(style: LayerStyle, out: ResolvedStyle): Promise<ResolvedStyle> {
+    const facts = this.facts
+    const ids = CHANNEL_ORDER.filter((id) => id !== 'color' && style.channels?.[id]?.scale.kind === 'conditions')
+    if (!facts || !ids.length || this.utilityRows) return out
+    const relation = this.statsRelation()
+    // Cached by what the counts read: the data and each property's conditions (not outputs or labels).
+    const key = `${this.dataVersion}\u0000${relation}\u0000${JSON.stringify(ids.map((id) => [id, (style.channels?.[id]?.scale as ConditionsScale).rules.map((r) => [r.id, r.where])]))}`
+    let ruleCountsByChannel: Partial<Record<ChannelId, Map<number, number>>> = {}
+    let ruleErrorsByChannel: Partial<Record<ChannelId, Record<string, string>>> = {}
+    if (this.conditionsCache?.key === key) ({ ruleCountsByChannel, ruleErrorsByChannel } = this.conditionsCache)
+    else for (const id of ids) {
+      const scale = style.channels?.[id]?.scale
+      if (scale?.kind !== 'conditions') continue
+      const errors: Record<string, string> = {}
+      for (const rule of scale.rules) {
+        const why = await this.expressionError(relation, rule.where, 'condition')
+        if (why) errors[rule.id] = why
+      }
+      const usable = new Set(scale.rules.filter((x) => !errors[x.id]).map((x) => x.id))
+      ruleCountsByChannel[id] = await this.exclusive(async (isCancelled) => {
+        const counts = new Map<number, number>()
+        await streamRows(this.conn, ruleCountsSql(relation, scale.rules, usable), isCancelled, (batch) => {
+          for (const row of batch) counts.set(Number(row.cls), Number(row.n))
+        })
+        return counts
+      }, 'background')
+      ruleErrorsByChannel[id] = errors
+    }
+    this.conditionsCache = { key, ruleCountsByChannel, ruleErrorsByChannel }
+    const again = resolveStyleFrom(style, { ...(this.styleInput ?? { columns: facts.columns, rowCount: facts.totalRows }), ruleCountsByChannel, ruleErrorsByChannel })
+    const channels = { ...out.channels }
+    for (const id of ids) if (again.channels?.[id]) channels[id] = again.channels[id]
+    return { ...out, channels }
   }
 
   /** Spec 011: the engine's data for properties set by a column other than color and size, cached by what they read. */
@@ -682,13 +729,22 @@ export class QuerySession {
         }
         for (const w of wanted) {
           if (got[w.column]) continue
-          if (w.scale.kind === 'categories') {
+          // Spec 011 US4: continuous and as-is numbers need the minimum and maximum (and nulls).
+          if (w.scale.kind === 'continuous' || (w.scale.kind === 'identity' && !isColorChannel(w.id))) {
+            const t = await singleRow<{ n: bigint | number; nulls: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, w.column), isCancelled)
+            const sample = t.min === null || t.max === null ? [] : [Number(t.min), Number(t.max)]
+            got[w.column] = { kind: 'numbers', column: w.column, sample, n: Number(t.n), nulls: Number(t.nulls) }
+            continue
+          }
+          if (w.scale.kind === 'categories' || w.scale.kind === 'identity') {
             const top: Array<{ value: string; count: number }> = []
-            await streamRows(this.conn, topCategoriesSql(relation, w.column, w.scale.manual ? w.scale.categories.map((c) => c.value) : []), isCancelled, (batch) => {
+            await streamRows(this.conn, topCategoriesSql(relation, w.column, w.scale.kind === 'categories' && w.scale.manual ? w.scale.categories.map((c) => c.value) : []), isCancelled, (batch) => {
               for (const row of batch) top.push({ value: String(row.cat), count: Number(row.n) })
             })
             const totals = await singleRow<{ distinct_n: bigint | number; non_null: bigint | number; nulls: bigint | number }>(this.conn, categoryTotalsSql(relation, w.column), isCancelled)
-            got[w.column] = { kind: 'categories', column: w.column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls) }
+            // Spec 011 US4: as-is colors also count the values that aren't colors.
+            const invalid = w.scale.kind === 'identity' ? Number((await singleRow<{ bad: bigint | number }>(this.conn, invalidColorsSql(relation, w.column), isCancelled)).bad) : undefined
+            got[w.column] = { kind: 'categories', column: w.column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls), ...(invalid !== undefined ? { invalid } : {}) }
           } else if (w.scale.kind === 'classes') {
             const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, [w.column]), isCancelled)
             const count = Number(totals.n_0)
@@ -804,7 +860,7 @@ export class QuerySession {
    */
   private async resolveHeatmapAuto(style: LayerStyle, r: HeatmapRenderer, base: ResolveInput): Promise<ResolvedStyle> {
     const relation = this.statsRelation()
-    const key = `${this.dataVersion} ${relation} ${styleDataKey(style)}`
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
     const hit = this.styleCache
     if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
     this.styleInput = null

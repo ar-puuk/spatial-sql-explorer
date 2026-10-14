@@ -44,6 +44,25 @@ suite('Spec 008 US7: map image in VS Code', () => {
           assert.strictEqual(width, one * 2)
         }
       }
+      // Spec 011 T068: labels are in the captured frame (the web suite checks their pixels; here, a smoke check:
+      // the same map with every country's name on it makes a noticeably bigger PNG).
+      await vscode.commands.executeCommand('spatialExplorer._setStyle', {
+        fillColor: '#3b82f6', fillOpacity: 0.45, strokeColor: '#1d4ed8', strokeOpacity: 1, strokeWidth: 1.5, pointRadius: 5,
+        renderer: { kind: 'single' },
+        labels: { enabled: true, source: { kind: 'column', column: 'name' }, size: 14, color: '#111111', halo: { enabled: true, color: '#ffffff', width: 2 }, placement: { kind: 'point', anchor: 'above', offset: 4 } },
+      })
+      await sleep(2500)
+      const labeled = path.join(dir, 'map-labels.png')
+      await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', labeled)
+      await vscode.commands.executeCommand('spatialExplorer._exportMapImage', 1)
+      const until = Date.now() + 20000
+      while (!fs.existsSync(labeled) || fs.statSync(labeled).size === 0) {
+        assert.ok(Date.now() < until, 'map-labels.png was not written')
+        await sleep(200)
+      }
+      await sleep(200)
+      const plain = fs.statSync(path.join(dir, 'map-1x.png')).size
+      assert.ok(fs.statSync(labeled).size > plain * 1.05, `with labels ${fs.statSync(labeled).size} bytes, without ${plain}`)
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       fs.rmSync(dir, { recursive: true, force: true })

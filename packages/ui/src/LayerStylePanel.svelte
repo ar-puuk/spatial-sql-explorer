@@ -6,6 +6,31 @@
   const setAside = new Map<string, SetAsideEncoding>()
 </script>
 
+{#snippet sizeScaleChoice(current: ScaleKind)}
+  <!-- Spec 009's two sizes, and (spec 011 US4) conditions and as is. -->
+  <div class="renderers four" role="radiogroup" aria-label="Size scale">
+    {#each SIZE_SCALES as m, i (m.kind)}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={current === m.kind}
+        tabindex={current === m.kind ? 0 : -1}
+        title={m.hint}
+        onclick={() => chooseSizeScale(m.kind)}
+        onkeydown={(e) => {
+          const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+          if (!step) return
+          e.preventDefault()
+          const next = SIZE_SCALES[(i + step + SIZE_SCALES.length) % SIZE_SCALES.length].kind
+          chooseSizeScale(next)
+          const group = (e.currentTarget as HTMLElement).parentElement
+          queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+        }}>{m.label}</button
+      >
+    {/each}
+  </div>
+{/snippet}
+
 <script lang="ts">
   // Layer style popover (design-plan.md §8.1/§8.5; spec 003
   // contracts/ui-style-panel.md; spec 008 US1, contracts/ui.md "Style panel").
@@ -60,8 +85,7 @@
     setSizeClassCount,
     setSizeClassLabel,
     setSizeClassVisible,
-    setSizeMethod,
-    setSizeMode,
+    setSizeMethod,
     setSizeRange,
     sizeSymbols as sizeSymbolsOf,
     baseSymbol,
@@ -74,8 +98,9 @@
     validateStyle,
     previewExportNotice,
     type GeometryType,
-    type LayerStyle,
+    type LayerStyle,
     type Renderer,
+    type Scale,
     type ResolveInput,
     type ResolvedStyle,
     type StyleFormat,
@@ -88,8 +113,17 @@
     isNumericType,
     setChannelClass,
     setChannelClasses,
-    setChannelColumn,
-    setChannelRamp,
+    setChannelColumn,
+    setChannelRamp,
+    setChannelDomain,
+    defaultRamp,
+    addCondition,
+    updateCondition,
+    removeCondition,
+    moveCondition,
+    setConditionElse,
+    setChannelCurve,
+    scalesFor,
     setChannelRange,
     setEncoding,
     setLegendHidden,
@@ -220,21 +254,31 @@
     }
   }
 
-  const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
+  /** Spec 011 US4: the color's types: the pre-011 renderers, plus Continuous and As is (no renderer of their own). */
+  type ColorType = Renderer['kind'] | 'continuous' | 'identity'
+  const RENDERERS: Array<{ kind: ColorType; label: string; hint: string }> = [
     { kind: 'single', label: 'Single color', hint: 'One color for every feature' },
     { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
+    { kind: 'continuous', label: 'Continuous', hint: 'Colors along a ramp, in proportion to a number' },
+    { kind: 'identity', label: 'As is', hint: 'Colors read from a column (#rrggbb)' },
     { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
     { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
     { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
   ]
   const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
-  const thematic = $derived(renderer.kind !== 'single')
+  const colorEnc = $derived(style.renderer === undefined ? style.channels?.color : undefined)
+  const colorType = $derived<ColorType>(renderer.kind === 'single' && (colorEnc?.scale.kind === 'continuous' || colorEnc?.scale.kind === 'identity') ? colorEnc.scale.kind : renderer.kind)
+  const thematic = $derived(colorType !== 'single')
+  /** Text columns, for colors read as is (name-like ones first: hex, color, colour). */
+  const colorColumns = $derived(eligibleColumns(layer?.columns, 'categorized').filter((c) => !isNumericType(c.type)).sort((a, b) => Number(/hex|colou?r/i.test(b.name)) - Number(/hex|colou?r/i.test(a.name))))
   const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
   /** Why a renderer can't be chosen, or null. */
-  function unavailable(kind: Renderer['kind']): string | null {
+  function unavailable(kind: ColorType): string | null {
     if (kind === 'single') return null
+    if (kind === 'continuous') return columnsFor('graduated').length ? null : 'Continuous colors need a numeric column.'
+    if (kind === 'identity') return colorColumns.length ? null : 'Colors as is need a text column of colors (#rrggbb).'
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
     if (kind === 'rules') return layer?.columns.length ? null : 'This result has no attribute columns.'
     if (kind === 'heatmap') return geometryType === 'Point' || geometryType === 'Mixed' ? null : 'Heatmaps need points; this layer has none.'
@@ -242,8 +286,20 @@
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
 
-  function chooseRenderer(kind: Renderer['kind']): void {
-    if (kind === renderer.kind || unavailable(kind)) return
+  /** A new column for the continuous or as-is color, keeping its kind of scale and ramp. */
+  function setChannelColumnKeepScale(column: string): LayerStyle {
+    return colorEnc ? setEncoding(style, 'color', { ...colorEnc, source: { kind: 'column', column } }) : style
+  }
+
+  function chooseRenderer(kind: ColorType): void {
+    if (kind === colorType || unavailable(kind)) return
+    // Spec 011 US4: continuous and as is are a color encoding over the single symbol.
+    if (kind === 'continuous' || kind === 'identity') {
+      // Identifier-like columns last, as Size starts (spec 009 SC-001).
+      const column = (kind === 'continuous' ? (measureColumns(layer?.columns)[0] ?? columnsFor('graduated')[0]) : colorColumns[0])?.name ?? ''
+      const scale: Scale = kind === 'continuous' ? { kind: 'continuous', ramp: defaultRamp('graduated', 5), noValue: {} } : { kind: 'identity', noValue: {} }
+      return onChange(setEncoding(startStyle(style, 'single', layer), 'color', { source: { kind: 'column', column }, scale }))
+    }
     onChange(startStyle(style, kind, layer))
     if (kind === 'rules') void suggestRules()
   }
@@ -343,8 +399,33 @@
   /** Properties shown under Vary by attribute, in panel order ("size" stands for marker size or line width). */
   const varying = $derived.by((): ChannelId[] => {
     const generic = (['strokeColor', 'strokeWidth', 'shape', 'dash', 'opacity', 'rotation'] as ChannelId[]).filter((id) => !!style.channels?.[id])
-    return sizeOn ? ['size', ...generic] : generic
+    return sizeOn || sizeOther ? ['size', ...generic] : generic
   })
+  /**
+   * Spec 011 US4: size and width (one shared encoding) by conditions or as is.
+   * Spec 009's size editor has classes and proportional; these use the scale
+   * editor, and every edit goes to both channels.
+   */
+  const sizeOther = $derived(!sizeOn && !!(style.channels?.size ?? style.channels?.width))
+  const SIZE_IDS: ChannelId[] = ['size', 'width']
+  const sizeId = $derived<ChannelId>(sizeGeometry === 'line' ? 'width' : 'size')
+  const bothSizes = (f: (s: LayerStyle, id: ChannelId) => LayerStyle): void => apply(SIZE_IDS.reduce((s, id) => f(s, id), style))
+  /** Conditions and as is set the drawn property only (marker size or line width); spec 009's scales keep both. */
+  function chooseSizeScale(kind: ScaleKind): void {
+    if (kind === 'conditions' || kind === 'identity') {
+      const other = SIZE_IDS.find((x) => x !== sizeId) as ChannelId
+      const base = style.channels?.[sizeId] || !style.channels?.[other] ? style : setEncoding(style, sizeId, style.channels[other] ?? null)
+      return apply(setEncoding(setScaleKind(base, sizeId, kind, layer), other, null))
+    }
+    bothSizes((s, x) => setScaleKind(s, x, kind, layer))
+  }
+  const oneSize = (f: (s: LayerStyle, id: ChannelId) => LayerStyle): void => apply(f(style, sizeId))
+  const SIZE_SCALES = [
+    { kind: 'classes', label: 'Classed', hint: 'Sizes in steps, by classes of the column' },
+    { kind: 'continuous', label: 'Proportional', hint: 'Sizes that follow the values smoothly' },
+    { kind: 'conditions', label: 'Conditions', hint: 'Sizes set by SQL conditions, the first that holds wins' },
+    { kind: 'identity', label: 'As is', hint: 'Sizes read from the column, in pixels' },
+  ] as const
   /** What "Add…" offers: the layer's properties that aren't varying yet (Color is the style type; Height is 3D). */
   const addable = $derived.by(() => {
     const ids = channelsFor(geometryType, drawOf(style)).filter((id) => id !== 'color' && id !== 'height' && id !== 'width')
@@ -372,7 +453,14 @@
   function scalesForColumn(id: ChannelId, enc: Encoding): ScaleKind[] {
     const column = enc.source.kind === 'column' ? enc.source.column : ''
     const numeric = isNumericType(layer?.columns.find((c) => c.name === column)?.type ?? '')
-    return (['categories', 'classes'] as ScaleKind[]).filter((k) => (k === 'classes' ? numeric && id !== 'shape' && id !== 'dash' : true))
+    // FR-010, for the column at hand: classes and continuous need numbers; as is reads colors from text, the rest from numbers.
+    const color = id === 'strokeColor'
+    return scalesFor(id).filter((k) => {
+      if (k === 'classes' || k === 'continuous') return numeric
+      if (k === 'identity') return color ? !numeric : numeric
+      // Spec 011 US4: conditions read any columns (SQL).
+      return k === 'categories' || k === 'conditions'
+    })
   }
   /** A property added again starts on the column it last had in this session, else on a suitable first one (FR-007). */
   function addVary(id: ChannelId): void {
@@ -460,11 +548,33 @@
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Color</h3>
-      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} label="Color" listLabel="Color styles" />
+      <StyleTypePicker options={typeOptions} value={colorType} onChange={chooseRenderer} label="Color" listLabel="Color styles" />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
     </section>
+
+    {#if (colorType === 'continuous' || colorType === 'identity') && colorEnc}
+      <!-- Spec 011 US4: colors along a ramp, or read from the column. -->
+      <section aria-labelledby="style-sec-by">
+        <h3 id="style-sec-by">Color by</h3>
+        <ScaleEditor
+          channel="color"
+          enc={colorEnc}
+          resolved={resolved.channels?.color}
+          columns={colorType === 'continuous' ? columnsFor('graduated') : colorColumns}
+          scales={[]}
+          onColumn={(c) => apply(setChannelColumnKeepScale(c))}
+          onScale={() => {}}
+          onClasses={() => {}}
+          onRange={() => {}}
+          onRamp={(ramp) => apply(setChannelRamp(style, 'color', ramp))}
+          onDomain={(d) => apply(setChannelDomain(style, 'color', d))}
+          onClass={(key, patch) => apply(setChannelClass(style, 'color', key, patch))}
+          onLegendHidden={(h) => apply(setLegendHidden(style, 'color', h))}
+        />
+      </section>
+    {/if}
 
     {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
       <section aria-labelledby="style-sec-by">
@@ -860,7 +970,12 @@
         {/if}
         {#each varying as id (id)}
           {#if id === 'size'}
-            <VaryRow id="size" name={sizeGeometry === 'line' ? 'Width' : 'Size'} summary={resolved.size?.caption ?? ''} onRemove={() => toggleSize()}>
+            <VaryRow
+              id="size"
+              name={sizeGeometry === 'line' ? 'Width' : 'Size'}
+              summary={resolved.size?.caption ?? resolved.channels?.[sizeId]?.caption ?? ''}
+              onRemove={() => (sizeOn ? toggleSize() : SIZE_IDS.forEach((x) => removeVary(x)))}
+            >
               {#if sizeOn && size}
               <div class="row field">
                 <span class="label" aria-hidden="true">Column</span>
@@ -873,27 +988,7 @@
               </div>
               <div class="row field">
                 <span class="label" id="size-scale-label">Scale</span>
-                <div class="renderers two" role="radiogroup" aria-label="Size scale">
-                  {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={size.mode === m.mode}
-                      tabindex={size.mode === m.mode ? 0 : -1}
-                      title={m.hint}
-                      onclick={() => apply(setSizeMode(style, m.mode))}
-                      onkeydown={(e) => {
-                        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                          e.preventDefault()
-                          const next = size.mode === 'classed' ? 'proportional' : 'classed'
-                          apply(setSizeMode(style, next))
-                          const group = (e.currentTarget as HTMLElement).parentElement
-                          queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
-                        }
-                      }}>{m.label}</button
-                    >
-                  {/each}
-                </div>
+                {@render sizeScaleChoice(size.mode === 'classed' ? 'classes' : 'continuous')}
               </div>
               {#if size.mode === 'classed'}
               <div class="pair">
@@ -953,6 +1048,35 @@
                   <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
                 {/each}
               {/if}
+              {:else if sizeOther}
+                {@const enc = style.channels?.[sizeId]}
+                {#if enc}
+                  <div class="row field">
+                    <span class="label" aria-hidden="true">Scale</span>
+                    {@render sizeScaleChoice(enc.scale.kind)}
+                  </div>
+                  <ScaleEditor
+                    channel={sizeId}
+                    {enc}
+                    resolved={resolved.channels?.[sizeId]}
+                    columns={channelColumns}
+                    scales={[]}
+                    onColumn={(c) => oneSize((s, x) => setChannelColumn(s, x, c, layer))}
+                    onScale={chooseSizeScale}
+                    onClasses={() => {}}
+                    onRange={() => {}}
+                    onRamp={() => {}}
+                    onCondition={{
+                      add: () => oneSize((s, x) => addCondition(s, x)),
+                      update: (rid, patch) => oneSize((s, x) => updateCondition(s, x, rid, patch)),
+                      remove: (rid) => oneSize((s, x) => removeCondition(s, x, rid)),
+                      move: (rid, by) => oneSize((s, x) => moveCondition(s, x, rid, by)),
+                      otherwise: (patch) => oneSize((s, x) => setConditionElse(s, x, patch)),
+                    }}
+                    onClass={(key, patch) => oneSize((s, x) => setChannelClass(s, x, key, patch))}
+                    onLegendHidden={(h) => oneSize((s, x) => setLegendHidden(s, x, h))}
+                  />
+                {/if}
               {/if}
             </VaryRow>
           {:else}
@@ -970,6 +1094,15 @@
                   onClasses={(p) => apply(setChannelClasses(style, id, p))}
                   onRange={(lo, hi) => apply(setChannelRange(style, id, lo, hi))}
                   onRamp={(ramp) => apply(setChannelRamp(style, id, ramp))}
+                  onDomain={(d) => apply(setChannelDomain(style, id, d))}
+                  onCurve={(c) => apply(setChannelCurve(style, id, c))}
+                  onCondition={{
+                    add: () => apply(addCondition(style, id)),
+                    update: (rid, patch) => apply(updateCondition(style, id, rid, patch)),
+                    remove: (rid) => apply(removeCondition(style, id, rid)),
+                    move: (rid, by) => apply(moveCondition(style, id, rid, by)),
+                    otherwise: (patch) => apply(setConditionElse(style, id, patch)),
+                  }}
                   onClass={(key, patch) => apply(setChannelClass(style, id, key, patch))}
                   onLegendHidden={(h) => apply(setLegendHidden(style, id, h))}
                 />
@@ -1420,6 +1553,16 @@
   .preview {
     display: grid;
     place-items: center;
+  }
+  .renderers.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row;
+  }
+  .renderers.four button:nth-child(3) {
+    border-left: 0;
+  }
+  .renderers.four button:nth-child(n + 3) {
+    border-top: 1px solid var(--se-input-border);
   }
   .renderers.two {
     grid-template-columns: repeat(2, 1fr);

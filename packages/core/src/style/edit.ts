@@ -33,18 +33,22 @@ import {
 } from './model.js'
 import { rendererOf, sizeOf, toChannelShape } from './legacy.js'
 import { toCategory } from './classify.js'
-import { defaultRamp, rampColors } from './ramps.js'
-import { DEFAULT_SIZE_RANGE, type LineDash, type MarkerShape } from './symbol.js'
+import { defaultRamp, rampById, rampColors } from './ramps.js'
+import { DEFAULT_SIZE_RANGE, LINE_DASHES, MARKER_SHAPES, type LineDash, type MarkerShape } from './symbol.js'
 import { eligibleColumns, isNumericType, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
+import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import {
   OUTPUT_KIND,
   categoryCapFor,
+  fixedValue,
   isColorChannel,
   isOutputFor,
   type CategoriesScale,
   type ChannelId,
   type ClassDef,
   type ClassesScale,
+  type ConditionRule,
+  type ConditionsScale,
   type Encoding,
   type Output,
   type Scale,
@@ -507,7 +511,7 @@ function withRules(style: LayerStyle, patch: (r: RulesRenderer) => Partial<Rules
 }
 
 /** A rule id not used yet. */
-function newRuleId(rules: readonly RuleDef[]): string {
+function newRuleId(rules: ReadonlyArray<Pick<RuleDef, 'id'>>): string {
   const used = new Set(rules.map((r) => r.id))
   let i = rules.length + 1
   while (used.has(`r${i}`)) i++
@@ -764,6 +768,8 @@ export function setChannelClass(style: LayerStyle, channel: ChannelId, key: stri
       const categories = found ? scale.categories.map((c) => (c.value === value ? { ...merge(c), value } : c)) : [...scale.categories, { value, ...merge({}) }]
       return { ...e, scale: { ...scale, categories } }
     }
+    // Spec 011 US4: continuous and as is have only "No value".
+    if (scale.kind === 'continuous' || scale.kind === 'identity') return key === '__null' ? { ...e, scale: { ...scale, noValue: merge(scale.noValue) } } : e
     if (scale.kind === 'classes') {
       if (key === '__null') return { ...e, scale: { ...scale, noValue: merge(scale.noValue) } }
       if (!key.startsWith('range:')) return e
@@ -776,17 +782,50 @@ export function setChannelClass(style: LayerStyle, channel: ChannelId, key: stri
   })
 }
 
-/** A property's kind of scale (categories or classes this slice); its ramp or range is kept, classes start over. */
+/**
+ * A property's kind of scale; its ramp or range is kept, classes start over.
+ * Spec 011 US4: continuous (a sequential ramp, or the range; markers sized
+ * by area) and as is.
+ */
 export function setScaleKind(style: LayerStyle, channel: ChannelId, kind: Scale['kind'], _layer: ResolveInput | null): LayerStyle {
   void _layer
   return patchEncoding(style, channel, (e) => {
     if (e.scale.kind === kind) return e
-    const old = e.scale as CategoriesScale | ClassesScale
+    const old = e.scale as { ramp?: RampRef; range?: { min: number; max: number } }
     const keep = { ...(old.ramp ? { ramp: old.ramp } : {}), ...(old.range ? { range: old.range } : {}) }
+    const color = isColorChannel(channel)
+    const range = CHANNEL_RANGES[channel]
     if (kind === 'categories') return { ...e, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: categoryCapFor(channel), ...keep } }
     if (kind === 'classes') return { ...e, scale: { kind: 'classes', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, ...keep } }
+    if (kind === 'continuous') {
+      // A categorized palette doesn't run smoothly: continuous colors start from a sequential ramp.
+      const ramp = old.ramp && rampById(old.ramp.id)?.kind !== 'qualitative' ? old.ramp : defaultRamp('graduated', DEFAULT_CLASS_COUNT)
+      return { ...e, scale: { kind: 'continuous', noValue: {}, ...(color ? { ramp } : { range: old.range ?? (range ? { ...range } : { min: 0, max: 1 }) }), ...(channel === 'size' ? { curve: 'area' as const } : {}) } }
+    }
+    if (kind === 'identity') return { ...e, scale: { kind: 'identity', noValue: {} } }
+    // Spec 011 US4: conditions start with one rule to write, everything else at the fixed value.
+    if (kind === 'conditions') {
+      const fixed = fixedValue(style, channel, channel === 'width' || channel === 'dash' ? 'line' : 'marker')
+      return { ...e, scale: { kind: 'conditions', rules: [{ id: 'r1', label: '', where: '', output: conditionOutput(channel, 0, fixed), visible: true }], else: { label: DEFAULT_ELSE_LABEL, output: fixed, visible: true } } }
+    }
     return e
   })
+}
+
+/** Spec 011 US4: a continuous property's domain (null: the column's minimum to maximum). */
+export function setChannelDomain(style: LayerStyle, channel: ChannelId, domain: { min: number; max: number } | null): LayerStyle {
+  return patchEncoding(style, channel, (e) => {
+    if (e.scale.kind !== 'continuous') return e
+    const { domain: _d, ...rest } = e.scale
+    void _d
+    if (!domain || !Number.isFinite(domain.min) || !Number.isFinite(domain.max) || domain.min === domain.max) return { ...e, scale: rest }
+    return { ...e, scale: { ...rest, domain: { min: Math.min(domain.min, domain.max), max: Math.max(domain.min, domain.max) } } }
+  })
+}
+
+/** Spec 011 US4: a continuous number's curve (linear, or by area, as QGIS's size assistant). */
+export function setChannelCurve(style: LayerStyle, channel: ChannelId, curve: 'linear' | 'area'): LayerStyle {
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'continuous' && !isColorChannel(channel) ? { ...e, scale: { ...e.scale, curve } } : e))
 }
 
 /** The classification method and class count of a property with classes (overrides by index start over). */
@@ -803,12 +842,12 @@ export function setChannelClasses(style: LayerStyle, channel: ChannelId, patch: 
 export function setChannelRange(style: LayerStyle, channel: ChannelId, min: number, max: number): LayerStyle {
   if (!isOutputFor(channel, min) || !isOutputFor(channel, max)) return style
   const range = { min: Math.min(min, max), max: Math.max(min, max) }
-  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, range } } : e))
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' || e.scale.kind === 'continuous' ? { ...e, scale: { ...e.scale, range } } : e))
 }
 
 /** A color property's ramp. */
 export function setChannelRamp(style: LayerStyle, channel: ChannelId, ramp: RampRef): LayerStyle {
-  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, ramp } } : e))
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' || e.scale.kind === 'continuous' ? { ...e, scale: { ...e.scale, ramp } } : e))
 }
 
 /** Hides a property's group from the legend (the map is unchanged), or shows it again. */
@@ -821,4 +860,87 @@ export function setLegendHidden(style: LayerStyle, channel: ChannelId, hidden: b
     if (!Object.keys(legend).length) delete out.legend
     return out
   })
+}
+
+// --- Spec 011 US6: labels -----------------------------------------------------
+
+/** A change to the label settings; halo and placement merge with the current ones. */
+export type LabelPatch = Partial<Omit<LabelSettings, 'halo' | 'placement'>> & {
+  halo?: Partial<LabelSettings['halo']>
+  placement?: { anchor?: LabelAnchor; offset?: number }
+}
+
+/** The column labels start with: a name-like text column, else the first text column, else the first column. */
+export function defaultLabelColumn(columns: ReadonlyArray<{ name: string; type: string }>): string | null {
+  const usable = columns.filter((c) => !c.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(c.type))
+  const text = usable.filter((c) => /^(VARCHAR|TEXT|STRING)/i.test(c.type))
+  return (text.find((c) => /^(name|label|title)$/i.test(c.name)) ?? text.find((c) => /name|label|title/i.test(c.name)) ?? text[0] ?? usable[0])?.name ?? null
+}
+
+/**
+ * Spec 011 US6: the style with its labels changed. Turning labels on with no
+ * text yet starts from `defaultLabelColumn` (nothing to label: unchanged).
+ */
+export function setLabels(style: LayerStyle, patch: LabelPatch, columns: ReadonlyArray<{ name: string; type: string }> = []): LayerStyle {
+  const current = style.labels
+  const fallback = defaultLabelColumn(columns)
+  const source = patch.source ?? current?.source ?? (fallback ? { kind: 'column' as const, column: fallback } : null)
+  if (!source) return style
+  const placement = { kind: 'point', ...(current?.placement.kind === 'point' ? current.placement : {}), ...patch.placement }
+  const labels = sanitizeLabels({ ...current, ...patch, source, halo: { ...current?.halo, ...patch.halo }, placement })
+  return { ...style, labels }
+}
+
+// --- Spec 011 US4: conditions on any property ------------------------------------
+
+/** A first output for the n-th condition: a qualitative color, the next shape or pattern, or a step up from the fixed value. */
+function conditionOutput(channel: ChannelId, n: number, fixed: Output): Output {
+  const kind = OUTPUT_KIND[channel]
+  if (kind === 'color') return ruleColor(n)
+  if (kind === 'shape') return MARKER_SHAPES[(n + 1) % MARKER_SHAPES.length]
+  if (kind === 'dash') return LINE_DASHES[(n + 1) % LINE_DASHES.length]
+  const range = CHANNEL_RANGES[channel]
+  return range ? range.max : fixed
+}
+
+/** Changes a property's conditions (no change unless it is by conditions). */
+function withConditions(style: LayerStyle, channel: ChannelId, patch: (s: ConditionsScale) => ConditionsScale): LayerStyle {
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'conditions' ? { ...e, scale: patch(e.scale) } : e))
+}
+
+/** Adds a condition at the end (before Everything else). */
+export function addCondition(style: LayerStyle, channel: ChannelId, where = ''): LayerStyle {
+  return withConditions(style, channel, (s) => {
+    const fixed = s.else.output
+    return { ...s, rules: [...s.rules, { id: newRuleId(s.rules), label: '', where, output: conditionOutput(channel, s.rules.length, fixed), visible: true }] }
+  })
+}
+
+/** A condition's text, label, output or visibility. */
+export function updateCondition(style: LayerStyle, channel: ChannelId, id: string, patch: Partial<Omit<ConditionRule, 'id'>>): LayerStyle {
+  if (patch.output !== undefined && !isOutputFor(channel, patch.output)) return style
+  return withConditions(style, channel, (s) => ({ ...s, rules: s.rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) }))
+}
+
+/** Removes a condition. */
+export function removeCondition(style: LayerStyle, channel: ChannelId, id: string): LayerStyle {
+  return withConditions(style, channel, (s) => ({ ...s, rules: s.rules.filter((r) => r.id !== id) }))
+}
+
+/** Moves a condition up (-1) or down (+1): the first that holds wins. */
+export function moveCondition(style: LayerStyle, channel: ChannelId, id: string, by: -1 | 1): LayerStyle {
+  return withConditions(style, channel, (s) => {
+    const i = s.rules.findIndex((r) => r.id === id)
+    const j = i + by
+    if (i < 0 || j < 0 || j >= s.rules.length) return s
+    const rules = [...s.rules]
+    ;[rules[i], rules[j]] = [rules[j], rules[i]]
+    return { ...s, rules }
+  })
+}
+
+/** Everything else: its output, label or visibility. */
+export function setConditionElse(style: LayerStyle, channel: ChannelId, patch: Partial<ConditionsScale['else']>): LayerStyle {
+  if (patch.output !== undefined && !isOutputFor(channel, patch.output)) return style
+  return withConditions(style, channel, (s) => ({ ...s, else: { ...s.else, ...patch } }))
 }

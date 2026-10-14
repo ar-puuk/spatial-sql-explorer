@@ -28,8 +28,6 @@
    - Steps: Style, then Color: By column `los`, then Width: By column `volume`.
    - Expect: colors follow LOS, widths follow volume, and the legend has two
      groups.
-   - Then apply the Flow / network recipe on a fresh open: the same result in
-     ≤ 4 choices.
 2. **US1**: open `crashes.geojson`.
    - Steps: Color by `severity`, Shape by `crash_type`, Rotation by `heading`.
    - Expect: shapes differ by type and turn by heading. `crash_type` has 9

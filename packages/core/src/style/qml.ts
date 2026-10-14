@@ -31,7 +31,11 @@ import {
 import { rendererOf } from './legacy.js'
 import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, type Channels, type ClassDef, type ContinuousScale, type Encoding, type IdentityScale, type Output, type Scale } from './channels.js'
+import type { ResolvedClass } from './model.js'
+import { CONTINUOUS_STOPS, continuousOutput, isGenericChannel } from './resolve.js'
 import { checkExpression } from './sqlExpression.js'
+import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import { rampColors } from './ramps.js'
 import { HEATMAP_STOPS } from './resolve.js'
 
@@ -66,10 +70,7 @@ function shapeFromQgis(name: string | undefined, angle: number, notes: string[])
     const upright = n === 'cross_fill' || n === 'cross'
     return upright !== turned ? 'cross' : 'x'
   }
-  if (n === 'circle' || n === 'square' || n === 'triangle' || n === 'diamond' || n === 'star') {
-    if (angle % 360 !== 0) notes.push(`The marker's ${angle}° rotation was not imported.`)
-    return n
-  }
+  if (n === 'circle' || n === 'square' || n === 'triangle' || n === 'diamond' || n === 'star') return n
   notes.push(`The "${n}" marker shape was imported as a circle.`)
   return 'circle'
 }
@@ -96,7 +97,7 @@ function options(entries: Record<string, string>): string {
   return `          <Option type="Map">\n${rows.join('\n')}\n          </Option>`
 }
 
-function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0', dataDefined = ''): string {
+function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0', dataDefined: QgisDataDefined = NO_DD): string {
   let layerClass: string
   let props: Record<string, string>
   if (kind === 'fill') {
@@ -115,7 +116,8 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
     props = {
       line_color: qgisColor(style.strokeColor, style.strokeOpacity),
       line_style: QGIS_DASH[style.lineDash ?? 'solid'],
-      line_width: String(round(style.strokeWidth)),
+      // Spec 011: a line's fixed Width, when set apart from the outline width.
+      line_width: String(round(style.lineWidth ?? style.strokeWidth)),
       line_width_unit: 'Pixel',
       capstyle: (style.lineDash ?? 'solid') === 'solid' ? 'round' : 'flat',
       joinstyle: 'round',
@@ -125,7 +127,8 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
     const marker = qgisMarker(style.markerShape ?? 'circle')
     props = {
       name: marker.name,
-      angle: String(marker.angle),
+      // Spec 011: the fixed rotation, on top of the shape's own turn (our "x").
+      angle: String(round(marker.angle + (style.rotation ?? 0), 4)),
       color: qgisColor(style.fillColor, style.fillOpacity),
       outline_color: qgisColor(style.strokeColor, style.strokeOpacity),
       outline_style: style.strokeWidth > 0 ? 'solid' : 'no',
@@ -135,34 +138,259 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
       size_unit: 'Pixel',
     }
   }
-  return `      <symbol type="${kind}" name="${name}" alpha="1" clip_to_extent="1" force_rhr="0">
+  return `      <symbol type="${kind}" name="${name}" alpha="${round(style.opacity ?? 1, 4)}" clip_to_extent="1" force_rhr="0">${dataDefinedBlock(dataDefined.symbol, 8)}
         <layer class="${layerClass}" enabled="1" locked="0" pass="0">
-${options(props)}${dataDefined}
+${options(props)}${dataDefinedBlock(dataDefined.layer, 10)}
         </layer>
       </symbol>`
 }
+
+// --- Spec 011: other properties by a column, as QGIS data-defined properties (research §4) ---
+
+/** Data-defined properties: the symbol layer's, and the symbol's own (opacity). */
+export interface QgisDataDefined {
+  layer: Array<[string, string[]]>
+  symbol: Array<[string, string[]]>
+}
+
+const NO_DD: QgisDataDefined = { layer: [], symbol: [] }
+
+/** A data-defined expression property's entries. */
+const expressionEntries = (expression: string): string[] => [
+  '<Option name="active" type="bool" value="true"/>',
+  `<Option name="expression" type="QString" value="${escapeXml(expression)}"/>`,
+  '<Option name="type" type="int" value="3"/>',
+]
+
+/** Several data-defined properties as QGIS's `<data_defined_properties>` block, at an indent. */
+function dataDefinedBlock(props: Array<[string, string[]]>, indent: number): string {
+  if (!props.length) return ''
+  const pad = (n: number) => ' '.repeat(indent + n)
+  const body = props.map(([key, entries]) => `${pad(6)}<Option name="${key}" type="Map">\n${entries.map((e) => pad(8) + e).join('\n')}\n${pad(6)}</Option>`).join('\n')
+  return `
+${pad(0)}<data_defined_properties>
+${pad(2)}<Option type="Map">
+${pad(4)}<Option name="name" type="QString" value=""/>
+${pad(4)}<Option name="properties" type="Map">
+${body}
+${pad(4)}</Option>
+${pad(4)}<Option name="type" type="QString" value="collection"/>
+${pad(2)}</Option>
+${pad(0)}</data_defined_properties>`
+}
+
+/** A QGIS string literal. */
+const qgisString = (s: string): string => `'${s.replace(/'/g, "''")}'`
+
+/** Which QGIS data-defined key a property sets on each kind of symbol layer (null: none). */
+function qgisKey(id: ChannelId, kind: 'fill' | 'line' | 'marker'): string | null {
+  switch (id) {
+    // Spec 011 US4: a continuous or as-is color (a line's color is its outline color in QGIS).
+    case 'color':
+      return kind === 'line' ? 'outlineColor' : 'fillColor'
+    case 'strokeColor':
+      return kind === 'line' ? null : 'outlineColor'
+    case 'strokeWidth':
+      return kind === 'line' ? null : 'outlineWidth'
+    case 'size':
+      return kind === 'marker' ? 'size' : null
+    case 'width':
+      return kind === 'line' ? 'outlineWidth' : null
+    case 'shape':
+      return kind === 'marker' ? 'name' : null
+    case 'dash':
+      return kind === 'marker' ? null : 'outlineStyle'
+    case 'rotation':
+      return kind === 'marker' ? 'angle' : null
+    default:
+      return null
+  }
+}
+
+/** A property's output as a QGIS literal, in QGIS's terms (marker diameters, percent opacity, QGIS names). */
+function qgisOutput(id: ChannelId, output: Output): string {
+  switch (OUTPUT_KIND[id]) {
+    case 'color':
+      return qgisString(String(output))
+    case 'shape':
+      return qgisString(qgisMarker(output as MarkerShape).name)
+    case 'dash':
+      return qgisString(QGIS_DASH[output as LineDash])
+    case 'opacity':
+      return String(round(Number(output) * 100, 4))
+    default:
+      return String(round(id === 'size' ? Number(output) * 2 : Number(output), 4))
+  }
+}
+
+/** The QGIS test of one class of a property on `field` (our class rules, as the map's). */
+function qgisClassTest(field: string, scale: 'categories' | 'classes', c: ResolvedClass, ranges: ResolvedClass[]): string | null {
+  if (c.kind === 'noValue') return scale === 'classes' ? `${field} IS NULL` : `(${field} IS NULL OR to_string(${field}) = '')`
+  if (c.kind === 'value' && c.value !== undefined) return `to_string(${field}) = ${qgisString(c.value)}`
+  if (c.kind === 'range' && c.lower !== undefined && c.upper !== undefined) {
+    const first = ranges[0] === c
+    return `${field} ${first ? '>=' : '>'} ${c.lower} AND ${field} <= ${c.upper}`
+  }
+  return null
+}
+
+/**
+ * A property's value per feature as a QGIS `CASE`: No value first, then the
+ * classes in order (upper-inclusive ranges, the first one including its lower
+ * bound; categories by their string form), then Other (else: the fixed value).
+ */
+function qgisChannelCase(id: ChannelId, field: string, scale: 'categories' | 'classes', classes: ResolvedClass[], fixed: Output, mapOutput: (id: ChannelId, o: Output) => string): string {
+  const ranges = classes.filter((c) => c.kind === 'range')
+  const out = (c: ResolvedClass | undefined) => mapOutput(id, c?.output ?? fixed)
+  const arms: string[] = []
+  const noValue = classes.find((c) => c.kind === 'noValue')
+  arms.push(`WHEN ${qgisClassTest(field, scale, noValue ?? ({ kind: 'noValue' } as ResolvedClass), ranges)} THEN ${out(noValue)}`)
+  for (const c of classes) {
+    if (c.kind !== 'value' && c.kind !== 'range') continue
+    const test = qgisClassTest(field, scale, c, ranges)
+    if (test) arms.push(`WHEN ${test} THEN ${out(c)}`)
+  }
+  return `CASE ${arms.join(' ')} ELSE ${out(classes.find((c) => c.kind === 'other'))} END`
+}
+
+/** Spec 011 US4: "No value" of a continuous or as-is property, as a QGIS test (as-is colors read text). */
+function qgisMissing(id: ChannelId, field: string, scale: 'continuous' | 'identity'): string {
+  return scale === 'identity' && OUTPUT_KIND[id] === 'color' ? `(${field} IS NULL OR to_string(${field}) = '')` : `${field} IS NULL`
+}
+
+/**
+ * Spec 011 US4: a continuous or as-is property as a QGIS expression, drawing
+ * what the map draws: numbers with scale_linear, or by area with scale_exp
+ * (exponent 0.5, QGIS's size assistant "Area"); colors as the ramp's
+ * segments mixed in RGB (color_mix_rgb); as is, the field (colors only when
+ * they are #rgb or #rrggbb). No value gets its class's output.
+ */
+function qgisScaled(id: ChannelId, field: string, scale: ContinuousScale | IdentityScale, rc: NonNullable<ResolvedStyle['channels']>[ChannelId], fixed: Output): string {
+  const noValue = qgisOutput(id, rc?.classes.find((c) => c.kind === 'noValue')?.output ?? fixed)
+  const missing = qgisMissing(id, field, scale.kind)
+  const v = `to_real(${field})`
+  const num = (o: Output) => Number(qgisOutput(id, o))
+  if (scale.kind === 'identity') {
+    if (OUTPUT_KIND[id] === 'color') return `CASE WHEN ${missing} THEN ${noValue} WHEN regexp_match(to_string(${field}), '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$') THEN to_string(${field}) ELSE ${qgisOutput(id, fixed)} END`
+    const value = id === 'opacity' ? `max(0, min(1, ${v})) * 100` : id === 'rotation' ? v : `max(0, ${v})`
+    return `CASE WHEN ${missing} THEN ${noValue} WHEN ${v} IS NULL THEN ${qgisOutput(id, fixed)} ELSE ${value} END`
+  }
+  const domain = rc?.domain
+  if (!domain) return qgisOutput(id, fixed)
+  const at = (x: number) => continuousOutput(id, scale, domain, x)
+  const span = domain.max - domain.min
+  if (!(span > 0)) return `CASE WHEN ${missing} THEN ${noValue} ELSE ${qgisOutput(id, at(domain.max))} END`
+  if (OUTPUT_KIND[id] === 'color') {
+    const d = Array.from({ length: CONTINUOUS_STOPS }, (_, i) => domain.min + (span * i) / (CONTINUOUS_STOPS - 1))
+    const arms = d.slice(1).map((x, i) => `WHEN ${v} <= ${round(x, 10)} THEN color_mix_rgb(${qgisString(String(at(d[i])))}, ${qgisString(String(at(x)))}, max(0, (${v} - ${round(d[i], 10)}) / ${round(x - d[i], 10)}))`)
+    return `CASE WHEN ${missing} THEN ${noValue} ${arms.join(' ')} ELSE ${qgisString(String(at(domain.max)))} END`
+  }
+  const [o0, o1] = [num(at(domain.min)), num(at(domain.max))]
+  const curve = scale.curve === 'area' ? `scale_exp(${v}, ${domain.min}, ${domain.max}, ${o0}, ${o1}, 0.5)` : `scale_linear(${v}, ${domain.min}, ${domain.max}, ${o0}, ${o1})`
+  return `CASE WHEN ${missing} THEN ${noValue} ELSE ${curve} END`
+}
+
+/**
+ * Spec 011: every property that varies by data (other than color and spec
+ * 009's size) as QGIS data-defined properties on a symbol: outline color and
+ * width, size or width by categories, shape, pattern and rotation on the
+ * symbol layer; opacity, and the classes hidden in any of them, as the
+ * symbol's opacity (alpha, in percent; hidden: 0). Fixed rotation and opacity
+ * are written as the symbol's own values (symbolXml). Properties read from a
+ * SQL expression have no column in the file: left out, with a note.
+ */
+export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker', notes: string[] = []): QgisDataDefined {
+  if (!resolved?.channels || !style.channels) return NO_DD
+  const layer: Array<[string, string[]]> = []
+  const hidden: string[] = []
+  // A data-defined color replaces the symbol's color, alpha included: keep the fill or outline opacity.
+  const withAlpha = (id: ChannelId, expr: string): string => {
+    if (OUTPUT_KIND[id] !== 'color') return expr
+    const a = id === 'strokeColor' || kind === 'line' ? style.strokeOpacity : style.fillOpacity
+    return a < 1 ? `set_color_part(${expr}, 'alpha', ${Math.round(a * 255)})` : expr
+  }
+  let opacity: string | null = null
+  let rotation: string | null = null
+  let shapeOurs: string | null = null
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels[id]
+    const rc = resolved.channels[id]
+    if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
+    // Spec 011 US4: conditions, as QGIS expressions in order (conditions the engine refused are left out).
+    if (enc.scale.kind === 'conditions') {
+      const rules = rc.classes.filter((c) => c.kind === 'rule')
+      const elseClass = rc.classes.find((c) => c.kind === 'other')
+      const fixedOut = fixedValue(style, id, kind === 'line' ? 'line' : 'marker')
+      const arms = enc.scale.rules.flatMap((r, i) => (rules[i]?.error || !r.where.trim() ? [] : [{ i, where: r.where, output: r.output }]))
+      const caseOf = (map: (o: Output) => string, elseOut: Output) => (arms.length ? `CASE ${arms.map((a) => `WHEN (${a.where}) THEN ${map(a.output)}`).join(' ')} ELSE ${map(elseOut)} END` : map(elseOut))
+      const index = arms.length ? `CASE ${arms.map((a) => `WHEN (${a.where}) THEN ${a.i}`).join(' ')} ELSE -1 END` : '-1'
+      const hiddenIdx = [...rules.flatMap((c, i) => (c.visible ? [] : [i])), ...(elseClass?.visible === false ? [-1] : [])]
+      if (hiddenIdx.length) hidden.push(`((${index}) IN (${hiddenIdx.join(', ')}))`)
+      if (arms.length && !notes.some((n) => n.startsWith('Conditions were written'))) notes.push('Conditions were written as QGIS expressions; SQL-only functions may need adjusting in QGIS.')
+      const expr = caseOf((o) => qgisOutput(id, o), elseClass?.output ?? fixedOut)
+      if (id === 'shape' && kind === 'marker') shapeOurs = caseOf((o) => qgisString(String(o)), elseClass?.output ?? fixedOut)
+      if (id === 'opacity') opacity = expr
+      else if (id === 'rotation') {
+        if (kind === 'marker') rotation = expr
+      } else {
+        const key = qgisKey(id, kind)
+        if (key) layer.push([key, expressionEntries(withAlpha(id, expr))])
+      }
+      continue
+    }
+    if (enc.source.kind !== 'column') {
+      notes.push(`${CHANNEL_NAMES[id]} by an expression isn't written to QGIS: it uses the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
+      continue
+    }
+    const field = qgisField(enc.source.column)
+    const fixed = fixedValue(style, id, kind === 'line' ? 'line' : 'marker')
+    let expr: string
+    const s = enc.scale
+    if (s.kind === 'continuous' || s.kind === 'identity') {
+      // Spec 011 US4: only "No value" can be hidden.
+      if (rc.classes.some((c) => c.kind === 'noValue' && !c.visible)) hidden.push(`(${qgisMissing(id, field, s.kind)})`)
+      expr = qgisScaled(id, field, s, rc, fixed)
+    } else if (s.kind === 'categories' || s.kind === 'classes') {
+      const scale = s.kind
+      const ranges = rc.classes.filter((c) => c.kind === 'range')
+      for (const c of rc.classes) {
+        if (c.visible) continue
+        const test = c.kind === 'other' ? null : qgisClassTest(field, scale, c, ranges)
+        if (test) hidden.push(`(${test})`)
+      }
+      if (id === 'shape' && kind === 'marker') shapeOurs = qgisChannelCase(id, field, scale, rc.classes, fixed, (_i, o) => qgisString(String(o)))
+      expr = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+    } else continue
+    if (id === 'opacity') {
+      opacity = expr
+      continue
+    }
+    if (id === 'rotation') {
+      if (kind === 'marker') rotation = expr
+      continue
+    }
+    const key = qgisKey(id, kind)
+    if (key) layer.push([key, expressionEntries(withAlpha(id, expr))])
+  }
+  // Our "x" is QGIS's filled cross turned 45°: a shape by data turns those features too.
+  if (kind === 'marker' && (rotation || shapeOurs)) {
+    const base = rotation ?? String(style.rotation ?? 0)
+    const turn = shapeOurs ? ` + CASE WHEN (${shapeOurs}) = 'x' THEN 45 ELSE 0 END` : ''
+    layer.push(['angle', expressionEntries(`(${base})${turn}`)])
+  }
+  const symbol: Array<[string, string[]]> = []
+  if (opacity || hidden.length) {
+    const shown = opacity ?? String(round((style.opacity ?? 1) * 100, 4))
+    symbol.push(['alpha', expressionEntries(hidden.length ? `CASE WHEN ${hidden.join(' OR ')} THEN 0 ELSE ${shown} END` : shown)])
+  }
+  return { layer, symbol }
+}
+
 
 // --- Spec 009: the size channel as a QGIS data-defined size (research §5) ---------
 
 /** A QGIS expression's quoted field name. */
 const qgisField = (column: string): string => `"${column.replace(/"/g, '""')}"`
-
-/** One data-defined property: QGIS's `<data_defined_properties>` block of a symbol layer. */
-function dataDefinedXml(key: string, entries: string[]): string {
-  const pad = (n: number) => ' '.repeat(n)
-  return `
-${pad(10)}<data_defined_properties>
-${pad(12)}<Option type="Map">
-${pad(14)}<Option name="name" type="QString" value=""/>
-${pad(14)}<Option name="properties" type="Map">
-${pad(16)}<Option name="${key}" type="Map">
-${entries.map((e) => pad(18) + e).join('\n')}
-${pad(16)}</Option>
-${pad(14)}</Option>
-${pad(14)}<Option name="type" type="QString" value="collection"/>
-${pad(12)}</Option>
-${pad(10)}</data_defined_properties>`
-}
 
 /**
  * The size channel as a data-defined size on every symbol layer: a `CASE`
@@ -171,10 +399,10 @@ ${pad(10)}</data_defined_properties>`
  * (proportional: Linear for lines, Area 0.5 for markers). QGIS sizes are
  * marker diameters, in the symbol's Pixel unit. '' when no channel applies.
  */
-function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): Array<[string, string[]]> {
   const s = style.size
   const r = resolved?.size
-  if (kind === 'fill' || !s || !r || r.status !== 'ok') return ''
+  if (kind === 'fill' || !s || !r || r.status !== 'ok') return []
   const key = kind === 'marker' ? 'size' : 'outlineWidth'
   const f = kind === 'marker' ? 2 : 1
   const single = (kind === 'marker' ? style.pointRadius : style.strokeWidth) * f
@@ -183,7 +411,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
   if (s.mode === 'proportional' && r.domain) {
     const area = (s.scale ?? 'linear') === 'area'
     const d = { exponent: area ? 0.5 : 1, maxSize: s.sizeMax * f, maxValue: r.domain.max, minSize: s.sizeMin * f, minValue: r.domain.min, nullSize, scaleType: area ? 1 : 0 }
-    return dataDefinedXml(key, [
+    return [[key, [
       '<Option name="active" type="bool" value="true"/>',
       `<Option name="field" type="QString" value="${escapeXml(s.column)}"/>`,
       '<Option name="transformer" type="Map">',
@@ -193,7 +421,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
       '  <Option name="t" type="int" value="1"/>',
       '</Option>',
       '<Option name="type" type="int" value="2"/>',
-    ])
+    ]]]
   }
   // Classed: our class rules (upper-inclusive, the first class including its lower bound).
   const v = qgisField(s.column)
@@ -201,11 +429,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
   const arms = [`WHEN ${v} IS NULL THEN ${nullSize}`]
   if (ranges.length) arms.push(`WHEN ${v} < ${ranges[0].lower} THEN ${single}`)
   for (const c of ranges) arms.push(`WHEN ${v} <= ${c.upper} THEN ${c.visible ? round((c.size as number) * f, 6) : 0}`)
-  return dataDefinedXml(key, [
-    '<Option name="active" type="bool" value="true"/>',
-    `<Option name="expression" type="QString" value="${escapeXml(`CASE ${arms.join(' ')} ELSE ${single} END`)}"/>`,
-    '<Option name="type" type="int" value="3"/>',
-  ])
+  return [[key, expressionEntries(`CASE ${arms.join(' ')} ELSE ${single} END`)]]
 }
 
 /**
@@ -214,7 +438,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
  * includes its lower bound; hidden cells unchecked) and one for "No value".
  * The renderer itself rides along in `spatialExplorer/bivariate`.
  */
-function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 'fill' | 'line' | 'marker'): string {
+function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 'fill' | 'line' | 'marker', dd: QgisDataDefined = NO_DD): string {
   const g = resolved.grid
   if (!g) return ''
   const x = qgisField(g.x.column)
@@ -229,7 +453,7 @@ function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 
         : `${x} IS NULL OR ${y} IS NULL`
     const unchecked = c.visible ? '' : ' checkstate="0"'
     rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-${escapeXml(c.key)}}" label="${escapeXml(c.label)}" symbol="${k}"${unchecked}/>`)
-    symbols.push(symbolXml(kind, kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }, String(k)))
+    symbols.push(symbolXml(kind, kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }, String(k), dd))
   })
   return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <rules key="{se-rules}">
@@ -254,7 +478,7 @@ function guardedFilter(where: string, before: readonly string[]): string {
  * that matches, so each filter also excludes the rules before it. The renderer
  * itself rides along in `spatialExplorer/rules`.
  */
-function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker', dd: QgisDataDefined = NO_DD): string {
   const errors = new Set((resolved?.classes ?? []).flatMap((c) => (c.kind === 'rule' && c.ruleId && c.error ? [c.ruleId] : [])))
   const usable = r.rules.filter((rule) => !checkExpression(rule.where, 'condition') && !errors.has(rule.id))
   const rules: string[] = []
@@ -264,11 +488,11 @@ function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: Resolve
     const filter = guardedFilter(rule.where.trim(), usable.slice(0, k).map((x) => x.where.trim()))
     const unchecked = rule.visible ? '' : ' checkstate="0"'
     rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-rule-${escapeXml(rule.id)}}" label="${escapeXml(ruleLabel(rule))}" symbol="${k}"${unchecked}/>`)
-    symbols.push(symbolXml(kind, look(rule.color), String(k)))
+    symbols.push(symbolXml(kind, look(rule.color), String(k), dd))
   })
   const n = usable.length
   rules.push(`      <rule filter="ELSE" key="{se-else}" label="${escapeXml(r.elseLabel)}" symbol="${n}"${r.elseVisible ? '' : ' checkstate="0"'}/>`)
-  symbols.push(symbolXml(kind, look(r.elseColor), String(n)))
+  symbols.push(symbolXml(kind, look(r.elseColor), String(n), dd))
   return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <rules key="{se-rules}">
 ${rules.join('\n')}
@@ -379,7 +603,7 @@ function customProperties(entries: Record<string, string>): string {
   return rows.length ? `  <customproperties>\n    <Option type="Map">\n${rows.join('\n')}\n    </Option>\n  </customproperties>\n` : ''
 }
 
-function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined, dataDefined = ''): { renderer: string; props: Record<string, string> } {
+function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined, dataDefined: QgisDataDefined = NO_DD): { renderer: string; props: Record<string, string> } {
   const r = th.renderer
   // One symbol per class: the shared symbol with the class color (FR-006); spec 009: each sized by the size channel.
   const symbols = th.classes.map((c, i) => symbolXml(kind, classLayerStyle(style, kind, c), String(i), dataDefined)).join('\n')
@@ -491,6 +715,80 @@ function readRenderer3d(doc: Document, notes: string[]): LayerStyle['extrusion']
   return { enabled: true, ...parsed }
 }
 
+// --- Spec 011 US6: labels as QGIS's simple labeling (contracts/interchange-mapping.md) ---
+
+/** QGIS's quadrant around a point for each of our anchors (QgsPalLayerSettings::QuadrantPosition). */
+const QGIS_QUADRANT: Record<LabelAnchor, number> = { above: 1, below: 7, left: 3, right: 5, center: 4 }
+
+/** Label size in px from a QGIS size and unit (QGIS's default unit is points). */
+function labelPx(raw: string | null, unit: string | null): number | null {
+  const n = Number(raw)
+  if (raw === null || !Number.isFinite(n)) return null
+  const u = (unit ?? 'Point').toLowerCase()
+  if (u === 'pixel') return n
+  if (u === 'mm' || u === 'millimeter') return n * PX_PER_MM
+  return n * PX_PER_PT
+}
+
+/**
+ * QGIS's simple labeling: the text (a field, or the expression as a QGIS
+ * expression), its size in pixels, color, buffer (our halo), and placement:
+ * points around the point (OverPoint with a quadrant and distance), lines
+ * curved above the line, polygons over their centroid.
+ */
+function labelingXml(labels: LabelSettings, geom: Exclude<StyleGeometry, 'Mixed'>, notes: string[]): string {
+  const expr = labels.source.kind === 'expression'
+  const field = labels.source.kind === 'column' ? labels.source.column : labels.source.expression
+  if (expr && /\(/.test(field)) notes.push('The label expression was written as a QGIS expression; SQL functions may need adjusting in QGIS.')
+  const point = labels.placement.kind === 'point' ? labels.placement : { anchor: 'above' as LabelAnchor, offset: 4 }
+  const placement =
+    geom === 'LineString'
+      ? `placement="3" placementFlags="10" dist="${round(labels.size * 0.2, 2)}" distUnits="Pixel"`
+      : geom === 'Polygon'
+        ? 'placement="1" quadOffset="4" dist="0" distUnits="Pixel"'
+        : `placement="1" quadOffset="${QGIS_QUADRANT[point.anchor]}" dist="${point.anchor === 'center' ? 0 : point.offset}" distUnits="Pixel"`
+  return `  <labeling type="simple">
+    <settings calloutType="simple">
+      <text-style fieldName="${escapeXml(field)}" isExpression="${expr ? 1 : 0}" fontSize="${labels.size}" fontSizeUnit="Pixel" textColor="${qgisColor(labels.color, 1)}" textOpacity="1">
+        <text-buffer bufferDraw="${labels.halo.enabled ? 1 : 0}" bufferSize="${labels.halo.width}" bufferSizeUnits="Pixel" bufferColor="${qgisColor(labels.halo.color, 1)}" bufferOpacity="1" bufferNoFill="1" bufferJoinStyle="128"/>
+      </text-style>
+      <placement ${placement}/>
+      <rendering obstacle="1" displayAll="0" upsidedownLabels="0" scaleVisibility="0"/>
+    </settings>
+  </labeling>
+`
+}
+
+/** Our labels from QGIS labeling (`simple`, or a rule-based one's first rule), or undefined. */
+function labelsFromQgis(doc: Document, notes: string[]): LabelSettings | undefined {
+  const labeling = doc.getElementsByTagName('labeling')[0]
+  if (!labeling) return undefined
+  const settings = labeling.getElementsByTagName('settings')[0]
+  if (!settings) return undefined
+  if (labeling.getAttribute('type') === 'rule-based') notes.push("QGIS's rule-based labels were imported as their first rule's labels.")
+  const text = settings.getElementsByTagName('text-style')[0]
+  const field = text?.getAttribute('fieldName') ?? ''
+  if (!field) return undefined
+  const isExpression = text.getAttribute('isExpression') === '1'
+  if (isExpression) notes.push('The label expression is a QGIS expression; it was imported as SQL (QGIS-only functions show an error).')
+  const color = colorAndAlpha(text.getAttribute('textColor') ?? undefined)
+  const buffer = text.getElementsByTagName('text-buffer')[0]
+  const bufferColor = colorAndAlpha(buffer?.getAttribute('bufferColor') ?? undefined)
+  const p = settings.getElementsByTagName('placement')[0]
+  const quadrant = Number(p?.getAttribute('quadOffset') ?? 1)
+  const anchor = (Object.keys(QGIS_QUADRANT) as LabelAnchor[]).find((a) => QGIS_QUADRANT[a] === quadrant) ?? 'above'
+  const dist = labelPx(p?.getAttribute('dist') ?? '0', p?.getAttribute('distUnits') ?? 'MM') ?? 0
+  const enabled = doc.documentElement.getAttribute('labelsEnabled') !== '0'
+  return sanitizeLabels({
+    enabled,
+    source: isExpression ? { kind: 'expression', expression: field } : { kind: 'column', column: field },
+    size: round(labelPx(text.getAttribute('fontSize'), text.getAttribute('fontSizeUnit')) ?? 12, 2),
+    color: color?.hex,
+    halo: { enabled: buffer?.getAttribute('bufferDraw') === '1', color: bufferColor?.hex, width: round(labelPx(buffer?.getAttribute('bufferSize') ?? null, buffer?.getAttribute('bufferSizeUnits') ?? 'MM') ?? 1.5, 2) },
+    placement: { kind: 'point', anchor, offset: round(dist, 2) },
+  })
+}
+
 export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?: ResolvedStyle, columnType?: string): StyleExport {
   const style = legacyView(sanitizeStyle(input))
   const notes: string[] = []
@@ -505,8 +803,10 @@ export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?
   const kind = geom === 'Point' ? 'marker' : geom === 'LineString' ? 'line' : 'fill'
   const { thematic, notes: thematicNotes } = thematicForExport(style, resolved)
   notes.push(...thematicNotes)
-  // Spec 009: the size channel, a data-defined size on every symbol (research §5).
-  const sizeDd = sizeDataDefined(style, resolved, kind)
+  // Spec 009: the size channel, a data-defined size on every symbol (research §5);
+  // spec 011: every other property by a column too, and opacity on the symbol.
+  const channelDd = channelDataDefined(style, resolved, kind, notes)
+  const sizeDd: QgisDataDefined = { layer: [...sizeDataDefined(style, resolved, kind), ...channelDd.layer], symbol: channelDd.symbol }
   if (style.size && kind === 'fill') notes.push('QGIS polygons have no size: the size channel was left out.')
   let renderer = `  <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <symbols>
@@ -520,7 +820,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
   // Spec 009: bivariate, as a rule-based renderer.
   const r = rendererOf(style)
   if (r.kind === 'bivariate' && resolved?.status === 'ok' && resolved.grid) {
-    renderer = bivariateRendererXml(style, resolved, kind)
+    renderer = bivariateRendererXml(style, resolved, kind, channelDd)
     props = { 'spatialExplorer/bivariate': JSON.stringify(r) }
   }
   // A heatmap, as QGIS's heatmap renderer (point layers only), with the symbol kept for a return to single.
@@ -537,7 +837,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
   }
   // Spec 010: rules, as a rule-based renderer.
   if (r.kind === 'rules') {
-    renderer = rulesRendererXml(style, r, resolved, kind)
+    renderer = rulesRendererXml(style, r, resolved, kind, sizeDd)
     props = { 'spatialExplorer/rules': JSON.stringify(r) }
   }
   // Our own size channel, kept whole for a lossless reload here.
@@ -547,12 +847,14 @@ ${symbolXml(kind, style, '0', sizeDd)}
   if (own) props['spatialExplorer/style'] = own
   // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
   const renderer3d = style.extrusion?.enabled && geom === 'Polygon' ? renderer3dXml(style) : ''
+  // Spec 011 US6: labels, as QGIS's simple labeling (loaded with the Labeling category).
+  const labeling = style.labels?.enabled ? labelingXml(style.labels, geom, notes) : ''
   // Spec 008: QGIS loads only the categories listed: layer opacity is in
   // Rendering, and polygon extrusion in Symbology3D (checked with QGIS 4.2.3).
   const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|Rendering|CustomProperties">
+<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|${labeling ? 'Labeling|' : ''}Rendering|CustomProperties"${labeling ? ' labelsEnabled="1"' : ''}>
 ${renderer}
-${renderer3d}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
+${renderer3d}${labeling}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
   <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
 </qgis>
 `
@@ -704,6 +1006,207 @@ function readCustomProperties(doc: Document): Map<string, string> {
   return out
 }
 
+// --- Spec 011: QGIS data-defined properties read back as properties by a column (T054) ---
+
+/** Which property a QGIS data-defined key sets, per symbol layer class (null: not read here). */
+function channelOfQgisKey(key: string, cls: string): ChannelId | null {
+  if (cls === 'SimpleMarker') return ({ outlineColor: 'strokeColor', outlineWidth: 'strokeWidth', name: 'shape', angle: 'rotation' } as Record<string, ChannelId>)[key] ?? null
+  if (cls === 'SimpleFill') return ({ outlineColor: 'strokeColor', outlineWidth: 'strokeWidth', outlineStyle: 'dash' } as Record<string, ChannelId>)[key] ?? null
+  if (cls === 'SimpleLine') return ({ outlineStyle: 'dash' } as Record<string, ChannelId>)[key] ?? null
+  return null
+}
+
+/** The active data-defined properties directly under an element: key → {type, field, expression}. */
+function readDataDefined(el: Element): Map<string, { type: string; field?: string; expression?: string }> {
+  const out = new Map<string, { type: string; field?: string; expression?: string }>()
+  const dd = Array.from(el.children).find((c) => c.tagName === 'data_defined_properties')
+  const opt = (parent: Element, name: string) => Array.from(parent.children).find((c) => c.getAttribute('name') === name)
+  const top = dd ? Array.from(dd.children).find((c) => c.tagName === 'Option') : undefined
+  const props = top ? opt(top, 'properties') : undefined
+  for (const p of Array.from(props?.children ?? [])) {
+    const key = p.getAttribute('name')
+    if (!key || opt(p, 'active')?.getAttribute('value') !== 'true') continue
+    out.set(key, { type: opt(p, 'type')?.getAttribute('value') ?? '', field: opt(p, 'field')?.getAttribute('value') ?? undefined, expression: opt(p, 'expression')?.getAttribute('value') ?? undefined })
+  }
+  return out
+}
+
+/** A QGIS literal: a string or a number (null: anything else). */
+function qgisLiteral(raw: string): string | number | null {
+  const s = raw.trim()
+  const str = /^'((?:[^']|'')*)'$/.exec(s)
+  if (str) return str[1].replace(/''/g, "'")
+  const n = Number(s)
+  return s !== '' && Number.isFinite(n) ? n : null
+}
+
+/** One arm's test, for one field: No value, a value, or a range (upper-inclusive; `lower` absent: from the previous class). */
+type QgisTest = { field: string } & ({ kind: 'noValue' } | { kind: 'value'; value: string } | { kind: 'range'; lower?: number; upper: number })
+
+function qgisTest(raw: string): QgisTest | null {
+  const s = raw.trim().replace(/^\((.*)\)$/s, '$1').trim()
+  const f = String.raw`(?:to_string\(\s*)?"((?:[^"]|"")+)"\s*\)?`
+  const num = String.raw`(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)`
+  let m = new RegExp(String.raw`^"((?:[^"]|"")+)"\s+IS\s+NULL(?:\s+OR\s+${f}\s*=\s*'')?$`, 'i').exec(s)
+  if (m) return { field: m[1].replace(/""/g, '"'), kind: 'noValue' }
+  m = new RegExp(String.raw`^${f}\s*=\s*('(?:[^']|'')*'|${num})$`, 'i').exec(s)
+  if (m) return { field: m[1].replace(/""/g, '"'), kind: 'value', value: String(qgisLiteral(m[2])) }
+  m = new RegExp(String.raw`^"((?:[^"]|"")+)"\s*>=?\s*${num}\s+AND\s+"((?:[^"]|"")+)"\s*<=?\s*${num}$`, 'i').exec(s)
+  if (m && m[1] === m[3]) return { field: m[1].replace(/""/g, '"'), kind: 'range', lower: Number(m[2]), upper: Number(m[4]) }
+  m = new RegExp(String.raw`^"((?:[^"]|"")+)"\s*<=?\s*${num}$`, 'i').exec(s)
+  if (m) return { field: m[1].replace(/""/g, '"'), kind: 'range', upper: Number(m[2]) }
+  return null
+}
+
+/** A simple QGIS `CASE WHEN <test> THEN <literal> … ELSE <literal> END` over one field, or null. */
+function parseQgisCase(expression: string): { field: string; arms: Array<{ test: QgisTest; output: string | number }>; otherwise: string | number | null } | null {
+  const m = /^\s*CASE\s+(.*?)\s+END\s*$/is.exec(expression)
+  if (!m) return null
+  let body = m[1]
+  let otherwise: string | number | null = null
+  const e = /\s+ELSE\s+('(?:[^']|'')*'|[^\s]+)\s*$/i.exec(body)
+  if (e) {
+    otherwise = qgisLiteral(e[1])
+    if (otherwise === null) return null
+    body = body.slice(0, e.index)
+  }
+  const parts = body.split(/\bWHEN\s+/i).filter((p) => p.trim())
+  const arms: Array<{ test: QgisTest; output: string | number }> = []
+  for (const part of parts) {
+    const t = /^(.*)\s+THEN\s+('(?:[^']|'')*'|[^\s]+)\s*$/is.exec(part.trim())
+    const test = t ? qgisTest(t[1]) : null
+    const output = t ? qgisLiteral(t[2]) : null
+    if (!test || output === null) return null
+    arms.push({ test, output })
+  }
+  const field = arms[0]?.test.field
+  if (!field || arms.some((a) => a.test.field !== field)) return null
+  return { field, arms, otherwise }
+}
+
+/** A QGIS output as ours: a color, a shape, a pattern, px, degrees or 0..1 (null: not one). */
+function outputFromQgis(id: ChannelId, raw: string | number, toPxValue: (n: number) => number, notes: string[]): Output | null {
+  switch (OUTPUT_KIND[id]) {
+    case 'color': {
+      const s = String(raw)
+      const rgba = parseColor(s) ?? colorAndAlpha(s)
+      return rgba ? ('hex' in rgba ? rgba.hex : rgbToHex(rgba)) : null
+    }
+    case 'shape':
+      return shapeFromQgis(String(raw), 0, notes)
+    case 'dash':
+      return (Object.keys(QGIS_DASH) as LineDash[]).find((d) => QGIS_DASH[d] === String(raw)) ?? null
+    case 'opacity':
+      return typeof raw === 'number' ? clampNumber(raw / 100, 0, 1) : null
+    default:
+      return typeof raw === 'number' ? (id === 'rotation' ? raw : round(toPxValue(raw), 3)) : null
+  }
+}
+
+const clampNumber = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
+
+/**
+ * A property by a column from a QGIS `CASE` (categories, or classes with
+ * fixed bounds), or null with a note. Opacity 0 means the class is hidden.
+ */
+function encodingFromQgisCase(id: ChannelId, raw: string, toPxValue: (n: number) => number, notes: string[]): Encoding | null {
+  // Ours keep the symbol's opacity around a data-defined color: the colors are inside.
+  const wrapped = /^\s*set_color_part\(\s*([\s\S]*)\s*,\s*'alpha'\s*,\s*\d+\s*\)\s*$/i.exec(raw)
+  const expression = wrapped ? wrapped[1] : raw
+  // Spec 011 US4: scale_linear / scale_exp(…, 0.5) over one field is continuous.
+  const scaled = /^\s*scale_(linear|exp)\(\s*(?:to_real\(\s*)?"((?:[^"]|"")+)"\s*\)?\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$/i.exec(expression)
+  if (scaled && OUTPUT_KIND[id] !== 'color' && OUTPUT_KIND[id] !== 'shape' && OUTPUT_KIND[id] !== 'dash') {
+    const [, fn, field, d0, d1, o0, o1, exponent] = scaled
+    const out = (raw: string) => outputFromQgis(id, Number(raw), toPxValue, notes)
+    const [min, max] = [out(o0), out(o1)]
+    const area = fn.toLowerCase() === 'exp' && Number(exponent) === 0.5
+    if (fn.toLowerCase() === 'exp' && !area) notes.push(`${CHANNEL_NAMES[id]}: a scale_exp curve other than 0.5 was imported as linear.`)
+    if (typeof min === 'number' && typeof max === 'number' && Number(d0) !== Number(d1)) {
+      return {
+        source: { kind: 'column', column: field.replace(/""/g, '"') },
+        scale: { kind: 'continuous', domain: { min: Math.min(Number(d0), Number(d1)), max: Math.max(Number(d0), Number(d1)) }, range: { min, max }, ...(area ? { curve: 'area' as const } : {}), noValue: {} },
+      }
+    }
+  }
+  const c = parseQgisCase(expression)
+  const name = CHANNEL_NAMES[id]
+  if (!c) {
+    notes.push(`${name} by a QGIS expression wasn't imported; every feature has the fixed ${name.toLowerCase()}.`)
+    return null
+  }
+  const def = (raw: string | number | null): ClassDef => {
+    if (raw === null) return {}
+    const o = outputFromQgis(id, raw, toPxValue, notes)
+    if (o === null) return {}
+    if (id === 'opacity' && o === 0) return { visible: false }
+    return { output: o }
+  }
+  const noValue = c.arms.find((a) => a.test.kind === 'noValue')
+  const values = c.arms.filter((a) => a.test.kind === 'value')
+  const ranges = c.arms.filter((a) => a.test.kind === 'range')
+  if (values.length && ranges.length) {
+    notes.push(`${name}: a QGIS expression mixing values and ranges wasn't imported.`)
+    return null
+  }
+  const source = { kind: 'column' as const, column: c.field }
+  if (values.length) {
+    const categories = values.map((a) => ({ value: (a.test as { value: string }).value, ...def(a.output) }))
+    return { source, scale: { kind: 'categories', manual: true, categories, other: def(c.otherwise), noValue: def(noValue?.output ?? c.otherwise), cap: categories.length } as Scale }
+  }
+  const classes: Array<ClassDef & { index: number; lower?: number; upper?: number }> = []
+  let previous: number | undefined
+  for (const a of ranges) {
+    const t = a.test as { lower?: number; upper: number }
+    const lower = t.lower ?? previous
+    if (lower === undefined) {
+      notes.push(`${name}: the first class of the QGIS expression has no lower bound; it wasn't imported.`)
+      return null
+    }
+    classes.push({ index: classes.length, lower, upper: t.upper, ...def(a.output) })
+    previous = t.upper
+  }
+  if (classes.length < 2 || classes.length > 10) {
+    notes.push(`${name}: ${classes.length} classes in the QGIS expression; 2 to 10 can be imported.`)
+    return null
+  }
+  return { source, scale: { kind: 'classes', method: 'manual', classCount: classes.length, classes, noValue: def(noValue?.output ?? null) } as Scale }
+}
+
+/**
+ * Spec 011: the properties a QGIS symbol varies by data, from its
+ * data-defined properties: outline color and width, marker shape and angle,
+ * line pattern, and the symbol's opacity. QGIS's `CASE` forms become
+ * categories or classes; anything else keeps the fixed value, with a note.
+ */
+function channelsFromQgis(symbol: Element, layerEl: Element, cls: string, notes: string[]): Channels {
+  const out: Channels = {}
+  const p = readProps(layerEl)
+  const widthUnit = p.get(cls === 'SimpleLine' ? 'line_width_unit' : 'outline_width_unit')
+  const toPxValue = (n: number) => toPx(String(n), widthUnit, notes, 'data-defined width') ?? n
+  const read = (id: ChannelId, prop: { type: string; field?: string; expression?: string }) => {
+    const name = CHANNEL_NAMES[id]
+    if (prop.type === '3' && prop.expression) {
+      const enc = encodingFromQgisCase(id, prop.expression, toPxValue, notes)
+      if (enc) out[id] = enc
+    } else if (prop.type === '2' && prop.field) {
+      // Spec 011 US4: a field read as is (shapes and patterns name QGIS's own, so they stay fixed).
+      if (OUTPUT_KIND[id] === 'shape' || OUTPUT_KIND[id] === 'dash') notes.push(`${name} read straight from the field "${prop.field}" wasn't imported; every feature has the fixed ${name.toLowerCase()}.`)
+      else {
+        out[id] = { source: { kind: 'column', column: prop.field }, scale: { kind: 'identity', noValue: {} } }
+        if (id === 'opacity') notes.push(`Opacity read from "${prop.field}" is in percent in QGIS and 0–1 here.`)
+      }
+    }
+  }
+  for (const [key, prop] of readDataDefined(layerEl)) {
+    const id = channelOfQgisKey(key, cls)
+    if (id) read(id, prop)
+    else if (key === 'fillColor' || key === 'color') notes.push('A data-defined fill color was not imported; the renderer sets the colors.')
+  }
+  const alpha = readDataDefined(symbol).get('alpha')
+  if (alpha) read('opacity', alpha)
+  return out
+}
+
 export function qmlToStyle(text: string): StyleImportResult {
   // QGIS writes CDATA sections (e.g. <editforminitcode>); not every XML parser
   // in reach supports them (happy-dom doesn't). As escaped text they mean the same.
@@ -786,6 +1289,9 @@ export function qmlToStyle(text: string): StyleImportResult {
     if (size !== null) style.pointRadius = size / 2
     const angle = Number(p.get('angle') ?? '0')
     style.markerShape = shapeFromQgis(p.get('name'), Number.isFinite(angle) ? angle : 0, notes)
+    // Spec 011: the marker's angle is the style's rotation (less the 45° that makes our "x").
+    const rotation = Number.isFinite(angle) ? round((((angle - (style.markerShape === 'x' ? 45 : 0)) % 360) + 360) % 360, 4) : 0
+    if (rotation !== 0 && !((style.markerShape === 'x' || style.markerShape === 'cross') && rotation % 90 === 0)) style.rotation = rotation
   } else {
     notes.push(`The "${cls}" symbol layer type is not supported; default colors were kept.`)
   }
@@ -902,6 +1408,14 @@ export function qmlToStyle(text: string): StyleImportResult {
   } else {
     const fromQgis = sizeFromQgis(layerEl, cls, notes)
     if (fromQgis) style.size = fromQgis
+  }
+
+  // Spec 011: properties QGIS varies by data, and labels (ours come back whole from spatialExplorer/style).
+  if (!custom.has('spatialExplorer/style')) {
+    const channels = channelsFromQgis(symbol, layerEl, cls, notes)
+    if (Object.keys(channels).length) style.channels = channels
+    const labels = labelsFromQgis(doc, notes)
+    if (labels) style.labels = labels
   }
 
   // Spec 008: QGIS's layer opacity.

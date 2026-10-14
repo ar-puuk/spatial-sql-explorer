@@ -100,6 +100,12 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 
 ## Styling and export
 - Styling: single, categorized, graduated (equal/quantile/jenks), inline color-ramp picker with previews, legend.
+  Spec 011: the style is channels (packages/core/src/style/channels.ts): each property (color, outline color and
+  width, size, width, shape, pattern, opacity, rotation, height) is fixed or an Encoding {source, scale} with
+  categories, classes, continuous, conditions (SQL, engine-computed __se_cls_<ch>), as is, or bivariate (color only).
+  The panel keeps the Color type and adds "Vary by attribute"; legend groups merge on the same column and classes.
+  Labels are their own side-rail panel (style.labels; expression text computed as __se_lbl), drawn with the
+  system's sans-serif (no glyph download).
   Spec 009: plus bivariate (two numeric columns, generated 3x3 palettes, keyboard legend square) and an
   optional size channel (marker size / line width by its own numeric column, classed or proportional) next to
   any color style but bivariate. QML writes the size channel as QGIS data-defined sizes and bivariate as a

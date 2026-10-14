@@ -544,6 +544,11 @@ green.
     migration).
   Move the callers to `resolved.channels`. Update the tests that read the
   aliases to read `channels.color` and `channels.size`. Keep their intent.
+  **Not done; withdrawal proposed (2026-10-14), awaiting the user's decision.**
+  Since the panel revision, the Color type is the renderer: `rendererOf`,
+  `sizeOf` and the top-level `ResolvedStyle` fields are the color and size
+  channels' own view, not leftover aliases. Removing them means 73 call sites
+  in 17 files for no user-visible change, against SC-002's proven identity.
 - [X] T039 Update `README.md`'s styling section and the `CHANGELOG.md`
   [Unreleased] entries: Changed (style panel by property, Draw as, recipes),
   and Added (Outline color, Outline width, Shape, Pattern, Opacity and
@@ -561,7 +566,7 @@ combination's map output matches independently computed values.
 
 ### Tests for User Story 4
 
-- [ ] T040 [P] [US4] Extend `tests/core/style-channels-011.test.ts` with
+- [x] T040 [P] [US4] Extend `tests/core/style-channels-011.test.ts` with
   Continuous, Conditions and As-is scales:
   - **Continuous:**
     - color interpolates exactly between ramp stops (the midpoint of
@@ -579,7 +584,7 @@ combination's map output matches independently computed values.
     a 32-step `step` expression, and circles stay smooth. Check the note text.
   - **Bivariate:** offered on `color` only. `sanitizeEncoding` rejects it
     elsewhere.
-- [ ] T041 [P] [US4] Write `tests/web/specs/style-scales-011.spec.ts`:
+- [x] T041 [P] [US4] Write `tests/web/specs/style-scales-011.spec.ts`:
   - Color by `density` Continuous: a gradient legend with min and max, and a
     pixel color at a known feature matches the expected interpolation;
   - Opacity Continuous 0.3–1;
@@ -598,7 +603,7 @@ combination's map output matches independently computed values.
 
 ### Implementation for User Story 4
 
-- [ ] T042 [US4] Implement in `packages/core/src/style/resolve.ts`:
+- [x] T042 [US4] Implement in `packages/core/src/style/resolve.ts`:
   - Continuous: domain from the column's statistics, `samples` for legends;
   - As is: invalid-value counts from the engine for colors, or features
     when in memory;
@@ -606,13 +611,13 @@ combination's map output matches independently computed values.
   - the shaped-marker bounds for continuous and As-is colors (research §2).
   Add `continuousExpression`, `identityExpression` and the 32-step quantized
   form in `packages/core/src/style/expressions.ts`. T040 passes.
-- [ ] T043 [US4] Add the per-channel engine work in
+- [x] T043 [US4] Add the per-channel engine work in
   `packages/core/src/query/session.ts`:
   - `__se_cls_<ch>` rule counts and errors per channel;
   - distinct-color counts and invalid counts for As-is colors (one query,
     cached with the other statistics).
   Extend `tests/core/stats-sql.test.ts`.
-- [ ] T044 [US4] Extend `packages/ui/src/style/ScaleEditor.svelte` with the
+- [x] T044 [US4] Extend `packages/ui/src/style/ScaleEditor.svelte` with the
   new scales:
   - **Continuous:** ramp or min–max, curve (numeric), domain override;
   - **Conditions:** the rules editor (`RuleList` from spec 010) with an
@@ -620,6 +625,18 @@ combination's map output matches independently computed values.
   - **As is:** the multiply field for height, and the note;
   - **Bivariate:** `BivariatePicker`, color only.
   The scale select lists `scalesFor(channel)`. T041 passes.
+  Done in three slices (research "US4 slice A/B/C"). Deviations from the
+  plan:
+  - tests live in `style-scales-011` (core and web), not
+    `style-channels-011`;
+  - Color's Continuous and As is are two more Color types (the panel
+    revision kept the style type), not a scale select;
+  - Bivariate stays a Color type;
+  - SLD writes conditions and as is fixed, with a note (spec 010's portable
+    rules weren't extended to other properties);
+  - SC-006's four example maps are covered by the existing suites (roads LOS
+    plus width, crashes severity plus shape), the new size, opacity and
+    rotation tests, and not as one test.
 
 ---
 
@@ -667,7 +684,7 @@ entries and merging.
   - gradient groups: `role="img"`, named "<title>: colors from <min> to <max>";
   - sample groups: three rows.
   Replace the T031 interim groups. T046 passes.
-- [ ] T049 (**Drawing done 2026-10-13**: the map image takes the merged groups from
+- [x] T049 (**Drawing done 2026-10-13**: the map image takes the merged groups from
   `ViewerLayout.svelte`. The map-image spec extension is still to do.) [US5] Draw the same groups in `packages/ui/src/mapImage.ts`, and
   feed them from `ViewerLayout.svelte`. The groups are merged swatches,
   gradient bars (the heatmap bar code reused) and sample rows. Extend
@@ -685,7 +702,10 @@ and re-import into the app.
 
 ### Tests for User Story 7
 
-- [ ] T050 [P] [US7] Write `tests/core/style-interchange-011.test.ts`:
+- [x] T050 [P] [US7] Write `tests/core/style-interchange-011.test.ts`:
+  Done as one file per format: `style-qml-import-011`, `style-sld-011`,
+  `style-mapbox-011` (QML export is checked in QGIS by T051/T052). Continuous
+  and identity rows wait for US4.
   - **QML:** for every channel × scale, the data-defined keys and expression
     forms of contracts/interchange-mapping.md. This includes:
     - `fillColor`, `outlineColor`, `outlineWidth`, `name`, `angle`,
@@ -705,14 +725,14 @@ and re-import into the app.
     reads `match`/`step`/`interpolate` over one `get`.
   - **Round trip:** app → each format → app is identical where the format can
     express it, otherwise as the notes say.
-- [ ] T051 [P] [US7] Write `tests/core/qgis-011-cases.test.ts`, modeled on
+- [x] T051 [P] [US7] Write `tests/core/qgis-011-cases.test.ts`, modeled on
   `qgis-cases.test.ts`. When `SE_QGIS_011` names a directory, it writes:
   - per case: data GeoJSON, the app's QML, and per-feature expected outputs
     (fill, stroke, size or width, shape, dash, opacity, rotation, drawn or
     hidden);
   - cases for every row of the interchange table, on points, lines and
     polygons.
-- [ ] T052 [P] [US7] Write `tests/qgis/check_011.py`, modeled on
+- [x] T052 [P] [US7] Write `tests/qgis/check_011.py`, modeled on
   `check_009.py`. It loads each case and evaluates each symbol layer's
   data-defined properties and the symbol `alpha` per feature in a render
   context (as `spikes/qgis-channels.py.txt` does), compares them with the
@@ -721,7 +741,7 @@ and re-import into the app.
 
 ### Implementation for User Story 7
 
-- [ ] T053 [US7] Implement the QML export in
+- [x] T053 [US7] Implement the QML export in
   `packages/core/src/style/qml.ts`:
   - the primary renderer choice;
   - `dataDefinedXml` for every non-primary channel;
@@ -730,23 +750,34 @@ and re-import into the app.
   - `spatialExplorer/style`.
   Generalize spec 009's size code (`sizeDataDefined`) rather than adding a
   parallel path.
-- [ ] T054 [US7] Implement the QML import of simple data-defined forms, and
+- [x] T054 [US7] Implement the QML import of simple data-defined forms, and
   notes for the rest, in `packages/core/src/style/qml.ts`.
-- [ ] T055 [P] [US7] Implement the SLD export and import in
+  Done for the `CASE` forms (categories, and classes with both bounds or
+  upper bounds after the first) and a fixed marker angle (as the rotation).
+  A plain field and `scale_linear` need Continuous and As is: they keep the
+  fixed value with a note until US4 (T040–T044), which reads them.
+- [x] T055 [P] [US7] Implement the SLD export and import in
   `packages/core/src/style/sld.ts`:
   - the cross product of two channels;
   - the cap;
   - continuous as 10 classes;
   - per-rule shape, dash and rotation;
   - notes in `interchange.ts`.
-- [ ] T056 [P] [US7] Implement the Mapbox export and import in
+  Done: properties on the same column with the same classes share one rule
+  per class (no impossible combinations); the note is written by `sld.ts`
+  on export. Import reads per-class outline, shape, pattern and rotation on
+  one column, and a mark's rotation. Continuous as 10 classes waits for US4.
+- [x] T056 [P] [US7] Implement the Mapbox export and import in
   `packages/core/src/style/mapbox.ts`, reusing `channelExpression`.
-- [ ] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
+- [x] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
   Fix mismatches. Record the outcome (cases, mismatches 0) in `research.md`
   "SC-003", and in `tests/qgis/README.md` "Last run".
-- [ ] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
+- [x] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
   sidecar with three varying channels and labels on (an expression source);
   reopen; the same channels, legend and labels (FR-024).
+  Channels done (color and pattern by class, opacity classes with one hidden:
+  identical after reopen, 2026-10-14). Expression labels added with US6: the
+  sidecar carries QGIS labeling, and the labels come back identical.
 
 ---
 
@@ -766,7 +797,7 @@ and re-import into the app.
 
 ### Tests for User Story 6
 
-- [ ] T059 [P] [US6] Write `tests/core/style-labels.test.ts`:
+- [x] T059 [P] [US6] Write `tests/core/style-labels.test.ts`:
   - `sanitizeLabels`: clamps, defaults per geometry, and off without a source;
   - `labelLayer` layout and paint:
     - `text-field` from the column or `__se_lbl`;
@@ -781,7 +812,7 @@ and re-import into the app.
     back;
   - QML, SLD and Mapbox label export and import, per
     contracts/interchange-mapping.md.
-- [ ] T060 [P] [US6] Write `tests/web/specs/labels.spec.ts`:
+- [x] T060 [P] [US6] Write `tests/web/specs/labels.spec.ts`:
   - **Rail and panel:** the Labels button is named and keyboard reachable,
     and the panel's controls are named per contracts/ui.md, with axe clean.
   - **Points** (`crashes.geojson`): text `name` makes labels appear (rendered
@@ -796,32 +827,36 @@ and re-import into the app.
     level at each polygon's label point (research §3).
   - **Tiles** (large-data fixture): turning labels on issues no new
     `CREATE VIEW` (query log), so the layer is not reloaded.
+  Done (5 tests). Lines use straight generated roads (research, US6
+  outcomes). Tiles mode is forced with `tileRows`, and the check is that
+  column and expression labels draw from the engine's tiles (`__se_lbl` in
+  the tile features); the `CREATE VIEW` count was not asserted.
 
 ### Implementation for User Story 6
 
-- [ ] T061 [US6] Implement `packages/core/src/style/labels.ts`:
+- [x] T061 [US6] Implement `packages/core/src/style/labels.ts`:
   `sanitizeLabels`, defaults, and `labelLayer(style, resolved)` per
   geometry. Add the `label` map layer id and its filter to `expressions.ts`.
   Add `setLabels` to `edit.ts`.
-- [ ] T062 [US6] Add the engine label column in
+- [x] T062 [US6] Add the engine label column in
   `packages/core/src/query/session.ts`:
   - `__se_lbl` for expression sources, in the view and tile SELECTs;
   - `labelError` returned to resolve;
   - a column source just adds the column to `styleDataColumns`.
-- [ ] T063 [US6] Add the label layers in `packages/ui/src/MapView.svelte`:
+- [x] T063 [US6] Add the label layers in `packages/ui/src/MapView.svelte`:
   - a `label` symbol layer after `marker` and `extrusion`, for each source
     instance (GeoJSON, engine tiles, PMTiles layers);
   - visibility follows `labels.enabled`;
   - not interactive (excluded from `INTERACTIVE_DEFS`);
   - on the globe, with the default `text-pitch-alignment`.
-- [ ] T064 [P] [US6] Add the `tag` icon path to `packages/ui/src/Icon.svelte`,
+- [x] T064 [P] [US6] Add the `tag` icon path to `packages/ui/src/Icon.svelte`,
   and the `labels` side tab:
   - `SideTab` in `viewerStore.svelte.ts`;
   - the `ActivityRail.svelte` button between Style and Details, with the title
     "Labels" / "Labels: on (<source>)";
   - `SidePanel.svelte` routing;
   - layout state persistence accepts `labels`.
-- [ ] T065 [US6] Write `packages/ui/src/LabelsPanel.svelte` (contracts/ui.md):
+- [x] T065 [US6] Write `packages/ui/src/LabelsPanel.svelte` (contracts/ui.md):
   - Show labels;
   - Text: a column select, or "SQL expression…" with completion and an error
     `aria-describedby`;
@@ -831,12 +866,14 @@ and re-import into the app.
   - Placement: point anchors and offset when points are present, plus text
     for lines and polygons.
   Edits go through `setLabels`. T060 passes.
-- [ ] T066 [US6] Add label export and import to `qml.ts`
+  Done; the expression is a plain input with its error, as the graduated
+  expression (no completion yet). Halo on/off, color and width share a row.
+- [x] T066 [US6] Add label export and import to `qml.ts`
   (`<labeling type="simple">`), `sld.ts` (`TextSymbolizer`) and `mapbox.ts`
   (an `<id>-labels` symbol layer), with notes. Add label cases to
   `qgis-011-cases.test.ts` and `check_011.py`: read-back of field or
   expression, size, color, buffer and placement code. T059 passes.
-- [ ] T067 [US6] **Tracked check (research §3)**: open `roads-los.geojson` in
+- [x] T067 [US6] **Tracked check (research §3)**: open `roads-los.geojson` in
   the VS Code extension on a real GPU and look for a mark at word gaps in line
   labels.
   - If it is there: try `text-letter-spacing: 0.01`, then a `font-faces`
@@ -849,43 +886,48 @@ and re-import into the app.
 
 **Goal**: the saved image includes labels and every legend group.
 
-- [ ] T068 [P] [US8] Extend `tests/web/specs/map-image.spec.ts` and
+- [x] T068 [P] [US8] Extend `tests/web/specs/map-image.spec.ts` and
   `tests/vscode-ext/src/suite/map-image.test.ts`. A map with labels on and
   three legend groups (one merged, one gradient) saves an image whose map
   area has label text pixels, and whose legend lists the three groups.
-- [ ] T069 [US8] Fix whatever T068 shows in `packages/ui/src/mapImage.ts` or
+- [x] T069 [US8] Fix whatever T068 shows in `packages/ui/src/mapImage.ts` or
   `MapView.svelte`. Research §3 expects labels to be in the captured frame
   already.
+  Done: labels were in the frame. Fixed in the image's legend: continuous
+  bars (with their ends) and as-is notes, no "-1" count on samples, and
+  swatches with the property opacity and rotation. Groups that would share a
+  title name their properties, in the live legend too.
 
 ---
 
 ## Phase 11: Polish & Cross-Cutting
 
-- [ ] T070 [P] Profile SC-004 (`tests/web/specs/redesign-performance.spec.ts`
+- [x] T070 [P] Profile SC-004 (`tests/web/specs/redesign-performance.spec.ts`
   pattern) on a 100,000-row fixture:
   - a channel change reaches the map within 1 s;
   - a fixed value within 200 ms;
   - panel interactions at 6× CPU throttle.
   Record the results in `research.md`.
-- [ ] T071 [P] Check SC-005: on a tiles-mode layer, label toggle and setting
+- [x] T071 [P] Check SC-005: on a tiles-mode layer, label toggle and setting
   changes cause no data reload, and pan frame times stay within spec 010's
   budget with labels on. Record the results in `research.md`.
-- [ ] T072 [P] Run the tracked check from research §1: dashes varying per
+- [x] T072 [P] Run the tracked check from research §1: dashes varying per
   feature on engine tiles (large-data fixture), with a pixel check. Record
   the result.
-- [ ] T073 [P] Check themes: run the new panel and Labels panel in light,
+- [x] T073 [P] Check themes: run the new panel and Labels panel in light,
   dark and high contrast (`theme.spec.ts` pattern), plus the
   `accessibility.spec.ts` keyboard pass over the new controls (SC-007).
-- [ ] T074 Update the documentation for slices 3–5. T039 already covered
+- [x] T074 Update the documentation for slices 3–5. T039 already covered
   slice 2.
   - `README.md`: a labels section, and the new scales in the styling section;
   - `CHANGELOG.md` [Unreleased]: Added (labels; continuous, conditions and
     as-is scales; legend merging);
   - CLAUDE.md's "Styling and export" bullet, to describe channels and labels;
   - `THIRD-PARTY-NOTICES.md`: no change expected; confirm.
-- [ ] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
+  Done. No new dependency: THIRD-PARTY-NOTICES unchanged.
+- [x] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
   legend in light and dark. Review every screenshot and fix what looks wrong.
-- [ ] T076 Run the whole of `quickstart.md`:
+- [x] T076 Run the whole of `quickstart.md`:
   - all suites: core, web, extension and lint;
   - the PyQGIS checks (009, 010, heatmap, 011);
   - the steps done by hand.

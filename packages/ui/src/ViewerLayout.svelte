@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -26,6 +26,7 @@
   import ColumnChooser from './ColumnChooser.svelte'
   import SelectionBar from './SelectionBar.svelte'
   import ActivityRail from './ActivityRail.svelte'
+  import LabelsPanel from './LabelsPanel.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -94,9 +95,11 @@
             : base
     const rowsOf = (g: LegendGroup) => {
       const readable = sizing && !(g.channels.includes('size') || g.channels.includes('width'))
-      return g.entries.flatMap((e) => (e.visible ? [{ color: e.symbol.fillColor, label: e.label, count: e.count, symbol: readable ? { ...e.symbol, lineWidth: Math.max(e.symbol.lineWidth, 3), radius: Math.max(e.symbol.radius, 5) } : e.symbol }] : []))
+      // Samples of a continuous property (no toggles) have no count.
+      return g.entries.flatMap((e) => (e.visible ? [{ color: e.symbol.fillColor, label: e.label, ...(e.toggles.length ? { count: e.count } : {}), symbol: readable ? { ...e.symbol, lineWidth: Math.max(e.symbol.lineWidth, 3), radius: Math.max(e.symbol.radius, 5) } : e.symbol }] : []))
     }
-    const colorGroup = legend[0]?.channels[0] === 'color' ? legend[0] : null
+    // A continuous or as-is color is a group of its own (its bar or note), not the layer's classes.
+    const colorGroup = legend[0]?.channels[0] === 'color' && !legend[0].gradient && !legend[0].note ? legend[0] : null
     const others = colorGroup ? legend.slice(1) : legend
     return {
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
@@ -118,7 +121,14 @@
         : undefined,
       // Spec 011: the other groups (merged where they share classes), then proportional sizes.
       groups: [
-        ...others.map((g) => ({ title: g.title, shape: shapeOf(g), alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1), rows: rowsOf(g) })),
+        ...others.map((g) => ({
+          title: g.title,
+          shape: shapeOf(g),
+          alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+          rows: rowsOf(g),
+          ...(g.gradient ? { ramp: { colors: g.gradient.stops, min: g.gradient.min, max: g.gradient.max } } : {}),
+          ...(g.note ? { note: g.note } : {}),
+        })),
         ...(legendProportional
           ? [
               {
@@ -220,7 +230,13 @@
   })
 
   // --- Side panel ----------------------------------------------------------------
-  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', details: 'Feature details', basemap: 'Basemap' }
+  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', details: 'Feature details', basemap: 'Basemap' }
+  /** Spec 011 US6: what labels show, for the rail button's tooltip (null: off). */
+  const labelsOn = $derived.by(() => {
+    const l = store.style.labels
+    if (!l?.enabled) return null
+    return l.source.kind === 'column' ? l.source.column : 'expression'
+  })
   const sideActive = $derived<SideTab | null>(layout.sideOpen ? layout.sideTab : null)
 
   function selectSide(panel: SideTab | null): void {
@@ -579,6 +595,20 @@
               onSuggestRules={() => store.ruleSuggestions()}
             />
           {/if}
+        {:else if layout.sideTab === 'labels'}
+          {#if !layer}
+            <p class="empty">Open a file to label it.</p>
+          {:else if store.tilesOnlyReason}
+            <UnavailableNotice text={store.tilesOnlyReason} />
+          {:else}
+            <LabelsPanel
+              labels={store.style.labels}
+              columns={store.styleInput?.columns ?? []}
+              geometryType={layer.geometryType}
+              error={store.resolvedStyle.labelError}
+              onChange={(patch) => store.setStyle({ labels: setLabels(store.style, patch, store.styleInput?.columns ?? []).labels })}
+            />
+          {/if}
         {:else if layout.sideTab === 'details'}
           {#if inspected}
             <FeatureInspector embedded feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={closeSide} />
@@ -605,7 +635,8 @@
     <ActivityRail
       active={sideActive}
       badge={{ details: detailsBadge }}
-      disabled={{ style: store.tilesOnlyReason }}
+      disabled={{ style: store.tilesOnlyReason, labels: store.tilesOnlyReason }}
+      {labelsOn}
       basemapName={store.basemap.name}
       onSelect={selectSide}
     />

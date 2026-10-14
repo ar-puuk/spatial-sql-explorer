@@ -1,7 +1,7 @@
 // T079 (spec 008 US7, FR-030, SC-007): the map as a PNG.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { fixture, openFile, chooseStyleType } from './helpers'
+import { fixture, openFile, chooseStyleType, openStyle, varyBy } from './helpers'
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export map image' })
 /** PNG width and height from the IHDR chunk. */
@@ -151,4 +151,73 @@ test('the bivariate square is drawn into the image, hidden cells hollow', async 
   expect(await hex(2, 0)).toBe('0000ff')
   expect(await hex(1, 2)).toBe('00xx00') // #008000: dark green, top row
   expect(await hex(1, 1)).toBe('ffffff') // hidden: hollow (the light legend box shows through)
+})
+
+// Spec 011 T049/T068 (US5, US8): the saved image has the labels as drawn and every legend group:
+// one merged (color and shape by severity), a bar (outline color continuous), samples (opacity).
+test('labels and the merged, bar and sample groups are in the saved image', async ({ page }) => {
+  test.setTimeout(180000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+  await page.getByRole('button', { name: 'Basemap', exact: true }).click()
+  await page.getByRole('radio', { name: /^Blank/ }).click()
+  await openStyle(page)
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  await chooseStyleType(page, 'Categorized')
+  await panel.getByLabel('Column', { exact: true }).selectOption('severity')
+  await varyBy(page, 'Shape')
+  await panel.getByLabel('Shape column').selectOption('severity')
+  await varyBy(page, 'Outline color')
+  await panel.getByLabel('Outline color column').selectOption('age_days')
+  await panel.getByLabel('Outline color scale').selectOption({ label: 'Continuous' })
+  await varyBy(page, 'Opacity')
+  await panel.getByLabel('Opacity column').selectOption('age_days')
+  await panel.getByLabel('Opacity scale').selectOption({ label: 'Continuous' })
+  const legend = page.getByRole('region', { name: 'Legend' })
+  await expect(legend.getByRole('group')).toHaveCount(3)
+
+  /** Saves the image through the dialog (with its legend) and returns it as base64. */
+  const save = async (): Promise<string> => {
+    await page.getByRole('button', { name: 'Export map image…' }).click()
+    await dialog(page).getByRole('radio', { name: '1×' }).click()
+    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
+    const b64 = fs.readFileSync((await download.path())!).toString('base64')
+    await dialog(page).getByRole('button', { name: 'Done' }).click()
+    return b64
+  }
+  /** Pixels near `rgb` (within 40 per channel) in a region of the image. */
+  const near = (b64: string, rgb: number[], region: { x0: number; y0: number; x1: number; y1: number }) =>
+    page.evaluate(
+      async ([b, c, r]) => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b}`
+        await img.decode()
+        const cv = document.createElement('canvas')
+        cv.width = img.width
+        cv.height = img.height
+        const ctx = cv.getContext('2d')!
+        ctx.drawImage(img, 0, 0)
+        const x1 = Math.min(r.x1, img.width)
+        const y1 = Math.min(r.y1, img.height)
+        const d = ctx.getImageData(r.x0, r.y0, x1 - r.x0, y1 - r.y0).data
+        let n = 0
+        for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - c[0]) < 40 && Math.abs(d[i + 1] - c[1]) < 40 && Math.abs(d[i + 2] - c[2]) < 40) n++
+        return n
+      },
+      [b64, rgb, region] as const
+    )
+  const before = await save()
+  await page.getByRole('button', { name: 'Labels', exact: true }).click()
+  await page.getByRole('complementary', { name: 'Labels' }).getByRole('checkbox', { name: 'Show labels' }).check()
+  await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-labels')), { timeout: 20000 }).toBeGreaterThan(0)
+  const after = await save()
+  // The labels' dark text (#1f2937) in the map's upper half, where the legend isn't.
+  const top = { x0: 0, y0: 0, x1: 2000, y1: 250 }
+  expect(await near(after, [31, 41, 55], top)).toBeGreaterThan((await near(before, [31, 41, 55], top)) + 200)
+  // The outline color's bar: viridis' ends (#440154, #fde725) in the legend box (bottom left).
+  const box = { x0: 0, y0: 200, x1: 340, y1: 2000 }
+  expect(await near(after, [0x44, 0x01, 0x54], box)).toBeGreaterThan(5)
+  expect(await near(after, [0xfd, 0xe7, 0x25], box)).toBeGreaterThan(5)
+  fs.writeFileSync(test.info().outputPath('map-image-011.png'), Buffer.from(after, 'base64'))
 })

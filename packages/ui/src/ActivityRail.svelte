@@ -1,6 +1,6 @@
 <script lang="ts">
   // Spec 010 layout Option A (T050): the icon rail on the right edge that
-  // opens the side panel on Style, Details or Basemap, as VS Code's activity
+  // opens the side panel on Style, Labels (spec 011), Details or Basemap, as VS Code's activity
   // bar does. Clicking the active button closes the panel.
   import Icon, { type IconName } from './Icon.svelte'
   import type { SideTab } from './viewerStore.svelte.js'
@@ -8,16 +8,19 @@
   interface Props {
     active: SideTab | null
     badge?: { details?: boolean }
-    /** A reason a panel can't open (shown as its tooltip); PMTiles disables Style. */
-    disabled?: { style?: string | null }
+    /** A reason a panel can't open (shown as its tooltip); PMTiles disables Style and Labels. */
+    disabled?: { style?: string | null; labels?: string | null }
     /** The Basemap button's tooltip names the basemap shown. */
     basemapName?: string
+    /** Spec 011 US6: what labels show, when on (the Labels button's tooltip). */
+    labelsOn?: string | null
     onSelect: (panel: SideTab | null) => void
   }
-  let { active, badge = {}, disabled = {}, basemapName = '', onSelect }: Props = $props()
+  let { active, badge = {}, disabled = {}, basemapName = '', labelsOn = null, onSelect }: Props = $props()
 
   const BUTTONS: Array<{ id: SideTab; label: string; icon: IconName }> = [
     { id: 'style', label: 'Style', icon: 'paint' },
+    { id: 'labels', label: 'Labels', icon: 'tag' },
     { id: 'details', label: 'Details', icon: 'info' },
     { id: 'basemap', label: 'Basemap', icon: 'layers' },
   ]
@@ -26,6 +29,7 @@
 
   function title(b: (typeof BUTTONS)[number]): string {
     if (b.id === 'style' && disabled.style) return disabled.style
+    if (b.id === 'labels') return disabled.labels ? disabled.labels : labelsOn ? `Labels: on (${labelsOn})` : 'Labels'
     if (b.id === 'basemap' && basemapName) return `Basemap: ${basemapName}`
     if (b.id === 'details') return badge.details ? 'Feature details (new selection)' : 'Feature details'
     return 'Layer style'
@@ -52,7 +56,7 @@
       aria-pressed={active === b.id}
       title={title(b)}
       data-rail={b.id}
-      disabled={b.id === 'style' && !!disabled.style}
+      disabled={(b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
       onclick={() => onSelect(active === b.id ? null : b.id)}
     >
       <Icon name={b.icon} size={20} />

@@ -1,0 +1,128 @@
+// Spec 011 US4: Continuous and As is on the properties that vary by attribute.
+import { test, expect, type Page } from '@playwright/test'
+import { chooseStyleType, fixture, openFile, openStyle, varyBy } from './helpers'
+
+const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
+const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
+const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
+
+test('opacity continuous: three samples in the legend, not toggles; outline color continuous: a bar from min to max', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+
+  await varyBy(page, 'Opacity')
+  await panel(page).getByLabel('Opacity column').selectOption('age_days')
+  await expect(panel(page).getByLabel('Opacity scale').locator('option')).toHaveText(['Categories', 'Classes', 'Continuous', 'Conditions', 'As is'])
+  await panel(page).getByLabel('Opacity scale').selectOption({ label: 'Continuous' })
+  const opacity = legend(page).getByRole('group', { name: /age_days · Continuous$/ })
+  await expect(opacity.locator('li')).toHaveCount(3)
+  await expect(opacity.getByRole('button')).toHaveCount(0)
+  await expect(panel(page).getByLabel('Opacity curve')).toHaveValue('linear')
+  // The values the opacities run between: Auto, then set, then Auto again.
+  const from = panel(page).getByLabel('Opacity from value')
+  await expect(from).not.toHaveValue('')
+  await from.fill('1000')
+  await from.press('Enter')
+  await expect(opacity.locator('li').first()).toContainText('1,000')
+  await panel(page).getByRole('button', { name: 'Auto' }).click()
+  await expect(opacity.locator('li').first()).not.toContainText('1,000')
+
+  await varyBy(page, 'Outline color')
+  await panel(page).getByLabel('Outline color column').selectOption('age_days')
+  await panel(page).getByLabel('Outline color scale').selectOption({ label: 'Continuous' })
+  // Two properties on age_days, by the same scale: each group names its property.
+  await expect(legend(page).getByRole('img', { name: /^Outline color · age_days · Continuous: colors from [\d,.]+ to [\d,.]+$/ })).toBeVisible()
+  await expect(legend(page).getByRole('group', { name: 'Opacity · age_days · Continuous' })).toBeVisible()
+  await expect.poll(async () => Number(await rendered(page))).toBe(3000)
+  await page.waitForTimeout(2000)
+  await page.screenshot({ path: info.outputPath('continuous.png') })
+})
+
+test('as is: outline colors from hex_color, rotation from heading', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+
+  await varyBy(page, 'Outline color')
+  await panel(page).getByLabel('Outline color column').selectOption('hex_color')
+  // A text column: categories, or the colors as they are.
+  await expect(panel(page).getByLabel('Outline color scale').locator('option')).toHaveText(['Categories', 'Conditions', 'As is'])
+  await panel(page).getByLabel('Outline color scale').selectOption({ label: 'As is' })
+  await expect(panel(page).getByText('Each feature takes the color in the column (#rrggbb).')).toBeVisible()
+  await expect(legend(page).getByText('Colors read from the column')).toBeVisible()
+
+  await varyBy(page, 'Rotation')
+  await panel(page).getByLabel('Rotation column').selectOption('heading')
+  await panel(page).getByLabel('Rotation scale').selectOption({ label: 'As is' })
+  await expect(legend(page).getByText('Read from the column (degrees)')).toBeVisible()
+  await expect.poll(async () => Number(await rendered(page))).toBe(3000)
+  await page.screenshot({ path: info.outputPath('as-is.png') })
+})
+
+test('conditions: outline width by two conditions (a refused one says why); line width by conditions in the size row', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+
+  await varyBy(page, 'Outline width')
+  await panel(page).getByLabel('Outline width scale').selectOption({ label: 'Conditions' })
+  const conditions = panel(page).getByRole('list', { name: 'Outline width conditions' })
+  await conditions.getByLabel('Condition 1', { exact: true }).fill('age_days > 3000')
+  await conditions.getByLabel('Condition 1', { exact: true }).press('Enter')
+  await panel(page).getByRole('button', { name: 'Add condition' }).click()
+  await conditions.getByLabel('Condition 2', { exact: true }).fill('nope > 1')
+  await conditions.getByLabel('Condition 2', { exact: true }).press('Enter')
+  await expect(conditions.getByRole('alert')).toHaveText(/^No column "nope" in this layer\./)
+  // The legend counts by the first condition that holds; the refused one counts nothing.
+  const group = legend(page).getByRole('group', { name: 'Outline width · 2 conditions' })
+  await expect(group.locator('li')).toHaveCount(3)
+  const counts = await group.locator('.count').allTextContents()
+  expect(Number(counts[0].replace(/,/g, '')) + Number(counts[2].replace(/,/g, ''))).toBe(3000)
+  expect(counts[1]).toBe('0')
+  await page.screenshot({ path: info.outputPath('conditions.png') })
+})
+
+test('size row: line width by conditions, then back to classed', async ({ page }) => {
+  test.setTimeout(120000)
+  await openFile(page, fixture('roads-traffic.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+  await varyBy(page, 'Width')
+  const scale = panel(page).getByRole('radiogroup', { name: 'Size scale' })
+  await scale.getByRole('radio', { name: 'Conditions' }).click()
+  await expect(scale.getByRole('radio', { name: 'Conditions' })).toHaveAttribute('aria-checked', 'true')
+  const conditions = panel(page).getByRole('list', { name: 'Width conditions' })
+  await conditions.getByLabel('Condition 1', { exact: true }).fill('aadt > 20000')
+  await conditions.getByLabel('Condition 1', { exact: true }).press('Enter')
+  await expect(legend(page).getByRole('group', { name: /^(Size|Width) · 1 condition$/ })).toHaveCount(1)
+  await scale.getByRole('radio', { name: 'Classed' }).click()
+  await expect(panel(page).getByLabel('Size method')).toBeVisible()
+})
+
+test('color types: Continuous colors along a ramp (a bar in the legend); As is reads the colors', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+  await chooseStyleType(page, 'Continuous')
+  await expect(panel(page).getByLabel('Color column')).toHaveValue('heading')
+  await panel(page).getByLabel('Color column').selectOption('age_days')
+  await expect(legend(page).getByRole('img', { name: /^age_days · Continuous: colors from 0 to 3,648$/ })).toBeVisible()
+  // No fixed fill to pick: the colors come from the ramp.
+  await expect(panel(page).getByRole('region', { name: 'Layer style' }).locator('input[aria-labelledby="fill-label"]')).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  await page.screenshot({ path: info.outputPath('color-continuous.png') })
+
+  await chooseStyleType(page, 'As is')
+  await expect(panel(page).getByLabel('Color column')).toHaveValue('hex_color')
+  await expect(legend(page).getByText('Colors read from the column')).toBeVisible()
+  await expect.poll(async () => Number(await rendered(page))).toBe(3000)
+})

@@ -3,7 +3,7 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedChannel, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, parseColor, rgbToHex, round, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedChannel, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { legacyView, rendererFromEncoding, rendererOf, sizeChannelFromEncoding } from './legacy.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
@@ -11,7 +11,7 @@ import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
 import { heatmapPeak, mercatorRadius } from '../view/heat.js'
-import { CHANNEL_ORDER, OUTPUT_KIND, channelDataColumns, fixedValue, isColorChannel, isOutputFor, type ChannelId, type ClassDef, type Encoding, type Output } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, channelDataColumns, fixedValue, isColorChannel, isOutputFor, type ChannelId, type ClassDef, type ConditionsScale, type ContinuousScale, type Encoding, type IdentityScale, type Output } from './channels.js'
 import { MARKER_SHAPES, LINE_DASHES } from './symbol.js'
 
 /**
@@ -23,7 +23,7 @@ import { MARKER_SHAPES, LINE_DASHES } from './symbol.js'
  */
 export type ColumnData =
   | { kind: 'values'; column: string; values: Array<Feature['attributes'][string]> }
-  | { kind: 'categories'; column: string; top: Array<{ value: string; count: number }>; distinct: number; nonNull: number; nulls: number }
+  | { kind: 'categories'; column: string; top: Array<{ value: string; count: number }>; distinct: number; nonNull: number; nulls: number; /** Spec 011 US4, As-is colors: values that aren't `#rgb`/`#rrggbb`. */ invalid?: number }
   | { kind: 'numbers'; column: string; sample: number[]; n: number; nulls: number; quantileStats?: Record<number, number> }
 
 /**
@@ -148,7 +148,7 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
   if (!enc) return undefined
   const out: NonNullable<ResolvedStyle['channels']> = {}
   const color = enc.color
-  if (color && style.draw?.points !== 'heatmap') {
+  if (color && style.draw?.points !== 'heatmap' && !isGenericChannel('color', color)) {
     out.color = {
       channel: 'color',
       status: r.status,
@@ -197,12 +197,17 @@ const layerOf = new WeakMap<ResolvedStyle, ResolveInput | null>()
 
 /**
  * Spec 011: whether a channel resolves on its own here (rather than through
- * the pre-011 color and size code): any channel but color with categories or
- * classes, except size and width with classes (spec 009's size channel).
+ * the pre-011 color and size code): any channel but color with categories,
+ * classes, continuous (US4) or as is (US4), except size and width with
+ * classes or continuous (spec 009's size channel).
  */
 export function isGenericChannel(id: ChannelId, enc: Encoding): boolean {
-  if (id === 'color' || id === 'height') return false
-  if (enc.scale.kind !== 'categories' && enc.scale.kind !== 'classes') return false
+  if (id === 'height') return false
+  const k = enc.scale.kind
+  // Spec 011 US4: color is the style type's, except continuous and as is, which resolve here too.
+  if (id === 'color') return k === 'continuous' || k === 'identity'
+  if (k !== 'categories' && k !== 'classes' && k !== 'continuous' && k !== 'identity' && k !== 'conditions') return false
+  // Spec 009's size channel draws size and width by classes or continuously (proportional).
   if ((id === 'size' || id === 'width') && sizeChannelFromEncoding(enc)) return false
   return true
 }
@@ -228,6 +233,9 @@ const DASH_ORDER = LINE_DASHES
  * spread from the ramp, the range, or the shape and pattern lists.
  */
 function genericChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  if (enc.scale.kind === 'continuous') return continuousChannel(style, id, enc, layer)
+  if (enc.scale.kind === 'identity') return identityChannel(style, id, enc, layer)
+  if (enc.scale.kind === 'conditions') return conditionsChannel(id, enc, layer)
   const r = rendererFromEncoding(enc)
   const res = r.kind === 'categorized' ? categorized(style, r, layer) : r.kind === 'graduated' ? graduated(style, r, layer) : single(style, layer)
   const dataColumn = channelDataColumns(id, enc)[0] ?? ''
@@ -271,6 +279,159 @@ function genericChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: 
   return { channel: id, status: 'ok', scale: scale.kind, caption: res.caption, classes, dataColumn, notes }
 }
 
+
+// --- Spec 011 US4: Continuous and As is on any property but color ---
+
+/**
+ * Spec 011 US4: a property by conditions, spec 010's rules for any
+ * property: SQL conditions in order (the first that holds wins), then
+ * "Everything else". The engine counts the features per rule and says why a
+ * condition can't be used (`ruleCountsByChannel`, `ruleErrorsByChannel`).
+ */
+function conditionsChannel(id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  const scale = enc.scale as ConditionsScale
+  const dataColumn = channelDataColumns(id, enc)[0] ?? ''
+  const counts = layer?.ruleCountsByChannel?.[id]
+  const errors = layer?.ruleErrorsByChannel?.[id]
+  const classes: ResolvedClass[] = scale.rules.map((rule, i) => {
+    const error = checkExpression(rule.where, 'condition') ?? errors?.[rule.id]
+    return { key: `rule:${rule.id}`, kind: 'rule', ruleId: rule.id, label: rule.label || rule.where || `Rule ${i + 1}`, color: '', visible: rule.visible, count: error ? 0 : (counts?.get(i) ?? 0), output: rule.output, ...(error ? { error } : {}) }
+  })
+  classes.push({ key: '__else', kind: 'other', label: scale.else.label, color: '', visible: scale.else.visible, count: counts ? (counts.get(-1) ?? 0) : rowsOf(layer), output: scale.else.output })
+  const n = scale.rules.length
+  // Conditions read no one column: the caption names the property.
+  return { channel: id, status: 'ok', scale: 'conditions', caption: `${CHANNEL_NAMES[id]} · ${n} ${n === 1 ? 'condition' : 'conditions'}`, classes, dataColumn, notes: [] }
+}
+
+/** Ramp stops a continuous color runs through (also written to QML, so QGIS and the map agree). */
+export const CONTINUOUS_STOPS = 7
+
+/** Continuous colors on marker icons: this many steps (each step is an icon; research §2). */
+export const ICON_COLOR_STEPS = 32
+
+/** Colors an As-is color can show on shaped markers: each needs its own map icon (research §2). */
+export const IDENTITY_ICON_CAP = 256
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
+
+/** A continuous property's output at `value` (clamped to the domain): along the ramp, or min–max (linear or by area). */
+export function continuousOutput(id: ChannelId, scale: ContinuousScale, domain: { min: number; max: number }, value: number): Output {
+  const span = domain.max - domain.min
+  const t = span > 0 ? Math.min(1, Math.max(0, (value - domain.min) / span)) : 1
+  if (isColorChannel(id)) {
+    const ordered = rampColors(scale.ramp ?? { id: 'viridis', reversed: false }, CONTINUOUS_STOPS)
+    const x = t * (ordered.length - 1)
+    const i = Math.min(ordered.length - 2, Math.floor(x))
+    return mixHex(ordered[i], ordered[i + 1], x - i)
+  }
+  const range = scale.range ?? DEFAULT_RANGES[id] ?? { min: 0, max: 1 }
+  const k = scale.curve === 'area' ? Math.sqrt(t) : t
+  return round(range.min + (range.max - range.min) * k, 4)
+}
+
+/** Two `#rrggbb` colors mixed in RGB, as MapLibre's `interpolate` and QGIS's color ramps do. */
+function mixHex(a: string, b: string, t: number): string {
+  const ca = parseColor(a) ?? { r: 0, g: 0, b: 0, a: 1 }
+  const cb = parseColor(b) ?? ca
+  return rgbToHex({ r: Math.round(ca.r + (cb.r - ca.r) * t), g: Math.round(ca.g + (cb.g - ca.g) * t), b: Math.round(ca.b + (cb.b - ca.b) * t) })
+}
+
+/** The domain of a numeric column (the scale's own, else the data's), the nulls, or why there is none. */
+function numericDomain(layer: ResolveInput, column: string): { min: number; max: number; nulls: number } | null {
+  const known = columnData(layer, column)
+  if (known?.kind === 'numbers') return known.sample.length ? { min: known.sample[0], max: known.sample[known.sample.length - 1], nulls: known.nulls } : null
+  let min = Infinity
+  let max = -Infinity
+  let nulls = 0
+  for (const raw of valuesOf(layer, column)) {
+    const v = toNumber(raw)
+    if (v === null) nulls++
+    else {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+  return min <= max ? { min, max, nulls } : null
+}
+
+/** A property's "No value" class, when some features have none. */
+function noValueClass(def: ClassDef, output: Output, count: number): ResolvedClass[] {
+  return count > 0 ? [{ key: '__null', kind: 'noValue', label: def.label ?? 'No value', color: NO_VALUE_COLOR, visible: def.visible !== false, count, output: def.output !== undefined ? def.output : output }] : []
+}
+
+/**
+ * Spec 011 US4: a property along a continuous scale: the domain (the scale's
+ * own, else the column's minimum to maximum), three legend samples, and No
+ * value at the fixed value unless set.
+ */
+function continuousChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  const scale = enc.scale as ContinuousScale
+  const column = channelDataColumns(id, enc)[0] ?? ''
+  const fixed = fixedValue(style, id, id === 'width' ? 'line' : 'marker')
+  const caption = `${column} · Continuous`
+  const off = (reason: string): ResolvedChannel => ({ channel: id, status: 'fallback', reason, scale: 'continuous', caption, classes: [], dataColumn: column, notes: [] })
+  if (!layer) return off('No data to read.')
+  const why = notNumeric(layer, column)
+  if (why) return off(`${why} Every feature has the fixed ${CHANNEL_NAMES[id].toLowerCase()}.`)
+  const data = numericDomain(layer, column)
+  if (!data) return off(`Column "${column}" has no numeric values in this result.`)
+  const domain = scale.domain ?? { min: data.min, max: data.max }
+  const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+  const values = domain.max > domain.min ? [domain.min, (domain.min + domain.max) / 2, domain.max] : [domain.min]
+  const samples = values.map((value) => ({ value, output: continuousOutput(id, scale, domain, value), label: fmt.format(value) }))
+  const notes = domain.max > domain.min ? [] : [`Every value is ${fmt.format(domain.min)}: every feature has the last output.`]
+  // Shaped markers are icons: a continuous fill or outline color takes steps there (circles stay smooth).
+  const shaped = (legacyView(style).markerShape ?? 'circle') !== 'circle' || !!style.channels?.shape
+  if (shaped && (id === 'color' || id === 'strokeColor')) notes.push(`Shaped markers show these colors in ${ICON_COLOR_STEPS} steps (each is a map icon); circles are smooth.`)
+  return { channel: id, status: 'ok', scale: 'continuous', caption, classes: noValueClass(scale.noValue, fixed, data.nulls), domain, samples, dataColumn: column, notes }
+}
+
+/**
+ * Spec 011 US4: a property read as is: colors (`#rgb` or `#rrggbb`; others
+ * get the fixed color, counted), or numbers (px, 0–1, degrees). On shaped
+ * markers, at most IDENTITY_ICON_CAP distinct colors (each is an icon).
+ */
+function identityChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  const scale = enc.scale as IdentityScale
+  const column = channelDataColumns(id, enc)[0] ?? ''
+  const fixed = fixedValue(style, id, id === 'width' ? 'line' : 'marker')
+  const name = CHANNEL_NAMES[id].toLowerCase()
+  const caption = `${column} · As is`
+  const off = (reason: string): ResolvedChannel => ({ channel: id, status: 'fallback', reason, scale: 'identity', caption, classes: [], dataColumn: column, notes: [] })
+  if (!layer) return off('No data to read.')
+  if (!layer.columns.some((c) => c.name === column)) return off(`Column "${column}" is not in this result.`)
+  const notes: string[] = []
+  if (isColorChannel(id)) {
+    const known = columnData(layer, column)
+    let nulls = 0
+    let invalid = 0
+    const distinct = new Set<string>()
+    if (known?.kind === 'categories') {
+      nulls = known.nulls
+      for (const t of known.top) if (HEX_COLOR.test(t.value)) distinct.add(t.value.toLowerCase())
+      else invalid += t.count
+      if (known.distinct > known.top.length) distinct.add(`+${known.distinct - known.top.length}`)
+      if (known.invalid !== undefined) invalid = known.invalid
+    } else {
+      for (const raw of valuesOf(layer, column)) {
+        if (raw === null || raw === undefined || raw === '') nulls++
+        else if (typeof raw === 'string' && HEX_COLOR.test(raw.trim())) distinct.add(raw.trim().toLowerCase())
+        else invalid++
+      }
+    }
+    const shapedMarkers = (legacyView(style).markerShape ?? 'circle') !== 'circle' || !!style.channels?.shape
+    const many = known?.kind === 'categories' ? known.distinct : distinct.size
+    if (id === 'strokeColor' && shapedMarkers && many > IDENTITY_ICON_CAP) {
+      return off(`${many.toLocaleString('en-US')} different colors: shaped markers can show at most ${IDENTITY_ICON_CAP}. Every feature has the fixed ${name}.`)
+    }
+    if (invalid > 0) notes.push(`${invalid.toLocaleString('en-US')} ${invalid === 1 ? 'value is' : 'values are'} not a color (#rrggbb): ${invalid === 1 ? 'it has' : 'they have'} the fixed ${name}.`)
+    return { channel: id, status: 'ok', scale: 'identity', caption, classes: noValueClass(scale.noValue, fixed, nulls), dataColumn: column, notes }
+  }
+  const why = notNumeric(layer, column)
+  if (why) return off(`${why} Every feature has the fixed ${name}.`)
+  const data = numericDomain(layer, column)
+  return { channel: id, status: 'ok', scale: 'identity', caption, classes: noValueClass(scale.noValue, fixed, data?.nulls ?? 0), ...(data ? { domain: { min: data.min, max: data.max } } : {}), dataColumn: column, notes }
+}
 
 function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
   const r = rendererOf(style)

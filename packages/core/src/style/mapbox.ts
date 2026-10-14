@@ -22,10 +22,22 @@ import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
 import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
 import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
-import type { SimpleWhere } from './simpleWhere.js'
+import { hasLike, parseSimpleWhere, type SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, type ChannelId, type Channels, type ClassDef, type Encoding } from './channels.js'
+import { labelLayers, labelTextField } from './labelLayer.js'
+import { labelColumnOf, sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
+
+/** Spec 011 US6: label glyphs for other tools (Spatial Explorer draws labels with the system's sans-serif). */
+const MAPBOX_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
+const MAPBOX_FONT = ['Noto Sans Regular']
+export const MAPBOX_FONT_NOTE = "Labels use OpenFreeMap's Noto Sans glyphs in other tools (Spatial Explorer draws them with the system's sans-serif)."
+
+/** Spec 011: shapes by attribute need icons, which a style file can't carry. */
+export const MAPBOX_SHAPES_NOTE = "Mapbox GL styles draw marker shapes only from a sprite, which a style file can't carry: other tools draw circles (Spatial Explorer keeps the shapes by attribute)."
+
 
 const POLYGON_FILTER = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
 const LINE_FILTER = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
@@ -76,9 +88,15 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
     if (hiddenIdx.length) ruleHidden = ['!', ['in', index, ['literal', hiddenIdx]]]
   }
   const roundSize = (v: unknown): unknown => (typeof v === 'number' ? round(v) : v)
-  const pattern = dashPattern(style.lineDash)
+  // Spec 011: outline color and width, pattern and opacity per feature, as the map draws them (symbolExpressions).
+  const strokeColor = sym?.strokeColor ?? style.strokeColor
+  const strokeWidth = roundSize(sym?.strokeWidth ?? style.strokeWidth)
+  const opacity = sym?.opacity ?? style.opacity ?? 1
+  const times = (a: number): unknown => (opacity === 1 ? round(a) : typeof opacity === 'number' ? round(a * opacity) : ['*', round(a), opacity])
+  const pattern = sym ? sym.dash : dashPattern(style.lineDash)
   const dash = pattern ? { 'line-dasharray': pattern } : {}
-  if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point')) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point') && !sym?.shape) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  if (sym?.shape && wants('Point')) notes.push(MAPBOX_SHAPES_NOTE)
   const colorHidden = resolved ? visibilityFilter(drawn, resolved) : null
   const hidden = colorHidden && ruleHidden ? ['all', colorHidden, ruleHidden] : (colorHidden ?? ruleHidden)
   const fillColor = ruleColor ?? sym?.fillColor ?? style.fillColor
@@ -90,16 +108,16 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       type: 'fill',
       source,
       filter: filter(POLYGON_FILTER),
-      paint: { 'fill-color': fillColor, 'fill-opacity': round(style.fillOpacity) },
+      paint: { 'fill-color': fillColor, 'fill-opacity': times(style.fillOpacity) },
     })
-    if (style.strokeWidth > 0) {
+    if (style.strokeWidth > 0 || typeof strokeWidth !== 'number') {
       layers.push({
         id: `${layerName}-outline`,
         type: 'line',
         source,
         filter: filter(POLYGON_FILTER),
         layout: { 'line-join': 'round' },
-        paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity), ...dash },
+        paint: { 'line-color': strokeColor, 'line-width': strokeWidth, 'line-opacity': times(style.strokeOpacity), ...dash },
       })
     }
   }
@@ -127,8 +145,8 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       layout: { 'line-join': 'round', 'line-cap': pattern ? 'butt' : 'round' },
       paint: {
         'line-color': lineColor,
-        'line-width': roundSize(sym?.lineWidth ?? style.strokeWidth),
-        'line-opacity': round(style.strokeOpacity),
+        'line-width': roundSize(sym?.lineWidth ?? style.lineWidth ?? style.strokeWidth),
+        'line-opacity': times(style.strokeOpacity),
         ...dash,
       },
     })
@@ -144,18 +162,54 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       filter: filter(POINT_FILTER),
       paint: {
         'circle-color': fillColor,
-        'circle-opacity': round(style.fillOpacity),
+        'circle-opacity': times(style.fillOpacity),
         'circle-radius': roundSize(sym?.radius ?? style.pointRadius),
-        'circle-stroke-color': style.strokeColor,
-        'circle-stroke-width': round(style.strokeWidth),
-        'circle-stroke-opacity': round(style.strokeOpacity),
+        'circle-stroke-color': strokeColor,
+        'circle-stroke-width': strokeWidth,
+        'circle-stroke-opacity': times(style.strokeOpacity),
       },
     })
+  }
+  // Spec 011 US6: labels, as the map's own label layers, reading a column (a style file can't run SQL).
+  const labels = resolved && style.labels?.enabled ? labelLayers(drawn, resolved) : null
+  const labelColumn = style.labels ? labelColumnOf(style.labels) : null
+  if (labels && style.labels && labelColumn) {
+    if (style.labels.source.kind === 'expression') notes.push(`Mapbox GL labels read one column: the labels show "${labelColumn}", not the expression.`)
+    notes.push(MAPBOX_FONT_NOTE)
+    const text = ['coalesce', ['to-string', ['get', labelColumn]], '']
+    const swap = (e: unknown): unknown => JSON.parse(JSON.stringify(e).split(JSON.stringify(labelTextField(style.labels as LabelSettings))).join(JSON.stringify(text)))
+    for (const [id, suffix] of [['label', 'labels'], ['label-line', 'line-labels']] as const) {
+      const spec = labels[id]
+      if (id === 'label' && !wants('Point') && !wants('Polygon')) continue
+      if (id === 'label-line' && !wants('LineString')) continue
+      layers.push({ id: `${layerName}-${suffix}`, type: 'symbol', source, filter: swap(spec.filter), layout: { ...(swap(spec.layout) as object), 'text-font': MAPBOX_FONT }, paint: spec.paint })
+    }
+  }
+  // Spec 011 US4: properties by conditions read the rule index the engine computes, which a style file
+  // can't: simple conditions become a case over the data's own columns, others everything else's output.
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels?.[id]
+    const rc = resolved?.channels?.[id]
+    if (id === 'color' || enc?.scale.kind !== 'conditions' || rc?.status !== 'ok') continue
+    const rules = enc.scale.rules
+    const errors = new Set(rc.classes.flatMap((c) => (c.kind === 'rule' && c.error && c.ruleId ? [c.ruleId] : [])))
+    const parsed = rules.map((r) => (errors.has(r.id) || !r.where.trim() ? null : parseSimpleWhere(r.where)))
+    const portable = rules.every((r, i) => errors.has(r.id) || !r.where.trim() || (parsed[i] && !hasLike(parsed[i])))
+    const arms = portable ? parsed.flatMap((w, i) => (w ? [whereExpression(w), i] : [])) : []
+    const index = arms.length ? ['case', ...arms, -1] : -1
+    if (!portable) notes.push(`${CHANNEL_NAMES[id]}: conditions other than simple comparisons can't be written to Mapbox GL; everything takes "${enc.scale.else.label}".`)
+    const from = JSON.stringify(['get', rc.dataColumn])
+    for (const l of layers as Array<Record<string, unknown>>) {
+      for (const part of ['paint', 'layout', 'filter'] as const) {
+        if (l[part] !== undefined) l[part] = JSON.parse(JSON.stringify(l[part]).split(from).join(JSON.stringify(index)))
+      }
+    }
   }
   const doc = {
     version: 8,
     name: `${layerName} style`,
     metadata: { [METADATA_KEY]: style },
+    ...(labels && labelColumn ? { glyphs: MAPBOX_GLYPHS } : {}),
     sources: { [source]: { type: 'geojson', data: dataFileName } },
     layers,
   }
@@ -225,6 +279,60 @@ function rendererFromColor(e: unknown, notes: string[]): LayerStyle['renderer'] 
 
 // --- import ---------------------------------------------------------------
 
+/**
+ * Spec 011: a property by a column from a data-driven paint value: `match`
+ * over one `get` (categories) or `step` over one `get` (classes); null for
+ * anything else. Colors are read as hex, numbers as they are.
+ */
+function encodingFromMapbox(id: ChannelId, e: unknown): Encoding | null {
+  if (!Array.isArray(e)) return null
+  const output = (v: unknown): ClassDef | null => {
+    if (OUTPUT_KIND[id] === 'color') {
+      const hex = hexOf(v)
+      return hex ? { output: hex } : null
+    }
+    return typeof v === 'number' && Number.isFinite(v) ? { output: id === 'opacity' ? Math.min(1, Math.max(0, v)) : v } : null
+  }
+  if (e[0] === 'match') {
+    const column = columnOf(e[1])
+    const other = output(e[e.length - 1])
+    if (!column || !other) return null
+    const categories: Array<ClassDef & { value: string }> = []
+    for (let i = 2; i + 1 < e.length; i += 2) {
+      const o = output(e[i + 1])
+      if (!o) return null
+      for (const l of Array.isArray(e[i]) ? (e[i] as unknown[]) : [e[i]]) categories.push({ value: String(l), ...o })
+    }
+    return { source: { kind: 'column', column }, scale: { kind: 'categories', manual: true, categories, other, noValue: other, cap: Math.max(categories.length, 1) } }
+  }
+  // Spec 011 US4: two stops of a linear interpolate over one get: continuous numbers.
+  if (e[0] === 'interpolate' && Array.isArray(e[1]) && e[1][0] === 'linear' && e.length === 7 && OUTPUT_KIND[id] !== 'color') {
+    const column = columnOf(e[2])
+    const [d0, o0, d1, o1] = e.slice(3) as unknown[]
+    const lo = output(o0)
+    const hi = output(o1)
+    if (!column || typeof d0 !== 'number' || typeof d1 !== 'number' || d0 === d1 || !lo || !hi) return null
+    return { source: { kind: 'column', column }, scale: { kind: 'continuous', domain: { min: Math.min(d0, d1), max: Math.max(d0, d1) }, range: { min: Number(lo.output), max: Number(hi.output) }, noValue: {} } }
+  }
+  if (e[0] === 'step') {
+    const column = columnOf(e[1])
+    if (!column) return null
+    const outs = [output(e[2])]
+    const breaks: number[] = []
+    for (let i = 3; i + 1 < e.length; i += 2) {
+      breaks.push(Number(e[i]))
+      outs.push(output(e[i + 1]))
+    }
+    if (!breaks.length || breaks.some((b) => !Number.isFinite(b)) || outs.some((o) => !o) || outs.length > 10) return null
+    // As the color classes: the open ends are closed one span away.
+    const span = breaks.length > 1 ? breaks[breaks.length - 1] - breaks[0] : Math.abs(breaks[0]) || 1
+    const bounds = [breaks[0] - span, ...breaks, breaks[breaks.length - 1] + span]
+    const classes = outs.map((o, index) => ({ index, lower: bounds[index], upper: bounds[index + 1], ...(o as ClassDef) }))
+    return { source: { kind: 'column', column }, scale: { kind: 'classes', method: 'manual', classCount: classes.length, classes, noValue: {} } }
+  }
+  return null
+}
+
 /** `['interpolate', ['linear'], ['get', col], v0, s0, v1, s1]` (two stops) as a proportional size channel, or null. */
 function proportionalFrom(e: unknown, scale: 'linear' | 'area'): LayerStyle['size'] | null {
   if (!Array.isArray(e) || e[0] !== 'interpolate' || !Array.isArray(e[1]) || e[1][0] !== 'linear' || e.length !== 7) return null
@@ -232,6 +340,47 @@ function proportionalFrom(e: unknown, scale: 'linear' | 'area'): LayerStyle['siz
   const [, , , v0, s0, v1, s1] = e as unknown[]
   if (!column || ![v0, s0, v1, s1].every((n) => typeof n === 'number' && Number.isFinite(n))) return null
   return { column, mode: 'proportional', method: 'quantile', classCount: 5, classes: [], noValue: {}, sizeMin: s0 as number, sizeMax: s1 as number, scale }
+}
+
+/** MapLibre's text anchor (the side touching the point) for each of our anchors. */
+const TEXT_ANCHOR: Record<LabelAnchor, string> = { above: 'bottom', below: 'top', left: 'right', right: 'left', center: 'center' }
+
+/** Labels from a symbol layer: text from one property (an expression over `get`, or a `{field}` token), size, colors, anchor and offset. */
+function labelsFromMapbox(layout: Record<string, unknown>, paint: Record<string, unknown>, notes: string[]): LabelSettings | undefined {
+  const field = layout['text-field']
+  const token = typeof field === 'string' ? /^\{([^}]+)\}$/.exec(field.trim())?.[1] : undefined
+  const getIn = (e: unknown): string | null => {
+    if (!Array.isArray(e)) return null
+    if (e[0] === 'get' && typeof e[1] === 'string') return e[1]
+    for (const x of e.slice(1)) {
+      const c = getIn(x)
+      if (c) return c
+    }
+    return null
+  }
+  const column = token ?? getIn(field)
+  if (!column) {
+    notes.push("The label text isn't read from one property; labels were not imported.")
+    return undefined
+  }
+  const size = typeof layout['text-size'] === 'number' ? (layout['text-size'] as number) : 16
+  // Ours choose by geometry (`case`: polygons centered); the last branch is the points'.
+  const pointBranch = (v: unknown): unknown => (Array.isArray(v) && v[0] === 'case' ? v[v.length - 1] : v)
+  const anchorRaw = pointBranch(layout['text-anchor'])
+  const anchor = (Object.keys(TEXT_ANCHOR) as LabelAnchor[]).find((a) => TEXT_ANCHOR[a] === anchorRaw) ?? 'center'
+  const off = pointBranch(layout['text-offset'])
+  const pair = Array.isArray(off) && off[0] === 'literal' ? off[1] : off
+  const em = Array.isArray(pair) && pair.length === 2 && pair.every((n) => typeof n === 'number') ? Math.max(Math.abs(pair[0] as number), Math.abs(pair[1] as number)) : 0
+  const hex = (v: unknown) => (typeof v === 'string' ? hexOf(v) : undefined)
+  const haloWidth = typeof paint['text-halo-width'] === 'number' ? (paint['text-halo-width'] as number) : 0
+  return sanitizeLabels({
+    enabled: (layout.visibility ?? 'visible') !== 'none',
+    source: { kind: 'column', column },
+    size,
+    color: hex(paint['text-color']),
+    halo: { enabled: haloWidth > 0, color: hex(paint['text-halo-color']), width: haloWidth > 0 ? haloWidth : undefined },
+    placement: { kind: 'point', anchor, offset: round(em * size, 1) },
+  })
 }
 
 interface StyleLayerJson {
@@ -259,7 +408,10 @@ export function mapboxToStyle(text: string): StyleImportResult {
 
   const style: Partial<LayerStyle> = {}
   let skipped = 0
+  // Spec 011: data-driven values read as properties by a column (not counted as skipped).
+  const consumed = new Set<unknown>()
   const color = (v: unknown): { hex: string; a: number } | undefined => {
+    if (consumed.has(v)) return undefined
     if (typeof v !== 'string') {
       if (v !== undefined) skipped++
       return undefined
@@ -268,6 +420,7 @@ export function mapboxToStyle(text: string): StyleImportResult {
     return c ? { hex: rgbToHex(c), a: c.a } : undefined
   }
   const num = (v: unknown): number | undefined => {
+    if (consumed.has(v)) return undefined
     if (typeof v === 'number') return v
     if (v !== undefined) skipped++
     return undefined
@@ -322,6 +475,24 @@ export function mapboxToStyle(text: string): StyleImportResult {
     notes.push(...thematicNotes)
   }
 
+  // Spec 011: other properties by a column (match / step over one get).
+  const channels: Channels = {}
+  const outlineLayer = layers.find((l, i) => l.type === 'line' && fillLayer && i > layers.indexOf(fillLayer)) ?? (fillLayer ? lineLayer : undefined)
+  const dataDriven: Array<[ChannelId, unknown]> = [
+    ['strokeColor', circleLayer?.paint?.['circle-stroke-color'] ?? (fillLayer ? outlineLayer?.paint?.['line-color'] : undefined)],
+    ['strokeWidth', circleLayer?.paint?.['circle-stroke-width'] ?? (fillLayer ? outlineLayer?.paint?.['line-width'] : undefined)],
+    ['opacity', (fillLayer ?? circleLayer ?? lineLayer)?.paint?.[fillLayer ? 'fill-opacity' : circleLayer ? 'circle-opacity' : 'line-opacity']],
+  ]
+  if (!fillLayer && !circleLayer && lineLayer && !proportionalFrom(lineLayer.paint?.['line-width'], 'linear')) dataDriven.push(['width', lineLayer.paint?.['line-width']])
+  for (const [id, value] of dataDriven) {
+    const enc = Array.isArray(value) ? encodingFromMapbox(id, value) : null
+    if (enc) {
+      channels[id] = enc
+      consumed.add(value)
+    }
+  }
+  if (Object.keys(channels).length) style.channels = channels
+
   if (fillLayer?.paint) {
     const c = renderer ? undefined : color(fillLayer.paint['fill-color'])
     if (c) style.fillColor = c.hex
@@ -367,6 +538,12 @@ export function mapboxToStyle(text: string): StyleImportResult {
     const parsed = extrusionFromMapbox(extrusionLayer.paint['fill-extrusion-height'])
     if (parsed) style.extrusion = { enabled: true, ...parsed }
     else notes.push('The fill-extrusion height is not a column, a column times a number, or a constant: extrusion is off.')
+  }
+  // Spec 011 US6: the first symbol layer with text, as labels.
+  const labelLayer = layers.find((l) => l.type === 'symbol' && (l as { layout?: Record<string, unknown> }).layout?.['text-field'] !== undefined) as (StyleLayerJson & { layout?: Record<string, unknown> }) | undefined
+  if (labelLayer) {
+    const labels = labelsFromMapbox(labelLayer.layout ?? {}, labelLayer.paint ?? {}, notes)
+    if (labels) style.labels = labels
   }
   if (skipped > 0) notes.push('Some paint values are expressions or zoom functions; only literal values were imported.')
   if (layers.filter((l) => ['fill', 'line', 'circle'].includes(l.type ?? '')).length > 3) {

@@ -315,15 +315,18 @@ async function styleScenes(ui, win, prefix) {
   await step('style: categorized with legend', async () => {
     await run('SELECT *, round(ST_Area(geom), 1) AS area FROM layer')
     if (!(await ui.getByRole('region', { name: 'Layer style' }).isVisible())) await ui.getByRole('button', { name: 'Style', exact: true }).click()
-    await ui.getByRole('radio', { name: 'Categorized' }).click()
-    await ui.getByLabel('Column').selectOption('name')
+    // Spec 011: the style type is the Color picker.
+    await ui.getByRole('button', { name: /^Color: / }).click()
+    await ui.getByRole('listbox', { name: 'Color styles' }).getByRole('option', { name: 'Categorized', exact: true }).click()
+    await ui.getByLabel('Column', { exact: true }).selectOption('name')
     await win.waitForTimeout(1200)
     await shot(win, `${prefix}-style-categorized`)
   })
   await step('style: graduated, natural breaks', async () => {
-    await ui.getByRole('radio', { name: 'Graduated' }).click()
-    await ui.getByLabel('Column').selectOption('area')
-    await ui.getByLabel('Method').selectOption('jenks')
+    await ui.getByRole('button', { name: /^Color: / }).click()
+    await ui.getByRole('listbox', { name: 'Color styles' }).getByRole('option', { name: 'Graduated', exact: true }).click()
+    await ui.getByLabel('Column', { exact: true }).selectOption('area')
+    await ui.getByLabel('Method', { exact: true }).selectOption('jenks')
     await win.waitForTimeout(1200)
     await shot(win, `${prefix}-style-graduated`)
   })
@@ -337,6 +340,22 @@ async function styleScenes(ui, win, prefix) {
     await ui.getByRole('region', { name: 'Legend' }).getByRole('button', { name: /^Hide class/ }).last().click()
     await win.waitForTimeout(1000)
     await shot(win, `${prefix}-style-hidden`)
+  })
+  // Spec 011: a property by its own column (outline color, continuous), its legend group, and labels.
+  await step('style: vary by attribute', async () => {
+    await ui.getByRole('button', { name: 'Add…' }).click()
+    await ui.getByRole('menu', { name: 'Vary by attribute' }).getByRole('menuitem', { name: 'Outline color', exact: true }).click()
+    await ui.getByLabel('Outline color column').selectOption('area')
+    await ui.getByLabel('Outline color scale').selectOption({ label: 'Continuous' })
+    await win.waitForTimeout(1500)
+    await shot(win, `${prefix}-style-vary`)
+  })
+  await step('labels panel', async () => {
+    await ui.getByRole('button', { name: 'Labels', exact: true }).click()
+    await ui.getByRole('checkbox', { name: 'Show labels' }).check()
+    await win.waitForTimeout(1500)
+    await shot(win, `${prefix}-labels`)
+    await ui.getByRole('button', { name: 'Style', exact: true }).click()
   })
   await step('style: fallback notice', async () => {
     await run('SELECT name, geom FROM layer')

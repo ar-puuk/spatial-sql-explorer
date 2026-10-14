@@ -496,3 +496,372 @@ and add "Vary by attribute" under them. What changed:
     groups in panel order, and hidden from the legend;
   - web `legend-011` (1);
   - the web style suites, 70 of 70.
+
+## SC-003: QGIS parity of Vary by attribute (2026-10-14)
+
+- **Export (T053).** Every property that varies by a column, other than color
+  and spec 009's size, is written as a QGIS data-defined property: a `CASE`
+  over the same classes as the map (No value first, upper-inclusive ranges with
+  the first including its lower bound, categories by their string form, then
+  Other as the fixed value).
+  - Keys on the symbol layer: `outlineColor`, `outlineWidth` (also a line's
+    width), `name`, `angle`, `outlineStyle`.
+  - The symbol's own `alpha`: opacity in percent; a class hidden in any
+    property sets it to 0.
+  - Our "x" is QGIS's filled cross turned 45°: a shape by data adds 45 to
+    the angle for those features.
+  - The fixed rotation and opacity are written as the symbol's values, and a
+    line's own width as its `line_width`.
+  - Properties read from an SQL expression have no column in the file. They
+    keep the fixed value and get a note.
+- **Run (T057), QGIS 4.2.3, `check_011.py`.** Four cases of 72 features:
+  - points with color by class, shape by 9 kinds (Other included), outline
+    color, rotation classes and opacity classes with one hidden;
+  - polygons graduated with outline color by 9 kinds and outline width by a
+    number with nulls;
+  - lines with pattern and opacity;
+  - a rule-based style with a fixed shape and rotation and outline width by
+    class.
+
+  All load, with 0 mismatches. Values vary across features (6 shapes, 10
+  angles, 9 outline colors, 6 outline widths, 3 patterns), so the check is not
+  trivial.
+- **Known, not new.** QGIS's graduated renderer draws null values in no class
+  (spec 008). The graduated color in these cases uses a column without nulls.
+  A No value class in another property is tested (outline width by `num`).
+- T052 asks for a PNG per case as well. It was not written: the per-feature
+  property values are the comparison.
+
+## US7 outcomes: files (2026-10-14)
+
+- **QML import (T054).** QGIS's own `CASE` forms are read back on outline
+  color and width, shape, angle, pattern and the symbol's opacity:
+  - categories by value;
+  - classes with both bounds, or upper bounds after the first;
+  - opacity 0 hides the class.
+
+  A fixed marker angle is the style's rotation. A plain field and
+  `scale_linear` keep the fixed value, with a note naming the property, until
+  Continuous and As is (US4). Our own files come back whole from
+  `spatialExplorer/style`.
+- **SLD (T055).**
+  - One rule per combination of the visible classes of at most two
+    properties, capped at 100 rules. Beyond that, the first property alone,
+    with a note naming the rest.
+  - **Fixed in review:** properties on the same column with the same classes
+    (color and shape by `cls`) were crossed into impossible combinations
+    ("A · B"). They now share one rule per class, as the legend merges them.
+  - Fixed rotation, opacity and line width are written.
+  - Import reads per-class outline, shape, pattern and rotation on one column,
+    and a mark's rotation. A square at 75° is read as a square at 75°, the
+    same drawing as a diamond at 30°.
+- **Mapbox GL (T056).** Paint uses `symbolExpressions`, the map's own, and
+  hidden classes share the map's filter. Exports pass MapLibre's
+  `validateStyleMin`. Import reads `match`/`step` over one `get` on outline
+  color and width, line width and opacity. Shapes by attribute get a sprite
+  note.
+- **Tests:**
+  - core 711;
+  - the web style, export and legend suites, 61 of 61;
+  - the VS Code style suite, 25, with the new sidecar test (T058, channels
+    part).
+
+## US6 outcomes: labels (2026-10-14)
+
+- **Placement.**
+  - **The rail:** Labels has its own button on the right rail, between Style
+    and Details (user decision), and its own panel (`LabelsPanel`).
+  - **The map:** two symbol layers, `label` and `label-line`. A symbol
+    layer places all its labels one way, so points and polygons share one
+    layer (`text-anchor` and `text-offset` chosen per geometry) and lines get
+    the other.
+  - **Skipped:** dots that stand in for small features, features hidden
+    through the legend, and empty text.
+  - **Expressions:** an expression label is checked by the engine (any type,
+    shown as text) and computed as `__se_lbl`, in both drawing modes.
+- **The word-gap mark (T067, research §3), explained.** Enlarged screenshots
+  show it is not a glyph artifact. It is the line itself, seen through each
+  word gap: every glyph has a halo, and a space has no glyph. So letter
+  spacing or a font file wouldn't change it.
+  - **Fix:** line labels sit just above the line (`text-anchor: bottom`,
+    0.2 em up), which is QGIS's default for lines ("Above line"). Checked in
+    the web build's screenshots.
+  - The VS Code GPU check is no longer needed for this: the cause is
+    geometry, not rendering.
+- **Short or sharply bent lines get no label.** MapLibre places one label at
+  the middle of a line shorter than the label spacing, and needs room and a
+  bend under 45° there. `roads-los.geojson` (two-segment zigzags, bent in
+  the middle) has none at any zoom; real roads are fine. The browser test
+  uses straight lines.
+- **Files (T066).**
+  - **QML:** QGIS's simple labeling with the `Labeling` category and
+    `labelsEnabled`. Points use OverPoint with a quadrant and distance,
+    lines are curved above the line (flags 10), and polygons use OverPoint
+    centered.
+  - **QGIS 4.2.3 reads the three label cases back exactly:** field or
+    expression, 16 px, color, buffer, placement 1/3, quadrant 7, distance 6.
+  - **SLD:** a TextSymbolizer in every rule, so hidden classes stay
+    unlabeled.
+  - **Mapbox GL:** the map's own label layers, reading a column. A style file
+    can't run SQL, so an expression label shows its first column, with a note.
+  - **Glyphs:** other tools need a glyph server, so the file names
+    OpenFreeMap's `Noto Sans Regular`, with a note. This departs from the
+    contract's `sans-serif`, which only MapLibre's local fallback draws.
+    Exports pass `validateStyleMin`.
+  - **Import:** all three formats read labels back (QGIS's rule-based labels
+    use their first rule).
+- **Tests:**
+  - core: `style-labels` (8) and `style-labels-interchange` (7), 727 in all;
+  - web: `labels.spec.ts` (3), and layout and accessibility (29 together);
+  - QGIS: `check_011.py`, 7 cases, 0 mismatches.
+
+## US4 slice A: Continuous and As is on Vary by attribute (2026-10-14)
+
+- **Where they apply.** Outline color, outline width, opacity and rotation
+  get Continuous and As is. Size and width get As is; their Continuous was
+  already spec 009's proportional size. The scale list follows FR-010 and the
+  column: classes and continuous need numbers, and as is reads colors from
+  text and the rest from numbers.
+- **Continuous.**
+  - The domain is the column's minimum to maximum, or the user's ("Values",
+    with Auto).
+  - Colors run through 7 ramp stops in RGB, as QGIS mixes them. Numbers run
+    from the range's minimum to maximum, linear or by area.
+  - The legend shows a bar from min to max for colors, and three samples
+    (not toggles) for numbers. Only "No value" can be hidden.
+- **As is.**
+  - Colors: `#rgb`/`#rrggbb` pass; other values get the fixed color, counted
+    in a note (the engine counts them for big results).
+  - Numbers: px, degrees, and opacity clamped to 0–1.
+  - Shaped markers: at most 256 distinct colors (each is an icon); more fall
+    back, with the reason.
+- **Shaped markers, continuous colors:** a 32-step `step` in the icon id;
+  outline widths in quarter pixels. Circles stay smooth.
+- **Bugs caught by tests.**
+  - MapLibre's `interpolate` needs color-typed outputs, and `case` takes its
+    type from the first branch. The paint's cases start with plain hex
+    selection colors, so these colors are built as colors and returned as
+    text (`to-string`), which the paint coerces back, like every other color.
+  - An as-is color's "No value" test must be the text one: the numeric test
+    took every hex string for missing.
+  - Legend ends now show exact values (at most 2 decimals), not 3
+    significant digits (3,648 showed as 3,650).
+- **Files.**
+  - **QML:** `scale_linear`, or `scale_exp(…, 0.5)` by area; colors as the
+    ramp's segments with `color_mix_rgb`; as is, the field (colors only when
+    hex). QGIS 4.2.3 (`check_011.py`): 9 cases, 0 mismatches, colors within
+    ±2 per channel (QGIS's own rounding of the mix). Opacity 0 counts as
+    drawn when both sides are 0.
+  - **SLD:** continuous as 10 equal classes; as is stays fixed. Both with a
+    note.
+  - **Mapbox GL:** the map's expressions.
+  - **Import:** QML `scale_linear`/`scale_exp`/field, and Mapbox's two-stop
+    linear `interpolate` (T054's deferred forms).
+- **Tests:**
+  - core `style-scales-011` (8), 737 in all;
+  - web `style-scales-011` (2), and the style, export, legend and label
+    suites (68).
+
+## US4 slice B: Conditions on any property (2026-10-14)
+
+- **What.** Spec 010's rules, per property: SQL conditions in order, the first
+  that holds wins, then "Everything else". Every Vary-by property can use
+  them (shape and pattern included); size and width too, from the size row.
+- **Engine.**
+  - Each property's conditions are checked (a refused one shows its reason
+    and matches nothing) and counted in one pass.
+  - The counts are cached by the conditions' text, not their outputs.
+  - The map reads the computed `__se_cls_<property>`; hidden rules filter it.
+- **Legend.** One group per property, titled with the property ("Outline
+  width · 2 conditions"), since conditions read no single column.
+- **Size and width.** Conditions and As is set only the property the
+  geometry draws (Width on lines, Size on points). They had shared spec 009's
+  encoding, so their defaults (marker size vs. line width) drifted into two
+  legend groups. Classed and Proportional keep the shared encoding. The size
+  row offers all four as one radiogroup.
+- **Files.**
+  - **QML:** a QGIS `CASE` in order, without the refused conditions, and a
+    note that SQL-only functions may need adjusting. QGIS 4.2.3: shape and
+    outline width by conditions with a hidden rule, 0 mismatches (10 cases
+    in all).
+  - **Mapbox GL:** the rule index becomes a `case` over the data's own
+    columns when every condition is a simple comparison; otherwise
+    everything takes Everything else's output, with a note. Exports pass
+    `validateStyleMin`.
+  - **SLD:** the fixed value, with a note.
+- **Tests:**
+  - core `style-scales-011` (11), 740 in all;
+  - web `style-scales-011` (4), and the style suites (70).
+
+## US4 slice C: Color by Continuous and As is (2026-10-14)
+
+- **Panel.** Two more Color types, "Continuous" (colors along a ramp, by a
+  number; it starts on the first measure column, ids last) and "As is"
+  (colors read from a text column, name-like columns first). Each shows
+  "Color by" with the same scale editor as Vary by attribute. Neither has a
+  pre-011 renderer: the style keeps the single symbol, plus a color encoding
+  that resolves like the other properties (`isGenericChannel` admits color
+  for these two scales). Map, legend, engine data and files work through
+  the same path.
+- **Legend.** The first color group normally takes the layer's heading.
+  A bar or an as-is note now keeps its own title ("age_days ·
+  Continuous").
+- **Fixed for every data-defined color (also slice 2's outline colors).**
+  A QGIS data-defined color replaces alpha too, so QGIS drew those fills
+  opaque. They are now wrapped in `set_color_part(…, 'alpha', fill or
+  outline opacity)`; the importer unwraps it.
+  - `check_011.py` reads the data-defined fill color and compares the fill's
+    alpha. 12 cases, 0 mismatches (continuous polygon colors, 66 distinct;
+    as-is point colors, 58; alpha 115 for a 45% fill).
+- **Tests:**
+  - core 740;
+  - web `style-scales-011` (5), and the style, export, legend, label and
+    accessibility suites (90; the export dialog's Cancel race failed once and
+    passed on rerun, as before).
+
+## US8 outcomes: map image (2026-10-14)
+
+- **Labels** are in the captured frame, as research §3 expected.
+  - Web: the saved PNG has 200+ more label-text pixels in the map's upper
+    half than without labels.
+  - VS Code: the PNG with every country's name is over 5% bigger than
+    without.
+- **Legend groups in the image** (`mapImage.ts`): the merged severity group
+  (colors and shapes together), a continuous outline color's bar with "0 →
+  3,648" (viridis ends found in the legend box), and opacity samples.
+- **Fixes:**
+  - samples had printed their internal count (-1);
+  - image swatches ignored the property opacity and rotation (the on-map
+    legend applied them);
+  - two groups on one column by the same scale had the same title ("age_days
+    · Continuous" twice). Such groups now name their properties ("Outline
+    color · age_days · Continuous"), in the live legend and the image.
+
+## Polish: performance, SC-004 and SC-005 (2026-10-14)
+
+`tests/web/specs/performance-011.spec.ts` measures the following in the web
+build, in headless Chromium with software WebGL:
+- the time from a change to the map's next settled frame (`idle`);
+- the longest main-thread tasks during panel edits at 6× CPU.
+
+Test hooks are off, as in spec 010's benchmark: the rendered-feature count on
+each idle was itself the 1–2 s long task, as spec 010 had found.
+
+| Case | Repaint only | Fixed value, plain style (pre-011 path) | Fixed value, 2 properties varying | Property by a column | Continuous | Longest task at 6× |
+|---|---|---|---|---|---|---|
+| tiles, 100,000 parcels | 67 ms | 342 ms | 374 ms | 1,082 ms | 1,178 ms | 391 ms |
+| GeoJSON, 77,000 parcels | 45 ms | 613 ms | 640 ms | 616 ms | 1,007 ms | 386 ms |
+
+- **Fixed in this pass:** categories took 3.6 s to order the 77,000 distinct
+  values of an id column, twice per change, because `compareCategories` used
+  `localeCompare` with options, which builds a collator on every call. One
+  cached `Intl.Collator` gives the same order. The first property by a column
+  on 77k parcels went from 3.8 s to 0.62 s (an id column: from 7.8 s to
+  1.3 s). Categorized color gains the same.
+- **SC-004 is not met in full here:**
+  - A fixed value takes 340–640 ms to a settled frame, against 200 ms. The
+    pre-011 path costs the same on a plain style (fixedPlain), so spec 011
+    adds 30 ms. The cost is MapLibre re-evaluating data-driven paint over
+    every feature (no tile is requested again: 0 engine calls), not the
+    style code.
+  - A property by a column in tiles mode is 1.08 s, against 1 s: the tiles
+    are rebuilt to carry the new column (by design since spec 010).
+  - The longest task during edits at 6× is about 390 ms.
+  - These are recorded, not asserted, as spec 010's benchmark does.
+- **SC-005 is met** (230k parcels, tiles):
+  - A label setting reloads nothing (`sourceLoads` unchanged).
+  - Turning labels on rebuilds the tiles once (they carry the text column),
+    and the layer is not opened again.
+  - Panning at 6×: longest task 57 ms with labels, 0–64 ms without (spec
+    010's budget: 200 ms).
+
+## Polish: patterns per feature on engine tiles (T072, research §1) (2026-10-14)
+
+- **Seen working.** `dash-tiles-011.spec.ts` checks two horizontal 4 px
+  lines in tiles mode (`tileRows=1`), the pattern by their category. Along
+  the solid line the line color is one unbroken run; along the dashed one it
+  breaks more than 10 times. The `match` on `line-dasharray` evaluates on
+  vector tiles as on GeoJSON.
+- **Fixed, seen in the same screenshot.** The legend drew both lines solid.
+  Swatches scaled the dash by the shown line width, so a 4 px dash pattern
+  was 16 px long in an 18 px swatch. The dash unit is now at most 2 px, in
+  the live legend and the map image.
+
+## Polish: themes, high contrast and keyboard (T073) (2026-10-14)
+
+- **Coverage.** `accessibility-011.spec.ts` runs axe in light, dark and forced
+  colors (the browser's high contrast) over:
+  - Vary by attribute with Continuous, As is, and Conditions showing an
+    error;
+  - Color Continuous;
+  - the Labels panel, off and on with an expression error.
+
+  A keyboard pass covers the rail (arrows to Labels, Enter), every Labels
+  setting in Tab order, placement by arrow keys, and adding and writing a
+  condition.
+- **Fixed:** the legend's group titles were `h4` with nothing between them and
+  the page's `h1`, a heading-order violation as soon as the first group has
+  a title of its own (a continuous or as-is color). They are now `h2`.
+- **Forced colors:** nothing opts out (`forced-color-adjust`), so the browser
+  paints system colors. axe's contrast rule reads the author's colors under
+  the emulation and isn't run there.
+- **Environment, 2026-10-14:** a Windows Application Control policy started
+  blocking Playwright's downloaded browsers (`spawn UNKNOWN`; "An Application
+  Control policy has blocked this file"). The installed Google Chrome 155
+  is allowed. From here, the web suites run through a local config
+  (`playwright.chrome.local.config.ts`, not committed) with
+  `channel: 'chrome'`.
+  - On that Chrome, `accessibility.spec.ts` "keyboard: Cancel opening…"
+    fails every time (the empty state doesn't return within 3 s after
+    Cancel). It passed on the downloaded Chromium earlier today, and this
+    branch doesn't touch opening. Left as is.
+
+## Polish: screenshots (T075) (2026-10-14)
+
+- **What ran.** `scripts/screenshots.mjs --only vscode`, in Dark Modern,
+  Light Modern and High Contrast, on `sample.fgb`. The web half launches
+  Playwright's downloaded Chromium, which the machine's policy now blocks;
+  the web suites' screenshots (style panel, legend, labels, map image)
+  stand in for it.
+- **Script fix.** The style scenes still clicked the pre-011 "Categorized"
+  radio. They now use the Color picker. Two scenes are new: `-style-vary`
+  (outline color continuous by area, with its legend bar) and `-labels`.
+- **Reviewed.** Panel, legend and Labels panel read correctly in all three
+  themes. Labels stay legible with the default dark text on a white halo,
+  on dark and light basemaps.
+- **Seen, not fixed (flagged):** a country with several polygons (Canada,
+  Russia, Indonesia) gets a label on each part. MapLibre labels every part of
+  a multipolygon, while QGIS labels the largest part by default. Fixing it
+  needs one label point per feature from the engine (`ST_PointOnSurface` of
+  the largest part, as a point source or a tile layer), in both drawing
+  modes. That is a follow-up, not a tweak.
+
+## Final gates (T076) (2026-10-14)
+
+- **Core:** 740 passed, 6 skipped.
+- **Lint and typecheck:** 0 errors (one older warning in `CrsPicker.svelte`);
+  core and UI typechecks clean.
+- **Web:** 237 tests, on the installed Chrome 155 (the policy blocks
+  Playwright's downloaded browsers).
+  - The full run with 6 workers had 41 failures, almost all 60 s timeouts in
+    areas this branch doesn't touch: the machine was overloaded.
+  - Rerunning the failures with 2 workers: all passed but one. That one,
+    "table-selection: a map click selects…", waits a fixed 900 ms for a zoom
+    animation before clicking; it passed 8 of 9 times alone. Flaky, not
+    caused by this branch.
+  - After the last fix, the style, legend, label and map-image suites passed
+    58 of 58.
+- **VS Code extension:** 93 passing, 3 pending (as before).
+- **PyQGIS, QGIS 4.2.3**, all exit 0:
+  - `check_009` (5 cases);
+  - `check_010_rules` (rules and graduated by expression);
+  - `check_heatmap` (pixels and meters);
+  - `check_011` (12 cases: Vary by attribute, continuous, as is,
+    conditions, Color continuous and as is with alpha, labels).
+- **Quickstart by hand.**
+  - The browser suites cover steps 1–3, 5 and 7, and step 3's 32-step
+    note. That note was missing until this pass, along with any notes on a
+    continuous scale without classes; both are fixed.
+  - Steps 4 and 6 are covered by the SC-002 identity recordings and
+    `check_011`; step 8 by `performance-011` (results in Polish).
+  - The withdrawn recipes were removed from step 1.

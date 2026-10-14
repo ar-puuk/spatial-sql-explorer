@@ -31,7 +31,10 @@ export function toNumber(v: unknown): number | null {
 }
 
 /** Ties alphabetical, with numbers in numeric order ("2" < "10"). */
-export const compareCategories = (a: string, b: string): number => a.localeCompare(b, 'en', { numeric: true })
+// One collator, made once: `localeCompare` with options builds a new one on every call (3.6 s to order the
+// 77,000 distinct values of an id column), for the same order.
+const CATEGORY_ORDER = new Intl.Collator('en', { numeric: true })
+export const compareCategories = (a: string, b: string): number => CATEGORY_ORDER.compare(a, b)
 
 // --- Graduated breaks (research §3). All take values sorted ascending, with
 // no nulls, and return the k-1 inner breaks: the upper bound of every class

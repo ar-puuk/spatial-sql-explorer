@@ -79,3 +79,23 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_heatmap.py out
 
 Last run (2026-10-13, QGIS 4.2.3): both load as `heatmapRenderer` (15 px; 3000 m
 at scale, weight `"pop"`), densest pixels #b20026 and #b10026 against #b10026.
+
+## Vary by attribute (`check_011.py`, spec 011)
+
+`tests/core/qgis-011-cases.test.ts` writes the cases when `SE_QGIS_011` names
+a directory: the data (GeoJSON), the QML the app saves, and what the map draws
+per feature, read from the map's own expressions: color, outline color and
+width, marker shape (QGIS's name) and angle (our "x" is QGIS's filled cross
+turned 45°), line pattern, opacity in percent, drawn or hidden.
+`check_011.py` loads each case into QGIS, takes each feature's symbol from the
+renderer in a render context, and evaluates the symbol layer's data-defined
+properties and the symbol's opacity (0: hidden). For the label cases it also
+reads the layer's labeling back (text field or expression, size in pixels,
+color, buffer, placement, quadrant, distance). It exits 1 on any mismatch.
+
+```
+SE_QGIS_011=C:\tmp\qgis011 npx vitest run qgis-011-cases   (in tests/core)
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_011.py C:\tmp\qgis011
+```
+
+Last run: see `specs/011-style-channels/research.md`, "SC-003".

@@ -9,8 +9,8 @@
 import { extrusionHeightExpression } from './extrusion.js'
 import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { legacyView, rendererOf } from './legacy.js'
-import { isGenericChannel } from './resolve.js'
-import { CHANNEL_ORDER, fixedValue, type ChannelId, type SymbolPart } from './channels.js'
+import { CONTINUOUS_STOPS, ICON_COLOR_STEPS, continuousOutput, isGenericChannel } from './resolve.js'
+import { CHANNEL_ORDER, fixedValue, isColorChannel, type ChannelId, type ContinuousScale, type Output, type SymbolPart } from './channels.js'
 import type { LineDash, MarkerShape } from './symbol.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
@@ -250,15 +250,89 @@ const dashArray = (d: LineDash): number[] => dashPattern(d) ?? [1, 0]
  * Spec 011: a channel's value per feature: a `match` on its class position
  * when it varies by data (generic channels), else its fixed value.
  */
-export function channelValue(style: LayerStyle, resolved: ResolvedStyle, id: ChannelId, part: SymbolPart = 'marker'): unknown {
+export function channelValue(style: LayerStyle, resolved: ResolvedStyle, id: ChannelId, part: SymbolPart = 'marker', forIcon = false): unknown {
   const fixed = fixedValue(style, id, part)
   const wrap = (v: unknown): unknown => (id === 'dash' ? ['literal', dashArray(v as LineDash)] : v)
   const rc = genericResolved(style, resolved, id)
+  // Spec 011 US4: continuous and as is read the value itself.
+  if (rc && (rc.scale === 'continuous' || rc.scale === 'identity')) return scaledValue(style, rc, id, fixed, forIcon)
+  // Spec 011 US4: conditions, by the rule index the engine computed (-1: everything else).
+  if (rc && rc.scale === 'conditions') {
+    const rules = rc.classes.filter((c) => c.kind === 'rule')
+    const elseOut = wrap(rc.classes.find((c) => c.kind === 'other')?.output ?? fixed)
+    const arms = rules.flatMap((c, i) => (c.error ? [] : [i, wrap(c.output ?? fixed)]))
+    return arms.length ? ['match', ['to-number', ['get', rc.dataColumn], -1], ...arms, elseOut] : elseOut
+  }
   const index = genericIndex(style, resolved, id)
   if (!rc || index === null) return id === 'dash' ? dashPattern(fixed as LineDash) : fixed
   const arms: unknown[] = []
   rc.classes.forEach((c, i) => arms.push(i, wrap(c.output ?? fixed)))
   return arms.length ? ['match', index, ...arms, wrap(fixed)] : wrap(fixed)
+}
+
+/** No value for a continuous or as-is property: a number's test, or (as-is colors, a text column) missing or empty. */
+function scaledMissing(rc: NonNullable<NonNullable<ResolvedStyle['channels']>[ChannelId]>, id: ChannelId): unknown {
+  if (rc.scale !== 'identity' || !isColorChannel(id)) return noValueTest(rc.dataColumn)
+  const v = ['var', 'v']
+  return ['let', 'v', ['get', rc.dataColumn], ['any', ['==', v, null], ['==', ['to-string', v], '']]]
+}
+
+/** Continuous colors on marker icons: this many steps (each step is an icon; research §2). */
+export { ICON_COLOR_STEPS }
+
+/**
+ * Spec 011 US4: a continuous or as-is property per feature. Continuous runs
+ * along the ramp (colors, in RGB as QGIS does) or from the minimum to the
+ * maximum output (linear, or by area); as is reads the value (colors that
+ * aren't colors, and missing numbers, get the fixed value). No value gets
+ * its class's output. On marker icons, colors take ICON_COLOR_STEPS steps
+ * and widths quarter pixels, so the icons stay few.
+ */
+function scaledValue(style: LayerStyle, rc: NonNullable<ResolvedStyle['channels']>[ChannelId], id: ChannelId, fixed: Output, forIcon: boolean): unknown {
+  if (!rc) return fixed
+  const column = rc.dataColumn
+  const noValue = rc.classes.find((c) => c.kind === 'noValue')?.output ?? fixed
+  const n = ['var', 'n']
+  const color = isColorChannel(id)
+  const quarter = (e: unknown): unknown => (forIcon && id === 'strokeWidth' ? ['/', ['round', ['*', e, 4]], 4] : e)
+  // Paint needs colors typed as colors inside interpolate and case (MapLibre doesn't coerce there); icon ids need strings.
+  const out = (o: unknown): unknown => (color && !forIcon ? ['to-color', o] : o)
+  const noValueOut = out(noValue)
+  // ...and paint returns them as text: a case in the paint begins with plain hex colors (selection), which fixes its type.
+  const text = (e: unknown): unknown => (color && !forIcon ? ['to-string', e] : e)
+  let value: unknown
+  if (rc.scale === 'identity') {
+    if (color) value = forIcon ? ['to-string', ['to-color', ['get', column], fixed]] : ['to-color', ['get', column], fixed]
+    else {
+      const raw = ['to-number', ['get', column], fixed]
+      value = quarter(id === 'opacity' ? ['max', 0, ['min', 1, raw]] : id === 'rotation' ? raw : ['max', 0, raw])
+    }
+    return text(['case', scaledMissing(rc, id), noValueOut, value])
+  }
+  const scale = style.channels?.[id]?.scale as ContinuousScale | undefined
+  const domain = rc.domain
+  if (!scale || !domain) return fixed
+  const at = (v: number): Output => continuousOutput(id, scale, domain, v)
+  const span = domain.max - domain.min
+  if (!(span > 0)) value = out(at(domain.max))
+  else if (color && forIcon) {
+    // Steps at the middle of each of ICON_COLOR_STEPS equal bins.
+    const step: unknown[] = ['step', n, at(domain.min + span / (2 * ICON_COLOR_STEPS))]
+    for (let i = 1; i < ICON_COLOR_STEPS; i++) step.push(domain.min + (span * i) / ICON_COLOR_STEPS, at(domain.min + (span * (i + 0.5)) / ICON_COLOR_STEPS))
+    value = step
+  } else if (color) {
+    const stops: unknown[] = ['interpolate', ['linear'], n]
+    for (let i = 0; i < CONTINUOUS_STOPS; i++) {
+      const v = domain.min + (span * i) / (CONTINUOUS_STOPS - 1)
+      stops.push(v, out(at(v)))
+    }
+    value = stops
+  } else if (scale.curve === 'area') {
+    const range = { min: Number(at(domain.min)), max: Number(at(domain.max)) }
+    const t = ['min', 1, ['max', 0, ['/', ['-', n, domain.min], span]]]
+    value = quarter(['+', range.min, ['*', range.max - range.min, ['sqrt', t]]])
+  } else value = quarter(['interpolate', ['linear'], n, domain.min, at(domain.min), domain.max, at(domain.max)])
+  return text(['case', noValueTest(column), noValueOut, ['let', 'n', ['to-number', ['get', column], NOT_A_NUMBER], value]])
 }
 
 /** Whether a channel varies by data in what is drawn (generic channels). */
@@ -281,9 +355,11 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
   const widthBy = varies(style, resolved, 'width') ? (channelValue(style, resolved, 'width', 'line') as unknown[]) : lineWidth
   const iconRadius = largestRadius(style, resolved)
   const icon = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
-  const fillColor = perClass(index, symbols, (x) => x.fillColor, base.fillColor)
+  // Spec 011 US4: a continuous or as-is color (the style type's own) per feature.
+  const colorBy = varies(style, resolved, 'color')
+  const fillColor = colorBy ? channelValue(style, resolved, 'color') : perClass(index, symbols, (x) => x.fillColor, base.fillColor)
   // Spec 011: shape, outline color or outline width by data: the icon id is built per feature (research §2).
-  const perFeatureIcon = varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')
+  const perFeatureIcon = colorBy || varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')
   const num = (n: number) => String(Math.round(n * 100) / 100)
   const iconExpr = perFeatureIcon
     ? [
@@ -291,15 +367,15 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
         'se-marker|',
         channelValue(style, resolved, 'shape'),
         '|',
-        fillColor,
+        colorBy ? channelValue(style, resolved, 'color', 'marker', true) : fillColor,
         '|',
         num(base.fillOpacity),
         '|',
-        channelValue(style, resolved, 'strokeColor'),
+        channelValue(style, resolved, 'strokeColor', 'marker', true),
         '|',
         num(base.strokeOpacity),
         '|',
-        ['to-string', channelValue(style, resolved, 'strokeWidth')],
+        ['to-string', channelValue(style, resolved, 'strokeWidth', 'marker', true)],
         '|',
         num(iconRadius ?? base.radius),
       ]
@@ -307,7 +383,7 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
   return {
     index,
     fillColor,
-    lineColor: perClass(index, symbols, (x) => x.lineColor, base.lineColor),
+    lineColor: colorBy ? channelValue(style, resolved, 'color', 'line') : perClass(index, symbols, (x) => x.lineColor, base.lineColor),
     radius: sizeBy as number | unknown[],
     lineWidth: widthBy as number | unknown[],
     /** Marker icon per feature (shapes other than the circle). */
@@ -348,7 +424,7 @@ export function drawsMarkerIcons(style: LayerStyle, resolved: ResolvedStyle): bo
 export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
   style = legacyView(style)
   // Spec 011: icons built per feature are made when the map asks for them; nothing to list.
-  if (varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')) return []
+  if (varies(style, resolved, 'color') || varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')) return []
   const iconRadius = largestRadius(style, resolved)
   const id = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
   return [...new Set([id(baseSymbol(style)), ...classSymbols(style, resolved).map(id)])]
@@ -507,6 +583,18 @@ export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): un
   // Spec 011: a class hidden in any other channel hides its features too.
   for (const id of CHANNEL_ORDER) {
     const rc = genericResolved(style, resolved, id)
+    // Spec 011 US4: conditions hide by rule index (-1: everything else).
+    if (rc && rc.scale === 'conditions') {
+      const rules = rc.classes.filter((c) => c.kind === 'rule')
+      const hidden = [...rules.flatMap((c, i) => (c.visible ? [] : [i])), ...(rc.classes.find((c) => c.kind === 'other')?.visible === false ? [-1] : [])]
+      if (hidden.length) tests.push(['!', ['in', ['to-number', ['get', rc.dataColumn], -1], ['literal', hidden]]])
+      continue
+    }
+    // Spec 011 US4: continuous and as is have only "No value" to hide.
+    if (rc && (rc.scale === 'continuous' || rc.scale === 'identity')) {
+      if (rc.classes.some((c) => c.kind === 'noValue' && !c.visible)) tests.push(['!', scaledMissing(rc, id)])
+      continue
+    }
     const index = rc ? genericIndex(style, resolved, id) : null
     if (!rc || index === null) continue
     const hidden = rc.classes.flatMap((c, i) => (c.visible ? [] : [i]))

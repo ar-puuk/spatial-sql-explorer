@@ -135,7 +135,7 @@ export type MapImageOutcome =
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
 
 /** Spec 010 layout (Option A): the side panel and the bottom panel, shared by both shells and remembered. */
-export type SideTab = 'style' | 'details' | 'basemap'
+export type SideTab = 'style' | 'labels' | 'details' | 'basemap'
 export interface LayoutState {
   sideOpen: boolean
   sideTab: SideTab
@@ -154,7 +154,7 @@ export function readLayout(saved: unknown): LayoutState {
   const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d)
   return {
     sideOpen: typeof s.sideOpen === 'boolean' ? s.sideOpen : DEFAULT_LAYOUT.sideOpen,
-    sideTab: s.sideTab === 'style' || s.sideTab === 'details' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
+    sideTab: s.sideTab === 'style' || s.sideTab === 'labels' || s.sideTab === 'details' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
     sideWidth: num(s.sideWidth, 240, 560, DEFAULT_LAYOUT.sideWidth),
     bottomTab: s.bottomTab === 'sql' ? 'sql' : 'table',
     bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,

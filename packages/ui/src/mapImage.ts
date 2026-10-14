@@ -12,6 +12,10 @@ export interface LegendGroup {
   alpha: number
   /** Visible classes, in legend order. */
   rows: Array<{ color: string; label: string; count?: number; symbol?: SymbolSpec }>
+  /** Spec 011 US4: a continuous color's ramp, with the domain's ends. */
+  ramp?: { colors: string[]; min: string; max: string }
+  /** Spec 011 US4: an as-is property's line. */
+  note?: string
 }
 
 /** Spec 009 US6: a bivariate square: cells row-major from low/low (i + nx * j). */
@@ -88,19 +92,19 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
   const row = 18
   const sw = 14
   // Spec 009: the color group, then each further group (its title, then its rows).
-  const groups: LegendGroup[] = [legend, ...(legend.groups ?? [])].filter((g, i) => i === 0 || g.rows.length)
+  const groups: LegendGroup[] = [legend, ...(legend.groups ?? [])].filter((g, i) => i === 0 || g.rows.length || g.ramp || g.note)
   type Line =
     | { kind: 'title'; text: string; main: boolean }
     | { kind: 'row'; group: LegendGroup; row: LegendGroup['rows'][number]; scale: number }
     | { kind: 'more'; n: number }
     | { kind: 'axis'; text: string }
     | { kind: 'cells'; j: number }
-    | { kind: 'gradient'; colors: string[] }
+    | { kind: 'gradient'; colors: string[]; transparentStart?: boolean }
   const all: Line[] = []
   // A heatmap: the title, the ramp, and its ends.
   if (legend.gradient?.length) {
     if (legend.title) all.push({ kind: 'title', text: legend.title, main: true })
-    all.push({ kind: 'gradient', colors: legend.gradient })
+    all.push({ kind: 'gradient', colors: legend.gradient, transparentStart: true })
     all.push({ kind: 'axis', text: 'Sparse → Dense' })
   }
   // Spec 009 US6: the bivariate square, one 18 px line per row (high to low), with the axis labels.
@@ -115,6 +119,12 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
   groups.forEach((g, i) => {
     if ((biv || legend.gradient?.length) && i === 0) return
     if (i === 0 ? g.title : true) all.push({ kind: 'title', text: g.title, main: i === 0 })
+    // Spec 011 US4: a continuous color's ramp and ends; an as-is property's line.
+    if (g.ramp) {
+      all.push({ kind: 'gradient', colors: g.ramp.colors })
+      all.push({ kind: 'axis', text: `${g.ramp.min} → ${g.ramp.max}` })
+    }
+    if (g.note) all.push({ kind: 'axis', text: g.note })
     // Markers keep their relative sizes within a group, shrunk together to fit a row.
     const reach = Math.max(1, ...g.rows.map((r) => (r.symbol ? r.symbol.radius * markerExtent(r.symbol.shape) + Math.min(r.symbol.strokeWidth, 3) / 2 : 5)))
     const scale = Math.min(1, (row / 2 - 1) / reach)
@@ -185,8 +195,11 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
       const gx = x + pad
       const gw = boxW - pad * 2
       const grad = ctx.createLinearGradient(gx, 0, gx + gw, 0)
-      grad.addColorStop(0, 'rgba(0, 0, 0, 0)')
-      l.colors.forEach((c, i) => grad.addColorStop((i + 1) / l.colors.length, c))
+      // A heatmap starts transparent (zero density); a continuous color runs through its stops.
+      if (l.transparentStart) {
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0)')
+        l.colors.forEach((c, i) => grad.addColorStop((i + 1) / l.colors.length, c))
+      } else l.colors.forEach((c, i) => grad.addColorStop(l.colors.length > 1 ? i / (l.colors.length - 1) : 0, c))
       ctx.fillStyle = grad
       ctx.fillRect(gx, ty - 12, gw, 12)
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
@@ -241,13 +254,16 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
 /** One class's symbol in a `w` x 16 cell at (x, y): the map's shape, size, line width and pattern. */
 function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolSpec, shape: LegendSpec['shape'], x: number, y: number, w: number, scale: number): void {
   const cy = y + 8
+  // Spec 011: the property opacity on top of the fill and outline opacities, as the on-map legend draws it.
+  const o = s.opacity ?? 1
   ctx.save()
   if (shape === 'line') {
     const lw = Math.min(Math.max(s.lineWidth, 1), 8)
     ctx.strokeStyle = s.lineColor
-    ctx.globalAlpha = Math.max(0.2, s.strokeOpacity)
+    ctx.globalAlpha = Math.max(0.2, s.strokeOpacity * o)
     ctx.lineWidth = lw
-    ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * lw) ?? [])
+    // At most 2 px per unit, as the on-map legend: a swatch shows a gap even for thick lines.
+    ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * Math.min(lw, 2)) ?? [])
     ctx.beginPath()
     ctx.moveTo(x, cy)
     ctx.lineTo(x + w, cy)
@@ -255,11 +271,17 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolSpec, shape: LegendS
   } else {
     const outline = Math.min(s.strokeWidth, 3)
     const path = shape === 'point' ? new Path2D(markerPath(s.shape, Math.max(1.5, s.radius * scale), x + w / 2, cy)) : new Path2D(`M${x} ${y + 2}h${w}v12h${-w}Z`)
-    ctx.globalAlpha = Math.max(0.15, s.fillOpacity)
+    // Spec 011: a marker's rotation, clockwise about its center.
+    if (shape === 'point' && s.rotation) {
+      ctx.translate(x + w / 2, cy)
+      ctx.rotate((s.rotation * Math.PI) / 180)
+      ctx.translate(-(x + w / 2), -cy)
+    }
+    ctx.globalAlpha = Math.max(0.15, s.fillOpacity * o)
     ctx.fillStyle = s.fillColor
     ctx.fill(path)
     if (outline > 0) {
-      ctx.globalAlpha = s.strokeOpacity
+      ctx.globalAlpha = s.strokeOpacity * o
       ctx.strokeStyle = s.strokeColor
       ctx.lineWidth = outline
       if (shape === 'area') ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * Math.max(outline, 1)) ?? [])
