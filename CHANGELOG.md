@@ -101,7 +101,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   them after the dot. `layer` still works for the open file or layer.
 - Legend groups are headings (`h2`) and name their property when two would
   share a title; dashed lines show their gaps in swatches.
-- Globe view: the lit rim on the globe's top-left edge is much fainter; the
+- Globe view: the lit rim on the globe's top-left edge is half as strong; the
   stars are one large random field, so their pattern no longer repeats across
   the view; and a faint comet crosses the sky now and then (none with reduced
   motion; never in the map image).

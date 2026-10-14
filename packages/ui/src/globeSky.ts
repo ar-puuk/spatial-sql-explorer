@@ -8,8 +8,8 @@
 // Comets adapted from GeoLibre packages/plugins/src/plugins/maplibre-effects.ts (MIT).
 import type { SkySpecification } from 'maplibre-gl'
 
-/** How strongly MapLibre's lit atmosphere shows on the globe's rim (user request 2026-10-14: subtle; GeoLibre has none). */
-const ATMOSPHERE = 0.2
+/** How strongly MapLibre's lit atmosphere shows on the globe's rim (user request 2026-10-14: half of MapLibre's full glow; GeoLibre has none). */
+const ATMOSPHERE = 0.5
 
 /** MapLibre's atmosphere around the globe, fading out as the globe turns into a flat map (zoom 5–7). */
 export const GLOBE_SKY: SkySpecification = {
