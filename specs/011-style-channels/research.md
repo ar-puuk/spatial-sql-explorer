@@ -835,3 +835,33 @@ each idle was itself the 1–2 s long task, as spec 010 had found.
   needs one label point per feature from the engine (`ST_PointOnSurface` of
   the largest part, as a point source or a tile layer), in both drawing
   modes. That is a follow-up, not a tweak.
+
+## Final gates (T076) (2026-10-14)
+
+- **Core:** 740 passed, 6 skipped.
+- **Lint and typecheck:** 0 errors (one older warning in `CrsPicker.svelte`);
+  core and UI typechecks clean.
+- **Web:** 237 tests, on the installed Chrome 155 (the policy blocks
+  Playwright's downloaded browsers).
+  - The full run with 6 workers had 41 failures, almost all 60 s timeouts in
+    areas this branch doesn't touch: the machine was overloaded.
+  - Rerunning the failures with 2 workers: all passed but one. That one,
+    "table-selection: a map click selects…", waits a fixed 900 ms for a zoom
+    animation before clicking; it passed 8 of 9 times alone. Flaky, not
+    caused by this branch.
+  - After the last fix, the style, legend, label and map-image suites passed
+    58 of 58.
+- **VS Code extension:** 93 passing, 3 pending (as before).
+- **PyQGIS, QGIS 4.2.3**, all exit 0:
+  - `check_009` (5 cases);
+  - `check_010_rules` (rules and graduated by expression);
+  - `check_heatmap` (pixels and meters);
+  - `check_011` (12 cases: Vary by attribute, continuous, as is,
+    conditions, Color continuous and as is with alpha, labels).
+- **Quickstart by hand.**
+  - The browser suites cover steps 1–3, 5 and 7, and step 3's 32-step
+    note. That note was missing until this pass, along with any notes on a
+    continuous scale without classes; both are fixed.
+  - Steps 4 and 6 are covered by the SC-002 identity recordings and
+    `check_011`; step 8 by `performance-011` (results in Polish).
+  - The withdrawn recipes were removed from step 1.

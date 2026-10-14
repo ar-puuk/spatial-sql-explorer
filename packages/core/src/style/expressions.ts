@@ -9,7 +9,7 @@
 import { extrusionHeightExpression } from './extrusion.js'
 import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { legacyView, rendererOf } from './legacy.js'
-import { CONTINUOUS_STOPS, continuousOutput, isGenericChannel } from './resolve.js'
+import { CONTINUOUS_STOPS, ICON_COLOR_STEPS, continuousOutput, isGenericChannel } from './resolve.js'
 import { CHANNEL_ORDER, fixedValue, isColorChannel, type ChannelId, type ContinuousScale, type Output, type SymbolPart } from './channels.js'
 import type { LineDash, MarkerShape } from './symbol.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
@@ -278,7 +278,7 @@ function scaledMissing(rc: NonNullable<NonNullable<ResolvedStyle['channels']>[Ch
 }
 
 /** Continuous colors on marker icons: this many steps (each step is an icon; research §2). */
-export const ICON_COLOR_STEPS = 32
+export { ICON_COLOR_STEPS }
 
 /**
  * Spec 011 US4: a continuous or as-is property per feature. Continuous runs

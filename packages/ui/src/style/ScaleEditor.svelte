@@ -299,7 +299,10 @@
         </li>
       {/each}
     </ul>
-    {#each resolved?.notes ?? [] as note (note)}
+  {/if}
+  <!-- Notes of every scale (a continuous one may have no classes to list). -->
+  {#if resolved?.status === 'ok'}
+    {#each resolved.notes as note (note)}
       <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
     {/each}
   {/if}

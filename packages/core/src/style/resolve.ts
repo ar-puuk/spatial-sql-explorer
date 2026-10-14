@@ -306,6 +306,9 @@ function conditionsChannel(id: ChannelId, enc: Encoding, layer: ResolveInput | n
 /** Ramp stops a continuous color runs through (also written to QML, so QGIS and the map agree). */
 export const CONTINUOUS_STOPS = 7
 
+/** Continuous colors on marker icons: this many steps (each step is an icon; research §2). */
+export const ICON_COLOR_STEPS = 32
+
 /** Colors an As-is color can show on shaped markers: each needs its own map icon (research §2). */
 export const IDENTITY_ICON_CAP = 256
 
@@ -377,6 +380,9 @@ function continuousChannel(style: LayerStyle, id: ChannelId, enc: Encoding, laye
   const values = domain.max > domain.min ? [domain.min, (domain.min + domain.max) / 2, domain.max] : [domain.min]
   const samples = values.map((value) => ({ value, output: continuousOutput(id, scale, domain, value), label: fmt.format(value) }))
   const notes = domain.max > domain.min ? [] : [`Every value is ${fmt.format(domain.min)}: every feature has the last output.`]
+  // Shaped markers are icons: a continuous fill or outline color takes steps there (circles stay smooth).
+  const shaped = (legacyView(style).markerShape ?? 'circle') !== 'circle' || !!style.channels?.shape
+  if (shaped && (id === 'color' || id === 'strokeColor')) notes.push(`Shaped markers show these colors in ${ICON_COLOR_STEPS} steps (each is a map icon); circles are smooth.`)
   return { channel: id, status: 'ok', scale: 'continuous', caption, classes: noValueClass(scale.noValue, fixed, data.nulls), domain, samples, dataColumn: column, notes }
 }
 

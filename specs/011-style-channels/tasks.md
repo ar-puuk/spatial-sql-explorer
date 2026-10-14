@@ -544,6 +544,11 @@ green.
     migration).
   Move the callers to `resolved.channels`. Update the tests that read the
   aliases to read `channels.color` and `channels.size`. Keep their intent.
+  **Not done; withdrawal proposed (2026-10-14), awaiting the user's decision.**
+  Since the panel revision, the Color type is the renderer: `rendererOf`,
+  `sizeOf` and the top-level `ResolvedStyle` fields are the color and size
+  channels' own view, not leftover aliases. Removing them means 73 call sites
+  in 17 files for no user-visible change, against SC-002's proven identity.
 - [X] T039 Update `README.md`'s styling section and the `CHANGELOG.md`
   [Unreleased] entries: Changed (style panel by property, Draw as, recipes),
   and Added (Outline color, Outline width, Shape, Pattern, Opacity and
@@ -922,7 +927,7 @@ and re-import into the app.
   Done. No new dependency: THIRD-PARTY-NOTICES unchanged.
 - [x] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
   legend in light and dark. Review every screenshot and fix what looks wrong.
-- [ ] T076 Run the whole of `quickstart.md`:
+- [x] T076 Run the whole of `quickstart.md`:
   - all suites: core, web, extension and lint;
   - the PyQGIS checks (009, 010, heatmap, 011);
   - the steps done by hand.

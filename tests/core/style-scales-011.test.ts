@@ -115,6 +115,7 @@ describe('Continuous (spec 011 US4)', () => {
     const style = setFixed(by(base, 'strokeColor', 'v', 'continuous'), 'shape', 'triangle')
     const resolved = resolveStyle(style, layer)
     const find = (e: unknown): unknown[] | null => (Array.isArray(e) ? (e[0] === 'step' ? e : e.map(find).find(Boolean) ?? null) : null)
+    expect(resolved.channels!.strokeColor!.notes.join(' ')).toMatch(/in 32 steps/)
     const step = find(layoutFor(style, resolved).marker?.['icon-image'])
     expect(step).not.toBeNull()
     expect(JSON.stringify(step).match(/#[0-9a-f]{6}/g)!.length).toBe(ICON_COLOR_STEPS)
