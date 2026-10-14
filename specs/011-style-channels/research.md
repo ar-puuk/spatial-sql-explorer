@@ -496,3 +496,38 @@ and add "Vary by attribute" under them. What changed:
     groups in panel order, and hidden from the legend;
   - web `legend-011` (1);
   - the web style suites, 70 of 70.
+
+## SC-003: QGIS parity of Vary by attribute (2026-10-14)
+
+- **Export (T053).** Every property that varies by a column, other than color
+  and spec 009's size, is written as a QGIS data-defined property: a `CASE`
+  over the same classes as the map (No value first, upper-inclusive ranges with
+  the first including its lower bound, categories by their string form, then
+  Other as the fixed value).
+  - Keys on the symbol layer: `outlineColor`, `outlineWidth` (also a line's
+    width), `name`, `angle`, `outlineStyle`.
+  - The symbol's own `alpha`: opacity in percent; a class hidden in any
+    property sets it to 0.
+  - Our "x" is QGIS's filled cross turned 45°: a shape by data adds 45 to
+    the angle for those features.
+  - The fixed rotation and opacity are written as the symbol's values, and a
+    line's own width as its `line_width`.
+  - Properties read from an SQL expression have no column in the file. They
+    keep the fixed value and get a note.
+- **Run (T057), QGIS 4.2.3, `check_011.py`.** Four cases of 72 features:
+  - points with color by class, shape by 9 kinds (Other included), outline
+    color, rotation classes and opacity classes with one hidden;
+  - polygons graduated with outline color by 9 kinds and outline width by a
+    number with nulls;
+  - lines with pattern and opacity;
+  - a rule-based style with a fixed shape and rotation and outline width by
+    class.
+
+  All load, with 0 mismatches. Values vary across features (6 shapes, 10
+  angles, 9 outline colors, 6 outline widths, 3 patterns), so the check is not
+  trivial.
+- **Known, not new.** QGIS's graduated renderer draws null values in no class
+  (spec 008). The graduated color in these cases uses a column without nulls.
+  A No value class in another property is tested (outline width by `num`).
+- T052 asks for a PNG per case as well. It was not written: the per-feature
+  property values are the comparison.

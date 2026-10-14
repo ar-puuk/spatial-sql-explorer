@@ -705,14 +705,14 @@ and re-import into the app.
     reads `match`/`step`/`interpolate` over one `get`.
   - **Round trip:** app → each format → app is identical where the format can
     express it, otherwise as the notes say.
-- [ ] T051 [P] [US7] Write `tests/core/qgis-011-cases.test.ts`, modeled on
+- [x] T051 [P] [US7] Write `tests/core/qgis-011-cases.test.ts`, modeled on
   `qgis-cases.test.ts`. When `SE_QGIS_011` names a directory, it writes:
   - per case: data GeoJSON, the app's QML, and per-feature expected outputs
     (fill, stroke, size or width, shape, dash, opacity, rotation, drawn or
     hidden);
   - cases for every row of the interchange table, on points, lines and
     polygons.
-- [ ] T052 [P] [US7] Write `tests/qgis/check_011.py`, modeled on
+- [x] T052 [P] [US7] Write `tests/qgis/check_011.py`, modeled on
   `check_009.py`. It loads each case and evaluates each symbol layer's
   data-defined properties and the symbol `alpha` per feature in a render
   context (as `spikes/qgis-channels.py.txt` does), compares them with the
@@ -721,7 +721,7 @@ and re-import into the app.
 
 ### Implementation for User Story 7
 
-- [ ] T053 [US7] Implement the QML export in
+- [x] T053 [US7] Implement the QML export in
   `packages/core/src/style/qml.ts`:
   - the primary renderer choice;
   - `dataDefinedXml` for every non-primary channel;
@@ -741,7 +741,7 @@ and re-import into the app.
   - notes in `interchange.ts`.
 - [ ] T056 [P] [US7] Implement the Mapbox export and import in
   `packages/core/src/style/mapbox.ts`, reusing `channelExpression`.
-- [ ] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
+- [x] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
   Fix mismatches. Record the outcome (cases, mismatches 0) in `research.md`
   "SC-003", and in `tests/qgis/README.md` "Last run".
 - [ ] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a

@@ -31,6 +31,9 @@ import {
 import { rendererOf } from './legacy.js'
 import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, type Output } from './channels.js'
+import type { ResolvedClass } from './model.js'
+import { isGenericChannel } from './resolve.js'
 import { checkExpression } from './sqlExpression.js'
 import { rampColors } from './ramps.js'
 import { HEATMAP_STOPS } from './resolve.js'
@@ -96,7 +99,7 @@ function options(entries: Record<string, string>): string {
   return `          <Option type="Map">\n${rows.join('\n')}\n          </Option>`
 }
 
-function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0', dataDefined = ''): string {
+function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '0', dataDefined: QgisDataDefined = NO_DD): string {
   let layerClass: string
   let props: Record<string, string>
   if (kind === 'fill') {
@@ -115,7 +118,8 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
     props = {
       line_color: qgisColor(style.strokeColor, style.strokeOpacity),
       line_style: QGIS_DASH[style.lineDash ?? 'solid'],
-      line_width: String(round(style.strokeWidth)),
+      // Spec 011: a line's fixed Width, when set apart from the outline width.
+      line_width: String(round(style.lineWidth ?? style.strokeWidth)),
       line_width_unit: 'Pixel',
       capstyle: (style.lineDash ?? 'solid') === 'solid' ? 'round' : 'flat',
       joinstyle: 'round',
@@ -125,7 +129,8 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
     const marker = qgisMarker(style.markerShape ?? 'circle')
     props = {
       name: marker.name,
-      angle: String(marker.angle),
+      // Spec 011: the fixed rotation, on top of the shape's own turn (our "x").
+      angle: String(round(marker.angle + (style.rotation ?? 0), 4)),
       color: qgisColor(style.fillColor, style.fillOpacity),
       outline_color: qgisColor(style.strokeColor, style.strokeOpacity),
       outline_style: style.strokeWidth > 0 ? 'solid' : 'no',
@@ -135,34 +140,182 @@ function symbolXml(kind: 'fill' | 'line' | 'marker', style: LayerStyle, name = '
       size_unit: 'Pixel',
     }
   }
-  return `      <symbol type="${kind}" name="${name}" alpha="1" clip_to_extent="1" force_rhr="0">
+  return `      <symbol type="${kind}" name="${name}" alpha="${round(style.opacity ?? 1, 4)}" clip_to_extent="1" force_rhr="0">${dataDefinedBlock(dataDefined.symbol, 8)}
         <layer class="${layerClass}" enabled="1" locked="0" pass="0">
-${options(props)}${dataDefined}
+${options(props)}${dataDefinedBlock(dataDefined.layer, 10)}
         </layer>
       </symbol>`
 }
+
+// --- Spec 011: other properties by a column, as QGIS data-defined properties (research §4) ---
+
+/** Data-defined properties: the symbol layer's, and the symbol's own (opacity). */
+export interface QgisDataDefined {
+  layer: Array<[string, string[]]>
+  symbol: Array<[string, string[]]>
+}
+
+const NO_DD: QgisDataDefined = { layer: [], symbol: [] }
+
+/** A data-defined expression property's entries. */
+const expressionEntries = (expression: string): string[] => [
+  '<Option name="active" type="bool" value="true"/>',
+  `<Option name="expression" type="QString" value="${escapeXml(expression)}"/>`,
+  '<Option name="type" type="int" value="3"/>',
+]
+
+/** Several data-defined properties as QGIS's `<data_defined_properties>` block, at an indent. */
+function dataDefinedBlock(props: Array<[string, string[]]>, indent: number): string {
+  if (!props.length) return ''
+  const pad = (n: number) => ' '.repeat(indent + n)
+  const body = props.map(([key, entries]) => `${pad(6)}<Option name="${key}" type="Map">\n${entries.map((e) => pad(8) + e).join('\n')}\n${pad(6)}</Option>`).join('\n')
+  return `
+${pad(0)}<data_defined_properties>
+${pad(2)}<Option type="Map">
+${pad(4)}<Option name="name" type="QString" value=""/>
+${pad(4)}<Option name="properties" type="Map">
+${body}
+${pad(4)}</Option>
+${pad(4)}<Option name="type" type="QString" value="collection"/>
+${pad(2)}</Option>
+${pad(0)}</data_defined_properties>`
+}
+
+/** A QGIS string literal. */
+const qgisString = (s: string): string => `'${s.replace(/'/g, "''")}'`
+
+/** Which QGIS data-defined key a property sets on each kind of symbol layer (null: none). */
+function qgisKey(id: ChannelId, kind: 'fill' | 'line' | 'marker'): string | null {
+  switch (id) {
+    case 'strokeColor':
+      return kind === 'line' ? null : 'outlineColor'
+    case 'strokeWidth':
+      return kind === 'line' ? null : 'outlineWidth'
+    case 'size':
+      return kind === 'marker' ? 'size' : null
+    case 'width':
+      return kind === 'line' ? 'outlineWidth' : null
+    case 'shape':
+      return kind === 'marker' ? 'name' : null
+    case 'dash':
+      return kind === 'marker' ? null : 'outlineStyle'
+    case 'rotation':
+      return kind === 'marker' ? 'angle' : null
+    default:
+      return null
+  }
+}
+
+/** A property's output as a QGIS literal, in QGIS's terms (marker diameters, percent opacity, QGIS names). */
+function qgisOutput(id: ChannelId, output: Output): string {
+  switch (OUTPUT_KIND[id]) {
+    case 'color':
+      return qgisString(String(output))
+    case 'shape':
+      return qgisString(qgisMarker(output as MarkerShape).name)
+    case 'dash':
+      return qgisString(QGIS_DASH[output as LineDash])
+    case 'opacity':
+      return String(round(Number(output) * 100, 4))
+    default:
+      return String(round(id === 'size' ? Number(output) * 2 : Number(output), 4))
+  }
+}
+
+/** The QGIS test of one class of a property on `field` (our class rules, as the map's). */
+function qgisClassTest(field: string, scale: 'categories' | 'classes', c: ResolvedClass, ranges: ResolvedClass[]): string | null {
+  if (c.kind === 'noValue') return scale === 'classes' ? `${field} IS NULL` : `(${field} IS NULL OR to_string(${field}) = '')`
+  if (c.kind === 'value' && c.value !== undefined) return `to_string(${field}) = ${qgisString(c.value)}`
+  if (c.kind === 'range' && c.lower !== undefined && c.upper !== undefined) {
+    const first = ranges[0] === c
+    return `${field} ${first ? '>=' : '>'} ${c.lower} AND ${field} <= ${c.upper}`
+  }
+  return null
+}
+
+/**
+ * A property's value per feature as a QGIS `CASE`: No value first, then the
+ * classes in order (upper-inclusive ranges, the first one including its lower
+ * bound; categories by their string form), then Other (else: the fixed value).
+ */
+function qgisChannelCase(id: ChannelId, field: string, scale: 'categories' | 'classes', classes: ResolvedClass[], fixed: Output, mapOutput: (id: ChannelId, o: Output) => string): string {
+  const ranges = classes.filter((c) => c.kind === 'range')
+  const out = (c: ResolvedClass | undefined) => mapOutput(id, c?.output ?? fixed)
+  const arms: string[] = []
+  const noValue = classes.find((c) => c.kind === 'noValue')
+  arms.push(`WHEN ${qgisClassTest(field, scale, noValue ?? ({ kind: 'noValue' } as ResolvedClass), ranges)} THEN ${out(noValue)}`)
+  for (const c of classes) {
+    if (c.kind !== 'value' && c.kind !== 'range') continue
+    const test = qgisClassTest(field, scale, c, ranges)
+    if (test) arms.push(`WHEN ${test} THEN ${out(c)}`)
+  }
+  return `CASE ${arms.join(' ')} ELSE ${out(classes.find((c) => c.kind === 'other'))} END`
+}
+
+/**
+ * Spec 011: every property that varies by data (other than color and spec
+ * 009's size) as QGIS data-defined properties on a symbol: outline color and
+ * width, size or width by categories, shape, pattern and rotation on the
+ * symbol layer; opacity, and the classes hidden in any of them, as the
+ * symbol's opacity (alpha, in percent; hidden: 0). Fixed rotation and opacity
+ * are written as the symbol's own values (symbolXml). Properties read from a
+ * SQL expression have no column in the file: left out, with a note.
+ */
+export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker', notes: string[] = []): QgisDataDefined {
+  if (!resolved?.channels || !style.channels) return NO_DD
+  const layer: Array<[string, string[]]> = []
+  const hidden: string[] = []
+  let opacity: string | null = null
+  let rotation: string | null = null
+  let shapeOurs: string | null = null
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels[id]
+    const rc = resolved.channels[id]
+    if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
+    if (enc.source.kind !== 'column' || (enc.scale.kind !== 'categories' && enc.scale.kind !== 'classes')) {
+      notes.push(`${CHANNEL_NAMES[id]} by an expression isn't written to QGIS: it uses the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
+      continue
+    }
+    const field = qgisField(enc.source.column)
+    const scale = enc.scale.kind
+    const fixed = fixedValue(style, id, kind === 'line' ? 'line' : 'marker')
+    const ranges = rc.classes.filter((c) => c.kind === 'range')
+    for (const c of rc.classes) {
+      if (c.visible) continue
+      const test = c.kind === 'other' ? null : qgisClassTest(field, scale, c, ranges)
+      if (test) hidden.push(`(${test})`)
+    }
+    if (id === 'opacity') {
+      opacity = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+      continue
+    }
+    if (id === 'rotation') {
+      if (kind === 'marker') rotation = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+      continue
+    }
+    if (id === 'shape' && kind === 'marker') shapeOurs = qgisChannelCase(id, field, scale, rc.classes, fixed, (_i, o) => qgisString(String(o)))
+    const key = qgisKey(id, kind)
+    if (key) layer.push([key, expressionEntries(qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput))])
+  }
+  // Our "x" is QGIS's filled cross turned 45°: a shape by data turns those features too.
+  if (kind === 'marker' && (rotation || shapeOurs)) {
+    const base = rotation ?? String(style.rotation ?? 0)
+    const turn = shapeOurs ? ` + CASE WHEN (${shapeOurs}) = 'x' THEN 45 ELSE 0 END` : ''
+    layer.push(['angle', expressionEntries(`(${base})${turn}`)])
+  }
+  const symbol: Array<[string, string[]]> = []
+  if (opacity || hidden.length) {
+    const shown = opacity ?? String(round((style.opacity ?? 1) * 100, 4))
+    symbol.push(['alpha', expressionEntries(hidden.length ? `CASE WHEN ${hidden.join(' OR ')} THEN 0 ELSE ${shown} END` : shown)])
+  }
+  return { layer, symbol }
+}
+
 
 // --- Spec 009: the size channel as a QGIS data-defined size (research §5) ---------
 
 /** A QGIS expression's quoted field name. */
 const qgisField = (column: string): string => `"${column.replace(/"/g, '""')}"`
-
-/** One data-defined property: QGIS's `<data_defined_properties>` block of a symbol layer. */
-function dataDefinedXml(key: string, entries: string[]): string {
-  const pad = (n: number) => ' '.repeat(n)
-  return `
-${pad(10)}<data_defined_properties>
-${pad(12)}<Option type="Map">
-${pad(14)}<Option name="name" type="QString" value=""/>
-${pad(14)}<Option name="properties" type="Map">
-${pad(16)}<Option name="${key}" type="Map">
-${entries.map((e) => pad(18) + e).join('\n')}
-${pad(16)}</Option>
-${pad(14)}</Option>
-${pad(14)}<Option name="type" type="QString" value="collection"/>
-${pad(12)}</Option>
-${pad(10)}</data_defined_properties>`
-}
 
 /**
  * The size channel as a data-defined size on every symbol layer: a `CASE`
@@ -171,10 +324,10 @@ ${pad(10)}</data_defined_properties>`
  * (proportional: Linear for lines, Area 0.5 for markers). QGIS sizes are
  * marker diameters, in the symbol's Pixel unit. '' when no channel applies.
  */
-function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): Array<[string, string[]]> {
   const s = style.size
   const r = resolved?.size
-  if (kind === 'fill' || !s || !r || r.status !== 'ok') return ''
+  if (kind === 'fill' || !s || !r || r.status !== 'ok') return []
   const key = kind === 'marker' ? 'size' : 'outlineWidth'
   const f = kind === 'marker' ? 2 : 1
   const single = (kind === 'marker' ? style.pointRadius : style.strokeWidth) * f
@@ -183,7 +336,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
   if (s.mode === 'proportional' && r.domain) {
     const area = (s.scale ?? 'linear') === 'area'
     const d = { exponent: area ? 0.5 : 1, maxSize: s.sizeMax * f, maxValue: r.domain.max, minSize: s.sizeMin * f, minValue: r.domain.min, nullSize, scaleType: area ? 1 : 0 }
-    return dataDefinedXml(key, [
+    return [[key, [
       '<Option name="active" type="bool" value="true"/>',
       `<Option name="field" type="QString" value="${escapeXml(s.column)}"/>`,
       '<Option name="transformer" type="Map">',
@@ -193,7 +346,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
       '  <Option name="t" type="int" value="1"/>',
       '</Option>',
       '<Option name="type" type="int" value="2"/>',
-    ])
+    ]]]
   }
   // Classed: our class rules (upper-inclusive, the first class including its lower bound).
   const v = qgisField(s.column)
@@ -201,11 +354,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
   const arms = [`WHEN ${v} IS NULL THEN ${nullSize}`]
   if (ranges.length) arms.push(`WHEN ${v} < ${ranges[0].lower} THEN ${single}`)
   for (const c of ranges) arms.push(`WHEN ${v} <= ${c.upper} THEN ${c.visible ? round((c.size as number) * f, 6) : 0}`)
-  return dataDefinedXml(key, [
-    '<Option name="active" type="bool" value="true"/>',
-    `<Option name="expression" type="QString" value="${escapeXml(`CASE ${arms.join(' ')} ELSE ${single} END`)}"/>`,
-    '<Option name="type" type="int" value="3"/>',
-  ])
+  return [[key, expressionEntries(`CASE ${arms.join(' ')} ELSE ${single} END`)]]
 }
 
 /**
@@ -214,7 +363,7 @@ function sizeDataDefined(style: LayerStyle, resolved: ResolvedStyle | undefined,
  * includes its lower bound; hidden cells unchecked) and one for "No value".
  * The renderer itself rides along in `spatialExplorer/bivariate`.
  */
-function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 'fill' | 'line' | 'marker'): string {
+function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 'fill' | 'line' | 'marker', dd: QgisDataDefined = NO_DD): string {
   const g = resolved.grid
   if (!g) return ''
   const x = qgisField(g.x.column)
@@ -229,7 +378,7 @@ function bivariateRendererXml(style: LayerStyle, resolved: ResolvedStyle, kind: 
         : `${x} IS NULL OR ${y} IS NULL`
     const unchecked = c.visible ? '' : ' checkstate="0"'
     rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-${escapeXml(c.key)}}" label="${escapeXml(c.label)}" symbol="${k}"${unchecked}/>`)
-    symbols.push(symbolXml(kind, kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }, String(k)))
+    symbols.push(symbolXml(kind, kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }, String(k), dd))
   })
   return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <rules key="{se-rules}">
@@ -254,7 +403,7 @@ function guardedFilter(where: string, before: readonly string[]): string {
  * that matches, so each filter also excludes the rules before it. The renderer
  * itself rides along in `spatialExplorer/rules`.
  */
-function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker', dd: QgisDataDefined = NO_DD): string {
   const errors = new Set((resolved?.classes ?? []).flatMap((c) => (c.kind === 'rule' && c.ruleId && c.error ? [c.ruleId] : [])))
   const usable = r.rules.filter((rule) => !checkExpression(rule.where, 'condition') && !errors.has(rule.id))
   const rules: string[] = []
@@ -264,11 +413,11 @@ function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: Resolve
     const filter = guardedFilter(rule.where.trim(), usable.slice(0, k).map((x) => x.where.trim()))
     const unchecked = rule.visible ? '' : ' checkstate="0"'
     rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-rule-${escapeXml(rule.id)}}" label="${escapeXml(ruleLabel(rule))}" symbol="${k}"${unchecked}/>`)
-    symbols.push(symbolXml(kind, look(rule.color), String(k)))
+    symbols.push(symbolXml(kind, look(rule.color), String(k), dd))
   })
   const n = usable.length
   rules.push(`      <rule filter="ELSE" key="{se-else}" label="${escapeXml(r.elseLabel)}" symbol="${n}"${r.elseVisible ? '' : ' checkstate="0"'}/>`)
-  symbols.push(symbolXml(kind, look(r.elseColor), String(n)))
+  symbols.push(symbolXml(kind, look(r.elseColor), String(n), dd))
   return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <rules key="{se-rules}">
 ${rules.join('\n')}
@@ -379,7 +528,7 @@ function customProperties(entries: Record<string, string>): string {
   return rows.length ? `  <customproperties>\n    <Option type="Map">\n${rows.join('\n')}\n    </Option>\n  </customproperties>\n` : ''
 }
 
-function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined, dataDefined = ''): { renderer: string; props: Record<string, string> } {
+function thematicRenderer(style: LayerStyle, kind: 'fill' | 'line' | 'marker', th: Thematic, columnType: string | undefined, dataDefined: QgisDataDefined = NO_DD): { renderer: string; props: Record<string, string> } {
   const r = th.renderer
   // One symbol per class: the shared symbol with the class color (FR-006); spec 009: each sized by the size channel.
   const symbols = th.classes.map((c, i) => symbolXml(kind, classLayerStyle(style, kind, c), String(i), dataDefined)).join('\n')
@@ -505,8 +654,10 @@ export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?
   const kind = geom === 'Point' ? 'marker' : geom === 'LineString' ? 'line' : 'fill'
   const { thematic, notes: thematicNotes } = thematicForExport(style, resolved)
   notes.push(...thematicNotes)
-  // Spec 009: the size channel, a data-defined size on every symbol (research §5).
-  const sizeDd = sizeDataDefined(style, resolved, kind)
+  // Spec 009: the size channel, a data-defined size on every symbol (research §5);
+  // spec 011: every other property by a column too, and opacity on the symbol.
+  const channelDd = channelDataDefined(style, resolved, kind, notes)
+  const sizeDd: QgisDataDefined = { layer: [...sizeDataDefined(style, resolved, kind), ...channelDd.layer], symbol: channelDd.symbol }
   if (style.size && kind === 'fill') notes.push('QGIS polygons have no size: the size channel was left out.')
   let renderer = `  <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <symbols>
@@ -520,7 +671,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
   // Spec 009: bivariate, as a rule-based renderer.
   const r = rendererOf(style)
   if (r.kind === 'bivariate' && resolved?.status === 'ok' && resolved.grid) {
-    renderer = bivariateRendererXml(style, resolved, kind)
+    renderer = bivariateRendererXml(style, resolved, kind, channelDd)
     props = { 'spatialExplorer/bivariate': JSON.stringify(r) }
   }
   // A heatmap, as QGIS's heatmap renderer (point layers only), with the symbol kept for a return to single.
@@ -537,7 +688,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
   }
   // Spec 010: rules, as a rule-based renderer.
   if (r.kind === 'rules') {
-    renderer = rulesRendererXml(style, r, resolved, kind)
+    renderer = rulesRendererXml(style, r, resolved, kind, sizeDd)
     props = { 'spatialExplorer/rules': JSON.stringify(r) }
   }
   // Our own size channel, kept whole for a lossless reload here.
