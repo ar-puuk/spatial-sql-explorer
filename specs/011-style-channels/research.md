@@ -339,3 +339,62 @@ columns and return a new style. They aren't stored.
 
 The columns chosen follow today's `startRenderer` and `measureColumns`
 heuristics.
+
+## Slice 1 outcomes (2026-10-13)
+
+**What was built.**
+- **Storage is channels.** `sanitizeStyle` turns every pre-011 shape into
+  `draw`, `channels`, `heatmap` and `height` (research §9). A legacy key that
+  is present (`renderer`, `size`, `extrusion`) wins over the channels it maps
+  to, so patches from the pre-011 panel and raw test styles still work. The
+  store always sanitizes, so it only ever holds channel-shaped styles.
+- **A bridge for the code that isn't rebuilt yet.** `packages/core/src/style/legacy.ts`
+  converts both ways: `rendererOf`, `sizeOf` and `extrusionOf` read, and
+  `withRenderer`, `withSize` and `withExtrusion` write. `legacyView(style)`
+  fills in the old fields at the entry points of resolve, the paint builders,
+  the interchange helpers and the three file writers.
+  - This replaced the plan's T013/T014 rewrite for slice 1. Identity then holds
+    by construction, and slice 3 rewrites those paths per channel when new
+    scales exist.
+  - `resolveStyle` also fills `resolved.channels` (color, size, width and
+    height), from the same classes, each with its `output`.
+- **QML** writes the whole model in `spatialExplorer/style`, and reads it in
+  preference to the renderer. The 0.3.0 properties are still written, for
+  older builds.
+- **Fixed 3D height** keeps meters and scale apart (`height: { meters, scale }`),
+  so the panel's "Constant height" field shows what was typed.
+
+**Bugs found by the suites and fixed.**
+- **Classification cache key.** The session's cache key (`styleDataKey`)
+  drops presentation fields by name, `color` among them. A channel map has a
+  key named `color`, so the whole color channel vanished from the key, and
+  different styles shared one cached classification. The browser specs showed
+  one class, zero rule counts and missing expression values. The key is now
+  built from the pre-011 view. A unit test covers it (`style-cache.test.ts`).
+- **Size curve.** A classed size channel lost its marker curve
+  (`scale: 'area'`), which spec 009 sets when sizing starts. `ClassesScale`
+  now keeps `curve`.
+
+**Deferred, on purpose.**
+- **T017**: per-channel engine columns. In slice 1 only the color channel can
+  have conditions or an expression, and it keeps spec 010's columns
+  (`__se_cls`, `__se_val`). The per-channel columns arrive with T043.
+- **T020**: the edit functions still return the pre-011 keys. The store's
+  sanitize turns them into channels. Channel-scoped edits are T025.
+
+**Results.**
+- Core: 673 passed, 5 skipped.
+- **SC-002**: all 23 pre-011 styles resolve, paint, lay out, filter and pick
+  icons exactly as recorded on the pre-011 build. All 22 sidecars saved by
+  0.3.0 import and draw exactly as the 0.3.0 import did, and still do after
+  being saved again.
+- Web (style, accessibility, 3D and map-image specs): 65 of 65 after the
+  cache-key fix. The first run had 13 failures, all from that bug, and the
+  3D constant height.
+- Extension (style, map image, layers, query): 29 passing.
+- PyQGIS on files the new code wrote:
+  - `check_009`: 0 mismatches;
+  - `check_010_rules`: OK;
+  - `check_heatmap`: densest pixels `#b20026` and `#b10026` against the
+    ramp end `#b10026`.
+- Lint: 0 errors. Typecheck: 0 errors.

@@ -14,7 +14,6 @@ import {
   metersPerPixel,
   OTHER_COLOR,
   MIN_CLASS_COUNT,
-  rendererOf,
   type CategorizedRenderer,
   type ClassOverride,
   type GraduatedMethod,
@@ -32,6 +31,7 @@ import {
   type SizeChannel,
   type SizeMode,
 } from './model.js'
+import { rendererOf, sizeOf } from './legacy.js'
 import { toCategory } from './classify.js'
 import { defaultRamp, rampColors } from './ramps.js'
 import { DEFAULT_SIZE_RANGE } from './symbol.js'
@@ -332,7 +332,7 @@ const SIZE = 'size:'
 export function setSizeChannel(style: LayerStyle, column: string | null, geometry: 'point' | 'line'): LayerStyle {
   // Off: `size: undefined` (not a deleted key), so it also clears through a patch merge (store.setStyle).
   if (column === null) return { ...style, size: undefined }
-  const was = style.size
+  const was = sizeOf(style)
   if (was) return { ...style, size: { ...was, column, method: was.method === 'manual' ? 'quantile' : was.method, classes: [] } }
   const range = DEFAULT_SIZE_RANGE[geometry]
   const size: SizeChannel = {
@@ -351,7 +351,8 @@ export function setSizeChannel(style: LayerStyle, column: string | null, geometr
 }
 
 function withSize(style: LayerStyle, patch: (s: SizeChannel) => SizeChannel): LayerStyle {
-  return style.size ? { ...style, size: patch(style.size) } : style
+  const was = sizeOf(style)
+  return was ? { ...style, size: patch(was) } : style
 }
 
 /** Classed or proportional (US2). Proportional has no classes: their overrides are dropped. */
@@ -414,7 +415,7 @@ export function setSizeClassVisible(style: LayerStyle, key: string, visible: boo
 
 /** A size class bound (switches to Manual); the neighbouring class moves with it, as graduated bounds do. */
 export function setSizeClassBound(style: LayerStyle, resolved: ResolvedStyle, index: number, side: 'lower' | 'upper', value: number): LayerStyle {
-  const s = style.size
+  const s = sizeOf(style)
   if (!s || s.mode !== 'classed' || !Number.isFinite(value)) return style
   let classes: RangeClassDef[] = s.classes
   if (s.method !== 'manual') {

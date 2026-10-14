@@ -72,6 +72,8 @@
     type ResolvedStyle,
     type StyleFormat,
     type ValueHistogram as Histogram,
+    extrusionOf,
+    sizeOf,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
@@ -150,7 +152,7 @@
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
   const CONSTANT = '__constant'
   const extrusionReason = $derived(extrusionUnavailableReason(geometryType))
-  const ext = $derived(style.extrusion)
+  const ext = $derived(extrusionOf(style))
   const heightColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
   /** A column whose name says height: its values are taken as meters (no automatic scale). */
   const HEIGHT_NAME = /height|elev|floor|storey|stories|levels|hgt/i
@@ -173,7 +175,7 @@
     const first = !ext
     setExtrusion({ enabled: !ext?.enabled })
     // Raw values are rarely meters: the first time, pick a scale that shows them.
-    const src = style.extrusion?.source
+    const src = extrusionOf(style)?.source
     if (first && src?.kind === 'column' && !HEIGHT_NAME.test(src.column)) void autoScale(src.column)
   }
   let scaling = $state(false)
@@ -183,7 +185,7 @@
     scaling = true
     try {
       const scale = await onSuggestScale(column)
-      const now = style.extrusion
+      const now = extrusionOf(style)
       if (now?.source.kind === 'column' && now.source.column === column) setExtrusion({ scale })
     } finally {
       scaling = false
@@ -294,7 +296,7 @@
 
   // --- Spec 009: the size channel (marker size on points, line width on lines; none on polygons).
   const sizeGeometry = $derived<'point' | 'line'>(geometryType === 'LineString' ? 'line' : 'point')
-  const size = $derived(style.size)
+  const size = $derived(sizeOf(style))
   const sizeOn = $derived(!!size && renderer.kind !== 'bivariate')
   const numericColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
   const sizeSymbols = $derived(sizeOn && resolved.size?.status === 'ok' ? { symbols: sizeSymbolsOf(style, resolved), kind: sizeGeometry } : null)

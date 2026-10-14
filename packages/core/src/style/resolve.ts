@@ -3,14 +3,15 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { legacyView, rendererOf } from './legacy.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
 import { heatmapPeak, mercatorRadius } from '../view/heat.js'
-import type { ChannelId } from './channels.js'
+import { channelDataColumns, type ChannelId } from './channels.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -121,14 +122,66 @@ function single(style: LayerStyle, layer: ResolveInput | null, extra: Partial<Re
 
 /** Shared by the renderer branches: the fallback when the styled column can't be used (FR-012). */
 export function fallback(style: LayerStyle, layer: ResolveInput | null, reason: string): ResolvedStyle {
+  style = legacyView(style)
   return single(style, layer, { status: 'fallback', reason })
 }
 
 export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
+  style = legacyView(style)
   const color = resolveColor(style, layer)
   // Spec 009: the size channel, next to any color channel but bivariate.
   const size = resolveSizeChannel(style, layer)
-  return size ? { ...color, size } : color
+  const out = size ? { ...color, size } : color
+  const channels = resolvedChannels(style, out)
+  return channels ? { ...out, channels } : out
+}
+
+/**
+ * Spec 011 slice 1: the channels as resolved, from the pre-011 color and size
+ * results (the same classes, each with its `output`). Slice 3 resolves every
+ * channel on its own.
+ */
+function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['channels'] {
+  const enc = style.channels
+  if (!enc) return undefined
+  const out: NonNullable<ResolvedStyle['channels']> = {}
+  const color = enc.color
+  if (color && style.draw?.points !== 'heatmap') {
+    out.color = {
+      channel: 'color',
+      status: r.status,
+      ...(r.reason ? { reason: r.reason } : {}),
+      scale: color.scale.kind,
+      caption: r.caption,
+      classes: r.classes.map((c) => ({ ...c, output: c.color })),
+      dataColumn: channelDataColumns('color', color)[0] ?? '',
+      ...(r.grid ? { grid: r.grid } : {}),
+      notes: r.notes,
+    }
+  }
+  const size = r.size
+  for (const id of ['size', 'width'] as const) {
+    const e = enc[id]
+    if (!e || !size) continue
+    out[id] = {
+      channel: id,
+      status: size.status,
+      ...(size.reason ? { reason: size.reason } : {}),
+      scale: e.scale.kind,
+      caption: size.caption,
+      classes: size.classes.map((c) => (c.size !== undefined ? { ...c, output: c.size } : c)),
+      ...(size.domain ? { domain: size.domain } : {}),
+      ...(size.samples ? { samples: size.samples.map((x) => ({ value: x.value, output: x.size, label: x.label })) } : {}),
+      dataColumn: channelDataColumns(id, e)[0] ?? '',
+      notes: size.notes,
+    }
+  }
+  const height = enc.height
+  if (height && style.draw?.polygons === '3d') {
+    const column = channelDataColumns('height', height)[0] ?? ''
+    out.height = { channel: 'height', status: 'ok', scale: height.scale.kind, caption: column, classes: [], dataColumn: column, notes: [] }
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
@@ -562,6 +615,7 @@ export const SIZE_KEY_PREFIX = 'size:'
  * with no value (or outside manual classes) keep the single size.
  */
 export function resolveSizeChannel(style: LayerStyle, layer: ResolveInput | null): ResolvedSizeChannel | undefined {
+  style = legacyView(style)
   const s = style.size
   if (!s || rendererOf(style).kind === 'bivariate' || rendererOf(style).kind === 'heatmap') return undefined
   const off = (reason: string): ResolvedSizeChannel => ({ status: 'fallback', reason, caption: `${s.column} · not available`, mode: s.mode, column: s.column, classes: [], notes: [] })

@@ -847,10 +847,15 @@
     void style.strokeWidth
     void style.pointRadius
     void style.layerOpacity
-    void style.extrusion
+    void style.draw
+    void style.height
+    void style.heatmap
     void style.markerShape
     void style.lineDash
-    void style.size
+    void style.channels
+    void style.lineWidth
+    void style.rotation
+    void style.opacity
     void resolved
     void themeRevision
     void blankColor

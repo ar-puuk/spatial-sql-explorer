@@ -37,7 +37,8 @@ import {
   topCategoriesSql,
 } from '../view/stats.js'
 import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, rendererOf, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { legacyView, rendererOf, sizeOf } from '../style/legacy.js'
 import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
 import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
@@ -642,7 +643,8 @@ export class QuerySession {
     // Spec 009: every channel column the style classifies.
     // A heatmap's weight column is read for its largest value only.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : r.kind === 'heatmap' && has(r.weight) ? r.weight : null
-    const size = style.size && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(style.size.column) ? style.size : null
+    const sizeChannel = sizeOf(style)
+    const size = sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(sizeChannel.column) ? sizeChannel : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
     if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
@@ -679,7 +681,8 @@ export class QuerySession {
       const derived = `(SELECT *, ${expressionValueSql(r.expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${relation})`
       const withValue: ResolveInput = { ...base, columns: [...base.columns, { name: EXPRESSION_VALUE_COLUMN, type: 'DOUBLE' }] }
       const has = (c: string | undefined): c is string => !!c && withValue.columns.some((x) => x.name === c)
-      const size = style.size && has(style.size.column) ? style.size : null
+      const sizeChannel = sizeOf(style)
+      const size = sizeChannel && has(sizeChannel.column) ? sizeChannel : null
       out = await this.resolveClassified(style, r, withValue, derived, EXPRESSION_VALUE_COLUMN, size)
     } else return resolveStyleFrom(style, base)
     if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
@@ -1438,7 +1441,12 @@ const PRESENTATION_KEYS = new Set([
 
 /** The style without its presentation: two styles with the same key classify the same data the same way. */
 export function styleDataKey(style: LayerStyle): string {
-  return JSON.stringify(style, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
+  // Spec 011 slice 1: keyed on the pre-011 shape. A channel map has keys named
+  // like presentation fields (`color`), so it can't go through the filter as is.
+  const { channels: _c, labels: _l, ...legacy } = legacyView(style)
+  void _c
+  void _l
+  return JSON.stringify(legacy, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
 }
 
 /** A fresh classification's classes, with the exact counts the engine found for the same classes. */

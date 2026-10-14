@@ -8,7 +8,6 @@ import { METHOD_NAMES } from './resolve.js'
 import {
   DEFAULT_CATEGORY_CAP,
   DEFAULT_HEATMAP_RAMP,
-  rendererOf,
   type CategorizedRenderer,
   type ClassOverride,
   type GraduatedMethod,
@@ -20,6 +19,7 @@ import {
   type StyleFormat,
   type StyleNotice,
 } from './model.js'
+import { legacyView, rendererOf } from './legacy.js'
 import { checkExpression } from './sqlExpression.js'
 import { hasLike, parseSimpleWhere, type SimpleWhere } from './simpleWhere.js'
 
@@ -41,6 +41,7 @@ export interface ExportClass {
  * class size on the marker or the line (size classes keep the colors).
  */
 export function classLayerStyle(style: LayerStyle, kind: 'fill' | 'line' | 'marker', c: ExportClass): LayerStyle {
+  style = legacyView(style)
   if (c.size !== undefined) return kind === 'line' ? { ...style, strokeWidth: c.size } : kind === 'marker' ? { ...style, pointRadius: c.size } : style
   return kind === 'line' ? { ...style, strokeColor: c.color } : { ...style, fillColor: c.color }
 }
@@ -56,6 +57,7 @@ export interface Thematic {
  * says why in `notes`.
  */
 export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined, format?: StyleFormat): { thematic: Thematic | null; notes: string[] } {
+  style = legacyView(style)
   const r = rendererOf(style)
   // A heatmap is written by each format itself (or not at all: SLD).
   if (r.kind === 'single' || r.kind === 'heatmap') return { thematic: null, notes: [] }
@@ -86,6 +88,7 @@ export const MAPBOX_SHAPE_NOTE = (shape: string): string =>
 
 /** What a format can't hold for this style (FR-015), known before writing. */
 export function previewExportNotice(style: LayerStyle, format: StyleFormat, resolved: ResolvedStyle | undefined): StyleNotice {
+  style = legacyView(style)
   const items: string[] = []
   const { thematic, notes } = thematicForExport(style, resolved, format)
   items.push(...notes)
@@ -147,6 +150,7 @@ export interface PortableRule {
  * nothing (an empty or invalid condition) are left out: they color nothing.
  */
 export function portableRules(style: LayerStyle, resolved: ResolvedStyle | undefined, format: StyleFormat): PortableRule[] | null {
+  style = legacyView(style)
   const r = rendererOf(style)
   if (r.kind !== 'rules') return null
   const errors = new Map((resolved?.classes ?? []).flatMap((c) => (c.kind === 'rule' && c.ruleId && c.error ? [[c.ruleId, c.error] as const] : [])))

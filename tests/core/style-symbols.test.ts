@@ -32,6 +32,7 @@ import {
   validateStyle,
   type LayerStyle,
   type StyleFormat,
+  sizeOf,
 } from '@spatial-explorer/core'
 
 const fixture = (name: string): string => readFileSync(`${import.meta.dirname}/fixtures/style/symbols/${name}`, 'utf8')
@@ -116,7 +117,7 @@ describe('size classes (the size channel)', () => {
   })
 
   it('line layers start from thinner widths', () => {
-    const s = sizeStyle('line').size
+    const s = sizeOf(sizeStyle('line'))
     expect([s?.sizeMin, s?.sizeMax]).toEqual([1, 6])
   })
 
@@ -227,13 +228,13 @@ describe('files written by QGIS 4.2.3', () => {
   it('reads GraduatedSize: point sizes 2..10 mm and line widths 1..5 mm, in pixels', () => {
     const mm = 96 / 25.4
     // Spec 009: as a size channel on a single color.
-    const pts = importStyle('a.qml', fixture('pt_gradsize.qml')).style.size
+    const pts = sizeOf(importStyle('a.qml', fixture('pt_gradsize.qml')).style)
     expect(pts?.mode).toBe('classed')
     expect(pts?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
     expect(pts?.sizeMax).toBeCloseTo(5 * mm, 1)
-    const lns = importStyle('a.qml', fixture('ln_gradsize.qml')).style.size
+    const lns = sizeOf(importStyle('a.qml', fixture('ln_gradsize.qml')).style)
     expect([lns?.sizeMin, lns?.sizeMax].map((v) => Math.round((v ?? 0) * 10) / 10)).toEqual([Math.round(mm * 10) / 10, Math.round(5 * mm * 10) / 10])
-    const sld = importStyle('a.sld', fixture('pt_gradsize.sld')).style.size
+    const sld = sizeOf(importStyle('a.sld', fixture('pt_gradsize.sld')).style)
     expect([sld?.sizeMin, sld?.sizeMax]).toEqual([3.5, 18])
   })
 })

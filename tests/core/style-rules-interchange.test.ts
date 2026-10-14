@@ -17,6 +17,7 @@ import {
   type LayerStyle,
   type ResolvedStyle,
   type RulesRenderer,
+  rendererOf,
 } from '@spatial-explorer/core'
 
 const rules: RulesRenderer = {
@@ -59,14 +60,14 @@ describe('QML', () => {
   it('round-trips rules exactly through the custom property', () => {
     const { text } = exportStyle(rulesStyle, 'qml', 'Polygon', 'world.geojson', resolvedRules(rulesStyle))
     const back = importStyle('world.qml', text)
-    expect(back.style.renderer).toEqual(rules)
+    expect(rendererOf(back.style)).toEqual(rules)
     expect(back.notes).toEqual([])
   })
 
   it('reads a rule-based renderer without our property (guards removed, ELSE as everything else)', () => {
     const { text } = exportStyle(rulesStyle, 'qml', 'Polygon', 'world.geojson', resolvedRules(rulesStyle))
     const foreign = text.replace(/\s*<customproperties>[\s\S]*<\/customproperties>/, '')
-    const back = importStyle('world.qml', foreign).style.renderer as RulesRenderer
+    const back = rendererOf(importStyle('world.qml', foreign).style) as RulesRenderer
     expect(back.kind).toBe('rules')
     expect(back.rules.map((r) => [r.where, r.label, r.color, r.visible])).toEqual([
       ["continent = 'Africa'", '', '#66c2a5', true],
@@ -81,7 +82,7 @@ describe('QML', () => {
     const layer = { features: rows, columns: [{ name: 'a', type: 'INTEGER' }, { name: 'b', type: 'INTEGER' }] }
     const biv = setBivariateAxis(setBivariateAxis(startStyle(DEFAULT_LAYER_STYLE as LayerStyle, 'bivariate', layer), 'x', { column: 'a' }), 'y', { column: 'b' })
     const { text } = exportStyle(biv, 'qml', 'Polygon', 'x.geojson', resolveStyle(biv, layer))
-    expect(importStyle('x.qml', text).style.renderer?.kind).toBe('bivariate')
+    expect(rendererOf(importStyle('x.qml', text).style)?.kind).toBe('bivariate')
   })
 
   it('graduated by expression: the expression is the attribute, and comes back as the expression with its label', () => {
@@ -94,11 +95,11 @@ describe('QML', () => {
     expect(resolved.status).toBe('ok')
     const { text } = exportStyle(graduated, 'qml', 'Polygon', 'world.geojson', resolved)
     expect(text).toContain('attr="gdp_md * 1e6 / pop_est"')
-    const back = importStyle('world.qml', text).style.renderer
+    const back = rendererOf(importStyle('world.qml', text).style)
     expect(back).toMatchObject({ kind: 'graduated', column: 'GDP per person', expression: 'gdp_md * 1e6 / pop_est', method: 'quantile', classCount: 4 })
     // A QGIS file classifying an expression (no property of ours): imported as the expression, with a note.
     const foreign = importStyle('world.qml', text.replace(/\s*<customproperties>[\s\S]*<\/customproperties>/, ''))
-    expect(foreign.style.renderer).toMatchObject({ kind: 'graduated', expression: 'gdp_md * 1e6 / pop_est' })
+    expect(rendererOf(foreign.style)).toMatchObject({ kind: 'graduated', expression: 'gdp_md * 1e6 / pop_est' })
     expect(foreign.notes.join(' ')).toContain('imported as a SQL expression')
   })
 })
@@ -168,7 +169,7 @@ describe('Mapbox GL', () => {
     const { text, notes } = exportStyle(graduated, 'mapbox', 'Polygon', 'x.geojson', resolved)
     expect(notes.join(' ')).toContain("can't classify an expression")
     expect(layers(text).find((l) => l.type === 'fill')!.paint['fill-color']).toBe(DEFAULT_LAYER_STYLE.fillColor)
-    expect(importStyle('x.json', text).style.renderer).toMatchObject({ kind: 'graduated', expression: 'a / b' })
+    expect(rendererOf(importStyle('x.json', text).style)).toMatchObject({ kind: 'graduated', expression: 'a / b' })
     const sld = exportStyle(graduated, 'sld', 'Polygon', 'x.geojson', resolved)
     expect(sld.notes.join(' ')).toContain("SLD can't classify an expression")
     expect(sld.text).toContain('<Name>Single symbol</Name>')

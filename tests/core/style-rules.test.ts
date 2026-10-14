@@ -28,6 +28,7 @@ import {
   withComputedSql,
   type LayerStyle,
   type RulesRenderer,
+  rendererOf,
 } from '@spatial-explorer/core'
 
 function evaluate(expr: unknown, properties: Record<string, unknown>, key: string, type = 'Polygon'): unknown {
@@ -141,24 +142,24 @@ describe('paint', () => {
 describe('edits', () => {
   it('start empty; suggestions from the data; add, update, move, remove; class edits by key', () => {
     const started = startStyle(DEFAULT_LAYER_STYLE, 'rules', { columns })
-    expect(started.renderer).toMatchObject({ kind: 'rules', rules: [], elseLabel: 'Everything else' })
+    expect(rendererOf(started)).toMatchObject({ kind: 'rules', rules: [], elseLabel: 'Everything else' })
     const s = suggestedRules({ numeric: { column: 'pop_est', median: 12345678.9 }, text: { column: 'Continent Name', value: "Côte d'Ivoire" } })
     expect(s.map((r) => r.where)).toEqual(['pop_est > 12300000', `"Continent Name" = 'Côte d''Ivoire'`])
     let x = addRule(addRule(started, 'a > 1'), 'b = 2')
-    const [r1, r2] = (x.renderer as RulesRenderer).rules
+    const [r1, r2] = (rendererOf(x) as RulesRenderer).rules
     expect(r1.id).not.toBe(r2.id)
     x = moveRule(x, r2.id, -1)
-    expect((x.renderer as RulesRenderer).rules.map((r) => r.where)).toEqual(['b = 2', 'a > 1'])
+    expect((rendererOf(x) as RulesRenderer).rules.map((r) => r.where)).toEqual(['b = 2', 'a > 1'])
     x = setClassColor(x, `rule:${r1.id}`, '#123456')
-    expect((x.renderer as RulesRenderer).rules.find((r) => r.id === r1.id)?.color).toBe('#123456')
+    expect((rendererOf(x) as RulesRenderer).rules.find((r) => r.id === r1.id)?.color).toBe('#123456')
     x = setClassColor(x, '__else', '#abcdef')
-    expect((x.renderer as RulesRenderer).elseColor).toBe('#abcdef')
+    expect((rendererOf(x) as RulesRenderer).elseColor).toBe('#abcdef')
     x = removeRule(x, r2.id)
-    expect((x.renderer as RulesRenderer).rules).toHaveLength(1)
+    expect((rendererOf(x) as RulesRenderer).rules).toHaveLength(1)
   })
   it('sanitize keeps rules, makes ids unique, and drops bad colors', () => {
     const s = sanitizeStyle({ renderer: { kind: 'rules', rules: [{ id: 'x', where: 'a > 1', color: 'nope' }, { id: 'x', where: 'b' }], elseColor: '#00f' } as never })
-    const r = s.renderer as RulesRenderer
+    const r = rendererOf(s) as RulesRenderer
     expect(r.rules.map((k) => k.id)).toEqual(['x', 'x_'])
     expect(r.rules[0].color).toBe(DEFAULT_LAYER_STYLE.fillColor)
     expect(r.elseColor).toBe('#0000ff')

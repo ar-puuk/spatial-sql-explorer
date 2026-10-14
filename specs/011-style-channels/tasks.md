@@ -185,7 +185,7 @@ behavior change yet.
 
 ### Tests for User Story 2
 
-- [ ] T010 [P] [US2] Write `tests/core/style-migration-011.test.ts`:
+- [X] T010 [P] [US2] Write `tests/core/style-migration-011.test.ts`:
   - **Migration.** For each T002 style, `sanitizeStyle` produces:
     - categorized → `channels.color` Categories;
     - graduated → Classes, with an expression source when it had one;
@@ -202,20 +202,20 @@ behavior change yet.
     snapshot. Expressions are compared by **evaluating both** through
     MapLibre's evaluator on every `SNAPSHOT_LAYER_011` feature, plus
     hover/selected feature-state variants, not by deep-equal.
-- [ ] T011 [P] [US2] Write `tests/core/style-qml-migration-011.test.ts`: every
+- [X] T011 [P] [US2] Write `tests/core/style-qml-migration-011.test.ts`: every
   `pre-011-sidecars/*.qml` imports to the same channels T010 expects. Its
   re-export, re-imported, is identical (round trip). It also checks that
   `spatialExplorer/style` is written and is preferred on import.
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Add the migration to `sanitizeStyle` in
+- [X] T012 [US2] Add the migration to `sanitizeStyle` in
   `packages/core/src/style/model.ts`, following research §9 and data-model.md
   "Validation and migration". Move the output and scale validation into
   `sanitizeEncoding(channel, raw)` in `channels.ts`. Sanitize `labels` in a new
   `packages/core/src/style/labels.ts` (`sanitizeLabels`, defaults per
   geometry). T010's migration half passes.
-- [ ] T013 [US2] Rewrite `resolveStyle` in `packages/core/src/style/resolve.ts`
+- [X] T013 [US2] Rewrite `resolveStyle` in `packages/core/src/style/resolve.ts`
   to resolve per channel (`resolveChannel(style, channel, enc, layer)`),
   reusing the existing code:
   - categorized: Categories;
@@ -228,7 +228,7 @@ behavior change yet.
   size classes keep `size`. Fill `ResolvedStyle.channels`, and keep the alias
   fields (`status`, `caption`, `classes`, `grid`, `size`, `heat`) derived from
   the `color` and `size` channels so the UI is untouched.
-- [ ] T014 [US2] Rewrite the paint builders in
+- [X] T014 [US2] Rewrite the paint builders in
   `packages/core/src/style/expressions.ts`:
   - `channelExpression(style, resolved, channel, part)`;
   - `symbolExpressions`, `paintFor`, `layoutFor`, `visibilityFilter` and
@@ -237,17 +237,17 @@ behavior change yet.
   - extrusion height reads the `height` channel or `height.meters`.
   Keep `classIndexExpression` for the color channel. T010's identity half
   passes.
-- [ ] T015 [US2] Update `packages/core/src/style/extrusion.ts` and its
+- [X] T015 [US2] Update `packages/core/src/style/extrusion.ts` and its
   callers (`activeExtrusion`, `extrusionColumn`, `extrusionHeightExpression`)
   to read `drawOf(style).polygons === '3d'` and the height channel. Keep the
   `Extrusion` type only for migration and QML. `tests/core/extrusion*.test.ts`
   stays green.
-- [ ] T016 [US2] Update `styleDataColumns` to list every channel's data
+- [X] T016 [US2] Update `styleDataColumns` to list every channel's data
   column plus the label column (`channelDataColumn`), deduplicated. Move it
   to `channels.ts` and re-export it from `model.ts`. Update the callers in
   `packages/core/src/query/session.ts`, `packages/ui/src/viewerStore.svelte.ts`
   (`styleColumns`) and `packages/core/src/view/*`.
-- [ ] T017 [US2] Generalize the engine side in
+- [X] T017 [US2] Generalize the engine side in
   `packages/core/src/query/session.ts`:
   - statistics per distinct channel column (`dataByColumn`);
   - rule counts and errors per conditions channel (`__se_cls_<ch>`), and
@@ -256,7 +256,10 @@ behavior change yet.
   - `resolveHeatmapAuto` reads `style.heatmap`.
   The old single forms feed `color`. Extend `tests/core/stats-sql.test.ts`
   for two conditions channels and two expression channels in one SELECT.
-- [ ] T018 [US2] Make the QML reader in `packages/core/src/style/qml.ts`
+  **Slice 1 outcome:** not needed yet. Only the color channel can have
+  conditions or an expression, and it keeps spec 010's engine columns.
+  Per-channel columns moved to T043 (research "Slice 1 outcomes").
+- [X] T018 [US2] Make the QML reader in `packages/core/src/style/qml.ts`
   produce channels:
   - the renderer becomes `channels.color`;
   - data-defined size becomes `size` / `width`;
@@ -268,10 +271,10 @@ behavior change yet.
   before 011 must produce the same QML as today, apart from the added custom
   property. `tests/core/style-interchange*.test.ts` and
   `qgis-heatmap-cases`/`qgis-rules-cases` stay green. T011 passes.
-- [ ] T019 [US2] Make `packages/core/src/style/sld.ts`,
+- [X] T019 [US2] Make `packages/core/src/style/sld.ts`,
   `packages/core/src/style/mapbox.ts` and `interchange.ts` read channels for
   the pre-011 kinds, with identical output. Their existing tests stay green.
-- [ ] T020 [US2] Update `packages/core/src/style/edit.ts` so every existing
+- [X] T020 [US2] Update `packages/core/src/style/edit.ts` so every existing
   edit function writes channels:
   - `startStyle`, `setClassColor`, `setRamp`, the size edits, the rules
     edits, the bivariate edits and the heatmap edits;
@@ -280,7 +283,9 @@ behavior change yet.
   `tests/core/style-edit.test.ts`, `style-rules.test.ts`,
   `style-bivariate.test.ts`, `style-channels.test.ts` and
   `style-heatmap.test.ts` stay green.
-- [ ] T021 [US2] Run every suite:
+  **Slice 1 outcome:** edits still return the pre-011 keys; the store's
+  sanitize turns them into channels. Channel-scoped edits are T025.
+- [X] T021 [US2] Run every suite:
   - `npm test --workspace=tests/core`;
   - the style, accessibility, extrusion and map-image web specs;
   - `tests/vscode-ext` `style.test.ts`;

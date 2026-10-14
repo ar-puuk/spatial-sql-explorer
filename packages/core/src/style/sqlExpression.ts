@@ -3,7 +3,8 @@
 // one hidden column per feature (the matching rule, or the expression's value)
 // that the map's paint reads. Pure builders; QuerySession runs them.
 import { tokenize } from '../sql/scanner.js'
-import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, rendererOf, type LayerStyle, type ResolvedStyle, type RuleDef } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, type LayerStyle, type ResolvedStyle, type RuleDef } from './model.js'
+import { rendererOf } from './legacy.js'
 
 export type ExpressionPurpose = 'condition' | 'value'
 

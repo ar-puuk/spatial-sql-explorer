@@ -7,7 +7,9 @@
 import { sanitizeExtrusion, type Extrusion } from './extrusion.js'
 import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './symbol.js'
 import type { ChannelId, Channels, DrawAs, Output, ScaleKind } from './channels.js'
-import type { LabelSettings } from './labels.js'
+import { sanitizeLabels, type LabelSettings } from './labels.js'
+import { rendererOf, sizeOf, withExtrusion, withRenderer, withSize } from './legacy.js'
+import { sanitizeChannels, sanitizeDraw } from './channels.js'
 
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
@@ -61,8 +63,8 @@ export interface LayerStyle {
   channels?: Channels
   /** Spec 011: the heatmap's settings, used while points are drawn as a heatmap. */
   heatmap?: HeatmapSettings
-  /** Spec 011: the fixed 3D height, when no height channel varies. */
-  height?: { meters: number }
+  /** Spec 011: the fixed 3D height (meters × scale, spec 008's constant), when no height channel varies. */
+  height?: { meters: number; scale?: number }
   /** Spec 011 US6: labels. */
   labels?: LabelSettings
 }
@@ -408,12 +410,6 @@ export const DEFAULT_CLASS_COUNT = 5
 export const MIN_CLASS_COUNT = 2
 export const MAX_CLASS_COUNT = 10
 
-const SINGLE: SingleRenderer = Object.freeze({ kind: 'single' }) as SingleRenderer
-
-/** The style's renderer; spec 001 styles (no renderer) are single. */
-export function rendererOf(style: Pick<LayerStyle, 'renderer'>): Renderer {
-  return style.renderer ?? SINGLE
-}
 
 /** The columns the color channel reads: none, one, or both bivariate axes (spec 009). */
 export function rendererColumns(renderer: Renderer): string[] {
@@ -427,9 +423,9 @@ export function rendererColumns(renderer: Renderer): string[] {
 }
 
 /** Every attribute a style's channels read (color, then size), deduplicated. Map views fetch only these (spec 007). */
-export function styleDataColumns(style: Pick<LayerStyle, 'renderer' | 'size'>): string[] {
+export function styleDataColumns(style: LayerStyle): string[] {
   const cols = rendererColumns(rendererOf(style))
-  const size = style.size?.column
+  const size = sizeOf(style)?.column
   return size && !cols.includes(size) ? [...cols, size] : cols
 }
 
@@ -453,7 +449,6 @@ export const DEFAULT_LAYER_STYLE: Readonly<LayerStyle> = Object.freeze({
   strokeOpacity: 1,
   strokeWidth: 1.5,
   pointRadius: 5,
-  renderer: { kind: 'single' } as SingleRenderer,
 })
 
 export type StyleFormat = 'qml' | 'sld' | 'mapbox'
@@ -553,28 +548,58 @@ function migrateVarySize(style: Partial<LayerStyle>): Partial<LayerStyle> {
   return { ...style, renderer: { kind: 'single' }, size: size as SizeChannel }
 }
 
+/**
+ * A stored, imported or patched style made valid, in channel form (spec 011):
+ * every legacy key present (`renderer`, `size`, `extrusion`; a pre-011 sidecar,
+ * a patch from an edit) is applied over the channels and removed (research §9).
+ */
 export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
   const style = migrateVarySize(raw)
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(style, k)
   const pick = (c: string | undefined, fallback: string): string => {
     const rgba = parseColor(c)
     return rgba ? rgbToHex(rgba) : fallback
   }
   const num = (n: number | undefined, fallback: number, lo: number, hi: number): number =>
     typeof n === 'number' && Number.isFinite(n) ? clamp(n, lo, hi) : fallback
-  return {
+  const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
+  const channels = sanitizeChannels(style.channels)
+  const draw = sanitizeDraw(style.draw)
+  const heatmapRaw = style.heatmap ?? (draw.points === 'heatmap' ? {} : undefined)
+  const heatmap = heatmapRaw && typeof heatmapRaw === 'object' ? heatmapSettings(sanitizeRenderer({ ...heatmapRaw, kind: 'heatmap' } as Partial<Renderer>) as HeatmapRenderer) : undefined
+  const labels = sanitizeLabels(style.labels)
+  let out: LayerStyle = {
     fillColor: pick(style.fillColor, DEFAULT_LAYER_STYLE.fillColor),
     fillOpacity: num(style.fillOpacity, DEFAULT_LAYER_STYLE.fillOpacity, 0, 1),
     strokeColor: pick(style.strokeColor, DEFAULT_LAYER_STYLE.strokeColor),
     strokeOpacity: num(style.strokeOpacity, DEFAULT_LAYER_STYLE.strokeOpacity, 0, 1),
     strokeWidth: num(style.strokeWidth, DEFAULT_LAYER_STYLE.strokeWidth, 0, 50),
     pointRadius: num(style.pointRadius, DEFAULT_LAYER_STYLE.pointRadius, 0.5, 100),
-    renderer: sanitizeRenderer(style.renderer),
-    ...(typeof style.layerOpacity === 'number' && Number.isFinite(style.layerOpacity) && style.layerOpacity < 1 ? { layerOpacity: clamp(style.layerOpacity, 0, 1) } : {}),
-    ...(sanitizeExtrusion(style.extrusion) ? { extrusion: sanitizeExtrusion(style.extrusion) } : {}),
+    ...(finite(style.layerOpacity) && style.layerOpacity < 1 ? { layerOpacity: clamp(style.layerOpacity, 0, 1) } : {}),
     ...(isMarkerShape(style.markerShape) && style.markerShape !== 'circle' ? { markerShape: style.markerShape } : {}),
     ...(isLineDash(style.lineDash) && style.lineDash !== 'solid' ? { lineDash: style.lineDash } : {}),
-    ...(sanitizeSizeChannel(style.size) ? { size: sanitizeSizeChannel(style.size) } : {}),
+    ...(finite(style.lineWidth) ? { lineWidth: clamp(style.lineWidth, 0, 100) } : {}),
+    ...(finite(style.rotation) && style.rotation % 360 !== 0 ? { rotation: style.rotation } : {}),
+    ...(finite(style.opacity) && style.opacity < 1 ? { opacity: clamp(style.opacity, 0, 1) } : {}),
+    ...(Object.keys(draw).length ? { draw } : {}),
+    ...(Object.keys(channels).length ? { channels } : {}),
+    ...(heatmap ? { heatmap } : {}),
+    ...(style.height && finite(style.height.meters)
+      ? { height: { meters: Math.max(0, style.height.meters), ...(finite(style.height.scale) && style.height.scale > 0 && style.height.scale !== 1 ? { scale: style.height.scale } : {}) } }
+      : {}),
+    ...(labels ? { labels } : {}),
   }
+  // Pre-011 keys win over the channels they map to (a sidecar, or a patch from an edit).
+  if (has('renderer')) out = withRenderer(out, sanitizeRenderer(style.renderer))
+  if (has('size')) out = withSize(out, sanitizeSizeChannel(style.size))
+  if (has('extrusion')) out = withExtrusion(out, sanitizeExtrusion(style.extrusion))
+  return out
+}
+
+function heatmapSettings(r: HeatmapRenderer): HeatmapSettings {
+  const { kind: _k, ...settings } = r
+  void _k
+  return settings
 }
 
 /** Spec 009: a stored or imported size channel made valid, or undefined (none). */
@@ -770,7 +795,7 @@ export function validateStyle(style: LayerStyle): string[] {
   if (r.kind === 'bivariate' && (!r.x.column || !r.y.column || r.x.column === r.y.column)) errors.push('Choose two different numeric columns.')
   if (r.kind === 'rules') for (const k of [...r.rules.map((x) => x.color), r.elseColor]) if (!colorOk(k)) errors.push(`"${k}" is not a #rrggbb color.`)
   // Spec 009: the size channel.
-  const size = style.size
+  const size = sizeOf(style)
   if (size) {
     const ok = (v: number | undefined) => v !== undefined && Number.isFinite(v) && v >= SIZE_LO && v <= SIZE_HI
     if (!size.column) errors.push('Choose a column to size by.')

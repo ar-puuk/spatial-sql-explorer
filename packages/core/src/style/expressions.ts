@@ -7,7 +7,8 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { legacyView, rendererOf } from './legacy.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
 
@@ -37,6 +38,7 @@ export function haloColor(selectionColor: string): string {
  * renderer, or a fallback, FR-012).
  */
 export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   if (resolved.status !== 'ok') return null
   const r = rendererOf(style)
   switch (r.kind) {
@@ -165,6 +167,7 @@ function activeSize(style: LayerStyle, resolved: ResolvedStyle): ResolvedSizeCha
 
 /** The size channel's class position per feature (classed), or null. */
 export function sizeIndexExpression(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   const size = activeSize(style, resolved)
   return size && size.mode === 'classed' ? rangeIndex(size.column, size.classes) : null
 }
@@ -207,6 +210,7 @@ function largestRadius(style: LayerStyle, resolved: ResolvedStyle): number | nul
 
 /** The class symbols as expressions (unselected): what `paintFor` draws and the Mapbox GL export writes. */
 export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
+  style = legacyView(style)
   const index = classIndexExpression(style, resolved)
   const base = baseSymbol(style)
   const symbols = classSymbols(style, resolved)
@@ -232,6 +236,7 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
 
 /** Every marker icon the style draws (the map makes the missing ones and drops the rest). */
 export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
+  style = legacyView(style)
   const iconRadius = largestRadius(style, resolved)
   const id = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
   return [...new Set([id(baseSymbol(style)), ...classSymbols(style, resolved).map(id)])]
@@ -242,6 +247,7 @@ export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): strin
  * dashed lines (round caps would fill the gaps of a dotted line).
  */
 export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, Record<string, unknown>>> {
+  style = legacyView(style)
   const dashed = (style.lineDash ?? 'solid') !== 'solid'
   const { icon, iconSize } = symbolExpressions(style, resolved)
   return {
@@ -263,6 +269,7 @@ export function heatmapRadius(r: HeatmapRenderer, layerLatitude = 0): number | u
 
 /** True when the map draws points as a heatmap (and their circles only to show hover and selection). */
 export function drawsHeatmap(style: LayerStyle, resolved: ResolvedStyle): boolean {
+  style = legacyView(style)
   return rendererOf(style).kind === 'heatmap' && resolved.status === 'ok' && !!resolved.heat
 }
 
@@ -272,6 +279,7 @@ export function drawsHeatmap(style: LayerStyle, resolved: ResolvedStyle): boolea
  * negative values weigh 0). The layer opacity applies.
  */
 export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLatitude = 0): Record<string, unknown> {
+  style = legacyView(style)
   const r = rendererOf(style)
   const heat = resolved.heat
   if (r.kind !== 'heatmap' || !heat) return {}
@@ -290,6 +298,7 @@ export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLa
 
 /** `layerLatitude`: the layer's center, for a heatmap radius in meters that has no latitude of its own. */
 export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string, layerLatitude = 0): MapPaint {
+  style = legacyView(style)
   // Spec 008: the layer opacity scales the fill and outline opacities.
   const s = withLayerOpacity(style)
   const sel = selectionColor
@@ -367,6 +376,7 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
 
 /** Hides features of hidden classes (FR-009), in the color or (spec 009) the size channel; null = everything visible. */
 export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   const tests: unknown[] = []
   const index = classIndexExpression(style, resolved)
   if (index !== null) {

@@ -3,11 +3,11 @@
 // most widely accepted dialect; the importer also reads SLD 1.1 / SE
 // (`SvgParameter`, `se:` namespace) by matching local names only.
 // SLD sizes are in pixels by default, and marker `Size` is a diameter.
+import { legacyView } from './legacy.js'
 import {
   DEFAULT_LAYER_STYLE,
   escapeXml,
   parseColor,
-  rendererOf,
   rgbToHex,
   round,
   ruleLabel as ruleDefLabel,
@@ -18,6 +18,7 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
+import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
 import { categorizedFrom, classLayerStyle, graduatedFrom, portableRules, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange, type PortableRule } from './interchange.js'
 import type { SimpleWhere } from './simpleWhere.js'
@@ -260,7 +261,7 @@ function rulesRules(style: LayerStyle, geometry: StyleGeometry, r: RulesRenderer
 }
 
 export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName: string, resolved?: ResolvedStyle): StyleExport {
-  const style = sanitizeStyle(input)
+  const style = legacyView(sanitizeStyle(input))
   const { thematic } = thematicForExport(style, resolved, 'sld')
   const notes = previewExportNotice(style, 'sld', resolved).items
   const sizeClasses = geometry === 'Polygon' ? null : sizeExportClasses(style, resolved)

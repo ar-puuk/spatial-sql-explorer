@@ -4,7 +4,7 @@
 // expression the engine computes, or a pair for bivariate) through a scale.
 // data-model.md has the model; FR-010 the scales each channel offers.
 import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './symbol.js'
-import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, type BivariateMethod, type GraduatedMethod, type LayerStyle, type RampRef, type StyleGeometry } from './model.js'
+import { DEFAULT_CATEGORY_CAP, EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, type BivariateMethod, type GraduatedMethod, type LayerStyle, type RampRef, type StyleGeometry } from './model.js'
 
 export type ChannelId =
   | 'color' // marker fill, line color, polygon fill
@@ -70,6 +70,8 @@ export interface ClassesScale {
   noValue: ClassDef
   ramp?: RampRef
   range?: { min: number; max: number }
+  /** Numeric channels: the curve kept for a switch to Continuous (spec 009 sets it when sizing starts). */
+  curve?: 'linear' | 'area'
 }
 
 export interface ContinuousScale {
@@ -258,7 +260,7 @@ export function fixedValue(style: LayerStyle, channel: ChannelId, part: SymbolPa
     case 'rotation':
       return style.rotation ?? 0
     case 'height':
-      return style.height?.meters ?? 0
+      return (style.height?.meters ?? 0) * (style.height?.scale ?? 1)
   }
 }
 
@@ -289,4 +291,170 @@ export function sourceTitle(source: Source): string {
   if (source.kind === 'column') return source.column
   if (source.kind === 'pair') return [source.x, source.y].filter(Boolean).join(' × ')
   return source.label || source.expression
+}
+
+// --- validation (data-model.md "Validation and migration") ------------------
+
+/** Values with their own class before "Other", per output (shapes and patterns keep one for Other: 7 and 5 in all). */
+export function categoryCapFor(channel: ChannelId): number {
+  const k = OUTPUT_KIND[channel]
+  return k === 'shape' ? 6 : k === 'dash' ? 4 : DEFAULT_CATEGORY_CAP
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+const finiteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+const clampN = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+const METHODS: readonly GraduatedMethod[] = ['equal', 'quantile', 'jenks', 'manual']
+
+function sanitizeClassDef(channel: ChannelId, raw: unknown): ClassDef {
+  const out: ClassDef = {}
+  if (!isObj(raw)) return out
+  if (typeof raw.label === 'string') out.label = raw.label
+  if (raw.visible === false) out.visible = false
+  if (isOutputFor(channel, raw.output)) out.output = raw.output
+  return out
+}
+
+function sanitizeRampRef(raw: unknown): RampRef | undefined {
+  if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id) return undefined
+  return { id: raw.id, reversed: raw.reversed === true }
+}
+
+function sanitizeRange(channel: ChannelId, raw: unknown): { min: number; max: number } | undefined {
+  if (!isObj(raw) || !finiteNum(raw.min) || !finiteNum(raw.max)) return undefined
+  if (!isOutputFor(channel, raw.min) || !isOutputFor(channel, raw.max)) return undefined
+  return { min: Math.min(raw.min, raw.max), max: Math.max(raw.min, raw.max) }
+}
+
+function rows(v: unknown): Array<Record<string, unknown>> {
+  return (Array.isArray(v) ? v : []).filter(isObj)
+}
+
+function sanitizeScale(channel: ChannelId, raw: unknown): Scale | null {
+  if (!isObj(raw) || !scalesFor(channel).includes(raw.kind as ScaleKind)) return null
+  const color = isColorChannel(channel)
+  const ramp = color ? sanitizeRampRef(raw.ramp) : undefined
+  const range = color ? undefined : sanitizeRange(channel, raw.range)
+  const extras = { ...(ramp ? { ramp } : {}), ...(range ? { range } : {}) }
+  switch (raw.kind as ScaleKind) {
+    case 'categories': {
+      const cap = finiteNum(raw.cap) ? clampN(Math.round(raw.cap), 1, categoryCapFor(channel)) : categoryCapFor(channel)
+      return {
+        kind: 'categories',
+        manual: raw.manual === true,
+        categories: rows(raw.categories)
+          .filter((c) => typeof c.value === 'string')
+          .map((c) => ({ value: c.value as string, ...sanitizeClassDef(channel, c) })),
+        other: sanitizeClassDef(channel, raw.other),
+        noValue: sanitizeClassDef(channel, raw.noValue),
+        cap,
+        ...extras,
+      }
+    }
+    case 'classes':
+      return {
+        kind: 'classes',
+        method: METHODS.includes(raw.method as GraduatedMethod) ? (raw.method as GraduatedMethod) : 'quantile',
+        classCount: finiteNum(raw.classCount) ? clampN(Math.round(raw.classCount), 2, 10) : 5,
+        classes: rows(raw.classes)
+          .filter((c) => Number.isInteger(c.index))
+          .map((c) => ({
+            index: c.index as number,
+            ...sanitizeClassDef(channel, c),
+            ...(finiteNum(c.lower) ? { lower: c.lower } : {}),
+            ...(finiteNum(c.upper) ? { upper: c.upper } : {}),
+          })),
+        noValue: sanitizeClassDef(channel, raw.noValue),
+        ...extras,
+        ...(!color && (raw.curve === 'area' || raw.curve === 'linear') ? { curve: raw.curve } : {}),
+      }
+    case 'continuous': {
+      const d = raw.domain
+      const domain = isObj(d) && finiteNum(d.min) && finiteNum(d.max) && d.min < d.max ? { min: d.min, max: d.max } : undefined
+      return {
+        kind: 'continuous',
+        ...(domain ? { domain } : {}),
+        ...extras,
+        ...(!color && (raw.curve === 'area' || raw.curve === 'linear') ? { curve: raw.curve } : {}),
+        noValue: sanitizeClassDef(channel, raw.noValue),
+      }
+    }
+    case 'conditions': {
+      const seen = new Set<string>()
+      const output = (v: unknown): Output | null => (isOutputFor(channel, v) ? v : null)
+      const rules = rows(raw.rules).flatMap((k, i) => {
+        const o = output(k.output)
+        if (o === null) return []
+        let id = typeof k.id === 'string' && k.id ? k.id : `r${i + 1}`
+        while (seen.has(id)) id = `${id}_`
+        seen.add(id)
+        return [{ id, label: typeof k.label === 'string' ? k.label : '', where: typeof k.where === 'string' ? k.where : '', output: o, visible: k.visible !== false }]
+      })
+      const e = isObj(raw.else) ? raw.else : {}
+      const elseOut = output(e.output)
+      if (elseOut === null) return null
+      return { kind: 'conditions', rules, else: { label: typeof e.label === 'string' && e.label.trim() ? e.label : 'Everything else', output: elseOut, visible: e.visible !== false } }
+    }
+    case 'identity':
+      return {
+        kind: 'identity',
+        ...(finiteNum(raw.multiply) && raw.multiply > 0 && raw.multiply !== 1 ? { multiply: raw.multiply } : {}),
+        noValue: sanitizeClassDef(channel, raw.noValue),
+      }
+    case 'bivariate': {
+      const axis = (a: unknown): { method: BivariateMethod } => {
+        const m = isObj(a) ? a.method : undefined
+        return { method: m === 'equal' || m === 'jenks' || m === 'quantile' ? m : 'quantile' }
+      }
+      return {
+        kind: 'bivariate',
+        x: axis(raw.x),
+        y: axis(raw.y),
+        palette: typeof raw.palette === 'string' && raw.palette ? raw.palette : 'orange-blue',
+        hidden: (Array.isArray(raw.hidden) ? raw.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-2]-[0-2]$/.test(k)),
+        noValue: sanitizeClassDef(channel, raw.noValue),
+      }
+    }
+  }
+}
+
+function sanitizeSource(scale: Scale, raw: unknown): Source | null {
+  // Conditions read the engine's rule column; their source is only a placeholder.
+  const none: Source | null = scale.kind === 'conditions' ? { kind: 'column', column: '' } : null
+  if (!isObj(raw)) return none
+  if (scale.kind === 'bivariate') return raw.kind === 'pair' && typeof raw.x === 'string' && typeof raw.y === 'string' ? { kind: 'pair', x: raw.x, y: raw.y } : null
+  if (raw.kind === 'expression' && typeof raw.expression === 'string' && raw.expression.trim()) {
+    return { kind: 'expression', expression: raw.expression.trim(), ...(typeof raw.label === 'string' && raw.label ? { label: raw.label } : {}) }
+  }
+  if (raw.kind === 'column' && typeof raw.column === 'string') return { kind: 'column', column: raw.column }
+  return none
+}
+
+/** One stored encoding made valid, or null (dropped: a scale the channel doesn't offer, or no usable source). */
+export function sanitizeEncoding(channel: ChannelId, raw: unknown): Encoding | null {
+  if (!isObj(raw)) return null
+  const scale = sanitizeScale(channel, raw.scale)
+  if (!scale) return null
+  const source = sanitizeSource(scale, raw.source)
+  if (!source) return null
+  const l = raw.legend
+  const legend = isObj(l) ? { ...(typeof l.title === 'string' && l.title ? { title: l.title } : {}), ...(l.hidden === true ? { hidden: true } : {}) } : {}
+  return { source, scale, ...(Object.keys(legend).length ? { legend } : {}) }
+}
+
+/** Stored channels made valid: unknown channel ids and unusable encodings are dropped. */
+export function sanitizeChannels(raw: unknown): Channels {
+  const out: Channels = {}
+  if (!isObj(raw)) return out
+  for (const id of CHANNEL_ORDER) {
+    const enc = sanitizeEncoding(id, raw[id])
+    if (enc) out[id] = enc
+  }
+  return out
+}
+
+/** A stored `draw` made valid; the defaults (markers, fills) are left out. */
+export function sanitizeDraw(raw: unknown): DrawAs {
+  if (!isObj(raw)) return {}
+  return { ...(raw.points === 'heatmap' ? { points: 'heatmap' as const } : {}), ...(raw.polygons === '3d' ? { polygons: '3d' as const } : {}) }
 }

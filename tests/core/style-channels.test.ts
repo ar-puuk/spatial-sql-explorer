@@ -33,6 +33,8 @@ import {
   visibilityFilter,
   type LayerStyle,
   type ResolvedStyle,
+  rendererOf,
+  sizeOf,
 } from '@spatial-explorer/core'
 import { SNAPSHOT_LAYER, snapshotStyles } from './fixtures/style/pre-009-styles'
 
@@ -106,10 +108,10 @@ describe('the size channel resolves on its own column (US1)', () => {
     expect(resolveStyle(style, roads).size?.classes[0].label).toBe('Quiet')
     const resolved = resolveStyle(style, roads)
     style = setSizeClassBound(style, resolved, 0, 'upper', 1000)
-    expect(style.size?.method).toBe('manual')
+    expect(sizeOf(style)?.method).toBe('manual')
     expect(resolveStyle(style, roads).size?.classes[0].upper).toBe(1000)
     expect(validateStyle(setSizeRange(style, 8, 3))).toContain('The smallest size must not be larger than the largest.')
-    expect(setSizeChannel(style, null, 'line').size).toBeUndefined()
+    expect(sizeOf(setSizeChannel(style, null, 'line'))).toBeUndefined()
   })
 })
 
@@ -198,8 +200,8 @@ describe('styles saved with Graduated "Vary: Size" open unchanged (US3, FR-009)'
 
   it('migrates to a single color with a classed size channel on the same column', () => {
     const style = sanitizeStyle(legacy)
-    expect(style.renderer).toEqual({ kind: 'single' })
-    expect(style.size).toEqual({
+    expect(rendererOf(style)).toEqual({ kind: 'single' })
+    expect(sizeOf(style)).toEqual({
       column: 'v',
       mode: 'classed',
       method: 'quantile',
@@ -212,7 +214,7 @@ describe('styles saved with Graduated "Vary: Size" open unchanged (US3, FR-009)'
       sizeMin: 2,
       sizeMax: 10,
     })
-    expect(JSON.stringify(style.renderer)).not.toMatch(/vary|sizeMin|sizeMax/)
+    expect(JSON.stringify(rendererOf(style))).not.toMatch(/vary|sizeMin|sizeMax/)
   })
 
   it('draws every feature at the same radius, with the same labels and hidden class', () => {
@@ -230,10 +232,10 @@ describe('styles saved with Graduated "Vary: Size" open unchanged (US3, FR-009)'
   it('a QGIS GraduatedSize file imports as a size channel (sizes in pixels)', () => {
     const { style } = importStyle('a.qml', readFileSync(`${import.meta.dirname}/fixtures/style/symbols/pt_gradsize.qml`, 'utf8'))
     const mm = 96 / 25.4
-    expect(style.renderer).toEqual({ kind: 'single' })
-    expect(style.size?.column).toBe('v')
-    expect(style.size?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
-    expect(style.size?.sizeMax).toBeCloseTo(5 * mm, 1)
+    expect(rendererOf(style)).toEqual({ kind: 'single' })
+    expect(sizeOf(style)?.column).toBe('v')
+    expect(sizeOf(style)?.sizeMin).toBeCloseTo(mm, 1) // a 2 mm diameter is a 1 mm radius
+    expect(sizeOf(style)?.sizeMax).toBeCloseTo(5 * mm, 1)
   })
 
   it('the old fields are never written again', () => {
@@ -271,7 +273,7 @@ describe('proportional sizes (US2)', () => {
     expect(samples.length).toBeLessThanOrEqual(5)
     expect(samples[0].value).toBe(Math.min(...values))
     expect(samples.at(-1)?.value).toBe(Math.max(...values))
-    for (const s of samples) expect(s.size).toBe(proportionalSize(s.value, r.size?.domain as { min: number; max: number }, 1, 6, 'line'))
+    for (const s of samples) expect(sizeOf(s)).toBe(proportionalSize(s.value, r.size?.domain as { min: number; max: number }, 1, 6, 'line'))
     expect(r.size?.classes.map((c) => c.kind)).toEqual(['noValue'])
   })
 
@@ -350,12 +352,12 @@ describe('style files keep the size channel (US5)', () => {
     for (const geometry of ['Point', 'LineString'] as const) {
       for (const mode of ['classed', 'proportional'] as const) {
         const style = setSizeMode(setSizeRange(withSize(categorized, geometry === 'Point' ? 'point' : 'line'), 2, 9), mode)
-        for (const format of ['qml', 'mapbox'] as const) expect(roundTrip(style, format, geometry).back.style.size, `${format} ${geometry} ${mode}`).toEqual(style.size)
+        for (const format of ['qml', 'mapbox'] as const) expect(sizeOf(roundTrip(style, format, geometry).back.style), `${format} ${geometry} ${mode}`).toEqual(sizeOf(style))
       }
     }
     const sizeOnly = withSize(base, 'line')
     const sld = roundTrip(sizeOnly, 'sld', 'LineString').back
-    expect(sld.style.size?.column).toBe('aadt')
+    expect(sizeOf(sld.style)?.column).toBe('aadt')
     const sizesOf = (s: LayerStyle) => resolveStyle(s, roads).size?.classes.filter((c) => c.kind === 'range').map((c) => c.size)
     expect(sizesOf(sld.style)).toEqual(sizesOf(sizeOnly))
   })
@@ -385,15 +387,15 @@ describe('style files keep the size channel (US5)', () => {
       expect(evaluate(line.paint['line-width'], f.attributes, 'layers[0].paint.line-width')).toBe(unselected)
     }
     const foreign = JSON.stringify({ version: 8, sources: {}, layers: [{ id: 'l', type: 'line', paint: { 'line-color': '#ff0000', 'line-width': ['interpolate', ['linear'], ['get', 'aadt'], 100, 1, 4000, 8] } }] })
-    expect(importStyle('x.json', foreign).style.size).toMatchObject({ column: 'aadt', mode: 'proportional', sizeMin: 1, sizeMax: 8, scale: 'linear' })
+    expect(sizeOf(importStyle('x.json', foreign).style)).toMatchObject({ column: 'aadt', mode: 'proportional', sizeMin: 1, sizeMax: 8, scale: 'linear' })
   })
 
   it('QML from QGIS: a size assistant transformer imports as proportional; an expression size gives a note', () => {
     const spikes = `${import.meta.dirname}/../../specs/009-multichannel-bivariate/spikes`
     const t = importStyle('a.qml', readFileSync(`${spikes}/qgis-dd-linear.qml`, 'utf8'))
-    expect(t.style.size).toMatchObject({ column: 'v', mode: 'proportional', scale: 'linear' })
+    expect(sizeOf(t.style)).toMatchObject({ column: 'v', mode: 'proportional', scale: 'linear' })
     const e = importStyle('a.qml', readFileSync(`${spikes}/qgis-dd-steps.qml`, 'utf8'))
-    expect(e.style.size).toBeUndefined()
+    expect(sizeOf(e.style)).toBeUndefined()
     expect(e.notes.join()).toMatch(/data-defined size expression/)
   })
 })
