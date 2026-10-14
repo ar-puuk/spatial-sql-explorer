@@ -3,15 +3,16 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
-import { legacyView, rendererOf } from './legacy.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedChannel, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { legacyView, rendererFromEncoding, rendererOf, sizeChannelFromEncoding } from './legacy.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
 import { heatmapPeak, mercatorRadius } from '../view/heat.js'
-import { channelDataColumns, type ChannelId } from './channels.js'
+import { CHANNEL_ORDER, OUTPUT_KIND, channelDataColumns, fixedValue, isColorChannel, isOutputFor, type ChannelId, type ClassDef, type Encoding, type Output } from './channels.js'
+import { MARKER_SHAPES, LINE_DASHES } from './symbol.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -132,6 +133,7 @@ export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): Res
   // Spec 009: the size channel, next to any color channel but bivariate.
   const size = resolveSizeChannel(style, layer)
   const out = size ? { ...color, size } : color
+  layerOf.set(out, layer)
   const channels = resolvedChannels(style, out)
   return channels ? { ...out, channels } : out
 }
@@ -162,7 +164,7 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
   const size = r.size
   for (const id of ['size', 'width'] as const) {
     const e = enc[id]
-    if (!e || !size) continue
+    if (!e || !size || !sizeChannelFromEncoding(e)) continue
     out[id] = {
       channel: id,
       status: size.status,
@@ -176,6 +178,12 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
       notes: size.notes,
     }
   }
+  // Spec 011: every other channel with categories or classes (slice 2).
+  for (const id of CHANNEL_ORDER) {
+    const e = enc[id]
+    if (!e || out[id] || !isGenericChannel(id, e)) continue
+    out[id] = genericChannel(style, id, e, layerOf.get(r) ?? null)
+  }
   const height = enc.height
   if (height && style.draw?.polygons === '3d') {
     const column = channelDataColumns('height', height)[0] ?? ''
@@ -183,6 +191,86 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
   }
   return Object.keys(out).length ? out : undefined
 }
+
+/** The layer a resolved style was made from (resolvedChannels needs it for the generic channels). */
+const layerOf = new WeakMap<ResolvedStyle, ResolveInput | null>()
+
+/**
+ * Spec 011: whether a channel resolves on its own here (rather than through
+ * the pre-011 color and size code): any channel but color with categories or
+ * classes, except size and width with classes (spec 009's size channel).
+ */
+export function isGenericChannel(id: ChannelId, enc: Encoding): boolean {
+  if (id === 'color' || id === 'height') return false
+  if (enc.scale.kind !== 'categories' && enc.scale.kind !== 'classes') return false
+  if ((id === 'size' || id === 'width') && sizeChannelFromEncoding(enc)) return false
+  return true
+}
+
+/** Default output ranges when a numeric channel has none of its own. */
+const DEFAULT_RANGES: Partial<Record<ChannelId, { min: number; max: number }>> = {
+  strokeWidth: { min: 0.5, max: 4 },
+  size: { min: 2, max: 10 },
+  width: { min: 1, max: 6 },
+  opacity: { min: 0.3, max: 1 },
+  rotation: { min: 0, max: 315 },
+  height: { min: 0, max: 100 },
+}
+
+/** Shapes and patterns in the order classes take them; "Other" takes the last one (FR-013). */
+const SHAPE_ORDER = MARKER_SHAPES
+const DASH_ORDER = LINE_DASHES
+
+/**
+ * Spec 011: a channel with categories or classes, resolved with the same
+ * classification as a categorized or graduated color (the same classes,
+ * counts, keys and labels), each class with its output: its own, or one
+ * spread from the ramp, the range, or the shape and pattern lists.
+ */
+function genericChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  const r = rendererFromEncoding(enc)
+  const res = r.kind === 'categorized' ? categorized(style, r, layer) : r.kind === 'graduated' ? graduated(style, r, layer) : single(style, layer)
+  const dataColumn = channelDataColumns(id, enc)[0] ?? ''
+  const fixed = fixedValue(style, id, id === 'width' || id === 'dash' ? 'line' : 'marker')
+  if (res.status !== 'ok') {
+    return { channel: id, status: 'fallback', ...(res.reason ? { reason: res.reason } : {}), scale: enc.scale.kind, caption: res.caption, classes: res.classes.map((c) => ({ ...c, output: fixed })), dataColumn, notes: res.notes }
+  }
+  const scale = enc.scale
+  const defOf = (c: ResolvedClass): ClassDef | undefined => {
+    if (scale.kind === 'categories') {
+      if (c.kind === 'value') return scale.categories.find((k) => k.value === c.value)
+      if (c.kind === 'other') return scale.other
+      if (c.kind === 'noValue') return scale.noValue
+    }
+    if (scale.kind === 'classes') {
+      if (c.kind === 'range') return scale.classes.find((k) => k.index === Number(c.key.slice('range:'.length)))
+      if (c.kind === 'noValue') return scale.noValue
+    }
+    return undefined
+  }
+  const valued = res.classes.filter((c) => c.kind === 'value' || c.kind === 'range')
+  const kind = OUTPUT_KIND[id]
+  const range = (scale.kind === 'categories' || scale.kind === 'classes' ? scale.range : undefined) ?? DEFAULT_RANGES[id] ?? { min: 0, max: 1 }
+  const spread = classSizes(valued.length, range.min, range.max)
+  const notes = [...res.notes]
+  const defaultOutput = (c: ResolvedClass): Output => {
+    const i = valued.indexOf(c)
+    if (isColorChannel(id)) return c.color
+    if (kind === 'shape') return c.kind === 'other' ? SHAPE_ORDER[SHAPE_ORDER.length - 1] : i >= 0 ? SHAPE_ORDER[i % (SHAPE_ORDER.length - 1)] : fixed
+    if (kind === 'dash') return c.kind === 'other' ? DASH_ORDER[DASH_ORDER.length - 1] : i >= 0 ? DASH_ORDER[i % (DASH_ORDER.length - 1)] : fixed
+    return i >= 0 ? spread[i] : fixed
+  }
+  const classes = res.classes.map((c) => {
+    const own = defOf(c)?.output
+    const output = own !== undefined && isOutputFor(id, own) ? own : defaultOutput(c)
+    return { ...c, output }
+  })
+  if ((kind === 'shape' || kind === 'dash') && classes.some((c) => c.kind === 'other')) {
+    notes.push(`Only ${kind === 'shape' ? SHAPE_ORDER.length - 1 : DASH_ORDER.length - 1} values get their own ${kind === 'shape' ? 'shape' : 'pattern'}: the rest share "Other".`)
+  }
+  return { channel: id, status: 'ok', scale: scale.kind, caption: res.caption, classes, dataColumn, notes }
+}
+
 
 function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
   const r = rendererOf(style)

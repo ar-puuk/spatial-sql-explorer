@@ -238,7 +238,7 @@ export function sizeChannelFromEncoding(enc: Encoding | undefined): SizeChannel 
 /** The style's size channel, as the pre-011 code reads it. */
 export function sizeOf(style: Pick<LayerStyle, 'size' | 'channels'>): SizeChannel | undefined {
   if (has(style, 'size')) return style.size
-  return sizeChannelFromEncoding(style.channels?.size ?? style.channels?.width)
+  return sizeChannelFromEncoding(style.channels?.size) ?? sizeChannelFromEncoding(style.channels?.width)
 }
 
 /** The style with `size` as its marker size and line width channels (undefined: both fixed). */
