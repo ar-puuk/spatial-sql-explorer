@@ -256,6 +256,13 @@ export function channelValue(style: LayerStyle, resolved: ResolvedStyle, id: Cha
   const rc = genericResolved(style, resolved, id)
   // Spec 011 US4: continuous and as is read the value itself.
   if (rc && (rc.scale === 'continuous' || rc.scale === 'identity')) return scaledValue(style, rc, id, fixed, forIcon)
+  // Spec 011 US4: conditions, by the rule index the engine computed (-1: everything else).
+  if (rc && rc.scale === 'conditions') {
+    const rules = rc.classes.filter((c) => c.kind === 'rule')
+    const elseOut = wrap(rc.classes.find((c) => c.kind === 'other')?.output ?? fixed)
+    const arms = rules.flatMap((c, i) => (c.error ? [] : [i, wrap(c.output ?? fixed)]))
+    return arms.length ? ['match', ['to-number', ['get', rc.dataColumn], -1], ...arms, elseOut] : elseOut
+  }
   const index = genericIndex(style, resolved, id)
   if (!rc || index === null) return id === 'dash' ? dashPattern(fixed as LineDash) : fixed
   const arms: unknown[] = []
@@ -574,6 +581,13 @@ export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): un
   // Spec 011: a class hidden in any other channel hides its features too.
   for (const id of CHANNEL_ORDER) {
     const rc = genericResolved(style, resolved, id)
+    // Spec 011 US4: conditions hide by rule index (-1: everything else).
+    if (rc && rc.scale === 'conditions') {
+      const rules = rc.classes.filter((c) => c.kind === 'rule')
+      const hidden = [...rules.flatMap((c, i) => (c.visible ? [] : [i])), ...(rc.classes.find((c) => c.kind === 'other')?.visible === false ? [-1] : [])]
+      if (hidden.length) tests.push(['!', ['in', ['to-number', ['get', rc.dataColumn], -1], ['literal', hidden]]])
+      continue
+    }
     // Spec 011 US4: continuous and as is have only "No value" to hide.
     if (rc && (rc.scale === 'continuous' || rc.scale === 'identity')) {
       if (rc.classes.some((c) => c.kind === 'noValue' && !c.visible)) tests.push(['!', scaledMissing(rc, id)])

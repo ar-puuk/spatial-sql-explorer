@@ -307,6 +307,28 @@ export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | 
     const enc = style.channels[id]
     const rc = resolved.channels[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
+    // Spec 011 US4: conditions, as QGIS expressions in order (conditions the engine refused are left out).
+    if (enc.scale.kind === 'conditions') {
+      const rules = rc.classes.filter((c) => c.kind === 'rule')
+      const elseClass = rc.classes.find((c) => c.kind === 'other')
+      const fixedOut = fixedValue(style, id, kind === 'line' ? 'line' : 'marker')
+      const arms = enc.scale.rules.flatMap((r, i) => (rules[i]?.error || !r.where.trim() ? [] : [{ i, where: r.where, output: r.output }]))
+      const caseOf = (map: (o: Output) => string, elseOut: Output) => (arms.length ? `CASE ${arms.map((a) => `WHEN (${a.where}) THEN ${map(a.output)}`).join(' ')} ELSE ${map(elseOut)} END` : map(elseOut))
+      const index = arms.length ? `CASE ${arms.map((a) => `WHEN (${a.where}) THEN ${a.i}`).join(' ')} ELSE -1 END` : '-1'
+      const hiddenIdx = [...rules.flatMap((c, i) => (c.visible ? [] : [i])), ...(elseClass?.visible === false ? [-1] : [])]
+      if (hiddenIdx.length) hidden.push(`((${index}) IN (${hiddenIdx.join(', ')}))`)
+      if (arms.length && !notes.some((n) => n.startsWith('Conditions were written'))) notes.push('Conditions were written as QGIS expressions; SQL-only functions may need adjusting in QGIS.')
+      const expr = caseOf((o) => qgisOutput(id, o), elseClass?.output ?? fixedOut)
+      if (id === 'shape' && kind === 'marker') shapeOurs = caseOf((o) => qgisString(String(o)), elseClass?.output ?? fixedOut)
+      if (id === 'opacity') opacity = expr
+      else if (id === 'rotation') {
+        if (kind === 'marker') rotation = expr
+      } else {
+        const key = qgisKey(id, kind)
+        if (key) layer.push([key, expressionEntries(expr)])
+      }
+      continue
+    }
     if (enc.source.kind !== 'column') {
       notes.push(`${CHANNEL_NAMES[id]} by an expression isn't written to QGIS: it uses the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
       continue

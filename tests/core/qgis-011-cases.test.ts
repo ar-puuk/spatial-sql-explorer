@@ -22,6 +22,9 @@ import {
   setChannelClass,
   setChannelClasses,
   setChannelColumn,
+  addCondition,
+  updateCondition,
+  setConditionElse,
   setChannelCurve,
   setChannelRamp,
   setChannelRange,
@@ -113,7 +116,29 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
     asIs = setScaleKind(setChannelColumn(asIs, 'rotation', 'deg', layer), 'rotation', 'identity', layer)
     asIs = setScaleKind(setChannelColumn(asIs, 'strokeColor', 'hex', layer), 'strokeColor', 'identity', layer)
     asIs = setFixed(asIs, 'strokeWidth', 2)
-    const cases: Array<{ name: string; geometry: 'point' | 'line' | 'polygon'; style: LayerStyle }> = [
+    // Spec 011 US4: conditions (the map reads the engine's rule index, computed below as the engine would).
+    let byRules: LayerStyle = setScaleKind(setChannelColumn(base, 'shape', 'kind', layer), 'shape', 'conditions', layer)
+    byRules = updateCondition(byRules, 'shape', 'r1', { where: 'deg > 180', output: 'star' })
+    byRules = addCondition(byRules, 'shape', "cls = 'A'")
+    byRules = updateCondition(byRules, 'shape', 'r2', { output: 'square' })
+    byRules = setScaleKind(setChannelColumn(byRules, 'strokeWidth', 'num', layer), 'strokeWidth', 'conditions', layer)
+    byRules = updateCondition(byRules, 'strokeWidth', 'r1', { where: 'num > 50', output: 3, visible: true })
+    byRules = addCondition(byRules, 'strokeWidth', 'num > 90')
+    byRules = updateCondition(byRules, 'strokeWidth', 'r2', { visible: false })
+    byRules = setConditionElse(byRules, 'strokeWidth', { output: 1 })
+    const ruleIndex = (tests: Array<(r: (typeof rows)[number]) => boolean>) => (r: (typeof rows)[number]) => tests.findIndex((t) => t(r))
+    const engine: Record<string, (r: (typeof rows)[number]) => number> = {
+      __se_cls_shape: ruleIndex([(r) => r.deg > 180, (r) => r.cls === 'A']),
+      __se_cls_strokeWidth: ruleIndex([(r) => r.num !== null && r.num > 50, (r) => r.num !== null && r.num > 90]),
+    }
+    const counted = () => ({
+      ...layer,
+      ruleCountsByChannel: Object.fromEntries(
+        Object.entries(engine).map(([col, f]) => [col.replace('__se_cls_', ''), rows.reduce((m, r) => m.set(f(r), (m.get(f(r)) ?? 0) + 1), new Map<number, number>())])
+      ),
+    })
+    const cases: Array<{ name: string; geometry: 'point' | 'line' | 'polygon'; style: LayerStyle; input?: ReturnType<typeof counted> }> = [
+      { name: 'points-conditions', geometry: 'point', style: byRules, input: counted() },
       { name: 'points-continuous', geometry: 'point', style: smooth },
       { name: 'points-as-is', geometry: 'point', style: asIs },
       { name: 'points-shape-outline-rotation-opacity', geometry: 'point', style: points },
@@ -128,7 +153,7 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
     const dir = OUT as string
     fs.mkdirSync(dir, { recursive: true })
     for (const c of cases) {
-      const resolved = resolveStyle(c.style, layer)
+      const resolved = resolveStyle(c.style, c.input ?? layer)
       const geometryType = c.geometry === 'point' ? 'Point' : c.geometry === 'line' ? 'LineString' : 'Polygon'
       const features = rows.map((p, i) => ({
         type: 'Feature',
@@ -146,7 +171,9 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
       const l = layoutFor(c.style, resolved)
       const filter = visibilityFilter(c.style, resolved)
       const ev = (e: unknown, props: Record<string, unknown>, key: string) => evaluate(e, props, `layers[0].${key}`, geometryType)
-      const expected = rows.map((props) => {
+      const expected = rows.map((row) => {
+        // The engine's rule index per property, as the map reads it (conditions cases).
+        const props: Record<string, unknown> = { ...row, ...(c.input ? Object.fromEntries(Object.entries(engine).map(([col, f]) => [col, f(row)])) : {}) }
         const visible = filter ? ev(filter, props, 'filter') === true : true
         const out: Record<string, unknown> = { visible }
         if (c.geometry === 'point') {

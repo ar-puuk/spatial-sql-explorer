@@ -5,7 +5,7 @@
 import { tokenize } from '../sql/scanner.js'
 import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, type LayerStyle, type ResolvedStyle, type RuleDef } from './model.js'
 import { rendererOf } from './legacy.js'
-import { LABEL_COLUMN } from './channels.js'
+import { LABEL_COLUMN, conditionsColumn, type ChannelId, type Encoding } from './channels.js'
 
 /** Spec 011 US6: `text`, a label: any type, shown as text. */
 export type ExpressionPurpose = 'condition' | 'value' | 'text'
@@ -42,7 +42,7 @@ export function checkExpression(text: string, purpose: ExpressionPurpose = 'cond
  * or -1. Rules not in `usable` (empty or invalid conditions) match nothing,
  * and keep their index.
  */
-export function ruleCaseSql(rules: readonly RuleDef[], usable: ReadonlySet<string>): string {
+export function ruleCaseSql(rules: ReadonlyArray<Pick<RuleDef, 'id' | 'where'>>, usable: ReadonlySet<string>): string {
   const arms = rules.flatMap((r, i) => (usable.has(r.id) ? [`WHEN (${r.where}) THEN ${i}`] : []))
   return arms.length ? `CASE ${arms.join(' ')} ELSE -1 END` : '-1'
 }
@@ -53,7 +53,7 @@ export function expressionValueSql(expression: string): string {
 }
 
 /** Features per rule (`cls`: the rule index, -1 everything else), in one pass. */
-export function ruleCountsSql(relation: string, rules: readonly RuleDef[], usable: ReadonlySet<string>): string {
+export function ruleCountsSql(relation: string, rules: ReadonlyArray<Pick<RuleDef, 'id' | 'where'>>, usable: ReadonlySet<string>): string {
   return `SELECT cls, count(*) AS n FROM (SELECT ${ruleCaseSql(rules, usable)} AS cls FROM ${relation}) GROUP BY cls`
 }
 
@@ -84,6 +84,13 @@ export function computedColumns(style: LayerStyle, resolved: ResolvedStyle | nul
     out.push({ name: RULE_CLASS_COLUMN, sql: ruleCaseSql(r.rules, usable), type: 'INTEGER' })
   }
   if (resolved.status === 'ok' && r.kind === 'graduated' && r.expression) out.push({ name: EXPRESSION_VALUE_COLUMN, sql: expressionValueSql(r.expression), type: 'DOUBLE' })
+  // Spec 011 US4: each property by conditions: its rule index (conditions the engine refused match nothing).
+  for (const [id, enc] of Object.entries(style.channels ?? {}) as Array<[ChannelId, Encoding]>) {
+    const rc = resolved.channels?.[id]
+    if (id === 'color' || enc.scale.kind !== 'conditions' || rc?.status !== 'ok') continue
+    const usable = new Set(rc.classes.flatMap((c) => (c.kind === 'rule' && c.ruleId && !c.error ? [c.ruleId] : [])))
+    out.push({ name: conditionsColumn(id), sql: ruleCaseSql(enc.scale.rules, usable), type: 'INTEGER' })
+  }
   // Spec 011 US6: an expression label's text, once the engine accepted it (whatever the color does).
   const l = style.labels
   if (l?.enabled && l.source.kind === 'expression' && !resolved.labelError) out.push({ name: LABEL_COLUMN, sql: labelTextSql(l.source.expression), type: 'VARCHAR' })

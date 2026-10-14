@@ -22,9 +22,9 @@ import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
 import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
 import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
-import type { SimpleWhere } from './simpleWhere.js'
+import { hasLike, parseSimpleWhere, type SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
-import { OUTPUT_KIND, type ChannelId, type Channels, type ClassDef, type Encoding } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, type ChannelId, type Channels, type ClassDef, type Encoding } from './channels.js'
 import { labelLayers, labelTextField } from './labelLayer.js'
 import { labelColumnOf, sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 
@@ -183,6 +183,26 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       if (id === 'label' && !wants('Point') && !wants('Polygon')) continue
       if (id === 'label-line' && !wants('LineString')) continue
       layers.push({ id: `${layerName}-${suffix}`, type: 'symbol', source, filter: swap(spec.filter), layout: { ...(swap(spec.layout) as object), 'text-font': MAPBOX_FONT }, paint: spec.paint })
+    }
+  }
+  // Spec 011 US4: properties by conditions read the rule index the engine computes, which a style file
+  // can't: simple conditions become a case over the data's own columns, others everything else's output.
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels?.[id]
+    const rc = resolved?.channels?.[id]
+    if (id === 'color' || enc?.scale.kind !== 'conditions' || rc?.status !== 'ok') continue
+    const rules = enc.scale.rules
+    const errors = new Set(rc.classes.flatMap((c) => (c.kind === 'rule' && c.error && c.ruleId ? [c.ruleId] : [])))
+    const parsed = rules.map((r) => (errors.has(r.id) || !r.where.trim() ? null : parseSimpleWhere(r.where)))
+    const portable = rules.every((r, i) => errors.has(r.id) || !r.where.trim() || (parsed[i] && !hasLike(parsed[i])))
+    const arms = portable ? parsed.flatMap((w, i) => (w ? [whereExpression(w), i] : [])) : []
+    const index = arms.length ? ['case', ...arms, -1] : -1
+    if (!portable) notes.push(`${CHANNEL_NAMES[id]}: conditions other than simple comparisons can't be written to Mapbox GL; everything takes "${enc.scale.else.label}".`)
+    const from = JSON.stringify(['get', rc.dataColumn])
+    for (const l of layers as Array<Record<string, unknown>>) {
+      for (const part of ['paint', 'layout', 'filter'] as const) {
+        if (l[part] !== undefined) l[part] = JSON.parse(JSON.stringify(l[part]).split(from).join(JSON.stringify(index)))
+      }
     }
   }
   const doc = {

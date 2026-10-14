@@ -222,6 +222,7 @@ function sldScaleNotes(style: LayerStyle, resolved: ResolvedStyle | undefined): 
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
     if (enc.scale.kind === 'continuous') out.push(`SLD has no continuous scale: ${CHANNEL_NAMES[id]} was written as ${SLD_CONTINUOUS_CLASSES} equal classes.`)
     if (enc.scale.kind === 'identity') out.push(`SLD can't read ${CHANNEL_NAMES[id].toLowerCase()} from a column as is: it keeps the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
+    if (enc.scale.kind === 'conditions') out.push(`${CHANNEL_NAMES[id]} by conditions isn't written to SLD: it keeps the fixed ${CHANNEL_NAMES[id].toLowerCase()} there (QML and Mapbox GL keep the conditions).`)
   }
   return out
 }
@@ -261,8 +262,8 @@ function genericAxes(style: LayerStyle, resolved: ResolvedStyle | undefined): Ax
     const enc = style.channels?.[id]
     const rc = resolved?.channels?.[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc) || enc.source.kind !== 'column') continue
-    // Spec 011 US4: as is can't be read from a column in SLD (sldScaleNotes says so).
-    if (enc.scale.kind === 'identity') continue
+    // Spec 011 US4: as is and conditions aren't written to SLD (sldScaleNotes says so).
+    if (enc.scale.kind === 'identity' || enc.scale.kind === 'conditions') continue
     if (enc.scale.kind === 'continuous') {
       const scale = enc.scale
       const domain = rc.domain

@@ -34,18 +34,21 @@ import {
 import { rendererOf, sizeOf, toChannelShape } from './legacy.js'
 import { toCategory } from './classify.js'
 import { defaultRamp, rampById, rampColors } from './ramps.js'
-import { DEFAULT_SIZE_RANGE, type LineDash, type MarkerShape } from './symbol.js'
+import { DEFAULT_SIZE_RANGE, LINE_DASHES, MARKER_SHAPES, type LineDash, type MarkerShape } from './symbol.js'
 import { eligibleColumns, isNumericType, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
 import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import {
   OUTPUT_KIND,
   categoryCapFor,
+  fixedValue,
   isColorChannel,
   isOutputFor,
   type CategoriesScale,
   type ChannelId,
   type ClassDef,
   type ClassesScale,
+  type ConditionRule,
+  type ConditionsScale,
   type Encoding,
   type Output,
   type Scale,
@@ -508,7 +511,7 @@ function withRules(style: LayerStyle, patch: (r: RulesRenderer) => Partial<Rules
 }
 
 /** A rule id not used yet. */
-function newRuleId(rules: readonly RuleDef[]): string {
+function newRuleId(rules: ReadonlyArray<Pick<RuleDef, 'id'>>): string {
   const used = new Set(rules.map((r) => r.id))
   let i = rules.length + 1
   while (used.has(`r${i}`)) i++
@@ -800,6 +803,11 @@ export function setScaleKind(style: LayerStyle, channel: ChannelId, kind: Scale[
       return { ...e, scale: { kind: 'continuous', noValue: {}, ...(color ? { ramp } : { range: old.range ?? (range ? { ...range } : { min: 0, max: 1 }) }), ...(channel === 'size' ? { curve: 'area' as const } : {}) } }
     }
     if (kind === 'identity') return { ...e, scale: { kind: 'identity', noValue: {} } }
+    // Spec 011 US4: conditions start with one rule to write, everything else at the fixed value.
+    if (kind === 'conditions') {
+      const fixed = fixedValue(style, channel, channel === 'width' || channel === 'dash' ? 'line' : 'marker')
+      return { ...e, scale: { kind: 'conditions', rules: [{ id: 'r1', label: '', where: '', output: conditionOutput(channel, 0, fixed), visible: true }], else: { label: DEFAULT_ELSE_LABEL, output: fixed, visible: true } } }
+    }
     return e
   })
 }
@@ -881,4 +889,58 @@ export function setLabels(style: LayerStyle, patch: LabelPatch, columns: Readonl
   const placement = { kind: 'point', ...(current?.placement.kind === 'point' ? current.placement : {}), ...patch.placement }
   const labels = sanitizeLabels({ ...current, ...patch, source, halo: { ...current?.halo, ...patch.halo }, placement })
   return { ...style, labels }
+}
+
+// --- Spec 011 US4: conditions on any property ------------------------------------
+
+/** A first output for the n-th condition: a qualitative color, the next shape or pattern, or a step up from the fixed value. */
+function conditionOutput(channel: ChannelId, n: number, fixed: Output): Output {
+  const kind = OUTPUT_KIND[channel]
+  if (kind === 'color') return ruleColor(n)
+  if (kind === 'shape') return MARKER_SHAPES[(n + 1) % MARKER_SHAPES.length]
+  if (kind === 'dash') return LINE_DASHES[(n + 1) % LINE_DASHES.length]
+  const range = CHANNEL_RANGES[channel]
+  return range ? range.max : fixed
+}
+
+/** Changes a property's conditions (no change unless it is by conditions). */
+function withConditions(style: LayerStyle, channel: ChannelId, patch: (s: ConditionsScale) => ConditionsScale): LayerStyle {
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'conditions' ? { ...e, scale: patch(e.scale) } : e))
+}
+
+/** Adds a condition at the end (before Everything else). */
+export function addCondition(style: LayerStyle, channel: ChannelId, where = ''): LayerStyle {
+  return withConditions(style, channel, (s) => {
+    const fixed = s.else.output
+    return { ...s, rules: [...s.rules, { id: newRuleId(s.rules), label: '', where, output: conditionOutput(channel, s.rules.length, fixed), visible: true }] }
+  })
+}
+
+/** A condition's text, label, output or visibility. */
+export function updateCondition(style: LayerStyle, channel: ChannelId, id: string, patch: Partial<Omit<ConditionRule, 'id'>>): LayerStyle {
+  if (patch.output !== undefined && !isOutputFor(channel, patch.output)) return style
+  return withConditions(style, channel, (s) => ({ ...s, rules: s.rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) }))
+}
+
+/** Removes a condition. */
+export function removeCondition(style: LayerStyle, channel: ChannelId, id: string): LayerStyle {
+  return withConditions(style, channel, (s) => ({ ...s, rules: s.rules.filter((r) => r.id !== id) }))
+}
+
+/** Moves a condition up (-1) or down (+1): the first that holds wins. */
+export function moveCondition(style: LayerStyle, channel: ChannelId, id: string, by: -1 | 1): LayerStyle {
+  return withConditions(style, channel, (s) => {
+    const i = s.rules.findIndex((r) => r.id === id)
+    const j = i + by
+    if (i < 0 || j < 0 || j >= s.rules.length) return s
+    const rules = [...s.rules]
+    ;[rules[i], rules[j]] = [rules[j], rules[i]]
+    return { ...s, rules }
+  })
+}
+
+/** Everything else: its output, label or visibility. */
+export function setConditionElse(style: LayerStyle, channel: ChannelId, patch: Partial<ConditionsScale['else']>): LayerStyle {
+  if (patch.output !== undefined && !isOutputFor(channel, patch.output)) return style
+  return withConditions(style, channel, (s) => ({ ...s, else: { ...s.else, ...patch } }))
 }

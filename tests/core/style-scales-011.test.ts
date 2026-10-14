@@ -3,10 +3,15 @@
 // attribute. The map's expressions are evaluated with MapLibre's own
 // evaluator and compared with values computed here independently.
 import { describe, expect, it } from 'vitest'
-import { expression } from '@maplibre/maplibre-gl-style-spec'
+import { expression, validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
 import {
   DEFAULT_LAYER_STYLE,
   ICON_COLOR_STEPS,
+  addCondition,
+  computedColumns,
+  exportStyle,
+  updateCondition,
+  setConditionElse,
   IDENTITY_ICON_CAP,
   channelValue,
   layoutFor,
@@ -152,5 +157,67 @@ describe('As is (spec 011 US4)', () => {
   it('a text column for a number reads as not available', () => {
     const style = by(base, 'rotation', 'hex', 'identity')
     expect(resolveStyle(style, layer).channels!.rotation!.status).toBe('fallback')
+  })
+})
+
+describe('Conditions (spec 011 US4)', () => {
+  /** Outline width: lanes-like rules on v, the engine's counts and one refused condition. */
+  function widthByConditions(): LayerStyle {
+    let style = setScaleKind(setChannelColumn(base, 'strokeWidth', 'v', layer), 'strokeWidth', 'conditions', layer)
+    style = updateCondition(style, 'strokeWidth', 'r1', { where: 'v > 50', output: 4 })
+    style = addCondition(style, 'strokeWidth', 'v > 20')
+    style = updateCondition(style, 'strokeWidth', 'r2', { output: 2 })
+    style = addCondition(style, 'strokeWidth', 'nope > 1')
+    return setConditionElse(style, 'strokeWidth', { output: 0.5 })
+  }
+  const engine = { ...layer, ruleCountsByChannel: { strokeWidth: new Map([[0, 9], [1, 6], [-1, 6]]) }, ruleErrorsByChannel: { strokeWidth: { r3: 'No column "nope" in this layer.' } } }
+
+  it('the first condition that holds wins, then everything else; a refused one matches nothing', () => {
+    const style = widthByConditions()
+    const resolved = resolveStyle(style, engine)
+    const rc = resolved.channels!.strokeWidth!
+    expect(rc.classes.map((c) => [c.label, c.count, c.output, c.error ?? ''])).toEqual([
+      ['v > 50', 9, 4, ''],
+      ['v > 20', 6, 2, ''],
+      ['nope > 1', 0, rc.classes[2].output, 'No column "nope" in this layer.'],
+      ['Everything else', 6, 0.5, ''],
+    ])
+    expect(computedColumns(style, resolved)).toContainEqual({ name: '__se_cls_strokeWidth', sql: 'CASE WHEN (v > 50) THEN 0 WHEN (v > 20) THEN 1 ELSE -1 END', type: 'INTEGER' })
+    const value = channelValue(style, resolved, 'strokeWidth')
+    expect(evaluate(value, { __se_cls_strokeWidth: 0 }, 'number')).toBe(4)
+    expect(evaluate(value, { __se_cls_strokeWidth: 1 }, 'number')).toBe(2)
+    expect(evaluate(value, { __se_cls_strokeWidth: -1 }, 'number')).toBe(0.5)
+    const hidden = updateCondition(style, 'strokeWidth', 'r2', { visible: false })
+    const filter = visibilityFilter(hidden, resolveStyle(hidden, engine))
+    expect(evaluate(filter, { __se_cls_strokeWidth: 1 }, 'boolean')).toBe(false)
+    expect(evaluate(filter, { __se_cls_strokeWidth: 0 }, 'boolean')).toBe(true)
+  })
+
+  it('files: QML a QGIS CASE; Mapbox GL a case over the data (valid); SLD the fixed value with a note', () => {
+    const style = widthByConditions()
+    const resolved = resolveStyle(style, engine)
+    const qml = exportStyle(style, 'qml', 'Polygon', 'layer', resolved, columns)
+    expect(qml.text).toContain('CASE WHEN (v &gt; 50) THEN 4 WHEN (v &gt; 20) THEN 2 ELSE 0.5 END')
+    expect(qml.text).not.toContain('WHEN (nope')
+    expect(qml.notes.join(' ')).toMatch(/Conditions were written as QGIS expressions/)
+    const mapbox = exportStyle(style, 'mapbox', 'Polygon', 'layer', resolved, columns)
+    const doc = JSON.parse(mapbox.text)
+    expect(mapbox.text).not.toContain('__se_cls_strokeWidth')
+    const width = doc.layers.find((l: { id: string }) => l.id === 'layer-outline').paint['line-width']
+    expect(evaluate(width, { v: 60 }, 'number')).toBe(4)
+    expect(evaluate(width, { v: 30 }, 'number')).toBe(2)
+    expect(evaluate(width, { v: 5 }, 'number')).toBe(0.5)
+    doc.sources.data.data = { type: 'FeatureCollection', features: [] }
+    expect(validateStyleMin(doc).map((e: { message: string }) => e.message)).toEqual([])
+    const sld = exportStyle(style, 'sld', 'Polygon', 'layer', resolved, columns)
+    expect(sld.notes.join(' ')).toMatch(/Outline width by conditions isn't written to SLD/)
+  })
+
+  it('shape by conditions: a shape per condition', () => {
+    let style = setScaleKind(setChannelColumn(base, 'shape', 'hex', layer), 'shape', 'conditions', layer)
+    style = updateCondition(style, 'shape', 'r1', { where: 'deg > 100', output: 'star' })
+    const resolved = resolveStyle(style, { ...layer, ruleCountsByChannel: { shape: new Map([[0, 14], [-1, 7]]) } })
+    expect(evaluate(channelValue(style, resolved, 'shape'), { __se_cls_shape: 0 }, 'string')).toBe('star')
+    expect(evaluate(channelValue(style, resolved, 'shape'), { __se_cls_shape: -1 }, 'string')).toBe('circle')
   })
 })

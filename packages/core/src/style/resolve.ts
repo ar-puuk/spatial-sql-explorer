@@ -11,7 +11,7 @@ import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
 import { heatmapPeak, mercatorRadius } from '../view/heat.js'
-import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, channelDataColumns, fixedValue, isColorChannel, isOutputFor, type ChannelId, type ClassDef, type ContinuousScale, type Encoding, type IdentityScale, type Output } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, channelDataColumns, fixedValue, isColorChannel, isOutputFor, type ChannelId, type ClassDef, type ConditionsScale, type ContinuousScale, type Encoding, type IdentityScale, type Output } from './channels.js'
 import { MARKER_SHAPES, LINE_DASHES } from './symbol.js'
 
 /**
@@ -204,7 +204,7 @@ const layerOf = new WeakMap<ResolvedStyle, ResolveInput | null>()
 export function isGenericChannel(id: ChannelId, enc: Encoding): boolean {
   if (id === 'color' || id === 'height') return false
   const k = enc.scale.kind
-  if (k !== 'categories' && k !== 'classes' && k !== 'continuous' && k !== 'identity') return false
+  if (k !== 'categories' && k !== 'classes' && k !== 'continuous' && k !== 'identity' && k !== 'conditions') return false
   // Spec 009's size channel draws size and width by classes or continuously (proportional).
   if ((id === 'size' || id === 'width') && sizeChannelFromEncoding(enc)) return false
   return true
@@ -233,6 +233,7 @@ const DASH_ORDER = LINE_DASHES
 function genericChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
   if (enc.scale.kind === 'continuous') return continuousChannel(style, id, enc, layer)
   if (enc.scale.kind === 'identity') return identityChannel(style, id, enc, layer)
+  if (enc.scale.kind === 'conditions') return conditionsChannel(id, enc, layer)
   const r = rendererFromEncoding(enc)
   const res = r.kind === 'categorized' ? categorized(style, r, layer) : r.kind === 'graduated' ? graduated(style, r, layer) : single(style, layer)
   const dataColumn = channelDataColumns(id, enc)[0] ?? ''
@@ -278,6 +279,27 @@ function genericChannel(style: LayerStyle, id: ChannelId, enc: Encoding, layer: 
 
 
 // --- Spec 011 US4: Continuous and As is on any property but color ---
+
+/**
+ * Spec 011 US4: a property by conditions, spec 010's rules for any
+ * property: SQL conditions in order (the first that holds wins), then
+ * "Everything else". The engine counts the features per rule and says why a
+ * condition can't be used (`ruleCountsByChannel`, `ruleErrorsByChannel`).
+ */
+function conditionsChannel(id: ChannelId, enc: Encoding, layer: ResolveInput | null): ResolvedChannel {
+  const scale = enc.scale as ConditionsScale
+  const dataColumn = channelDataColumns(id, enc)[0] ?? ''
+  const counts = layer?.ruleCountsByChannel?.[id]
+  const errors = layer?.ruleErrorsByChannel?.[id]
+  const classes: ResolvedClass[] = scale.rules.map((rule, i) => {
+    const error = checkExpression(rule.where, 'condition') ?? errors?.[rule.id]
+    return { key: `rule:${rule.id}`, kind: 'rule', ruleId: rule.id, label: rule.label || rule.where || `Rule ${i + 1}`, color: '', visible: rule.visible, count: error ? 0 : (counts?.get(i) ?? 0), output: rule.output, ...(error ? { error } : {}) }
+  })
+  classes.push({ key: '__else', kind: 'other', label: scale.else.label, color: '', visible: scale.else.visible, count: counts ? (counts.get(-1) ?? 0) : rowsOf(layer), output: scale.else.output })
+  const n = scale.rules.length
+  // Conditions read no one column: the caption names the property.
+  return { channel: id, status: 'ok', scale: 'conditions', caption: `${CHANNEL_NAMES[id]} · ${n} ${n === 1 ? 'condition' : 'conditions'}`, classes, dataColumn, notes: [] }
+}
 
 /** Ramp stops a continuous color runs through (also written to QML, so QGIS and the map agree). */
 export const CONTINUOUS_STOPS = 7

@@ -661,3 +661,34 @@ and add "Vary by attribute" under them. What changed:
   - core `style-scales-011` (8), 737 in all;
   - web `style-scales-011` (2), and the style, export, legend and label
     suites (68).
+
+## US4 slice B: Conditions on any property (2026-10-14)
+
+- **What.** Spec 010's rules, per property: SQL conditions in order, the first
+  that holds wins, then "Everything else". Every Vary-by property can use
+  them (shape and pattern included); size and width too, from the size row.
+- **Engine.**
+  - Each property's conditions are checked (a refused one shows its reason
+    and matches nothing) and counted in one pass.
+  - The counts are cached by the conditions' text, not their outputs.
+  - The map reads the computed `__se_cls_<property>`; hidden rules filter it.
+- **Legend.** One group per property, titled with the property ("Outline
+  width · 2 conditions"), since conditions read no single column.
+- **Size and width.** Conditions and As is set only the property the
+  geometry draws (Width on lines, Size on points). They had shared spec 009's
+  encoding, so their defaults (marker size vs. line width) drifted into two
+  legend groups. Classed and Proportional keep the shared encoding. The size
+  row offers all four as one radiogroup.
+- **Files.**
+  - **QML:** a QGIS `CASE` in order, without the refused conditions, and a
+    note that SQL-only functions may need adjusting. QGIS 4.2.3: shape and
+    outline width by conditions with a hidden rule, 0 mismatches (10 cases
+    in all).
+  - **Mapbox GL:** the rule index becomes a `case` over the data's own
+    columns when every condition is a simple comparison; otherwise
+    everything takes Everything else's output, with a note. Exports pass
+    `validateStyleMin`.
+  - **SLD:** the fixed value, with a note.
+- **Tests:**
+  - core `style-scales-011` (11), 740 in all;
+  - web `style-scales-011` (4), and the style suites (70).

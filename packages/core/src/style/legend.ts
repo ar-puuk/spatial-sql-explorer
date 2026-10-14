@@ -63,6 +63,8 @@ export function channelLegendGroups(style: LayerStyle, resolved: ResolvedStyle):
     const enc = s.channels?.[id]
     const rc = resolved.channels?.[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc) || enc.legend?.hidden) return []
+    // Size and width share one encoding (markers and lines alike): one group.
+    if (id === 'width' && s.channels?.size && JSON.stringify(s.channels.size) === JSON.stringify(enc)) return []
     // A turned circle looks the same: rotation swatches use a triangle unless the shape is another.
     const shown = id === 'rotation' && base.shape === 'circle' ? { ...base, shape: 'triangle' as MarkerShape } : base
     const title = enc.legend?.title ? `${enc.legend.title} · ${rc.caption.split(' · ').slice(1).join(' · ')}` : rc.caption
