@@ -7,6 +7,7 @@
 // recorded in quickstart.md. Headless Chromium renders with SwiftShader
 // (software WebGL), so map-side timings are pessimistic versus a real GPU.
 import { test, expect, type Page } from '@playwright/test'
+import { chooseStyleType } from './helpers'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -148,12 +149,12 @@ test('SC-001 (spec 003): categorize and graduate the ~10 MB file in under 1 s ea
   const legend = page.getByRole('region', { name: 'Legend' })
 
   let t0 = Date.now()
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await expect(legend).toContainText('zone · 5 categories')
   await frames(page)
   results.styleCategorizeMs = Date.now() - t0
 
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(legend).toContainText('value · Quantile')
   t0 = Date.now()
@@ -182,7 +183,7 @@ test('SC-007 (spec 003): a thematic style on 50,000 rows never freezes the viewe
     }).observe({ type: 'longtask', buffered: false })
   })
   const t0 = Date.now()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await page.getByLabel('Method', { exact: true }).selectOption('jenks')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Natural breaks, 5 classes', { timeout: 30000 })

@@ -3,7 +3,7 @@
 // swapping axes, palettes, and accessibility.
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { fixture, openFile, writeSquares, openStyle } from './helpers'
+import { fixture, openFile, writeSquares, openStyle, chooseStyleType } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -14,7 +14,7 @@ async function openCounties(page: Page): Promise<void> {
   await openFile(page, fixture('counties-bivariate.geojson'))
   await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
   await openStyle(page)
-  await page.getByRole('radio', { name: 'Bivariate' }).click()
+  await chooseStyleType(page, 'Bivariate')
   // SC-002: the defaults are already the two measures (the id column goes last).
   await expect(panel(page).getByLabel('Axis 1', { exact: true })).toHaveValue('poverty_rate')
   await expect(panel(page).getByLabel('Axis 2', { exact: true })).toHaveValue('obesity_rate')
@@ -70,7 +70,8 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
 test('Bivariate needs two numeric columns, and says why', async ({ page }) => {
   await openFile(page, writeSquares())
   await openStyle(page)
-  const radio = page.getByRole('radio', { name: 'Bivariate' })
-  await expect(radio).toHaveAttribute('aria-disabled', 'true')
-  await expect(radio).toHaveAttribute('title', 'Bivariate maps need two numeric columns.')
+  await page.getByRole('button', { name: /^Style type:/ }).click()
+  const option = page.getByRole('option', { name: 'Bivariate', exact: true })
+  await expect(option).toHaveAttribute('aria-disabled', 'true')
+  await expect(option).toContainText('Bivariate maps need two numeric columns.')
 })

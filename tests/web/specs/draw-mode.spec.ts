@@ -2,7 +2,7 @@
 // engine work) and a big one from engine vector tiles; "Load all" switches.
 // Replaces spec 007's viewport.spec.ts (thinning and the view cap are gone).
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, openQueryPanel, runQuery } from './helpers'
+import { fixture, openFile, openQueryPanel, runQuery, chooseStyleType } from './helpers'
 
 type DrawState = { mode: 'geojson' | 'tiles' | null; features: number | null; tileUrl: string | null; loading: boolean; loadedAll: boolean }
 const hook = <T>(page: Page, name: string, ...args: unknown[]): Promise<T> =>
@@ -93,7 +93,7 @@ test('tiles: a categorized style asks for tiles with its column; the legend stil
   const url = (await drawState(page)).tileUrl
   const before = await drawCalls(page)
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await page.getByLabel('Column', { exact: true }).selectOption('zone')
   await expect.poll(async () => (await drawState(page)).tileUrl).not.toBe(url)
   await expect.poll(() => drawCalls(page)).toBeGreaterThan(before)

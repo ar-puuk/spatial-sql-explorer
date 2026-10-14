@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle } from './helpers'
+import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle, chooseStyleType } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
@@ -23,7 +23,7 @@ test.describe('categorized (US1)', () => {
     test.setTimeout(180000)
     await openFile(page, writeParcels(22_000))
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await chooseStyleType(page, 'Categorized')
     // The suggested column is the text column with 2-12 values: zone.
     await expect(page.getByLabel('Column', { exact: true })).toHaveValue('zone')
     await expect(legend(page)).toContainText('zone · 5 categories')
@@ -40,14 +40,14 @@ test.describe('categorized (US1)', () => {
     expect((await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
 
     // Back to the default single symbol: no legend.
-    await page.getByRole('radio', { name: 'Single' }).click()
+    await chooseStyleType(page, 'Single')
     await expect(legend(page)).toHaveCount(0)
   })
 
   test('the same classes as the VS Code build for world-boundaries (FR-020)', async ({ page }) => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await chooseStyleType(page, 'Categorized')
     await page.getByLabel('Column', { exact: true }).selectOption('name')
     // The style resolves in the engine: wait for this column's classes, not the previous one's.
     await expect(legendRows(page).locator('.label')).toHaveText([
@@ -71,7 +71,7 @@ test.describe('categorized (US1)', () => {
   test('a legend swatch hides its class on the map', async ({ page }) => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await chooseStyleType(page, 'Categorized')
     await page.getByLabel('Column', { exact: true }).selectOption('name')
     const rendered = async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
     await expect.poll(rendered, { timeout: 10000 }).toBeGreaterThan(0)
@@ -90,7 +90,7 @@ test.describe('graduated (US2)', () => {
     test.setTimeout(180000)
     await openFile(page, writeParcels(22_000))
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await chooseStyleType(page, 'Graduated')
     await page.getByLabel('Column', { exact: true }).selectOption('value')
     await expect(legend(page)).toContainText('value · Quantile, 5 classes')
     await expect.poll(async () => (await legendCounts(page)).reduce((a, b) => a + b, 0)).toBe(22_000)
@@ -112,7 +112,7 @@ test.describe('graduated (US2)', () => {
   test('the same classes as the VS Code build (FR-020)', async ({ page }) => {
     await openFile(page, writeSquares())
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await chooseStyleType(page, 'Graduated')
     await expect(page.getByLabel('Column', { exact: true })).toHaveValue('value')
     await expect.poll(() => legendRows(page).locator('.label').allTextContents()).toEqual(SQUARES_QUANTILE_LABELS)
     expect(await legendCounts(page)).toEqual([20, 20, 20, 20, 20])
@@ -121,11 +121,12 @@ test.describe('graduated (US2)', () => {
   test('is unavailable without a numeric column, and says why', async ({ page }) => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
-    const graduated = page.getByRole('radio', { name: 'Graduated' })
+    await page.getByRole('button', { name: /^Style type:/ }).click()
+    const graduated = page.getByRole('option', { name: 'Graduated', exact: true })
     await expect(graduated).toHaveAttribute('aria-disabled', 'true')
-    await expect(graduated).toHaveAttribute('title', 'Graduated styling needs a numeric column.')
+    await expect(graduated).toContainText('Graduated styling needs a numeric column.')
     await graduated.click({ force: true }) // aria-disabled: Playwright would wait for it to enable
-    await expect(page.getByRole('radio', { name: 'Single' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('option', { name: 'Single', exact: true })).toHaveAttribute('aria-selected', 'true')
   })
 })
 
@@ -137,7 +138,7 @@ test.describe('ramps and class edits (US3)', () => {
     test.setTimeout(120000)
     await openFile(page, writeSquares())
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await chooseStyleType(page, 'Graduated')
     await expect.poll(() => swatchColor(page, 0)).toBe('#440154') // viridis
 
     // Ramp picker, keyboard only: Enter opens, End + 4×Up reaches Red–blue, Enter applies.
@@ -195,7 +196,7 @@ test.describe('styles follow query results (US5)', () => {
     const data = writeParcels(2000)
     await openFile(page, data)
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await chooseStyleType(page, 'Graduated')
     await page.getByLabel('Column', { exact: true }).selectOption('value')
     // Web Save is a download: keep it next to the data, as a QGIS sidecar.
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
@@ -225,7 +226,7 @@ test.describe('styles follow query results (US5)', () => {
 
     // An unsaved change, then Reset: the original view and the saved style.
     await openStylePanel(page)
-    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await chooseStyleType(page, 'Categorized')
     await expect(legend(page)).toContainText('categories')
     await showSql(page)
     await page.getByRole('button', { name: 'Reset to the original view' }).click()

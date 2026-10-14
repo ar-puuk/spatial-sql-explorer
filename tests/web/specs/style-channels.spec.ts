@@ -2,7 +2,7 @@
 // channel. Lines keep their class colors and step through width classes; the
 // legend shows one group per channel.
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, writeParcels, openStyle } from './helpers'
+import { fixture, openFile, writeParcels, openStyle, chooseStyleType } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -17,7 +17,7 @@ async function openRoads(page: Page): Promise<void> {
 
 test('color by class, width by traffic: two legend groups, live edits, and off again (US1)', async ({ page }) => {
   await openRoads(page)
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await panel(page).getByLabel('Column', { exact: true }).selectOption('functional_class')
   // The fixture's five classes (no nulls in functional_class).
   const colorRows = 5
@@ -63,7 +63,7 @@ test('polygons have no size channel, and the old Graduated "Vary" switch is gone
   await openStyle(page)
   await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)
   await expect(panel(page)).toContainText('Polygons have no size')
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await expect(panel(page).getByRole('radiogroup', { name: 'Vary' })).toHaveCount(0)
 })
 

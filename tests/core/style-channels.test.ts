@@ -178,7 +178,10 @@ describe('styles without a size channel are unchanged (pre-009 snapshot)', () =>
   for (const [name, style] of Object.entries(snapshotStyles())) {
     it(name, () => {
       const resolved = resolveStyle(style, SNAPSHOT_LAYER)
-      const now = { resolved, paint: paintFor(style, resolved, '#f59e0b'), layout: layoutFor(style, resolved), filter: visibilityFilter(style, resolved) }
+      // The heatmap layer (added later) has no paint for these styles.
+      const { heatmap, ...paint } = paintFor(style, resolved, '#f59e0b')
+      expect(heatmap).toEqual({})
+      const now = { resolved, paint, layout: layoutFor(style, resolved), filter: visibilityFilter(style, resolved) }
       expect(JSON.parse(JSON.stringify(now))).toEqual(snapshot[name])
     })
   }

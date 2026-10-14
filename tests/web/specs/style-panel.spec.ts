@@ -1,7 +1,7 @@
 // T010 (spec 008 US1, FR-001–FR-005, SC-001): the sectioned style panel, the
 // value distribution, the live ramp preview, and live appearance edits.
 import { test, expect, type Page } from '@playwright/test'
-import { openFile, writeParcels, writeSquares } from './helpers'
+import { openFile, writeParcels, writeSquares, chooseStyleType } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -14,11 +14,11 @@ test('sections in a fixed order, and only those that apply', async ({ page }) =>
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   const headings = () => panel(page).locator('section h3').allTextContents()
   expect(await headings()).toEqual(['Style', 'Size', 'Appearance', '3D'])
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   expect(await headings()).toEqual(['Style', 'Color by', 'Colors', 'Size', 'Appearance', '3D'])
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   expect(await headings()).toEqual(['Style', 'Color by', 'Classification', 'Colors', 'Size', 'Appearance', '3D'])
-  await expect(page.getByRole('radiogroup', { name: 'Style type' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toContainText('Colors by ranges of a number or an expression')
   // No Apply step anywhere (FR-002).
   await expect(panel(page).getByRole('button', { name: /^Apply/ })).toHaveCount(0)
 })
@@ -27,7 +27,7 @@ test('a graduated style in three interactions or fewer (SC-001)', async ({ page 
   await openFile(page, writeSquares())
   // 1: open the panel; 2: Graduated (the numeric column is picked by default). Classes are on the map.
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await expect(legend(page)).toContainText('value · Quantile, 5 classes')
   await expect(legendRows(page)).toHaveCount(5)
 })
@@ -36,7 +36,7 @@ test('the value distribution shows the breaks and follows the method and class c
   test.setTimeout(120000)
   await openFile(page, writeParcels(2000))
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   const chart = panel(page).getByRole('img', { name: 'Value distribution' })
   await expect(chart).toBeVisible({ timeout: 30000 })
@@ -56,7 +56,7 @@ test('the value distribution shows the breaks and follows the method and class c
 test('ramps preview on the map while browsing; Escape restores; Enter commits', async ({ page }) => {
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await expect(legendRows(page)).toHaveCount(5)
   const original = await swatch(page, 0)
   // Save first, so "modified" shows only for real edits: a preview never marks the style modified.

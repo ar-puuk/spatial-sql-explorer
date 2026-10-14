@@ -7,7 +7,7 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
 
@@ -16,7 +16,7 @@ import { bivariateIndexExpression } from './bivariate.js'
  * (`markerIconId`); `marker-select` is the disc behind them that shows
  * hover and selection (icons can't change with feature state).
  */
-export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion' | 'marker-select' | 'marker'
+export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion' | 'marker-select' | 'marker' | 'heatmap'
 export type MapPaint = Record<MapLayerId, Record<string, unknown>>
 
 // The focused feature (inspector, table cursor), or a ticked row (spec 008 FR-012): drawn alike.
@@ -50,6 +50,8 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
       return bivariateIndexExpression(style, resolved)
     case 'rules':
       return rulesIndex(resolved)
+    case 'heatmap':
+      return null
   }
 }
 
@@ -157,7 +159,8 @@ const atLeast1 = (e: number | unknown[]): number | unknown[] => (typeof e === 'n
 /** Spec 009: the size channel drawn on the map, or null (none, a fallback, or a bivariate color channel). */
 function activeSize(style: LayerStyle, resolved: ResolvedStyle): ResolvedSizeChannel | null {
   const size = resolved.size
-  return style.size && size?.status === 'ok' && rendererOf(style).kind !== 'bivariate' ? size : null
+  const kind = rendererOf(style).kind
+  return style.size && size?.status === 'ok' && kind !== 'bivariate' && kind !== 'heatmap' ? size : null
 }
 
 /** The size channel's class position per feature (classed), or null. */
@@ -247,7 +250,45 @@ export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<R
   }
 }
 
-export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string): MapPaint {
+/**
+ * The heatmap radius: pixels, or (meters on the ground) pixels that double
+ * with each zoom level, converted at the renderer's latitude (else the
+ * layer's), so the surface stays put as the map zooms.
+ */
+export function heatmapRadius(r: HeatmapRenderer, layerLatitude = 0): number | unknown[] {
+  if (r.radiusUnit !== 'm') return r.radius
+  const px0 = (r.radiusMeters ?? HEATMAP_METERS.default) / metersPerPixel(r.latitude ?? layerLatitude, 0)
+  return ['interpolate', ['exponential', 2], ['zoom'], 0, px0, 24, px0 * 2 ** 24]
+}
+
+/** True when the map draws points as a heatmap (and their circles only to show hover and selection). */
+export function drawsHeatmap(style: LayerStyle, resolved: ResolvedStyle): boolean {
+  return rendererOf(style).kind === 'heatmap' && resolved.status === 'ok' && !!resolved.heat
+}
+
+/**
+ * The heatmap's paint (MapLibre and Mapbox GL): zero density transparent,
+ * then the ramp; weights as value / the column's largest value (missing or
+ * negative values weigh 0). The layer opacity applies.
+ */
+export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLatitude = 0): Record<string, unknown> {
+  const r = rendererOf(style)
+  const heat = resolved.heat
+  if (r.kind !== 'heatmap' || !heat) return {}
+  const color: unknown[] = ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0, 0, 0, 0)']
+  heat.colors.forEach((c, i) => color.push((i + 1) / heat.colors.length, c))
+  const w = heat.weight
+  return {
+    'heatmap-radius': heatmapRadius(r, layerLatitude),
+    'heatmap-intensity': r.intensity,
+    'heatmap-weight': w ? ['/', ['max', 0, ['to-number', ['get', w.column], 0]], w.max] : 1,
+    'heatmap-color': color,
+    'heatmap-opacity': style.layerOpacity ?? 1,
+  }
+}
+
+/** `layerLatitude`: the layer's center, for a heatmap radius in meters that has no latitude of its own. */
+export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string, layerLatitude = 0): MapPaint {
   // Spec 008: the layer opacity scales the fill and outline opacities.
   const s = withLayerOpacity(style)
   const sel = selectionColor
@@ -262,6 +303,9 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
   // Shaped markers: the disc behind the icon reaches past the shape and its outline.
   const reach = plus(typeof radius === 'number' ? radius * extent : ['*', radius, extent], s.strokeWidth / 2 + 3)
   const dasharray = dash ?? undefined
+  // Heatmap: points are drawn by the heatmap; their circles stay (clicks, hover, selection) but show only then.
+  const heat = drawsHeatmap(style, resolved)
+  const pointShown = (shown: unknown): unknown => (heat ? ['case', selected, 1, hovered, 0.6, DOT, shown, 0] : shown)
   return {
     // Under the outline: a contrasting ring around the selected feature, so
     // selection never depends on hue alone (FR-019). Thematic styles only;
@@ -299,13 +343,14 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     },
     circle: {
       'circle-color': ['case', selected, sel, fillColor],
-      'circle-opacity': ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
+      'circle-opacity': heat ? ['case', selected, 1, DOT, Math.max(s.fillOpacity, 0.05), 0] : ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
       // A polygon or line under ~2 px at this zoom is drawn as a small dot (DOT_PROP; spec 010 option C).
       'circle-radius': ['case', selected, plus(radius, 2), DOT, DOT_RADIUS, hovered, plus(radius, 1), radius],
       'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', s.strokeColor],
       'circle-stroke-width': ['case', selected, 2, DOT, 0, s.strokeWidth],
-      'circle-stroke-opacity': ['case', selected, 1, s.strokeOpacity],
+      'circle-stroke-opacity': pointShown(['case', selected, 1, s.strokeOpacity]),
     },
+    heatmap: heatmapPaint(style, resolved, layerLatitude),
     // Hover and selection of shaped markers: a disc in the selection color behind the icon.
     'marker-select': {
       'circle-color': sel,

@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { writeParcels } from './helpers'
+import { writeParcels, chooseStyleType } from './helpers'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(__dirname, '../../vscode-ext/fixtures/world-boundaries.geojson')
@@ -250,10 +250,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('input[type="file"]').setInputFiles(squares())
     await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
     await page.getByRole('button', { name: 'Style', exact: true }).click()
-    await page.getByRole('radio', { name: 'Categorized' }).click()
+    await chooseStyleType(page, 'Categorized')
     await audit(page, 'categorized panel + legend')
 
-    await page.getByRole('radio', { name: 'Graduated' }).click()
+    await chooseStyleType(page, 'Graduated')
     await page.getByRole('button', { name: /^Colors:/ }).click()
     await expect(page.getByRole('listbox', { name: 'Color ramps' })).toBeVisible()
     await audit(page, 'ramp listbox open')
@@ -280,13 +280,19 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   const styleButton = page.getByRole('button', { name: 'Style', exact: true })
   await styleButton.click()
 
-  // Radio group: arrows move and apply.
-  await page.getByRole('radio', { name: 'Single' }).focus()
-  await page.keyboard.press('ArrowRight')
-  await expect(page.getByRole('radio', { name: 'Categorized' })).toBeFocused()
-  await expect(page.getByRole('radio', { name: 'Categorized' })).toHaveAttribute('aria-checked', 'true')
-  await page.keyboard.press('ArrowRight')
-  await expect(page.getByRole('radio', { name: 'Graduated' })).toHaveAttribute('aria-checked', 'true')
+  // The style type dropdown: arrows open it and move, Enter applies and returns focus to the button.
+  await page.getByRole('button', { name: 'Style type: Single' }).focus()
+  await page.keyboard.press('ArrowDown')
+  const types = page.getByRole('listbox', { name: 'Style types' })
+  await expect(types).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(types).toHaveAttribute('aria-activedescendant', (await types.getByRole('option', { name: 'Categorized', exact: true }).getAttribute('id'))!)
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Style type: Categorized' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toBeFocused()
   // The classes resolve in the engine (spec 007): wait for them before tabbing.
   await expect(page.getByRole('button', { name: /^Hide 0/ }).first()).toBeVisible()
 

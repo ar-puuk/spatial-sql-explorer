@@ -36,6 +36,12 @@
     setClassVisible,
     setMethod,
     setRamp,
+    setHeatmap,
+    setHeatmapRadiusUnit,
+    HEATMAP_METERS,
+    HEATMAP_INTENSITY,
+    HEATMAP_RADIUS,
+    HEATMAP_STOPS,
     setBivariateAxis,
     setBivariatePalette,
     setCellVisible,
@@ -75,6 +81,7 @@
   import BivariatePicker from './style/BivariatePicker.svelte'
   import BivariateLegend from './style/BivariateLegend.svelte'
   import RulesEditor from './style/RulesEditor.svelte'
+  import StyleTypePicker from './style/StyleTypePicker.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -109,6 +116,8 @@
     embedded?: boolean
     /** Spec 010: example rules from the data, for a first rules style. */
     onSuggestRules?: () => Promise<RuleSuggestions>
+    /** The map's view: a heatmap radius switched between pixels and meters keeps its size on screen. */
+    camera?: { center: [number, number]; zoom: number } | null
   }
   let {
     style,
@@ -134,6 +143,7 @@
     onSuggestScale,
     embedded = false,
     onSuggestRules,
+    camera = null,
   }: Props = $props()
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
@@ -180,12 +190,14 @@
   }
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
-    { kind: 'single', label: 'Single', hint: 'One color for every feature' },
-    { kind: 'categorized', label: 'Categorized', hint: 'A color per value of a column' },
-    { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a numeric column' },
-    { kind: 'bivariate', label: 'Bivariate', hint: 'Colors by two numeric columns, from a 3×3 square' },
-    { kind: 'rules', label: 'Rules', hint: 'Colors by SQL conditions: the first that holds colors a feature' },
+    { kind: 'single', label: 'Single', hint: 'One symbol for every feature' },
+    { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
+    { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
+    { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
+    { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
+    { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
   ]
+  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
   const thematic = $derived(renderer.kind !== 'single')
   const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
@@ -194,6 +206,7 @@
     if (kind === 'single') return null
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
     if (kind === 'rules') return layer?.columns.length ? null : 'This result has no attribute columns.'
+    if (kind === 'heatmap') return geometryType === 'Point' || geometryType === 'Mixed' ? null : 'Heatmaps need points; this layer has none.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -203,6 +216,13 @@
     onChange(startStyle(style, kind, layer))
     if (kind === 'rules') void suggestRules()
   }
+
+  // --- Heatmap ------------------------------------------------------------------
+  // Intensity on a log scale: 0.01 to 5, where dense data needs the low end.
+  const LOG_SPAN = Math.log(HEATMAP_INTENSITY.max / HEATMAP_INTENSITY.min)
+  const intensityToSlider = (v: number) => Math.log(v / HEATMAP_INTENSITY.min) / LOG_SPAN
+  const sliderToIntensity = (t: number) => Number((HEATMAP_INTENSITY.min * Math.exp(t * LOG_SPAN)).toPrecision(2))
+  const intensityText = (v: number) => `${Number(v.toPrecision(2))}×`
 
   // --- Spec 010: rules and graduated by expression ----------------------------
   /** A first rules style gets two example rules from the data (unless rules were added meanwhile). */
@@ -235,19 +255,6 @@
     apply({ ...style, renderer: { ...renderer, expression, column: '', method: renderer.method === 'manual' ? 'quantile' : renderer.method, classes: [] } })
   }
 
-  /** Radio group keys: arrows move and apply, skipping unavailable entries (WAI-ARIA radio group). */
-  function radioKeydown(e: KeyboardEvent): void {
-    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
-    if (!dir) return
-    e.preventDefault()
-    const enabled = RENDERERS.filter((r) => !unavailable(r.kind))
-    const i = enabled.findIndex((r) => r.kind === renderer.kind)
-    const next = enabled[(i + dir + enabled.length) % enabled.length]
-    chooseRenderer(next.kind)
-    const group = (e.currentTarget as HTMLElement).closest('[role="radiogroup"]')
-    queueMicrotask(() => group?.querySelector<HTMLElement>(`[data-kind="${next.kind}"]`)?.focus())
-  }
-
   const METHODS: GraduatedMethod[] = ['equal', 'quantile', 'jenks']
   const CLASS_COUNTS = Array.from({ length: MAX_CLASS_COUNT - MIN_CLASS_COUNT + 1 }, (_, i) => MIN_CLASS_COUNT + i)
 
@@ -275,7 +282,7 @@
   }
 
   function chooseColumn(column: string): void {
-    if (renderer.kind === 'single' || renderer.kind === 'rules') return
+    if (renderer.kind === 'single' || renderer.kind === 'rules' || renderer.kind === 'heatmap') return
     onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
   }
 
@@ -372,22 +379,7 @@
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Style</h3>
-      <div class="renderers" role="radiogroup" aria-label="Style type">
-        {#each RENDERERS as r (r.kind)}
-          {@const why = unavailable(r.kind)}
-          <button
-            type="button"
-            role="radio"
-            data-kind={r.kind}
-            aria-checked={renderer.kind === r.kind}
-            tabindex={renderer.kind === r.kind ? 0 : -1}
-            aria-disabled={why !== null}
-            title={why ?? r.hint}
-            onclick={() => chooseRenderer(r.kind)}
-            onkeydown={radioKeydown}>{r.label}</button
-          >
-        {/each}
-      </div>
+      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
@@ -522,6 +514,115 @@
       </section>
     {/if}
 
+    <!-- A heatmap: the points' density, optionally weighted by a numeric column. -->
+    {#if renderer.kind === 'heatmap'}
+      <section aria-labelledby="style-sec-heat">
+        <h3 id="style-sec-heat">Heatmap</h3>
+        <div class="row field">
+          <label class="label" for="style-heat-weight">Weight</label>
+          <select id="style-heat-weight" value={renderer.weight} onchange={(e) => apply(setHeatmap(style, { weight: e.currentTarget.value }))}>
+            <option value="">None: count each point</option>
+            {#if renderer.weight && !numericColumns.some((c) => c.name === renderer.weight)}
+              <option value={renderer.weight}>{renderer.weight}</option>
+            {/if}
+            {#each numericColumns as c (c.name)}
+              <option value={c.name}>{c.name} · {c.type}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="row field">
+          <span class="label" id="heat-unit-label">Radius in</span>
+          <div class="renderers two" role="radiogroup" aria-labelledby="heat-unit-label">
+            {#each [{ unit: 'px', label: 'Pixels' }, { unit: 'm', label: 'Meters' }] as const as u (u.unit)}
+              {@const on = (renderer.radiusUnit ?? 'px') === u.unit}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={on}
+                tabindex={on ? 0 : -1}
+                onclick={() => apply(setHeatmapRadiusUnit(style, u.unit, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))}
+                onkeydown={(e) => {
+                  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                    e.preventDefault()
+                    const next = (renderer.radiusUnit ?? 'px') === 'px' ? 'm' : 'px'
+                    apply(setHeatmapRadiusUnit(style, next, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))
+                    const group = (e.currentTarget as HTMLElement).parentElement
+                    queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+                  }
+                }}>{u.label}</button
+              >
+            {/each}
+          </div>
+        </div>
+        {#if renderer.radiusUnit === 'm'}
+          <div class="row field">
+            <label class="label" for="heat-meters">Radius</label>
+            <input
+              id="heat-meters"
+              class="number"
+              type="number"
+              aria-label="Radius in meters"
+              min={HEATMAP_METERS.min}
+              max={HEATMAP_METERS.max}
+              step="any"
+              value={renderer.radiusMeters ?? HEATMAP_METERS.default}
+              onchange={(e) => {
+                const v = Number(e.currentTarget.value)
+                if (Number.isFinite(v) && v > 0) apply(setHeatmap(style, { radiusMeters: v }))
+              }}
+            />
+          </div>
+          <p class="hint">Fixed on the map: a place keeps its color at every zoom. Zoomed far out, points may shrink to nothing.</p>
+        {:else}
+          <div class="row">
+            <span class="label" id="heat-radius-label">Radius</span>
+            <input
+              type="range"
+              class="wide"
+              aria-labelledby="heat-radius-label"
+              aria-valuetext="{renderer.radius} pixels"
+              min={HEATMAP_RADIUS.min}
+              max={60}
+              step="1"
+              value={renderer.radius}
+              oninput={(e) => apply(setHeatmap(style, { radius: Number(e.currentTarget.value) }))}
+            />
+            <span class="value">{renderer.radius} px</span>
+          </div>
+          <p class="hint">Fixed on screen: zooming out piles points together, so the map gets hotter.</p>
+        {/if}
+        <div class="row">
+          <span class="label" id="heat-intensity-label">Intensity</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="heat-intensity-label"
+            aria-valuetext={intensityText(renderer.intensity)}
+            min="0"
+            max="1"
+            step="0.005"
+            value={intensityToSlider(renderer.intensity)}
+            oninput={(e) => apply(setHeatmap(style, { intensity: sliderToIntensity(Number(e.currentTarget.value)) }))}
+          />
+          <span class="value">{intensityText(renderer.intensity)}</span>
+        </div>
+        <RampPicker
+          value={renderer.ramp}
+          renderer="graduated"
+          classCount={HEATMAP_STOPS}
+          onChange={(ramp) => apply(setRamp(style, ramp))}
+          onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
+        />
+        <p class="hint">Sparse areas take the left of the ramp, dense ones the right; where there are no points, the map shows through.</p>
+        {#if geometryType === 'Mixed'}
+          <p class="inline-note" role="status"><Icon name="info" size={14} />Only points make the heatmap; lines and polygons keep the single symbol.</p>
+        {/if}
+        {#each resolved.notes as note (note)}
+          <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+        {/each}
+      </section>
+    {/if}
+
     <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
     <!-- Spec 009 US4: bivariate (contracts/ui.md "Style panel"). -->
     {#if renderer.kind === 'bivariate'}
@@ -551,6 +652,7 @@
       </section>
     {/if}
 
+    {#if renderer.kind !== 'heatmap'}
     <section aria-labelledby="style-sec-size">
       <h3 id="style-sec-size">Size</h3>
       {#if geometryType === 'Polygon'}
@@ -671,7 +773,10 @@
         {/if}
       {/if}
     </section>
+    {/if}
 
+    <!-- A point heatmap draws no symbols; mixed layers keep them for lines and polygons. -->
+    {#if renderer.kind !== 'heatmap' || geometryType !== 'Point'}
     <section aria-labelledby="style-sec-look">
       <h3 id="style-sec-look">Appearance</h3>
       {#if hasFill}
@@ -778,6 +883,7 @@
         </div>
       {/if}
     </section>
+    {/if}
 
     <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height. -->
     <section aria-labelledby="style-sec-3d">
@@ -986,19 +1092,6 @@
   .renderers button:first-child {
     border-left: 0;
   }
-  /* Spec 010: five style types don't fit a side panel on one row: three per row. */
-  @container (max-width: 420px) {
-    .renderers {
-      grid-auto-flow: row;
-      grid-template-columns: 1fr 1fr 1fr;
-    }
-    .renderers button:nth-child(3n + 1) {
-      border-left: 0;
-    }
-    .renderers button:nth-child(n + 4) {
-      border-top: 1px solid var(--se-input-border);
-    }
-  }
   .expression {
     display: grid;
     gap: 3px;
@@ -1029,10 +1122,6 @@
     color: var(--se-button-fg);
     /* High contrast has no filled button: the active contrast border marks the choice. */
     box-shadow: inset 0 0 0 1px var(--se-selected-indicator);
-  }
-  .renderers button[aria-disabled='true'] {
-    opacity: 0.5;
-    cursor: default;
   }
   .renderers button:focus-visible,
   select:focus-visible {

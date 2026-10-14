@@ -9,6 +9,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Heatmap style** for points.
+  - Shows where points cluster, as a smooth density surface. Zero density is
+    transparent, and the densest areas take the ramp's last color.
+  - Optionally weighted by a numeric column. Weights are scaled by the
+    column's largest value, so big numbers don't flood the map.
+  - Radius, intensity and color ramp are adjustable.
+  - The radius can be in pixels or in meters. In pixels it stays fixed on
+    screen, so zooming out makes the map hotter. In meters it stays fixed on
+    the map, so a place keeps its color at every zoom.
+  - Points stay clickable, and their hover and selection still show.
+  - The legend shows the ramp from sparse to dense, and the map image
+    includes it.
+  - Saved as QGIS's heatmap renderer in QML (pixels, or QGIS's meters at
+    scale), and as a heatmap layer in Mapbox GL styles; both read back.
+    Checked in QGIS 4.2.3. SLD has no heatmap, and the save menu says so.
+
+### Changed
+
+- The style type is a dropdown instead of a row of buttons. Each type has a
+  one-line description of what it does, and a type that can't be used for
+  the layer says why.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added

@@ -23,7 +23,7 @@ describe('renderer model', () => {
   })
 
   it('unknown renderer kinds sanitize to single, and values are clamped', () => {
-    expect(sanitizeStyle({ ...SPEC_001, renderer: { kind: 'heatmap' } as never }).renderer).toEqual({ kind: 'single' })
+    expect(sanitizeStyle({ ...SPEC_001, renderer: { kind: 'dot-density' } as never }).renderer).toEqual({ kind: 'single' })
     const g = sanitizeStyle({ ...SPEC_001, renderer: { kind: 'graduated', column: 'v', classCount: 40, method: 'nope' } as never }).renderer
     expect(g).toMatchObject({ kind: 'graduated', column: 'v', classCount: 10, method: 'quantile', ramp: { id: 'viridis', reversed: false } })
   })

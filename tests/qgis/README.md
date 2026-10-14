@@ -62,3 +62,20 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_010_rules.py out
 ```
 
 Last run: see `specs/010-redesign/research.md`, "Phase 11".
+
+## Heatmap (`check_heatmap.py`)
+
+`tests/core/qgis-heatmap-cases.test.ts` writes clustered points and the
+heatmap QML the app saves, with the radius in pixels and in meters (QGIS's
+"meters at scale", weighted by a field), when `SE_QGIS_HEATMAP` names a
+directory. `check_heatmap.py` loads both, checks the renderer, unit and
+weight, and renders them in Web Mercator: the densest pixel must be the
+ramp's last color, and an empty corner must stay transparent.
+
+```
+SE_QGIS_HEATMAP=out npx vitest run qgis-heatmap-cases   (in tests/core)
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_heatmap.py out
+```
+
+Last run (2026-10-13, QGIS 4.2.3): both load as `heatmapRenderer` (15 px; 3000 m
+at scale, weight `"pop"`), densest pixels #b20026 and #b10026 against #b10026.

@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fixture, openFile, openQueryPanel, rowCount, runQuery } from './helpers'
+import { fixture, openFile, openQueryPanel, rowCount, runQuery, chooseStyleType } from './helpers'
 
 // Spec 010: the file's layers are a select next to the search box.
 const layerPicker = (page: Page) => page.getByRole('combobox', { name: 'Layer' })
@@ -22,7 +22,7 @@ test('a GeoPackage with three layers: listed, switched, and queryable by name', 
 
   // Style the countries, switch to the points: under 2 s (SC-009), with their own facts.
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await page.getByRole('button', { name: 'Close panel' }).click()
   const t0 = Date.now()
   await layerPicker(page).selectOption('city points')

@@ -637,8 +637,9 @@ export class QuerySession {
     if (facts && !this.utilityRows && (r.kind === 'rules' || (r.kind === 'graduated' && r.expression))) return this.resolveSqlStyle(style, base)
     const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
     // Spec 009: every channel column the style classifies.
-    const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
-    const size = style.size && r.kind !== 'bivariate' && has(style.size.column) ? style.size : null
+    // A heatmap's weight column is read for its largest value only.
+    const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : r.kind === 'heatmap' && has(r.weight) ? r.weight : null
+    const size = style.size && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(style.size.column) ? style.size : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
     if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
@@ -808,6 +809,7 @@ export class QuerySession {
       // min and max. A size channel on the categorized color column gets its own numbers.
       const numeric: Array<{ key: string; column: string; method?: GraduatedMethod; classCount?: number }> = []
       if (r.kind === 'graduated' && colorColumn) numeric.push({ key: colorColumn, column: colorColumn, method: r.method, classCount: r.classCount })
+      if (r.kind === 'heatmap' && colorColumn) numeric.push({ key: colorColumn, column: colorColumn })
       if (size && !(r.kind === 'graduated' && size.column === colorColumn && size.mode === 'proportional')) {
         const key = sizeDataKey(size.column, size.column === colorColumn)
         numeric.push(size.mode === 'classed' ? { key, column: size.column, method: size.method, classCount: size.classCount } : { key, column: size.column })
@@ -1400,6 +1402,8 @@ const PRESENTATION_KEYS = new Set([
   'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash', 'sizeMin', 'sizeMax', 'extrusion',
   // Spec 010 rules: the "Everything else" row's look.
   'elseColor', 'elseLabel', 'elseVisible',
+  // Heatmap: how the density is drawn.
+  'radius', 'intensity',
 ])
 
 /** The style without its presentation: two styles with the same key classify the same data the same way. */

@@ -52,7 +52,7 @@ export interface LayerStyle {
 // --- Renderers (spec 003, data-model.md) ----------------------------------
 
 /** The color channel. */
-export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer | RulesRenderer
+export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer | RulesRenderer | HeatmapRenderer
 
 export interface SingleRenderer {
   kind: 'single'
@@ -194,6 +194,49 @@ export function ruleLabel(rule: Pick<RuleDef, 'label' | 'where'>): string {
   return w.length > 40 ? `${w.slice(0, 39)}…` : w || 'Rule'
 }
 
+// --- Heatmap -----------------------------------------------------------------
+
+/**
+ * Point density as a smooth color surface (MapLibre's heatmap layer; QGIS's
+ * heatmap renderer). Points only: lines and polygons keep the single symbol.
+ */
+export interface HeatmapRenderer {
+  kind: 'heatmap'
+  /** A numeric column weighting each point (weights are value / the column's largest value); '' = each point counts once. */
+  weight: string
+  /** px: how far each point spreads on screen (MapLibre `heatmap-radius`; QGIS's radius in pixels). */
+  radius: number
+  /**
+   * How the radius is measured. 'px' (absent): on screen, so zooming out
+   * piles points together and the map gets hotter. 'm': on the ground, so a
+   * place keeps its density, and its color, at every zoom.
+   */
+  radiusUnit?: 'px' | 'm'
+  /** Ground radius in meters (radiusUnit 'm'). */
+  radiusMeters?: number
+  /**
+   * Where meters are converted to pixels (Web Mercator's scale changes with
+   * latitude; MapLibre can scale a radius by zoom, not by each point's
+   * latitude). Set when meters are chosen; absent: the layer's center.
+   */
+  latitude?: number
+  /** Multiplies the density (MapLibre `heatmap-intensity`). */
+  intensity: number
+  /** Low to high density; zero density is transparent. */
+  ramp: RampRef
+}
+
+export const HEATMAP_RADIUS = { min: 2, max: 100, default: 20 } as const
+/** Dense data needs far less than 1 (MapLibre adds the points up, and nothing scales to the densest spot). */
+export const HEATMAP_INTENSITY = { min: 0.01, max: 5, default: 1 } as const
+export const HEATMAP_METERS = { min: 1, max: 1_000_000, default: 1000 } as const
+
+/** Web Mercator ground meters per CSS pixel at a zoom and latitude (MapLibre's 512 px tiles). */
+export function metersPerPixel(latitude: number, zoom: number): number {
+  return (40_075_016.686 * Math.cos((Math.max(-85, Math.min(85, latitude)) * Math.PI) / 180)) / (512 * 2 ** zoom)
+}
+export const DEFAULT_HEATMAP_RAMP = 'brewer-ylorrd'
+
 export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
 
 export interface BivariateAxis {
@@ -229,6 +272,8 @@ export interface ResolvedStyle {
   grid?: { x: AxisInfo; y: AxisInfo }
   /** Spec 009: the size channel, when one applies. */
   size?: ResolvedSizeChannel
+  /** Heatmap: the density ramp (low to high) and, when weighted, the weight column's largest value. */
+  heat?: { colors: string[]; weight?: { column: string; max: number } }
 }
 
 /** A bivariate axis as resolved. */
@@ -311,6 +356,7 @@ export function rendererOf(style: Pick<LayerStyle, 'renderer'>): Renderer {
 /** The columns the color channel reads: none, one, or both bivariate axes (spec 009). */
 export function rendererColumns(renderer: Renderer): string[] {
   if (renderer.kind === 'single') return []
+  if (renderer.kind === 'heatmap') return renderer.weight ? [renderer.weight] : []
   if (renderer.kind === 'bivariate') return [renderer.x.column, renderer.y.column].filter(Boolean)
   // Spec 010: rules and expressions draw from a column the engine computes per feature.
   if (renderer.kind === 'rules') return [RULE_CLASS_COLUMN]
@@ -328,6 +374,7 @@ export function styleDataColumns(style: Pick<LayerStyle, 'renderer' | 'size'>): 
 /** A short title for the color channel's columns: `zone`, `poverty_rate × obesity_rate`, or '' (single). */
 export function rendererTitle(renderer: Renderer): string {
   if (renderer.kind === 'rules') return 'Rules'
+  if (renderer.kind === 'heatmap') return 'Heatmap'
   if (renderer.kind === 'graduated' && renderer.expression) return renderer.column || renderer.expression
   return rendererColumns(renderer).join(' × ')
 }
@@ -534,6 +581,20 @@ function sanitizeSizes(g: { sizeMin?: unknown; sizeMax?: unknown }): { sizeMin: 
  */
 export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
   if (!r || typeof r !== 'object') return { kind: 'single' }
+  if (r.kind === 'heatmap') {
+    const h = r as Partial<HeatmapRenderer>
+    const num = (v: unknown, b: { min: number; max: number; default: number }) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, b.min, b.max) : b.default)
+    return {
+      kind: 'heatmap',
+      weight: typeof h.weight === 'string' ? h.weight : '',
+      radius: num(h.radius, HEATMAP_RADIUS),
+      intensity: num(h.intensity, HEATMAP_INTENSITY),
+      ramp: sanitizeRamp(h.ramp, DEFAULT_HEATMAP_RAMP),
+      ...(h.radiusUnit === 'm' ? { radiusUnit: 'm' as const } : {}),
+      ...(typeof h.radiusMeters === 'number' && Number.isFinite(h.radiusMeters) ? { radiusMeters: num(h.radiusMeters, HEATMAP_METERS) } : h.radiusUnit === 'm' ? { radiusMeters: HEATMAP_METERS.default } : {}),
+      ...(typeof h.latitude === 'number' && Number.isFinite(h.latitude) ? { latitude: clamp(h.latitude, -85, 85) } : {}),
+    }
+  }
   if (r.kind === 'rules') {
     const x = r as Partial<RulesRenderer>
     const color = (c: unknown, fallback: string): string => {

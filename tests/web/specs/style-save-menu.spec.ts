@@ -2,14 +2,14 @@
 // downloads the QGIS sidecar (web); the arrow's menu offers every format, and
 // works from the keyboard alone (WAI-ARIA menu button).
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, writeSquares } from './helpers'
+import { fixture, openFile, writeSquares, chooseStyleType } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 
 async function open(page: Page): Promise<void> {
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
 }
 
 test('the main action downloads the QML sidecar; there is no separate Export button', async ({ page }) => {

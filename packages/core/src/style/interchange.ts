@@ -3,10 +3,11 @@
 // RESOLVED classes (formats store concrete values, bounds and colors); import
 // rebuilds a renderer keeping only what differs from the defaults, so a
 // round trip through any format reproduces what the user saw.
-import { rampColors } from './ramps.js'
+import { rampById, rampColors } from './ramps.js'
 import { METHOD_NAMES } from './resolve.js'
 import {
   DEFAULT_CATEGORY_CAP,
+  DEFAULT_HEATMAP_RAMP,
   rendererOf,
   type CategorizedRenderer,
   type ClassOverride,
@@ -56,7 +57,8 @@ export interface Thematic {
  */
 export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | undefined, format?: StyleFormat): { thematic: Thematic | null; notes: string[] } {
   const r = rendererOf(style)
-  if (r.kind === 'single') return { thematic: null, notes: [] }
+  // A heatmap is written by each format itself (or not at all: SLD).
+  if (r.kind === 'single' || r.kind === 'heatmap') return { thematic: null, notes: [] }
   // Spec 010: only QML can classify an expression; SLD and Mapbox GL get the single symbol (previewExportNotice says so).
   if (r.kind === 'graduated' && r.expression && format && format !== 'qml') return { thematic: null, notes: [] }
   if (!resolved || resolved.status !== 'ok') {
@@ -70,6 +72,13 @@ export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | u
   )
   return { thematic: { renderer: r, classes }, notes: [] }
 }
+
+/** A foreign heatmap's colors can't be matched to a ramp of ours. */
+export const HEATMAP_RAMP_NOTE = `The heatmap's own colors were replaced by the ${rampById(DEFAULT_HEATMAP_RAMP)?.name ?? DEFAULT_HEATMAP_RAMP} ramp.`
+/** SLD has no heatmap symbolizer. */
+export const HEATMAP_SLD_NOTE = 'SLD has no heatmap: the points are written with the single symbol (QML and Mapbox GL keep the heatmap).'
+/** QGIS's heatmap renderer has no intensity setting. */
+export const HEATMAP_QML_NOTE = 'QGIS heatmaps have no intensity: QGIS draws it at 1 (Spatial Explorer keeps yours).'
 
 /** Mapbox GL styles draw shaped markers only from a sprite, which a style file can't carry. */
 export const MAPBOX_SHAPE_NOTE = (shape: string): string =>
@@ -91,6 +100,9 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
       if (hidden) items.push(`SLD can't mark a rule as hidden: ${hidden} hidden ${hidden === 1 ? 'rule' : 'rules'} will be left out.`)
     }
   }
+  // Heatmap: SLD has none; QGIS has no intensity.
+  if (r.kind === 'heatmap' && format === 'sld') items.push(HEATMAP_SLD_NOTE)
+  if (r.kind === 'heatmap' && format === 'qml' && r.intensity !== 1) items.push(HEATMAP_QML_NOTE)
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))

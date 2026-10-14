@@ -3,7 +3,7 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
@@ -133,6 +133,45 @@ function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedSt
       return bivariate(style, r, layer)
     case 'rules':
       return rules(style, r, layer)
+    case 'heatmap':
+      return heatmap(style, r, layer)
+  }
+}
+
+/** Heatmap ramps are sampled at this many stops (density 0 is transparent, below the first). */
+export const HEATMAP_STOPS = 7
+
+/**
+ * Heatmap: one legend entry (every point) and the ramp. A weight column is
+ * read for its largest value, so weights run 0..1 (MapLibre adds weights up:
+ * raw populations would saturate every pixel). A weight column that can't be
+ * used leaves each point counting once, with a note.
+ */
+function heatmap(style: LayerStyle, r: HeatmapRenderer, layer: ResolveInput | null): ResolvedStyle {
+  const colors = rampColors(r.ramp, HEATMAP_STOPS)
+  const notes: string[] = []
+  let weight: { column: string; max: number } | undefined
+  if (r.weight && layer) {
+    const why = notNumeric(layer, r.weight)
+    let max = -Infinity
+    if (!why) {
+      const known = columnData(layer, r.weight)
+      if (known?.kind === 'numbers') max = known.sample.length ? known.sample[known.sample.length - 1] : -Infinity
+      else for (const raw of valuesOf(layer, r.weight)) {
+        const v = toNumber(raw)
+        if (v !== null && v > max) max = v
+      }
+    }
+    if (max > 0) weight = { column: r.weight, max }
+    else notes.push(why ? `${why} Each point counts once.` : `Column "${r.weight}" has no positive values: each point counts once.`)
+  }
+  const caption = weight ? `Density · weighted by ${weight.column}` : 'Density'
+  return {
+    status: 'ok',
+    caption,
+    notes,
+    classes: [{ key: 'single', kind: 'single', label: 'All points', color: colors[colors.length - 1] ?? style.fillColor, visible: true, count: rowsOf(layer) }],
+    heat: { colors, ...(weight ? { weight } : {}) },
   }
 }
 
@@ -494,7 +533,7 @@ export const SIZE_KEY_PREFIX = 'size:'
  */
 export function resolveSizeChannel(style: LayerStyle, layer: ResolveInput | null): ResolvedSizeChannel | undefined {
   const s = style.size
-  if (!s || rendererOf(style).kind === 'bivariate') return undefined
+  if (!s || rendererOf(style).kind === 'bivariate' || rendererOf(style).kind === 'heatmap') return undefined
   const off = (reason: string): ResolvedSizeChannel => ({ status: 'fallback', reason, caption: `${s.column} · not available`, mode: s.mode, column: s.column, classes: [], notes: [] })
   if (!layer) return off('No data to size by.')
   const why = notNumeric(layer, s.column)

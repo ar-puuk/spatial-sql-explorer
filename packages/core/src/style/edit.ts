@@ -5,8 +5,13 @@ import {
   DEFAULT_CATEGORY_CAP,
   DEFAULT_CLASS_COUNT,
   DEFAULT_ELSE_LABEL,
+  DEFAULT_HEATMAP_RAMP,
   DEFAULT_LAYER_STYLE,
+  HEATMAP_INTENSITY,
+  HEATMAP_METERS,
+  HEATMAP_RADIUS,
   MAX_CLASS_COUNT,
+  metersPerPixel,
   OTHER_COLOR,
   MIN_CLASS_COUNT,
   rendererOf,
@@ -14,6 +19,7 @@ import {
   type ClassOverride,
   type GraduatedMethod,
   type GraduatedRenderer,
+  type HeatmapRenderer,
   type LayerStyle,
   type RampRef,
   type BivariateAxis,
@@ -64,6 +70,10 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
   }
   // Spec 010: rules start empty; the panel fills in suggestions from the data (suggestedRules).
   if (kind === 'rules') return { kind: 'rules', rules: [], elseColor: OTHER_COLOR, elseVisible: true, elseLabel: DEFAULT_ELSE_LABEL }
+  // Each point counts once until a weight column is chosen.
+  if (kind === 'heatmap') {
+    return { kind: 'heatmap', weight: column ?? '', radius: HEATMAP_RADIUS.default, intensity: HEATMAP_INTENSITY.default, ramp: { id: DEFAULT_HEATMAP_RAMP, reversed: false } }
+  }
   const columns = eligibleColumns(layer?.columns, kind)
   if (kind === 'categorized') {
     const pick =
@@ -89,7 +99,7 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
 /** Applies `patch` to the override of the class with `key` (`v:<value>`, `range:<i>`, `__other`, `__null`). */
 function patchClass(style: LayerStyle, key: string, patch: ClassOverride): LayerStyle {
   const r = rendererOf(style)
-  if (r.kind === 'single' || r.kind === 'bivariate') return style
+  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap') return style
   // Spec 010: `rule:<id>` and `__else`.
   if (r.kind === 'rules') {
     if (key === RULES_ELSE_KEY) {
@@ -135,11 +145,13 @@ export const THEMATIC_SYMBOL = Object.freeze({ fillOpacity: 0.75, strokeColor: '
 /** Switches the renderer (or its column), adjusting untouched symbol defaults for thematic renderers. */
 export function startStyle(style: LayerStyle, kind: Renderer['kind'], layer: ResolveInput | null, column?: string): LayerStyle {
   const next: LayerStyle = { ...style, renderer: startRenderer(kind, layer, column) }
-  const wasThematic = rendererOf(style).kind !== 'single'
+  // A heatmap draws no class symbols: the symbol settings stay as they are.
+  const classed = (k: Renderer['kind']) => k !== 'single' && k !== 'heatmap'
+  const wasThematic = classed(rendererOf(style).kind)
+  if (kind === 'heatmap' || (kind === 'single' && !wasThematic)) return next
   // Into a thematic renderer: untouched spec 001 defaults become the thematic
   // ones. Back to single: untouched thematic defaults become spec 001's again.
-  const [from, to] = kind === 'single' ? [THEMATIC_SYMBOL, DEFAULT_LAYER_STYLE] : [DEFAULT_LAYER_STYLE, THEMATIC_SYMBOL]
-  if (kind === 'single' && !wasThematic) return next
+  const [from, to] = classed(kind) ? [DEFAULT_LAYER_STYLE, THEMATIC_SYMBOL] : [THEMATIC_SYMBOL, DEFAULT_LAYER_STYLE]
   for (const key of ['fillOpacity', 'strokeColor', 'strokeOpacity', 'strokeWidth'] as const) {
     if (style[key] === from[key]) (next as unknown as Record<string, unknown>)[key] = to[key]
   }
@@ -156,7 +168,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
   const trimmed = label.trim()
   if (trimmed) return patchClass(style, key, { label: trimmed })
   const r = rendererOf(style)
-  if (r.kind === 'single' || r.kind === 'bivariate') return style
+  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap') return style
   if (r.kind === 'rules') return key === RULES_ELSE_KEY ? setRulesElse(style, { elseLabel: DEFAULT_ELSE_LABEL }) : key.startsWith('rule:') ? updateRule(style, key.slice(5), { label: '' }) : style
   const strip = <T extends ClassOverride>(o: T): T => {
     const rest = { ...o }
@@ -544,4 +556,41 @@ export function suggestedRules(s: RuleSuggestions): RuleDef[] {
   }
   if (s.text) out.push({ id: `r${out.length + 1}`, label: '', where: `${sqlColumnName(s.text.column)} = '${s.text.value.replace(/'/g, "''")}'`, color: ruleColor(out.length), visible: true })
   return out
+}
+
+/** Heatmap: the weight column ('' = each point counts once), radius or intensity, kept within their ranges. */
+export function setHeatmap(style: LayerStyle, patch: Partial<Pick<HeatmapRenderer, 'weight' | 'radius' | 'intensity' | 'radiusUnit' | 'radiusMeters' | 'latitude'>>): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'heatmap') return style
+  const clamp = (v: number, b: { min: number; max: number }) => Math.min(b.max, Math.max(b.min, v))
+  return {
+    ...style,
+    renderer: {
+      ...r,
+      ...(patch.weight !== undefined ? { weight: patch.weight } : {}),
+      ...(patch.radius !== undefined && Number.isFinite(patch.radius) ? { radius: clamp(patch.radius, HEATMAP_RADIUS) } : {}),
+      ...(patch.intensity !== undefined && Number.isFinite(patch.intensity) ? { intensity: clamp(patch.intensity, HEATMAP_INTENSITY) } : {}),
+      ...(patch.radiusUnit !== undefined ? { radiusUnit: patch.radiusUnit } : {}),
+      ...(patch.radiusMeters !== undefined && Number.isFinite(patch.radiusMeters) ? { radiusMeters: clamp(patch.radiusMeters, HEATMAP_METERS) } : {}),
+      ...(patch.latitude !== undefined && Number.isFinite(patch.latitude) ? { latitude: Math.min(85, Math.max(-85, patch.latitude)) } : {}),
+    },
+  }
+}
+
+/**
+ * Heatmap: measures the radius in screen pixels or ground meters. With the
+ * current view (`latitude`, `zoom`), the new radius matches what is on
+ * screen, so the map doesn't jump; meters keep that latitude for converting.
+ */
+export function setHeatmapRadiusUnit(style: LayerStyle, unit: 'px' | 'm', view: { latitude: number; zoom: number } | null): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'heatmap' || (r.radiusUnit ?? 'px') === unit) return style
+  const twoDigits = (v: number) => Number(v.toPrecision(2))
+  if (unit === 'm') {
+    const latitude = view?.latitude ?? r.latitude ?? 0
+    const meters = view ? twoDigits(r.radius * metersPerPixel(latitude, view.zoom)) : (r.radiusMeters ?? HEATMAP_METERS.default)
+    return setHeatmap(style, { radiusUnit: 'm', radiusMeters: meters, latitude })
+  }
+  const px = view && r.radiusMeters ? Math.round(r.radiusMeters / metersPerPixel(r.latitude ?? view.latitude, view.zoom)) : r.radius
+  return setHeatmap(style, { radiusUnit: 'px', radius: px })
 }

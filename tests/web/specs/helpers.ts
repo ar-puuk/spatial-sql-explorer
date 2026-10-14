@@ -182,3 +182,10 @@ export async function openStyle(page: Page): Promise<void> {
   await expect(panel).toBeVisible()
   await page.getByRole('button', { name: 'Zoom to layer' }).click()
 }
+
+/** Chooses a style type from the Style panel's dropdown (the panel must be open). */
+export async function chooseStyleType(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: /^Style type:/ }).click()
+  await page.getByRole('listbox', { name: 'Style types' }).getByRole('option', { name, exact: true }).click()
+  await expect(page.getByRole('button', { name: `Style type: ${name}` })).toBeVisible()
+}

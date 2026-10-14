@@ -74,7 +74,9 @@
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
       shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
-      rows: r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      rows: r.heat ? [] : r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      // A heatmap: its ramp.
+      gradient: r.heat && r.status === 'ok' ? r.heat.colors : undefined,
       // Spec 009 US6: the bivariate square.
       bivariate: r.grid && r.status === 'ok'
         ? {
@@ -519,6 +521,7 @@
           {:else}
             <LayerStylePanel
               embedded
+              camera={store.mapCamera}
               style={store.style}
               resolved={store.resolvedStyle}
               layer={store.styleInput}

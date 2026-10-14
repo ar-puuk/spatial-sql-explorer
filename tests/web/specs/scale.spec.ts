@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { exportVia, fixture, largeData } from './helpers'
+import { exportVia, fixture, largeData, chooseStyleType } from './helpers'
 
 const results: Record<string, unknown> = {}
 
@@ -93,7 +93,7 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   await runQuery(page, 'SELECT * FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('rows', { timeout: 120000 })
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 120000 })
   results.sc004_longestTaskMs = await longestTask(page)
@@ -217,7 +217,7 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   const filtered = (await page.locator('.query-status').textContent()) ?? ''
   await sample('filter')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 300000 })
   await sample('style')
@@ -279,7 +279,7 @@ test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated colu
     return Date.now() - t0
   }
 
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await panel.getByLabel('Column', { exact: true }).selectOption('acres')
   await expect(legend).toContainText('acres · Quantile', { timeout: 300000 })
   const graduatedMs = await timed(() => panel.getByLabel('Column', { exact: true }).selectOption('value'), 'value · Quantile')
@@ -289,7 +289,7 @@ test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated colu
   await expect(legend).toContainText('year_built · Quantile', { timeout: 300000 })
   const colorSizeMs = await timed(() => panel.getByLabel('Size column').selectOption('acres'), /acres · Quantile, \d+ classes/)
 
-  await page.getByRole('radio', { name: 'Bivariate' }).click()
+  await chooseStyleType(page, 'Bivariate')
   await panel.getByLabel('Axis 1', { exact: true }).selectOption('year_built')
   await panel.getByLabel('Axis 2', { exact: true }).selectOption('acres')
   await expect(legend).toContainText('year_built × acres', { timeout: 300000 })

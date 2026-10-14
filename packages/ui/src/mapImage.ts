@@ -28,6 +28,8 @@ export interface LegendBivariate {
 export interface LegendSpec extends LegendGroup {
   groups?: LegendGroup[]
   bivariate?: LegendBivariate
+  /** A heatmap: its ramp, sparse to dense (zero density is transparent). */
+  gradient?: string[]
 }
 
 /** MapView's capture: the current view as a PNG at 1x or 2x the map's size. */
@@ -75,7 +77,7 @@ export function composeMapImage(input: ComposeInput): HTMLCanvasElement {
   const h = out.height / ratio
   // Spec 009: a bivariate square or a size group is a legend even without color rows.
   const lg = input.legend
-  if (lg && (lg.rows.length || lg.bivariate || lg.groups?.some((g) => g.rows.length))) drawLegend(ctx, lg, h)
+  if (lg && (lg.rows.length || lg.bivariate || lg.gradient?.length || lg.groups?.some((g) => g.rows.length))) drawLegend(ctx, lg, h)
   if (input.attribution) drawAttribution(ctx, input.attribution, w, h)
   ctx.restore()
   return out
@@ -93,7 +95,14 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
     | { kind: 'more'; n: number }
     | { kind: 'axis'; text: string }
     | { kind: 'cells'; j: number }
+    | { kind: 'gradient'; colors: string[] }
   const all: Line[] = []
+  // A heatmap: the title, the ramp, and its ends.
+  if (legend.gradient?.length) {
+    if (legend.title) all.push({ kind: 'title', text: legend.title, main: true })
+    all.push({ kind: 'gradient', colors: legend.gradient })
+    all.push({ kind: 'axis', text: 'Sparse → Dense' })
+  }
   // Spec 009 US6: the bivariate square, one 18 px line per row (high to low), with the axis labels.
   const biv = legend.bivariate
   if (biv) {
@@ -104,7 +113,7 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
     if (biv.noValue?.visible) all.push({ kind: 'row', group: { title: '', shape: 'area', alpha: 1, rows: [] }, row: { color: biv.noValue.color, label: biv.noValue.label, count: biv.noValue.count }, scale: 1 })
   }
   groups.forEach((g, i) => {
-    if (biv && i === 0) return
+    if ((biv || legend.gradient?.length) && i === 0) return
     if (i === 0 ? g.title : true) all.push({ kind: 'title', text: g.title, main: i === 0 })
     // Markers keep their relative sizes within a group, shrunk together to fit a row.
     const reach = Math.max(1, ...g.rows.map((r) => (r.symbol ? r.symbol.radius * markerExtent(r.symbol.shape) + Math.min(r.symbol.strokeWidth, 3) / 2 : 5)))
@@ -126,7 +135,9 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
             ? ctx.measureText(l.text).width - sw - 8
             : l.kind === 'cells' && biv
               ? biv.nx * 18 - sw - 8
-              : 0
+              : l.kind === 'gradient'
+                ? 120 - sw - 8
+                : 0
     )
   )
   ctx.font = TITLE_FONT
@@ -170,6 +181,17 @@ function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number
           ctx.strokeRect(cx + 1, cy + 1, 14, 14)
         }
       }
+    } else if (l.kind === 'gradient') {
+      const gx = x + pad
+      const gw = boxW - pad * 2
+      const grad = ctx.createLinearGradient(gx, 0, gx + gw, 0)
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0)')
+      l.colors.forEach((c, i) => grad.addColorStop((i + 1) / l.colors.length, c))
+      ctx.fillStyle = grad
+      ctx.fillRect(gx, ty - 12, gw, 12)
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(gx + 0.5, ty - 11.5, gw - 1, 11)
     } else if (l.kind === 'more') {
       ctx.font = FONT
       ctx.fillStyle = '#57606a'

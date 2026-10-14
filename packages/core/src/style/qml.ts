@@ -20,6 +20,7 @@ import {
   sanitizeStyle,
   DEFAULT_ELSE_LABEL,
   OTHER_COLOR,
+  type HeatmapRenderer,
   type LayerStyle,
   type ResolvedStyle,
   type RuleDef,
@@ -27,9 +28,11 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
-import { QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
+import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
 import { checkExpression } from './sqlExpression.js'
+import { rampColors } from './ramps.js'
+import { HEATMAP_STOPS } from './resolve.js'
 
 const PX_PER_MM = 96 / 25.4
 const PX_PER_PT = 96 / 72
@@ -519,6 +522,18 @@ ${symbolXml(kind, style, '0', sizeDd)}
     renderer = bivariateRendererXml(style, resolved, kind)
     props = { 'spatialExplorer/bivariate': JSON.stringify(r) }
   }
+  // A heatmap, as QGIS's heatmap renderer (point layers only), with the symbol kept for a return to single.
+  if (r.kind === 'heatmap') {
+    if (kind === 'marker') {
+      renderer = heatmapRendererXml(r, resolved)
+      const { renderer: _r, extrusion: _e, size: _s, ...symbol } = style
+      void _r
+      void _e
+      void _s
+      props = { 'spatialExplorer/heatmap': JSON.stringify(r), 'spatialExplorer/symbol': JSON.stringify(symbol) }
+      if (r.intensity !== 1) notes.push(HEATMAP_QML_NOTE)
+    } else notes.push('QGIS heatmaps are for point layers: this layer was exported with its single symbol.')
+  }
   // Spec 010: rules, as a rule-based renderer.
   if (r.kind === 'rules') {
     renderer = rulesRendererXml(style, r, resolved, kind)
@@ -538,6 +553,63 @@ ${renderer3d}${customProperties(props)}  <layerOpacity>${round(style.layerOpacit
 </qgis>
 `
   return { text, notes }
+}
+
+// --- heatmap ----------------------------------------------------------------
+
+/** QGIS render unit codes (Qgis::RenderUnit) a heatmap radius may use. */
+const QGIS_RENDER_UNITS: Record<string, string> = { '0': 'MM', '2': 'Pixel', '4': 'Point', '5': 'Inch' }
+
+/** QGIS's heatmap renderer: the radius in pixels, the weight as a field, the ramp transparent at zero density. */
+function heatmapRendererXml(r: HeatmapRenderer, resolved: ResolvedStyle | undefined): string {
+  const colors = resolved?.heat?.colors ?? rampColors(r.ramp, HEATMAP_STOPS)
+  const n = colors.length
+  const stops = colors.slice(0, -1).map((c, i) => `${round((i + 1) / n, 6)};${qgisColor(c, 1)}`).join(':')
+  const weight = r.weight ? `"${r.weight.replace(/"/g, '""')}"` : ''
+  // Meters on the ground: QGIS's "meters at scale" unit (Qgis::RenderUnit 7).
+  const [radius, unit] = r.radiusUnit === 'm' ? [r.radiusMeters ?? 0, 7] : [r.radius, 2]
+  return `  <renderer-v2 type="heatmapRenderer" radius="${round(radius)}" radius_unit="${unit}" radius_map_unit_scale="3x:0,0,0,0,0,0" max_value="0" quality="3" weight_expression="${escapeXml(weight)}" forceraster="0" enableorderby="0">
+    <colorramp type="gradient" name="[source]">
+${options({ color1: '0,0,0,0', color2: qgisColor(colors[n - 1] ?? '#000000', 1), discrete: '0', rampType: 'gradient', stops })}
+    </colorramp>
+  </renderer-v2>`
+}
+
+/** QGIS's `weight_expression` as a column: a quoted or bare field name, or null (an expression). */
+function weightColumn(expression: string): string | null {
+  const e = expression.trim()
+  const quoted = /^"((?:[^"]|"")+)"$/.exec(e)
+  if (quoted) return quoted[1].replace(/""/g, '"')
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(e) ? e : null
+}
+
+/** A heatmap renderer read back: ours from its custom property, QGIS's own from its attributes. */
+function heatmapFromQgis(renderer: Element, custom: Map<string, string>, notes: string[]): Partial<LayerStyle> {
+  const style: Partial<LayerStyle> = {}
+  try {
+    const symbol = custom.get('spatialExplorer/symbol')
+    if (symbol) Object.assign(style, JSON.parse(symbol) as Partial<LayerStyle>)
+    const own = custom.get('spatialExplorer/heatmap')
+    if (own) {
+      style.renderer = JSON.parse(own) as HeatmapRenderer
+      return style
+    }
+  } catch {
+    // a malformed property: read QGIS's own attributes
+  }
+  const code = renderer.getAttribute('radius_unit') ?? '0'
+  const unit = QGIS_RENDER_UNITS[code]
+  const raw = renderer.getAttribute('radius') ?? ''
+  const meters = code === '7' && Number(raw) > 0 ? Number(raw) : null
+  const radius = unit && raw ? toPx(raw, unit, notes, 'heatmap radius') : null
+  if (!unit && meters === null) notes.push('The heatmap radius is in map units, which have no fixed size on screen: the default radius was used.')
+  const expression = renderer.getAttribute('weight_expression') ?? ''
+  const weight = expression.trim() ? weightColumn(expression) : ''
+  if (weight === null) notes.push(`The heatmap weight is the QGIS expression "${expression}"; each point counts once instead.`)
+  if (renderer.getElementsByTagName('colorramp').length) notes.push(HEATMAP_RAMP_NOTE)
+  if (Number(renderer.getAttribute('max_value') ?? '0') > 0) notes.push('The heatmap has a fixed maximum in QGIS; here the colors follow the densest area in view.')
+  style.renderer = { kind: 'heatmap', weight: weight ?? '', ...(radius !== null ? { radius } : {}), ...(meters !== null ? { radiusUnit: 'm', radiusMeters: meters } : {}) } as HeatmapRenderer
+  return style
 }
 
 // --- import ---------------------------------------------------------------
@@ -645,6 +717,13 @@ export function qmlToStyle(text: string): StyleImportResult {
   // Spec 010: our own rules (the renderer in a custom property), or any other rule-based renderer.
   const ownRules = rendererType === 'RuleRenderer' && !ownBivariate ? readCustomProperties(doc).get('spatialExplorer/rules') : undefined
   const foreignRules = rendererType === 'RuleRenderer' && !ownBivariate && !ownRules
+  // A heatmap has no symbols of its own.
+  if (rendererType === 'heatmapRenderer') {
+    const style = heatmapFromQgis(renderer, readCustomProperties(doc), notes)
+    const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
+    if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
+    return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }
+  }
   if (rendererType !== 'singleSymbol' && !thematicType && rendererType !== 'RuleRenderer') {
     notes.push(`This QML uses a "${rendererType}" renderer, which isn't supported; its first symbol was imported as a single symbol.`)
   }

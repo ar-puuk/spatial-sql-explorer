@@ -1,6 +1,6 @@
 // T080 (spec 008 US7, FR-031): the web share link.
 import { test, expect, type Page } from '@playwright/test'
-import { editor, fixture, openFile, openQueryPanel, runQuery } from './helpers'
+import { editor, fixture, openFile, openQueryPanel, runQuery, chooseStyleType } from './helpers'
 
 type MapState = { projection: string; center?: [number, number]; zoom?: number; pitch?: number; bearing?: number }
 const mapState = (page: Page) => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): MapState } }).__spatialExplorerE2E.mapState())
@@ -16,7 +16,7 @@ async function makeLink(page: Page): Promise<string> {
   await openQueryPanel(page)
   await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'S%'")
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('button', { name: 'Basemap', exact: true }).click()
   await page.getByRole('region', { name: 'Basemap' }).getByRole('radio', { name: /^Blank/ }).click()

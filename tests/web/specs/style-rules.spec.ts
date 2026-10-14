@@ -6,7 +6,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { test, expect, type Page } from '@playwright/test'
-import { openFile, openStyle } from './helpers'
+import { openFile, openStyle, chooseStyleType } from './helpers'
 
 const CONTINENTS = ['Africa', 'Asia', 'Europe', 'Americas', 'Oceania']
 
@@ -54,7 +54,7 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
       await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
       await openFile(page, writeCountries(), search)
       await openStyle(page)
-      await page.getByRole('radio', { name: 'Rules' }).click()
+      await chooseStyleType(page, 'Rules')
       // Two example rules from the data arrive first.
       await expect(page.getByRole('list', { name: 'Rules' }).locator('li')).toHaveCount(2)
 
@@ -96,7 +96,7 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
       await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
       await openFile(page, writeCountries(), search)
       await openStyle(page)
-      await page.getByRole('radio', { name: 'Graduated' }).click()
+      await chooseStyleType(page, 'Graduated')
       await page.getByRole('combobox', { name: 'Column' }).selectOption({ label: 'Expression…' })
       const input = page.getByRole('textbox', { name: 'Expression' })
       await expect(page.getByText("A SQL expression over this layer's columns, e.g. gdp_md * 1e6 / pop_est")).toBeVisible()

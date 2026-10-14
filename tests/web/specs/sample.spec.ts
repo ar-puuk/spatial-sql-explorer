@@ -1,7 +1,7 @@
 // T086 (spec 008 US8, FR-032, SC-008): sample data with no network beyond
 // the app itself: it opens and draws within 3 s, and styling and export work.
 import { test, expect } from '@playwright/test'
-import { exportVia, inspectParquet } from './helpers'
+import { exportVia, inspectParquet, chooseStyleType } from './helpers'
 
 test('Try sample data: draws within 3 s with no outside network; style and export work', async ({ page }) => {
   test.setTimeout(120000)
@@ -22,7 +22,7 @@ test('Try sample data: draws within 3 s with no outside network; style and expor
 
   // A style works on the sample.
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText(/Quantile, 5 classes/)
   await page.getByRole('button', { name: 'Style', exact: true }).click()
 

@@ -1,7 +1,7 @@
 // T079 (spec 008 US7, FR-030, SC-007): the map as a PNG.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { fixture, openFile } from './helpers'
+import { fixture, openFile, chooseStyleType } from './helpers'
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export map image' })
 /** PNG width and height from the IHDR chunk. */
@@ -77,7 +77,7 @@ test('the dialog offers the legend only when one is shown', async ({ page }) => 
   await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeDisabled()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Categorized' }).click()
+  await chooseStyleType(page, 'Categorized')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('button', { name: 'Export map image…' }).click()
   await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeChecked()

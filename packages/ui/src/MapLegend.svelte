@@ -57,6 +57,17 @@
       <div role="group" aria-label={heading} class="group">
         <BivariateLegend {resolved} onToggle={onToggleClass} />
       </div>
+    {:else if resolved.heat && resolved.status === 'ok'}
+      <!-- A heatmap: the ramp from sparse to dense, and how many points make it. -->
+      {@const points = resolved.classes[0]?.count ?? 0}
+      <div role="group" aria-label={heading} class="group heat">
+        <div class="heat-ramp" role="img" aria-label="Colors from sparse to dense" style:background="linear-gradient(to right, transparent, {resolved.heat.colors.join(', ')})"></div>
+        <div class="heat-ends">
+          <span>Sparse</span>
+          <span class="count">{nf.format(points)} {points === 1 ? 'point' : 'points'}</span>
+          <span>Dense</span>
+        </div>
+      </div>
     {:else}
     <div role="group" aria-label={heading} class="group">
     <ul>
@@ -197,6 +208,22 @@
   }
   button.swatch {
     cursor: pointer;
+  }
+  .heat {
+    gap: 3px;
+    padding: 2px 8px 8px;
+  }
+  .heat-ramp {
+    height: 12px;
+    border: 1px solid var(--se-control-border);
+    border-radius: 2px;
+  }
+  .heat-ends {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
   }
   .group-title {
     margin: 4px 8px 2px;

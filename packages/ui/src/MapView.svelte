@@ -15,6 +15,7 @@
     basemapFailureMessage,
     loadBasemapStyle,
     paintFor,
+    drawsHeatmap,
     layoutFor,
     isMarkerIconId,
     markerIconIds,
@@ -158,12 +159,14 @@
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion' | 'symbol'; filter: unknown; layout?: Record<string, unknown> }> = [
+  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion' | 'symbol' | 'heatmap'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
     // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
+    // A heatmap style: the points' density, under their (then hidden) circles, which keep hover and selection.
+    { id: 'heatmap', type: 'heatmap', filter: MARKER_POINT },
     { id: 'circle', type: 'circle', filter: ['all', POINT, DOT_SHOWN] },
     // Points of a shape other than the circle: icons, over a disc that shows hover and selection.
     { id: 'marker-select', type: 'circle', filter: MARKER_POINT },
@@ -191,7 +194,9 @@
   }
   function layerVisibility(id: string): 'visible' | 'none' {
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
-    if (id === 'marker' || id === 'marker-select') return usesMarkerIcons(style) ? 'visible' : 'none'
+    const heat = drawsHeatmap(style, resolved)
+    if (id === 'heatmap') return heat ? 'visible' : 'none'
+    if (id === 'marker' || id === 'marker-select') return usesMarkerIcons(style) && !heat ? 'visible' : 'none'
     if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
     return 'visible'
   }
@@ -220,7 +225,7 @@
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     const hidden = visibilityFilter(style, resolved)
     // Shaped markers draw every point; the circle layer then draws only the dots.
-    const geometry = def.id === 'circle' && usesMarkerIcons(style) ? ['all', POINT, DOT, DOT_SHOWN] : def.filter
+    const geometry = def.id === 'circle' && usesMarkerIcons(style) && !drawsHeatmap(style, resolved) ? ['all', POINT, DOT, DOT_SHOWN] : def.filter
     return hidden ? ['all', geometry, hidden] : geometry
   }
 
@@ -256,10 +261,16 @@
     return blankColor ?? (getComputedStyle(container).getPropertyValue('--se-map-bg').trim() || '#e5e5e5')
   }
 
+  /** The layer's center latitude: a heatmap radius in meters converts there unless it has its own. */
+  function layerLatitude(): number {
+    const e = layer?.extent
+    return e ? (e[1] + e[3]) / 2 : 0
+  }
+
   function applyPaint(): void {
     if (!map || !mapReady) return
     if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
-    const p = paintFor(style, resolved, selectionColor())
+    const p = paintFor(style, resolved, selectionColor(), layerLatitude())
     const layouts = layoutFor(style, resolved)
     pruneMarkerIcons(map)
     for (const l of layerInstances()) {
@@ -322,7 +333,7 @@
 
   /** Our map layers (data, then the tiles-mode selection overlay), with the current paint, layout and filters. */
   function dataLayers(): Array<Record<string, unknown>> {
-    const p = paintFor(style, resolved, selectionColor())
+    const p = paintFor(style, resolved, selectionColor(), layerLatitude())
     const layouts = layoutFor(style, resolved)
     const layers: Array<Record<string, unknown>> = layerInstances().map((l) => ({
       id: l.id,

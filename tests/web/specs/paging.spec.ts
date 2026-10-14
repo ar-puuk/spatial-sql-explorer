@@ -4,7 +4,7 @@
 // large files take: a result too big to copy stays a view, the table pages
 // it, Jenks classifies a sample with exact counts, and export writes it all.
 import { test, expect, type Page } from '@playwright/test'
-import { editor, exportVia, grid, inspectParquet, openFixture, openQueryPanel, rowCount, runQuery } from './helpers'
+import { editor, exportVia, grid, inspectParquet, openFixture, openQueryPanel, rowCount, runQuery, chooseStyleType } from './helpers'
 
 /** Rows of `layer` with value > 1,000,000, also asserted by the VS Code parity test (T043). */
 export const FILTERED_ROWS = 4958
@@ -54,7 +54,7 @@ test('a result over the materialize cap: exact count, every row in the table, wh
 
   // Natural breaks over 4,958 values with a 2,000-value sample: the legend says so; counts are exact.
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('radio', { name: 'Graduated' }).click()
+  await chooseStyleType(page, 'Graduated')
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await page.getByLabel('Method', { exact: true }).selectOption('jenks')
   await expect(legend(page)).toContainText('Natural breaks, 5 classes (estimated from 2,000 values)')

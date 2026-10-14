@@ -7,6 +7,7 @@
 import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
+  metersPerPixel,
   parseColor,
   rendererOf,
   rgbToHex,
@@ -18,8 +19,8 @@ import {
   type StyleImportResult,
 } from './model.js'
 import type { StyleExport } from './qml.js'
-import { symbolExpressions, visibilityFilter } from './expressions.js'
-import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
+import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
 import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
 
@@ -131,7 +132,10 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       },
     })
   }
-  if (wants('Point')) {
+  // A heatmap draws the points (the same paint as the viewer's).
+  const heat = r.kind === 'heatmap' && resolved?.status === 'ok' && resolved.heat ? heatmapPaint(style, resolved) : null
+  if (wants('Point') && heat) layers.push({ id: `${layerName}-heatmap`, type: 'heatmap', source, filter: POINT_FILTER, paint: heat })
+  if (wants('Point') && !heat) {
     layers.push({
       id: `${layerName}-point`,
       type: 'circle',
@@ -269,15 +273,49 @@ export function mapboxToStyle(text: string): StyleImportResult {
   }
 
   const first = (type: string): StyleLayerJson | undefined => layers.find((l) => l.type === type)
+  // A heatmap layer: radius and intensity when literal, the weight's column when it reads one.
+  const heatLayer = first('heatmap')
+  if (heatLayer) {
+    const p = heatLayer.paint ?? {}
+    const columnIn = (e: unknown): string | null => {
+      if (!Array.isArray(e)) return null
+      if (e[0] === 'get' && typeof e[1] === 'string') return e[1]
+      for (const x of e.slice(1)) {
+        const c = columnIn(x)
+        if (c) return c
+      }
+      return null
+    }
+    const weight = columnIn(p['heatmap-weight']) ?? ''
+    if (p['heatmap-weight'] !== undefined && typeof p['heatmap-weight'] !== 'number' && !weight) notes.push('The heatmap weight reads no column: each point counts once.')
+    if (p['heatmap-color'] !== undefined) notes.push(HEATMAP_RAMP_NOTE)
+    // A radius that doubles with each zoom level is a ground distance (ours: meters).
+    const zr = p['heatmap-radius']
+    let meters: number | null = null
+    if (Array.isArray(zr) && zr[0] === 'interpolate' && JSON.stringify(zr[1]) === '["exponential",2]' && JSON.stringify(zr[2]) === '["zoom"]' && zr.length === 7) {
+      const [z0, r0, z1, r1] = zr.slice(3) as number[]
+      if ([z0, r0, z1, r1].every(Number.isFinite) && r0 > 0 && Math.abs(r1 / r0 / 2 ** (z1 - z0) - 1) < 1e-6) meters = Number((r0 * metersPerPixel(0, z0)).toPrecision(6))
+    }
+    if (meters !== null) notes.push('The heatmap radius is fixed on the map; it was read as meters at the equator.')
+    else if ([zr, p['heatmap-intensity']].some((v) => v !== undefined && typeof v !== 'number')) notes.push('The heatmap radius or intensity changes with zoom; the defaults were used.')
+    style.renderer = {
+      kind: 'heatmap',
+      weight,
+      ...(typeof p['heatmap-radius'] === 'number' ? { radius: p['heatmap-radius'] } : {}),
+      ...(meters !== null ? { radiusUnit: 'm', radiusMeters: meters } : {}),
+      ...(typeof p['heatmap-intensity'] === 'number' ? { intensity: p['heatmap-intensity'] } : {}),
+    } as LayerStyle['renderer']
+    if (typeof p['heatmap-opacity'] === 'number' && p['heatmap-opacity'] < 1) style.layerOpacity = p['heatmap-opacity']
+  }
   const fillLayer = first('fill')
   const lineLayer = first('line')
   const circleLayer = first('circle')
-  if (!fillLayer && !lineLayer && !circleLayer && !first('fill-extrusion')) throw new Error('This style has no fill, line or circle layers.')
+  if (!fillLayer && !lineLayer && !circleLayer && !heatLayer && !first('fill-extrusion')) throw new Error('This style has no fill, line, circle or heatmap layers.')
 
   // Data-driven colors (a foreign style, or ours with the metadata stripped).
   const dataColor = fillLayer?.paint?.['fill-color'] ?? circleLayer?.paint?.['circle-color'] ?? (!fillLayer && !circleLayer ? lineLayer?.paint?.['line-color'] : undefined)
   const thematicNotes: string[] = []
-  const renderer = Array.isArray(dataColor) ? rendererFromColor(dataColor, thematicNotes) : null
+  const renderer = !heatLayer && Array.isArray(dataColor) ? rendererFromColor(dataColor, thematicNotes) : null
   if (renderer) {
     style.renderer = renderer
     notes.push(...thematicNotes)
