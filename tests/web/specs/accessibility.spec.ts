@@ -213,10 +213,13 @@ test('keyboard: every query control is reachable, and Tab leaves the editor', as
     await page.keyboard.press('Shift+Tab')
     reached.push(await label())
   }
+  // After the editor: its Copy button, then the footer.
   await editor(page).focus()
-  await page.keyboard.press('Tab')
-  reached.push(await label())
-  for (const name of ['Run', 'Reset to the original view', 'Query history', 'Spatial SQL function reference', 'Result CRS']) {
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press('Tab')
+    reached.push(await label())
+  }
+  for (const name of ['Run', 'Reset to the original view', 'Query history', 'Spatial SQL function reference', 'Copy the query', 'Result CRS']) {
     expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
   }
 
