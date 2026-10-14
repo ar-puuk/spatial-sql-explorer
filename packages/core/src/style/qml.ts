@@ -31,9 +31,9 @@ import {
 import { rendererOf } from './legacy.js'
 import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
-import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, type Channels, type ClassDef, type Encoding, type Output, type Scale } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, type Channels, type ClassDef, type ContinuousScale, type Encoding, type IdentityScale, type Output, type Scale } from './channels.js'
 import type { ResolvedClass } from './model.js'
-import { isGenericChannel } from './resolve.js'
+import { CONTINUOUS_STOPS, continuousOutput, isGenericChannel } from './resolve.js'
 import { checkExpression } from './sqlExpression.js'
 import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import { rampColors } from './ramps.js'
@@ -250,6 +250,43 @@ function qgisChannelCase(id: ChannelId, field: string, scale: 'categories' | 'cl
   return `CASE ${arms.join(' ')} ELSE ${out(classes.find((c) => c.kind === 'other'))} END`
 }
 
+/** Spec 011 US4: "No value" of a continuous or as-is property, as a QGIS test (as-is colors read text). */
+function qgisMissing(id: ChannelId, field: string, scale: 'continuous' | 'identity'): string {
+  return scale === 'identity' && OUTPUT_KIND[id] === 'color' ? `(${field} IS NULL OR to_string(${field}) = '')` : `${field} IS NULL`
+}
+
+/**
+ * Spec 011 US4: a continuous or as-is property as a QGIS expression, drawing
+ * what the map draws: numbers with scale_linear, or by area with scale_exp
+ * (exponent 0.5, QGIS's size assistant "Area"); colors as the ramp's
+ * segments mixed in RGB (color_mix_rgb); as is, the field (colors only when
+ * they are #rgb or #rrggbb). No value gets its class's output.
+ */
+function qgisScaled(id: ChannelId, field: string, scale: ContinuousScale | IdentityScale, rc: NonNullable<ResolvedStyle['channels']>[ChannelId], fixed: Output): string {
+  const noValue = qgisOutput(id, rc?.classes.find((c) => c.kind === 'noValue')?.output ?? fixed)
+  const missing = qgisMissing(id, field, scale.kind)
+  const v = `to_real(${field})`
+  const num = (o: Output) => Number(qgisOutput(id, o))
+  if (scale.kind === 'identity') {
+    if (OUTPUT_KIND[id] === 'color') return `CASE WHEN ${missing} THEN ${noValue} WHEN regexp_match(to_string(${field}), '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$') THEN to_string(${field}) ELSE ${qgisOutput(id, fixed)} END`
+    const value = id === 'opacity' ? `max(0, min(1, ${v})) * 100` : id === 'rotation' ? v : `max(0, ${v})`
+    return `CASE WHEN ${missing} THEN ${noValue} WHEN ${v} IS NULL THEN ${qgisOutput(id, fixed)} ELSE ${value} END`
+  }
+  const domain = rc?.domain
+  if (!domain) return qgisOutput(id, fixed)
+  const at = (x: number) => continuousOutput(id, scale, domain, x)
+  const span = domain.max - domain.min
+  if (!(span > 0)) return `CASE WHEN ${missing} THEN ${noValue} ELSE ${qgisOutput(id, at(domain.max))} END`
+  if (OUTPUT_KIND[id] === 'color') {
+    const d = Array.from({ length: CONTINUOUS_STOPS }, (_, i) => domain.min + (span * i) / (CONTINUOUS_STOPS - 1))
+    const arms = d.slice(1).map((x, i) => `WHEN ${v} <= ${round(x, 10)} THEN color_mix_rgb(${qgisString(String(at(d[i])))}, ${qgisString(String(at(x)))}, max(0, (${v} - ${round(d[i], 10)}) / ${round(x - d[i], 10)}))`)
+    return `CASE WHEN ${missing} THEN ${noValue} ${arms.join(' ')} ELSE ${qgisString(String(at(domain.max)))} END`
+  }
+  const [o0, o1] = [num(at(domain.min)), num(at(domain.max))]
+  const curve = scale.curve === 'area' ? `scale_exp(${v}, ${domain.min}, ${domain.max}, ${o0}, ${o1}, 0.5)` : `scale_linear(${v}, ${domain.min}, ${domain.max}, ${o0}, ${o1})`
+  return `CASE WHEN ${missing} THEN ${noValue} ELSE ${curve} END`
+}
+
 /**
  * Spec 011: every property that varies by data (other than color and spec
  * 009's size) as QGIS data-defined properties on a symbol: outline color and
@@ -270,30 +307,39 @@ export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | 
     const enc = style.channels[id]
     const rc = resolved.channels[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
-    if (enc.source.kind !== 'column' || (enc.scale.kind !== 'categories' && enc.scale.kind !== 'classes')) {
+    if (enc.source.kind !== 'column') {
       notes.push(`${CHANNEL_NAMES[id]} by an expression isn't written to QGIS: it uses the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
       continue
     }
     const field = qgisField(enc.source.column)
-    const scale = enc.scale.kind
     const fixed = fixedValue(style, id, kind === 'line' ? 'line' : 'marker')
-    const ranges = rc.classes.filter((c) => c.kind === 'range')
-    for (const c of rc.classes) {
-      if (c.visible) continue
-      const test = c.kind === 'other' ? null : qgisClassTest(field, scale, c, ranges)
-      if (test) hidden.push(`(${test})`)
-    }
+    let expr: string
+    const s = enc.scale
+    if (s.kind === 'continuous' || s.kind === 'identity') {
+      // Spec 011 US4: only "No value" can be hidden.
+      if (rc.classes.some((c) => c.kind === 'noValue' && !c.visible)) hidden.push(`(${qgisMissing(id, field, s.kind)})`)
+      expr = qgisScaled(id, field, s, rc, fixed)
+    } else if (s.kind === 'categories' || s.kind === 'classes') {
+      const scale = s.kind
+      const ranges = rc.classes.filter((c) => c.kind === 'range')
+      for (const c of rc.classes) {
+        if (c.visible) continue
+        const test = c.kind === 'other' ? null : qgisClassTest(field, scale, c, ranges)
+        if (test) hidden.push(`(${test})`)
+      }
+      if (id === 'shape' && kind === 'marker') shapeOurs = qgisChannelCase(id, field, scale, rc.classes, fixed, (_i, o) => qgisString(String(o)))
+      expr = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+    } else continue
     if (id === 'opacity') {
-      opacity = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+      opacity = expr
       continue
     }
     if (id === 'rotation') {
-      if (kind === 'marker') rotation = qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput)
+      if (kind === 'marker') rotation = expr
       continue
     }
-    if (id === 'shape' && kind === 'marker') shapeOurs = qgisChannelCase(id, field, scale, rc.classes, fixed, (_i, o) => qgisString(String(o)))
     const key = qgisKey(id, kind)
-    if (key) layer.push([key, expressionEntries(qgisChannelCase(id, field, scale, rc.classes, fixed, qgisOutput))])
+    if (key) layer.push([key, expressionEntries(expr)])
   }
   // Our "x" is QGIS's filled cross turned 45°: a shape by data turns those features too.
   if (kind === 'marker' && (rotation || shapeOurs)) {
@@ -1033,6 +1079,21 @@ const clampNumber = (n: number, lo: number, hi: number): number => Math.min(hi, 
  * fixed bounds), or null with a note. Opacity 0 means the class is hidden.
  */
 function encodingFromQgisCase(id: ChannelId, expression: string, toPxValue: (n: number) => number, notes: string[]): Encoding | null {
+  // Spec 011 US4: scale_linear / scale_exp(…, 0.5) over one field is continuous.
+  const scaled = /^\s*scale_(linear|exp)\(\s*(?:to_real\(\s*)?"((?:[^"]|"")+)"\s*\)?\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$/i.exec(expression)
+  if (scaled && OUTPUT_KIND[id] !== 'color' && OUTPUT_KIND[id] !== 'shape' && OUTPUT_KIND[id] !== 'dash') {
+    const [, fn, field, d0, d1, o0, o1, exponent] = scaled
+    const out = (raw: string) => outputFromQgis(id, Number(raw), toPxValue, notes)
+    const [min, max] = [out(o0), out(o1)]
+    const area = fn.toLowerCase() === 'exp' && Number(exponent) === 0.5
+    if (fn.toLowerCase() === 'exp' && !area) notes.push(`${CHANNEL_NAMES[id]}: a scale_exp curve other than 0.5 was imported as linear.`)
+    if (typeof min === 'number' && typeof max === 'number' && Number(d0) !== Number(d1)) {
+      return {
+        source: { kind: 'column', column: field.replace(/""/g, '"') },
+        scale: { kind: 'continuous', domain: { min: Math.min(Number(d0), Number(d1)), max: Math.max(Number(d0), Number(d1)) }, range: { min, max }, ...(area ? { curve: 'area' as const } : {}), noValue: {} },
+      }
+    }
+  }
   const c = parseQgisCase(expression)
   const name = CHANNEL_NAMES[id]
   if (!c) {
@@ -1094,7 +1155,12 @@ function channelsFromQgis(symbol: Element, layerEl: Element, cls: string, notes:
       const enc = encodingFromQgisCase(id, prop.expression, toPxValue, notes)
       if (enc) out[id] = enc
     } else if (prop.type === '2' && prop.field) {
-      notes.push(`${name} read straight from the field "${prop.field}" isn't imported yet; every feature has the fixed ${name.toLowerCase()}.`)
+      // Spec 011 US4: a field read as is (shapes and patterns name QGIS's own, so they stay fixed).
+      if (OUTPUT_KIND[id] === 'shape' || OUTPUT_KIND[id] === 'dash') notes.push(`${name} read straight from the field "${prop.field}" wasn't imported; every feature has the fixed ${name.toLowerCase()}.`)
+      else {
+        out[id] = { source: { kind: 'column', column: prop.field }, scale: { kind: 'identity', noValue: {} } }
+        if (id === 'opacity') notes.push(`Opacity read from "${prop.field}" is in percent in QGIS and 0–1 here.`)
+      }
     }
   }
   for (const [key, prop] of readDataDefined(layerEl)) {

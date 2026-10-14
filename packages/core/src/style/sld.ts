@@ -25,7 +25,7 @@ import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern, proportionalSize, type LineDash, type MarkerShape } from './symbol.js'
 import { CHANNEL_NAMES, CHANNEL_ORDER, type ChannelId, type Channels, type ClassDef, type Output } from './channels.js'
 import { labelColumnOf, sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
-import { isGenericChannel } from './resolve.js'
+import { continuousOutput, isGenericChannel } from './resolve.js'
 
 function param(name: string, value: string | number): string {
   return `<CssParameter name="${name}">${escapeXml(String(value))}</CssParameter>`
@@ -210,6 +210,22 @@ interface Axis {
   apply: (look: LayerStyle, c: AxisClass, geom: Exclude<StyleGeometry, 'Mixed'>) => LayerStyle
 }
 
+/** Spec 011 US4: SLD has no continuous scale: a continuous property is written as this many equal classes. */
+export const SLD_CONTINUOUS_CLASSES = 10
+
+/** Spec 011 US4: what SLD changes about continuous and as-is properties. */
+function sldScaleNotes(style: LayerStyle, resolved: ResolvedStyle | undefined): string[] {
+  const out: string[] = []
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels?.[id]
+    const rc = resolved?.channels?.[id]
+    if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc)) continue
+    if (enc.scale.kind === 'continuous') out.push(`SLD has no continuous scale: ${CHANNEL_NAMES[id]} was written as ${SLD_CONTINUOUS_CLASSES} equal classes.`)
+    if (enc.scale.kind === 'identity') out.push(`SLD can't read ${CHANNEL_NAMES[id].toLowerCase()} from a column as is: it keeps the fixed ${CHANNEL_NAMES[id].toLowerCase()} there.`)
+  }
+  return out
+}
+
 /** SLD rules beyond this many fall back to the first property alone (contracts/interchange-mapping.md). */
 export const SLD_RULE_CAP = 100
 
@@ -245,6 +261,23 @@ function genericAxes(style: LayerStyle, resolved: ResolvedStyle | undefined): Ax
     const enc = style.channels?.[id]
     const rc = resolved?.channels?.[id]
     if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc) || enc.source.kind !== 'column') continue
+    // Spec 011 US4: as is can't be read from a column in SLD (sldScaleNotes says so).
+    if (enc.scale.kind === 'identity') continue
+    if (enc.scale.kind === 'continuous') {
+      const scale = enc.scale
+      const domain = rc.domain
+      if (!domain) continue
+      const span = domain.max - domain.min
+      const fmt = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 })
+      const steps: AxisClass[] = Array.from({ length: span > 0 ? SLD_CONTINUOUS_CLASSES : 1 }, (_, i) => {
+        const lower = domain.min + (span * i) / SLD_CONTINUOUS_CLASSES
+        const upper = span > 0 ? domain.min + (span * (i + 1)) / SLD_CONTINUOUS_CLASSES : domain.max
+        return { kind: 'range', lower, upper, color: '', label: `${fmt.format(lower)} – ${fmt.format(upper)}`, visible: true, output: continuousOutput(id, scale, domain, (lower + upper) / 2) }
+      })
+      const noValue: AxisClass[] = rc.classes.filter((c) => c.kind === 'noValue').map((c) => ({ kind: 'noValue', color: '', label: c.label, visible: c.visible, output: c.output }))
+      out.push({ id, column: enc.source.column, classes: [...steps, ...noValue], apply: (look, c, geom) => applyOutput(id, look, c.output, geom) })
+      continue
+    }
     const classes: AxisClass[] = rc.classes.flatMap((c) =>
       c.kind === 'value' || c.kind === 'range' || c.kind === 'other' || c.kind === 'noValue'
         ? [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, output: c.output }]
@@ -503,6 +536,7 @@ export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName
   const portable = rr.kind === 'rules' && resolved?.status === 'ok' ? portableRules(style, resolved, 'sld') : null
   // Spec 011: properties by a column, crossed with the color and size classes.
   const plan = exportAxes(style, resolved, thematic, sizeClasses)
+  notes.push(...sldScaleNotes(style, resolved))
   const channelNote = sldChannelNote(style, resolved)
   if (channelNote) notes.push(channelNote)
   const l = style.labels

@@ -90,13 +90,21 @@ describe('QML import of QGIS data-defined properties (spec 011 T054)', () => {
     expect(notes).toEqual([])
   })
 
+  it('spec 011 US4: scale_linear is continuous, scale_exp(…, 0.5) by area, and a field as is', () => {
+    const qml = qgisMarker({ outlineWidth: expr('scale_linear("num", 0, 100, 1, 5)'), angle: field('num') }, { alpha: expr('scale_exp("num", 10, 20, 30, 90, 0.5)') })
+    const { style } = importStyle('style.qml', qml)
+    expect(style.channels?.strokeWidth?.scale).toEqual({ kind: 'continuous', domain: { min: 0, max: 100 }, range: { min: 1, max: 5 }, noValue: {} })
+    expect(style.channels?.opacity?.scale).toEqual({ kind: 'continuous', domain: { min: 10, max: 20 }, range: { min: 0.3, max: 0.9 }, curve: 'area', noValue: {} })
+    expect(style.channels?.rotation).toEqual({ source: { kind: 'column', column: 'num' }, scale: { kind: 'identity', noValue: {} } })
+  })
+
   it('keeps the fixed value, with a note naming the property, for other forms', () => {
-    const qml = qgisMarker({ outlineWidth: expr('scale_linear("num", 0, 100, 1, 5)'), angle: field('num') })
+    const qml = qgisMarker({ outlineWidth: expr('"num" * 2 + 1'), name: field('kind') })
     const { style, notes } = importStyle('style.qml', qml)
     expect(style.channels?.strokeWidth).toBeUndefined()
-    expect(style.channels?.rotation).toBeUndefined()
+    expect(style.channels?.shape).toBeUndefined()
     expect(notes.some((n) => /^Outline width/.test(n))).toBe(true)
-    expect(notes.some((n) => /^Rotation/.test(n))).toBe(true)
+    expect(notes.some((n) => /^Shape/.test(n))).toBe(true)
   })
 
   it("imports a fixed marker angle as the style's rotation", () => {

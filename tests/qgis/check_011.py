@@ -68,9 +68,20 @@ def look(symbol, ctx, geometry):
     return got
 
 
+def close_colors(a, b, tolerance=2):
+    """Two #rrggbb colors within `tolerance` per channel (QGIS's color_mix_rgb rounds its own way)."""
+    if not (isinstance(a, str) and isinstance(b, str) and a.startswith('#') and b.startswith('#') and len(a) == len(b) == 7):
+        return a == b
+    return all(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) <= tolerance for i in (1, 3, 5))
+
+
 def same(want, got):
     for key, value in want.items():
         if key == 'visible':
+            continue
+        if key in ('color', 'strokeColor'):
+            if not close_colors(value, got[key]):
+                return False
             continue
         if key == 'angle':
             if abs((got[key] - value % 360 + 180) % 360 - 180) > 1e-3:
@@ -103,7 +114,9 @@ def check(qml):
             if got['visible']:
                 mismatches.append({'feature': i, 'want': want, 'got': got})
             continue
-        if not got['visible'] or not same(want, got):
+        # Opacity 0 draws nothing in both (QGIS's symbol alpha 0 reads as hidden here).
+        transparent = want.get('opacity') == 0 and got.get('opacity') == 0
+        if not (got['visible'] or transparent) or not same(want, got):
             mismatches.append({'feature': i, 'want': want, 'got': got})
     renderer.stopRender(ctx)
     label_mismatches = check_labels(layer, expected.get('labels'))

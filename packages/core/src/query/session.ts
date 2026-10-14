@@ -35,11 +35,12 @@ import {
   quantilePositions,
   STYLE_VALUES_CAP,
   topCategoriesSql,
+  invalidColorsSql,
 } from '../view/stats.js'
 import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
 import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
 import { legacyView, rendererOf, sizeOf } from '../style/legacy.js'
-import { CHANNEL_ORDER } from '../style/channels.js'
+import { CHANNEL_ORDER, isColorChannel } from '../style/channels.js'
 import { isGenericChannel } from '../style/resolve.js'
 import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
 import type { RuleSuggestions } from '../style/edit.js'
@@ -686,13 +687,22 @@ export class QuerySession {
         }
         for (const w of wanted) {
           if (got[w.column]) continue
-          if (w.scale.kind === 'categories') {
+          // Spec 011 US4: continuous and as-is numbers need the minimum and maximum (and nulls).
+          if (w.scale.kind === 'continuous' || (w.scale.kind === 'identity' && !isColorChannel(w.id))) {
+            const t = await singleRow<{ n: bigint | number; nulls: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, w.column), isCancelled)
+            const sample = t.min === null || t.max === null ? [] : [Number(t.min), Number(t.max)]
+            got[w.column] = { kind: 'numbers', column: w.column, sample, n: Number(t.n), nulls: Number(t.nulls) }
+            continue
+          }
+          if (w.scale.kind === 'categories' || w.scale.kind === 'identity') {
             const top: Array<{ value: string; count: number }> = []
-            await streamRows(this.conn, topCategoriesSql(relation, w.column, w.scale.manual ? w.scale.categories.map((c) => c.value) : []), isCancelled, (batch) => {
+            await streamRows(this.conn, topCategoriesSql(relation, w.column, w.scale.kind === 'categories' && w.scale.manual ? w.scale.categories.map((c) => c.value) : []), isCancelled, (batch) => {
               for (const row of batch) top.push({ value: String(row.cat), count: Number(row.n) })
             })
             const totals = await singleRow<{ distinct_n: bigint | number; non_null: bigint | number; nulls: bigint | number }>(this.conn, categoryTotalsSql(relation, w.column), isCancelled)
-            got[w.column] = { kind: 'categories', column: w.column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls) }
+            // Spec 011 US4: as-is colors also count the values that aren't colors.
+            const invalid = w.scale.kind === 'identity' ? Number((await singleRow<{ bad: bigint | number }>(this.conn, invalidColorsSql(relation, w.column), isCancelled)).bad) : undefined
+            got[w.column] = { kind: 'categories', column: w.column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls), ...(invalid !== undefined ? { invalid } : {}) }
           } else if (w.scale.kind === 'classes') {
             const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, [w.column]), isCancelled)
             const count = Number(totals.n_0)

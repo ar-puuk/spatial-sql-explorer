@@ -22,7 +22,11 @@ import {
   setChannelClass,
   setChannelClasses,
   setChannelColumn,
+  setChannelCurve,
+  setChannelRamp,
+  setChannelRange,
   setFixed,
+  setScaleKind,
   setLabels,
   startStyle,
   visibilityFilter,
@@ -31,26 +35,49 @@ import {
 
 const OUT = process.env.SE_QGIS_011
 
+/** The property's type, as the map parses it (colors, numbers, dash arrays; icon ids and filters as they are). */
+function specFor(key: string): unknown {
+  const t = /color$/.test(key) ? 'color' : /dasharray$/.test(key) ? 'array' : /(width|opacity|rotate|radius|size)$/.test(key) ? 'number' : null
+  if (!t) return key
+  return { type: t, ...(t === 'array' ? { value: 'number' } : {}), 'property-type': 'data-driven', expression: { interpolated: false, parameters: ['zoom', 'feature', 'feature-state'] } }
+}
+
 function evaluate(expr: unknown, properties: Record<string, unknown>, key: string, type: string): unknown {
   if (!Array.isArray(expr)) return expr
-  const parsed = expression.createExpression(expr, key)
-  if (parsed.result !== 'success') throw new Error(JSON.stringify(parsed.value))
+  const parsed = expression.createExpression(expr, specFor(key) as never)
+  if (parsed.result !== 'success') throw new Error(`${key}: ${(parsed.value as Array<{ key: string; message: string }>).map((e) => `${e.key} ${e.message}`).join('; ')}`)
   return parsed.value.evaluate({ zoom: 0 }, { type, properties } as never, {} as never)
 }
 
 /** 72 features: a class (3), a kind (9, uneven: some share Other for shapes), a number (every 11th null) and an angle. */
 const KINDS = ['k1', 'k1', 'k1', 'k1', 'k2', 'k2', 'k2', 'k3', 'k3', 'k4', 'k4', 'k5', 'k5', 'k6', 'k7', 'k8', 'k9', 'k1']
-const rows = Array.from({ length: 72 }, (_, i) => ({ cls: ['A', 'B', 'C'][i % 3], kind: KINDS[i % KINDS.length], num: i % 11 === 5 ? null : (i * 13) % 97, deg: (i * 37) % 360 }))
+// Spec 011 US4: a fraction (as-is opacity) and colors as text (as-is colors; every 7th isn't one, every 13th is missing).
+const rows = Array.from({ length: 72 }, (_, i) => ({
+  cls: ['A', 'B', 'C'][i % 3],
+  kind: KINDS[i % KINDS.length],
+  num: i % 11 === 5 ? null : (i * 13) % 97,
+  deg: (i * 37) % 360,
+  frac: (i % 10) / 10,
+  hex: i % 13 === 4 ? null : i % 7 === 3 ? 'not-a-color' : `#${((i * 2654435) % 0xffffff).toString(16).padStart(6, '0')}`,
+}))
 const columns = [
   { name: 'cls', type: 'VARCHAR' },
   { name: 'kind', type: 'VARCHAR' },
   { name: 'num', type: 'DOUBLE' },
   { name: 'deg', type: 'INTEGER' },
+  { name: 'frac', type: 'DOUBLE' },
+  { name: 'hex', type: 'VARCHAR' },
 ]
 const layer = { features: rows.map((attributes, id) => ({ id, geometry: null, attributes })), columns }
 
 /** QGIS's names for our marker shapes (qml.ts qgisMarker): our "x" is the filled cross turned 45°. */
 const QGIS_SHAPE: Record<string, string> = { circle: 'circle', square: 'square', triangle: 'triangle', diamond: 'diamond', star: 'star', cross: 'cross_fill', x: 'cross_fill' }
+/** A color as `#rrggbb`: hex as is, MapLibre's `rgba(r,g,b,a)` (a Color's text) converted. */
+function toHex(v: unknown): string {
+  const s = String(v).toLowerCase()
+  const m = /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(s)
+  return m ? '#' + m.slice(1, 4).map((x) => Math.round(Number(x)).toString(16).padStart(2, '0')).join('') : s
+}
 const QGIS_DASH: Record<string, string> = { solid: 'solid', dash: 'dash', dot: 'dot', 'dash-dot': 'dash dot', 'dash-dot-dot': 'dash dot dot' }
 const PATTERNS: Record<string, number[]> = { solid: [1, 0], dash: [4, 2], dot: [1, 2], 'dash-dot': [4, 2, 1, 2], 'dash-dot-dot': [4, 2, 1, 2, 1, 2] }
 
@@ -78,7 +105,17 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
     let rules: LayerStyle = sanitizeStyle(startStyle(base, 'rules', layer))
     rules = setFixed(setFixed(rules, 'rotation', 30), 'shape', 'triangle')
     rules = setChannelColumn(rules, 'strokeWidth', 'cls', layer)
+    // Spec 011 US4: continuous and as is (circles: smooth paint; triangles: their icons).
+    let smooth: LayerStyle = setChannelRamp(setScaleKind(setChannelColumn(base, 'strokeColor', 'num', layer), 'strokeColor', 'continuous', layer), 'strokeColor', { id: 'brewer-ylorrd', reversed: false })
+    smooth = setChannelCurve(setChannelRange(setScaleKind(setChannelColumn(smooth, 'strokeWidth', 'num', layer), 'strokeWidth', 'continuous', layer), 'strokeWidth', 0.5, 4), 'strokeWidth', 'area')
+    smooth = setScaleKind(setChannelColumn(smooth, 'opacity', 'frac', layer), 'opacity', 'identity', layer)
+    let asIs: LayerStyle = setFixed(base, 'shape', 'triangle')
+    asIs = setScaleKind(setChannelColumn(asIs, 'rotation', 'deg', layer), 'rotation', 'identity', layer)
+    asIs = setScaleKind(setChannelColumn(asIs, 'strokeColor', 'hex', layer), 'strokeColor', 'identity', layer)
+    asIs = setFixed(asIs, 'strokeWidth', 2)
     const cases: Array<{ name: string; geometry: 'point' | 'line' | 'polygon'; style: LayerStyle }> = [
+      { name: 'points-continuous', geometry: 'point', style: smooth },
+      { name: 'points-as-is', geometry: 'point', style: asIs },
       { name: 'points-shape-outline-rotation-opacity', geometry: 'point', style: points },
       { name: 'polygons-outline-color-width', geometry: 'polygon', style: polygons },
       { name: 'lines-pattern-opacity', geometry: 'line', style: lines },
@@ -113,21 +150,23 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
         const visible = filter ? ev(filter, props, 'filter') === true : true
         const out: Record<string, unknown> = { visible }
         if (c.geometry === 'point') {
-          const icon = parseMarkerIconId(String(ev(l.marker?.['icon-image'], props, 'layout.icon-image')))
-          out.color = String(icon?.fillColor ?? ev(p.circle['circle-color'], props, 'paint.circle-color')).toLowerCase()
-          out.strokeColor = String(icon?.strokeColor ?? ev(p.circle['circle-stroke-color'], props, 'paint.circle-stroke-color')).toLowerCase()
-          out.strokeWidth = Number(icon?.strokeWidth ?? ev(p.circle['circle-stroke-width'], props, 'paint.circle-stroke-width'))
+          const parsed = parseMarkerIconId(String(ev(l.marker?.['icon-image'], props, 'layout.icon-image')))
+          // Circles are drawn by the circle layer (smooth paint), other shapes from their icons.
+          const icon = parsed && parsed.shape !== 'circle' ? parsed : null
+          out.color = toHex(icon?.fillColor ?? ev(p.circle['circle-color'], props, 'paint.circle-color'))
+          out.strokeColor = toHex(icon?.strokeColor ?? ev(p.circle['circle-stroke-color'], props, 'paint.circle-stroke-color'))
+          out.strokeWidth = Math.round(Number(icon?.strokeWidth ?? ev(p.circle['circle-stroke-width'], props, 'paint.circle-stroke-width')) * 10000) / 10000
           const shape = icon?.shape ?? 'circle'
           out.shape = QGIS_SHAPE[shape]
           out.angle = Number(ev(l.marker?.['icon-rotate'] ?? 0, props, 'layout.icon-rotate')) + (shape === 'x' ? 45 : 0)
           const o = Number(ev(p.marker['icon-opacity'] ?? 1, props, 'paint.icon-opacity'))
           out.opacity = Math.round(o * 10000) / 100
         } else if (c.geometry === 'polygon') {
-          out.color = String(ev(p.fill['fill-color'], props, 'paint.fill-color')).toLowerCase()
-          out.strokeColor = String(ev(p['fill-outline']['line-color'], props, 'paint.line-color')).toLowerCase()
+          out.color = toHex(ev(p.fill['fill-color'], props, 'paint.fill-color'))
+          out.strokeColor = toHex(ev(p['fill-outline']['line-color'], props, 'paint.line-color'))
           out.strokeWidth = Number(ev(p['fill-outline']['line-width'], props, 'paint.line-width'))
         } else {
-          out.color = String(ev(p.line['line-color'], props, 'paint.line-color')).toLowerCase()
+          out.color = toHex(ev(p.line['line-color'], props, 'paint.line-color'))
           out.strokeWidth = Number(ev(p.line['line-width'], props, 'paint.line-width'))
           const dash = (ev(p.line['line-dasharray'] ?? ['literal', [1, 0]], props, 'paint.line-dasharray') as number[] | undefined) ?? [1, 0]
           out.dash = QGIS_DASH[Object.entries(PATTERNS).find(([, v]) => v.join() === [...dash].join())?.[0] ?? 'solid']

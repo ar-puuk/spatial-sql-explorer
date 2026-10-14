@@ -52,6 +52,11 @@ export function categoryTotalsSql(relation: string, column: string): string {
   return `SELECT count(DISTINCT cat) AS distinct_n, count(cat) AS non_null, count(*) - count(cat) AS nulls FROM (SELECT ${cat} AS cat FROM ${relation})`
 }
 
+/** Spec 011 US4, As-is colors: values that aren't `#rgb` or `#rrggbb` (missing values aside). */
+export function invalidColorsSql(relation: string, column: string): string {
+  return `SELECT count(*) FILTER (WHERE cat IS NOT NULL AND NOT regexp_matches(trim(cat), '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')) AS bad FROM (SELECT ${categorySql(column)} AS cat FROM ${relation})`
+}
+
 /** Numeric count, nulls, min and max of the column. */
 export function numberTotalsSql(relation: string, column: string): string {
   return `SELECT count(v) AS n, count(*) - count(v) AS nulls, min(v) AS min, max(v) AS max FROM (SELECT ${numberSql(column)} AS v FROM ${relation})`

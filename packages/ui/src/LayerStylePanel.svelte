@@ -88,8 +88,11 @@
     isNumericType,
     setChannelClass,
     setChannelClasses,
-    setChannelColumn,
+    setChannelColumn,
     setChannelRamp,
+    setChannelDomain,
+    setChannelCurve,
+    scalesFor,
     setChannelRange,
     setEncoding,
     setLegendHidden,
@@ -372,7 +375,13 @@
   function scalesForColumn(id: ChannelId, enc: Encoding): ScaleKind[] {
     const column = enc.source.kind === 'column' ? enc.source.column : ''
     const numeric = isNumericType(layer?.columns.find((c) => c.name === column)?.type ?? '')
-    return (['categories', 'classes'] as ScaleKind[]).filter((k) => (k === 'classes' ? numeric && id !== 'shape' && id !== 'dash' : true))
+    // FR-010, for the column at hand: classes and continuous need numbers; as is reads colors from text, the rest from numbers.
+    const color = id === 'strokeColor'
+    return scalesFor(id).filter((k) => {
+      if (k === 'classes' || k === 'continuous') return numeric
+      if (k === 'identity') return color ? !numeric : numeric
+      return k === 'categories'
+    })
   }
   /** A property added again starts on the column it last had in this session, else on a suitable first one (FR-007). */
   function addVary(id: ChannelId): void {
@@ -970,6 +979,8 @@
                   onClasses={(p) => apply(setChannelClasses(style, id, p))}
                   onRange={(lo, hi) => apply(setChannelRange(style, id, lo, hi))}
                   onRamp={(ramp) => apply(setChannelRamp(style, id, ramp))}
+                  onDomain={(d) => apply(setChannelDomain(style, id, d))}
+                  onCurve={(c) => apply(setChannelCurve(style, id, c))}
                   onClass={(key, patch) => apply(setChannelClass(style, id, key, patch))}
                   onLegendHidden={(h) => apply(setLegendHidden(style, id, h))}
                 />

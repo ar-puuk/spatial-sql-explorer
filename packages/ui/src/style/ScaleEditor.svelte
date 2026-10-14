@@ -39,10 +39,13 @@
     onClasses: (patch: { method?: Exclude<GraduatedMethod, 'manual'>; classCount?: number }) => void
     onRange: (min: number, max: number) => void
     onRamp: (ramp: RampRef) => void
+    /** Spec 011 US4, continuous: the domain (null: the column's minimum to maximum) and a number's curve. */
+    onDomain?: (domain: { min: number; max: number } | null) => void
+    onCurve?: (curve: 'linear' | 'area') => void
     onClass: (key: string, patch: ClassDef) => void
     onLegendHidden: (hidden: boolean) => void
   }
-  let { channel, enc, resolved, columns, scales, onColumn, onScale, onClasses, onRange, onRamp, onClass, onLegendHidden }: Props = $props()
+  let { channel, enc, resolved, columns, scales, onColumn, onScale, onClasses, onRange, onRamp, onDomain = () => {}, onCurve = () => {}, onClass, onLegendHidden }: Props = $props()
 
   const name = $derived(CHANNEL_NAMES[channel])
   const kind = $derived(OUTPUT_KIND[channel])
@@ -51,8 +54,11 @@
   const SCALE_NAMES: Record<ScaleKind, string> = { categories: 'Categories', classes: 'Classes', continuous: 'Continuous', conditions: 'Conditions', identity: 'As is', bivariate: 'Bivariate' }
   const METHODS: Array<Exclude<GraduatedMethod, 'manual'>> = ['equal', 'quantile', 'jenks']
   const COUNTS = Array.from({ length: MAX_CLASS_COUNT - MIN_CLASS_COUNT + 1 }, (_, i) => MIN_CLASS_COUNT + i)
-  const range = $derived(scale.kind === 'categories' || scale.kind === 'classes' ? scale.range : undefined)
-  const ramp = $derived(scale.kind === 'categories' || scale.kind === 'classes' ? scale.ramp : undefined)
+  const range = $derived(scale.kind === 'categories' || scale.kind === 'classes' || scale.kind === 'continuous' ? scale.range : undefined)
+  const ramp = $derived(scale.kind === 'categories' || scale.kind === 'classes' || scale.kind === 'continuous' ? scale.ramp : undefined)
+  /** Continuous: the domain drawn (the scale's own, or the column's). */
+  const domain = $derived(scale.kind === 'continuous' ? (scale.domain ?? resolved?.domain) : undefined)
+  const fmtDomain = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 6, useGrouping: false })
   const classes = $derived(resolved?.classes ?? [])
   const nf = new Intl.NumberFormat('en-US')
   const unit = $derived(kind === 'px' ? 'px' : kind === 'degrees' ? '°' : kind === 'meters' ? 'm' : '')
@@ -108,8 +114,35 @@
       </div>
     </div>
   {/if}
+  {#if scale.kind === 'continuous' && domain}
+    <!-- Spec 011 US4: the values the outputs run between; Auto is the column's minimum to maximum. -->
+    <div class="row field">
+      <span class="label" aria-hidden="true">Values</span>
+      <span class="range">
+        <input class="number" type="number" aria-label="{name} from value" value={fmtDomain.format(domain.min)} onchange={(e) => onDomain({ min: Number(e.currentTarget.value), max: domain.max })} />
+        <span aria-hidden="true">to</span>
+        <input class="number" type="number" aria-label="{name} to value" value={fmtDomain.format(domain.max)} onchange={(e) => onDomain({ min: domain.min, max: Number(e.currentTarget.value) })} />
+        {#if scale.domain}
+          <button type="button" class="link" title="Use the column's minimum and maximum" onclick={() => onDomain(null)}>Auto</button>
+        {/if}
+      </span>
+    </div>
+    {#if kind !== 'color'}
+      <div class="row field">
+        <label class="label" for="{uid}-curve">Curve</label>
+        <select id="{uid}-curve" aria-label="{name} curve" value={scale.curve ?? 'linear'} onchange={(e) => onCurve(e.currentTarget.value as 'linear' | 'area')}>
+          <option value="linear">Linear</option>
+          <option value="area">By area</option>
+        </select>
+      </div>
+    {/if}
+  {:else if scale.kind === 'identity'}
+    <p class="hint">
+      {kind === 'color' ? 'Each feature takes the color in the column (#rrggbb).' : kind === 'opacity' ? 'Each feature takes the opacity in the column (0 to 1).' : kind === 'degrees' ? 'Each feature turns by the degrees in the column.' : 'Each feature takes the pixels in the column.'}
+    </p>
+  {/if}
   {#if kind === 'color' && ramp}
-    <RampPicker value={ramp} renderer={scale.kind === 'classes' ? 'graduated' : 'categorized'} classCount={classes.filter((c) => c.kind === 'value' || c.kind === 'range').length || 1} onChange={onRamp} />
+    <RampPicker value={ramp} renderer={scale.kind === 'categories' ? 'categorized' : 'graduated'} classCount={classes.filter((c) => c.kind === 'value' || c.kind === 'range').length || 1} onChange={onRamp} />
   {:else if range && (kind === 'px' || kind === 'opacity' || kind === 'degrees' || kind === 'meters')}
     <div class="row field">
       <span class="label" aria-hidden="true">From</span>
@@ -222,9 +255,21 @@
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }
-  .caption {
+  .caption,
+  .hint {
     margin: 0;
     color: var(--se-text-secondary);
+  }
+  .link {
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--se-link, var(--se-accent));
+    font: inherit;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .classes {
     display: grid;

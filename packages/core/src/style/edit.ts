@@ -33,7 +33,7 @@ import {
 } from './model.js'
 import { rendererOf, sizeOf, toChannelShape } from './legacy.js'
 import { toCategory } from './classify.js'
-import { defaultRamp, rampColors } from './ramps.js'
+import { defaultRamp, rampById, rampColors } from './ramps.js'
 import { DEFAULT_SIZE_RANGE, type LineDash, type MarkerShape } from './symbol.js'
 import { eligibleColumns, isNumericType, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
 import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
@@ -765,6 +765,8 @@ export function setChannelClass(style: LayerStyle, channel: ChannelId, key: stri
       const categories = found ? scale.categories.map((c) => (c.value === value ? { ...merge(c), value } : c)) : [...scale.categories, { value, ...merge({}) }]
       return { ...e, scale: { ...scale, categories } }
     }
+    // Spec 011 US4: continuous and as is have only "No value".
+    if (scale.kind === 'continuous' || scale.kind === 'identity') return key === '__null' ? { ...e, scale: { ...scale, noValue: merge(scale.noValue) } } : e
     if (scale.kind === 'classes') {
       if (key === '__null') return { ...e, scale: { ...scale, noValue: merge(scale.noValue) } }
       if (!key.startsWith('range:')) return e
@@ -777,17 +779,45 @@ export function setChannelClass(style: LayerStyle, channel: ChannelId, key: stri
   })
 }
 
-/** A property's kind of scale (categories or classes this slice); its ramp or range is kept, classes start over. */
+/**
+ * A property's kind of scale; its ramp or range is kept, classes start over.
+ * Spec 011 US4: continuous (a sequential ramp, or the range; markers sized
+ * by area) and as is.
+ */
 export function setScaleKind(style: LayerStyle, channel: ChannelId, kind: Scale['kind'], _layer: ResolveInput | null): LayerStyle {
   void _layer
   return patchEncoding(style, channel, (e) => {
     if (e.scale.kind === kind) return e
-    const old = e.scale as CategoriesScale | ClassesScale
+    const old = e.scale as { ramp?: RampRef; range?: { min: number; max: number } }
     const keep = { ...(old.ramp ? { ramp: old.ramp } : {}), ...(old.range ? { range: old.range } : {}) }
+    const color = isColorChannel(channel)
+    const range = CHANNEL_RANGES[channel]
     if (kind === 'categories') return { ...e, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: categoryCapFor(channel), ...keep } }
     if (kind === 'classes') return { ...e, scale: { kind: 'classes', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, ...keep } }
+    if (kind === 'continuous') {
+      // A categorized palette doesn't run smoothly: continuous colors start from a sequential ramp.
+      const ramp = old.ramp && rampById(old.ramp.id)?.kind !== 'qualitative' ? old.ramp : defaultRamp('graduated', DEFAULT_CLASS_COUNT)
+      return { ...e, scale: { kind: 'continuous', noValue: {}, ...(color ? { ramp } : { range: old.range ?? (range ? { ...range } : { min: 0, max: 1 }) }), ...(channel === 'size' ? { curve: 'area' as const } : {}) } }
+    }
+    if (kind === 'identity') return { ...e, scale: { kind: 'identity', noValue: {} } }
     return e
   })
+}
+
+/** Spec 011 US4: a continuous property's domain (null: the column's minimum to maximum). */
+export function setChannelDomain(style: LayerStyle, channel: ChannelId, domain: { min: number; max: number } | null): LayerStyle {
+  return patchEncoding(style, channel, (e) => {
+    if (e.scale.kind !== 'continuous') return e
+    const { domain: _d, ...rest } = e.scale
+    void _d
+    if (!domain || !Number.isFinite(domain.min) || !Number.isFinite(domain.max) || domain.min === domain.max) return { ...e, scale: rest }
+    return { ...e, scale: { ...rest, domain: { min: Math.min(domain.min, domain.max), max: Math.max(domain.min, domain.max) } } }
+  })
+}
+
+/** Spec 011 US4: a continuous number's curve (linear, or by area, as QGIS's size assistant). */
+export function setChannelCurve(style: LayerStyle, channel: ChannelId, curve: 'linear' | 'area'): LayerStyle {
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'continuous' && !isColorChannel(channel) ? { ...e, scale: { ...e.scale, curve } } : e))
 }
 
 /** The classification method and class count of a property with classes (overrides by index start over). */
@@ -804,12 +834,12 @@ export function setChannelClasses(style: LayerStyle, channel: ChannelId, patch: 
 export function setChannelRange(style: LayerStyle, channel: ChannelId, min: number, max: number): LayerStyle {
   if (!isOutputFor(channel, min) || !isOutputFor(channel, max)) return style
   const range = { min: Math.min(min, max), max: Math.max(min, max) }
-  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, range } } : e))
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' || e.scale.kind === 'continuous' ? { ...e, scale: { ...e.scale, range } } : e))
 }
 
 /** A color property's ramp. */
 export function setChannelRamp(style: LayerStyle, channel: ChannelId, ramp: RampRef): LayerStyle {
-  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, ramp } } : e))
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' || e.scale.kind === 'continuous' ? { ...e, scale: { ...e.scale, ramp } } : e))
 }
 
 /** Hides a property's group from the legend (the map is unchanged), or shows it again. */

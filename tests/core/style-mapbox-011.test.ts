@@ -99,6 +99,11 @@ describe('Mapbox GL import of foreign data-driven paint (spec 011 T056)', () => 
     expect(notes.join(' ')).not.toMatch(/only literal values/)
   })
 
+  it('spec 011 US4: a two-stop linear interpolate over one get is continuous', () => {
+    const { style } = importStyle('style.json', doc({ 'circle-color': '#336699', 'circle-stroke-width': ['interpolate', ['linear'], ['get', 'num'], 0, 1, 100, 5] }))
+    expect(style.channels?.strokeWidth?.scale).toEqual({ kind: 'continuous', domain: { min: 0, max: 100 }, range: { min: 1, max: 5 }, noValue: {} })
+  })
+
   it('reads a line width by categories as width', () => {
     const { style } = importStyle('style.json', doc({ 'line-color': '#333333', 'line-width': ['match', ['get', 'cls'], 'A', 1, 'B', 3, 2] }, 'line'))
     expect(style.channels?.width?.scale.kind).toBe('categories')

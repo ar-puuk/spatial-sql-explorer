@@ -285,6 +285,15 @@ function encodingFromMapbox(id: ChannelId, e: unknown): Encoding | null {
     }
     return { source: { kind: 'column', column }, scale: { kind: 'categories', manual: true, categories, other, noValue: other, cap: Math.max(categories.length, 1) } }
   }
+  // Spec 011 US4: two stops of a linear interpolate over one get: continuous numbers.
+  if (e[0] === 'interpolate' && Array.isArray(e[1]) && e[1][0] === 'linear' && e.length === 7 && OUTPUT_KIND[id] !== 'color') {
+    const column = columnOf(e[2])
+    const [d0, o0, d1, o1] = e.slice(3) as unknown[]
+    const lo = output(o0)
+    const hi = output(o1)
+    if (!column || typeof d0 !== 'number' || typeof d1 !== 'number' || d0 === d1 || !lo || !hi) return null
+    return { source: { kind: 'column', column }, scale: { kind: 'continuous', domain: { min: Math.min(d0, d1), max: Math.max(d0, d1) }, range: { min: Number(lo.output), max: Number(hi.output) }, noValue: {} } }
+  }
   if (e[0] === 'step') {
     const column = columnOf(e[1])
     if (!column) return null

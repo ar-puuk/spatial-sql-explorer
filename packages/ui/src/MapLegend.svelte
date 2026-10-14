@@ -106,8 +106,22 @@
         <h4 class="group-title" title={g.title}>{g.title}</h4>
       {/if}
       <div role="group" aria-label={label} class="group" data-channels={g.channels.join(' ')}>
+        {#if g.gradient}
+          <!-- Spec 011 US4: a continuous color, as its ramp from the smallest value to the largest. -->
+          <div class="heat-ramp" role="img" aria-label="{g.title}: colors from {g.gradient.min} to {g.gradient.max}" style:background="linear-gradient(to right, {g.gradient.stops.join(', ')})"></div>
+          <div class="heat-ends"><span>{g.gradient.min}</span><span>{g.gradient.max}</span></div>
+        {/if}
+        {#if g.note}<p class="group-note">{g.note}</p>{/if}
         <ul>
           {#each g.entries as e, i (e.key)}
+            {#if !e.toggles.length}
+              <!-- Spec 011 US4: a continuous property's sample: drawn, not a class to hide. -->
+              <li>
+                <span class="swatch"><SymbolSwatch symbol={list[i]} {kind} scale={sc} size={kind === 'point' ? SWATCH : 18} /></span>
+                <span class="label" title={e.label}>{e.label}</span>
+                <span class="count"></span>
+              </li>
+            {:else}
             <li class:hidden={!e.visible}>
               <button
                 type="button"
@@ -123,6 +137,7 @@
               <span class="label" title={e.label}>{e.label}</span>
               <span class="count">{nf.format(e.count)}</span>
             </li>
+            {/if}
           {/each}
         </ul>
       </div>
@@ -254,6 +269,16 @@
     display: flex;
     justify-content: space-between;
     gap: 8px;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
+  /* Spec 011 US4: a continuous color's bar, and an as-is property's line, inside a property's group. */
+  .group:not(.heat) > .heat-ramp,
+  .group:not(.heat) > .heat-ends {
+    margin: 2px 8px 0;
+  }
+  .group-note {
+    margin: 0 8px 4px;
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }

@@ -614,3 +614,50 @@ and add "Vary by attribute" under them. What changed:
   - core: `style-labels` (8) and `style-labels-interchange` (7), 727 in all;
   - web: `labels.spec.ts` (3), and layout and accessibility (29 together);
   - QGIS: `check_011.py`, 7 cases, 0 mismatches.
+
+## US4 slice A: Continuous and As is on Vary by attribute (2026-10-14)
+
+- **Where they apply.** Outline color, outline width, opacity and rotation
+  get Continuous and As is. Size and width get As is; their Continuous was
+  already spec 009's proportional size. The scale list follows FR-010 and the
+  column: classes and continuous need numbers, and as is reads colors from
+  text and the rest from numbers.
+- **Continuous.**
+  - The domain is the column's minimum to maximum, or the user's ("Values",
+    with Auto).
+  - Colors run through 7 ramp stops in RGB, as QGIS mixes them. Numbers run
+    from the range's minimum to maximum, linear or by area.
+  - The legend shows a bar from min to max for colors, and three samples
+    (not toggles) for numbers. Only "No value" can be hidden.
+- **As is.**
+  - Colors: `#rgb`/`#rrggbb` pass; other values get the fixed color, counted
+    in a note (the engine counts them for big results).
+  - Numbers: px, degrees, and opacity clamped to 0–1.
+  - Shaped markers: at most 256 distinct colors (each is an icon); more fall
+    back, with the reason.
+- **Shaped markers, continuous colors:** a 32-step `step` in the icon id;
+  outline widths in quarter pixels. Circles stay smooth.
+- **Bugs caught by tests.**
+  - MapLibre's `interpolate` needs color-typed outputs, and `case` takes its
+    type from the first branch. The paint's cases start with plain hex
+    selection colors, so these colors are built as colors and returned as
+    text (`to-string`), which the paint coerces back, like every other color.
+  - An as-is color's "No value" test must be the text one: the numeric test
+    took every hex string for missing.
+  - Legend ends now show exact values (at most 2 decimals), not 3
+    significant digits (3,648 showed as 3,650).
+- **Files.**
+  - **QML:** `scale_linear`, or `scale_exp(…, 0.5)` by area; colors as the
+    ramp's segments with `color_mix_rgb`; as is, the field (colors only when
+    hex). QGIS 4.2.3 (`check_011.py`): 9 cases, 0 mismatches, colors within
+    ±2 per channel (QGIS's own rounding of the mix). Opacity 0 counts as
+    drawn when both sides are 0.
+  - **SLD:** continuous as 10 equal classes; as is stays fixed. Both with a
+    note.
+  - **Mapbox GL:** the map's expressions.
+  - **Import:** QML `scale_linear`/`scale_exp`/field, and Mapbox's two-stop
+    linear `interpolate` (T054's deferred forms).
+- **Tests:**
+  - core `style-scales-011` (8), 737 in all;
+  - web `style-scales-011` (2), and the style, export, legend and label
+    suites (68).
