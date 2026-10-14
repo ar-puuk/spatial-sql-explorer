@@ -36,7 +36,7 @@
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
-  import { drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
+  import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
   import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
@@ -740,6 +740,16 @@
     })
   }
 
+  // Occasional comets behind the globe (GeoLibre's effects), on their own canvas: never in the map image.
+  let cometCanvas = $state<HTMLCanvasElement>()
+  $effect(() => {
+    const canvas = cometCanvas
+    if (!canvas) return
+    const comets = new Comets(canvas)
+    comets.start()
+    return () => comets.stop()
+  })
+
   // --- Spec 008 US7 (research §6): the view as a PNG ------------------------
   /** The frame, read inside a render (no preserveDrawingBuffer needed). */
   function grabFrame(m: MapLibreMap): Promise<HTMLCanvasElement> {
@@ -1057,6 +1067,7 @@
 <div class="map-view" class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
   {#if projection === 'globe'}
     <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
+    <canvas class="comets" bind:this={cometCanvas} aria-hidden="true"></canvas>
   {/if}
   <div class="canvas-host" class:dimmed bind:this={container}></div>
   {#if drawLoading}
@@ -1105,7 +1116,8 @@
   .map-view.space {
     background: #020610;
   }
-  .sky {
+  .sky,
+  .comets {
     position: absolute;
     inset: 0;
     width: 100%;

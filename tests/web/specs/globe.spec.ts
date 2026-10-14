@@ -77,6 +77,8 @@ test('the globe sits in a night sky; the flat map does not', async ({ page }) =>
   const sky = page.locator('canvas.sky')
   await expect(sky).toHaveCount(1)
   await expect(sky).toHaveAttribute('aria-hidden', 'true')
+  // Comets have a canvas of their own (never in the map image), shown with the globe only.
+  await expect(page.locator('canvas.comets')).toHaveAttribute('aria-hidden', 'true')
   // Painted: dark space at a corner, with stars somewhere.
   await expect
     .poll(() =>
@@ -93,4 +95,5 @@ test('the globe sits in a night sky; the flat map does not', async ({ page }) =>
     .toEqual({ dark: true, stars: true })
   await globe(page).click()
   await expect(page.locator('canvas.sky')).toHaveCount(0)
+  await expect(page.locator('canvas.comets')).toHaveCount(0)
 })
