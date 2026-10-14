@@ -18,6 +18,7 @@ interface StyleState {
   source: string | null
   classes: Array<{ key: string; label: string; color: string; visible: boolean; count: number }>
   size?: { column: string; mode: string; status: string; caption: string; classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>; samples?: Array<{ value: number; size: number }> }
+  channels?: Record<string, { status: string; classes: Array<{ key: string; label: string; output?: string | number; visible: boolean; count: number }> }>
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -365,6 +366,75 @@ suite('Spec 009 US5: a bivariate style survives save and reopen', () => {
       assert.strictEqual(after?.source, 'counties.qml')
       const view = (s: StyleState | null) => s?.classes.map((c) => [c.key, c.label, c.color, c.visible, c.count])
       assert.deepStrictEqual(view(after), view(before))
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// Spec 011 T058 (US7): properties that vary by a column are saved in the QML
+// sidecar (QGIS data-defined properties, and our own copy) and restored.
+suite('Spec 011 US7: properties by a column survive save and reopen', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('color and pattern by functional class, opacity by lanes with a hidden class', async function () {
+    this.timeout(90000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-channels-'))
+    const file = path.join(dir, 'roads.geojson')
+    fs.copyFileSync(path.resolve(__dirname, '../../fixtures/roads-traffic.geojson'), file)
+    const open = async () => {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+      const deadline = Date.now() + 45000
+      for (;;) {
+        const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+        if (s?.loadState === 'ready') return
+        assert.ok(Date.now() < deadline, 'roads.geojson did not load')
+        await sleep(200)
+      }
+    }
+    const ready = (s: StyleState | null) => s?.renderer === 'categorized' && s.channels?.dash?.status === 'ok' && s.channels?.opacity?.status === 'ok'
+    try {
+      await open()
+      const before = await applyStyle(
+        {
+          ...BASE_SYMBOL,
+          renderer: { kind: 'categorized', column: 'functional_class', ramp: { id: 'brewer-set2', reversed: false }, cap: 12, manual: false, classes: [], other: {}, noValue: {} },
+          channels: {
+            dash: { source: { kind: 'column', column: 'functional_class' }, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: 4 } },
+            opacity: { source: { kind: 'column', column: 'lanes' }, scale: { kind: 'classes', method: 'equal', classCount: 3, classes: [{ index: 2, visible: false }], noValue: {} } },
+          },
+        },
+        ready
+      )
+      assert.ok((before.channels?.dash?.classes.length ?? 0) >= 2, 'the pattern has classes')
+      assert.strictEqual(before.channels?.opacity?.classes.find((c) => c.key === 'range:2')?.visible, false)
+      await vscode.commands.executeCommand('spatialExplorer._saveStyle')
+      const sidecar = path.join(dir, 'roads.qml')
+      const deadline = Date.now() + 10000
+      while (!fs.existsSync(sidecar)) {
+        assert.ok(Date.now() < deadline, 'roads.qml was not written')
+        await sleep(100)
+      }
+      const qml = fs.readFileSync(sidecar, 'utf8')
+      assert.match(qml, /<Option name="outlineStyle" type="Map">/)
+      assert.match(qml, /<Option name="alpha" type="Map">/)
+      assert.match(qml, /name="spatialExplorer\/style"/)
+
+      await open()
+      let after: StyleState | null = null
+      const until = Date.now() + 10000
+      while (Date.now() < until) {
+        after = await styleState()
+        if (ready(after)) break
+        await sleep(100)
+      }
+      assert.strictEqual(after?.source, 'roads.qml')
+      assert.deepStrictEqual(after?.channels, before.channels)
+      assert.deepStrictEqual(after?.classes.map((c) => c.color), before.classes.map((c) => c.color))
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
       fs.rmSync(dir, { recursive: true, force: true })

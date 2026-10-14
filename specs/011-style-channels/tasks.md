@@ -758,6 +758,8 @@ and re-import into the app.
 - [ ] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
   sidecar with three varying channels and labels on (an expression source);
   reopen; the same channels, legend and labels (FR-024).
+  Channels done (color and pattern by class, opacity classes with one hidden:
+  identical after reopen, 2026-10-14). Labels are added with US6 (T067).
 
 ---
 

@@ -25,6 +25,8 @@ export interface StyleStateReport {
     classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>
     samples?: Array<{ value: number; size: number }>
   }
+  /** Spec 011: the other properties that vary by a column, as resolved. */
+  channels?: Record<string, { status: string; classes: Array<{ key: string; label: string; output?: string | number; visible: boolean; count: number }> }>
 }
 
 export function watchStyleState(store: ViewerStore, report: (state: StyleStateReport) => void): () => void {
@@ -52,6 +54,14 @@ export function watchStyleState(store: ViewerStore, report: (state: StyleStateRe
               classes: resolved.size.classes.map((c) => ({ key: c.key, label: c.label, size: c.size, visible: c.visible, count: c.count })),
               samples: resolved.size.samples?.map((x) => ({ value: x.value, size: x.size })),
             }
+          : undefined,
+        channels: resolved.channels
+          ? Object.fromEntries(
+              Object.entries(resolved.channels).map(([id, rc]) => [
+                id,
+                { status: rc?.status ?? 'fallback', classes: (rc?.classes ?? []).map((c) => ({ key: c.key, label: c.label, output: c.output, visible: c.visible, count: c.count })) },
+              ])
+            )
           : undefined,
       })
     })
