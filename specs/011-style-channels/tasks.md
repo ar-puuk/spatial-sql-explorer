@@ -912,13 +912,14 @@ and re-import into the app.
 - [x] T073 [P] Check themes: run the new panel and Labels panel in light,
   dark and high contrast (`theme.spec.ts` pattern), plus the
   `accessibility.spec.ts` keyboard pass over the new controls (SC-007).
-- [ ] T074 Update the documentation for slices 3–5. T039 already covered
+- [x] T074 Update the documentation for slices 3–5. T039 already covered
   slice 2.
   - `README.md`: a labels section, and the new scales in the styling section;
   - `CHANGELOG.md` [Unreleased]: Added (labels; continuous, conditions and
     as-is scales; legend merging);
   - CLAUDE.md's "Styling and export" bullet, to describe channels and labels;
   - `THIRD-PARTY-NOTICES.md`: no change expected; confirm.
+  Done. No new dependency: THIRD-PARTY-NOTICES unchanged.
 - [ ] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
   legend in light and dark. Review every screenshot and fix what looks wrong.
 - [ ] T076 Run the whole of `quickstart.md`:

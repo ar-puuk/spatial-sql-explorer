@@ -53,6 +53,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     show one list, each entry in its color and at its size. Hiding an entry
     hides that class in all of them. Different breaks keep separate groups.
 
+- **Labels** (spec 011), from a Labels button on the side rail.
+  - Text from a column, or a SQL expression the engine computes (its error
+    shown in place); size, color, halo, and above, below, left, right or
+    center of points, with an offset. Lines are labeled just above the line
+    and never upside down; polygons inside. Labels never overlap, skip
+    features hidden through the legend, and work on layers drawn from tiles
+    without reloading them.
+  - Drawn with the system's sans-serif font: no fonts are downloaded, on any
+    basemap, offline too.
+  - Saved with the style; written as QGIS labeling in QML (QGIS reads it
+    back), a TextSymbolizer in SLD and a symbol layer in Mapbox GL, and read
+    back from all three. The map image includes them.
+- **More scales** (spec 011): every property under Vary by attribute can be
+  continuous (along a ramp, or between two sizes, linear or by area, over the
+  column's values or your own), set by SQL conditions (first match wins,
+  with Everything else), or read as is from the column (colors, pixels,
+  degrees, opacities). Color gets **Continuous** and **As is** types too.
+  Legends show a ramp bar or three samples. QML writes each as a QGIS
+  expression, checked feature by feature in QGIS 4.2.3; SLD writes
+  continuous as 10 classes; Mapbox GL writes the map's own expressions.
+
 ### Changed
 
 - Web app header: Copy link and Open file (now the primary button) are
@@ -65,6 +86,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Styles are saved in a new form that holds every property, and still load
   from 0.3.0 sidecars and saved states exactly as before. QML files also carry
   the whole style in a `spatialExplorer/style` property.
+- Legend groups are headings (`h2`) and name their property when two would
+  share a title; dashed lines show their gaps in swatches.
+
+### Fixed
+
+- QML: colors that vary by data keep the fill or outline opacity in QGIS
+  (they were drawn opaque).
+- Categorized styles on columns with many distinct values (an id column) are
+  several times faster to classify.
 
 ## [0.3.0] - 2026-10-13
 
