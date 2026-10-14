@@ -398,3 +398,63 @@ heuristics.
   - `check_heatmap`: densest pixels `#b20026` and `#b10026` against the
     ramp end `#b10026`.
 - Lint: 0 errors. Typecheck: 0 errors.
+
+## Phase 4 outcomes (US1, 2026-10-13)
+
+**What was built.**
+- **Every property by its own column.** Outline color and width, shape,
+  pattern, opacity and rotation (and size or width by categories) resolve
+  generically. They use the categorized or graduated classification, so they
+  have the same classes, keys, counts and labels as a color would.
+- **Outputs.** Each class's output is its own, or comes from the ramp, the
+  range (spread evenly, as spec 009's class sizes), or the shape and pattern
+  lists (6 shapes + Other, 4 patterns + Other).
+- **Engine data.** The engine fetches these columns' values (small results)
+  or statistics (big ones, with exact class counts), in a cached step after
+  the color and size resolution. Map views and tiles carry the columns.
+- **Map.**
+  - one expression per property;
+  - marker icon ids built per feature (research §2);
+  - circles stay on the circle layer when the shape varies;
+  - a class hidden in any property hides its features;
+  - MapView resets paint and layout properties a style no longer sets.
+- **Panel.**
+  - property rows (`ChannelRow`), with a scale editor (`ScaleEditor`) for
+    the generic properties;
+  - Color, Size and Width keep their existing editors inside their rows;
+  - the style type dropdown stays until T037.
+- **Legend.** One group per property (`channelLegendGroups`). Swatches show
+  each class's output. Rotation uses a triangle when the shape is a circle.
+  The single symbol's row is dropped once other groups exist.
+- **Deviations from contracts/ui.md:**
+  - a class list inside `ScaleEditor`, instead of extending `ClassList` with
+    an `outputKind`, which kept `ClassList` unchanged for color and size;
+  - set-aside encodings live in a session map in the panel's module script,
+    keyed by file and property, not in `viewerStore`.
+
+**Bugs found and fixed.**
+- **Store patch merge.** The store merged every edit into the style as a
+  patch, so a key an edit removed survived: Outline color back to Fixed kept
+  its column. The store now replaces the style when an edit hands it a whole
+  one, and merges only partial patches. Edits also write `undefined` rather
+  than deleting.
+- **Mixed line endings** from appended code blocks (`edit.ts`, `resolve.ts`):
+  normalized to CRLF.
+
+**Measurements (T032).** 3,000 points, with shape, outline color and rotation
+by column, at 6× CPU throttle in Chromium:
+- Opacity to By column: 325 ms;
+- Opacity class count changed (engine reclassification): 1,121 ms;
+- ten Point size slider steps: 2,044 ms, about 200 ms a step (about 33 ms at
+  normal speed);
+- Shape back to Fixed: 478 ms.
+No slider step re-queries the engine: the cache key leaves presentation out.
+
+**Tests.**
+- Core: 685 passed.
+- Web: `style-channels-011` 5 of 5, and twice over 10 of 10. Style,
+  accessibility, 3D and map-image specs: 69 of 70. The one failure was the
+  new spec's own race, then fixed.
+- Earlier runs had 3 timing failures under parallel load (map image 8.5 s
+  against 5 s; layers 8.0 s against 6 s; the export dialog's Cancel button
+  detached because the export finished first). Each passed in a rerun.

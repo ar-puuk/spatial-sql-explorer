@@ -23,6 +23,8 @@ import {
   type BasemapChoice,
   sanitizeStyle,
   setClassVisible,
+  setChannelClass,
+  type ChannelId,
   setSizeClassVisible,
   resolveStyle,
   type ResolvedStyle,
@@ -314,6 +316,8 @@ export interface ViewerStore {
   setLayout(patch: Partial<LayoutState>): void
   /** FR-009: hide or show one class on the map. */
   setClassVisible(key: string, visible: boolean): void
+  /** Spec 011: shows or hides a class of another property set by a column (from the legend). */
+  setChannelClassVisible(channel: ChannelId, key: string, visible: boolean): void
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
   readonly styleSource: string | null
   readonly styleNotice: StyleNotice | null
@@ -1857,6 +1861,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       style = key.startsWith('size:') ? setSizeClassVisible(style, key, visible) : setClassVisible(style, key, visible)
       styleDirty = true
     },
+    setChannelClassVisible(channel, key, visible) {
+      style = setChannelClass(style, channel, key, { visible })
+      styleDirty = true
+    },
     get style() {
       return style
     },
@@ -2097,7 +2105,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         style = previewBase
         previewBase = null
       }
-      style = sanitizeStyle({ ...style, ...patch })
+      // A whole style (what the edit functions return) replaces the current one, so keys an
+      // edit removed (spec 011: a property back to Fixed, 3D off) stay removed; a partial
+      // patch (one field from an input) is merged.
+      const whole = (['fillColor', 'fillOpacity', 'strokeColor', 'strokeOpacity', 'strokeWidth', 'pointRadius'] as const).every((k) => k in patch)
+      style = sanitizeStyle(whole ? patch : { ...style, ...patch })
       styleDirty = true
     },
     previewStyle(next) {

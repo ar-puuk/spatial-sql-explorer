@@ -314,7 +314,7 @@ SC-002 is proven.
 
 ### Tests for User Story 1
 
-- [ ] T022 [P] [US1] Write `tests/core/style-channels-011.test.ts`, covering
+- [X] T022 [P] [US1] Write `tests/core/style-channels-011.test.ts`, covering
   Categories and Classes on every channel:
   - `startEncoding` defaults (data-model table);
   - outputs filled from the ramp or range (`classSizes`);
@@ -332,7 +332,7 @@ SC-002 is proven.
   - `visibilityFilter` hides a feature whose class is hidden in **any**
     channel;
   - fixed values per channel, and switching to Fixed restores them.
-- [ ] T023 [P] [US1] Write `tests/web/specs/style-channels-011.spec.ts`:
+- [X] T023 [P] [US1] Write `tests/web/specs/style-channels-011.spec.ts`:
   - **Lines** (`roads-los.geojson`):
     - Color: By column `los`;
     - Width: By column `volume`;
@@ -350,7 +350,7 @@ SC-002 is proven.
   - **Keyboard:** each row's switch and controls are reachable and named per
     contracts/ui.md.
   - **axe:** no violations on the panel.
-- [ ] T024 [P] [US1] Update `tests/web/specs/helpers.ts`. Add:
+- [X] T024 [P] [US1] Update `tests/web/specs/helpers.ts`. Add:
   - `setChannel(page, property, { column, scale })`;
   - `setFixed(page, property)`;
   - `expandRow(page, property)`.
@@ -363,7 +363,7 @@ SC-002 is proven.
 
 ### Implementation for User Story 1
 
-- [ ] T025 [US1] Add the channel-scoped edits to
+- [X] T025 [US1] Add the channel-scoped edits to
   `packages/core/src/style/edit.ts` (contracts/style-core.md):
   - `setFixed`, `setEncoding`, `startEncoding`, `setScaleKind`;
   - channel-scoped method, class count, bound, category value, add and delete
@@ -372,7 +372,7 @@ SC-002 is proven.
   - `setRamp`, `setRange`, `setCurve`, `setLegendHidden`.
   Re-express the old edit functions as thin wrappers over these (removed in
   T038).
-- [ ] T026 [US1] Implement the remaining channels in
+- [X] T026 [US1] Implement the remaining channels in
   `packages/core/src/style/expressions.ts`: `strokeColor`, `strokeWidth`,
   `shape`, `dash`, `opacity` and `rotation`.
   - **Marker icons** (research §2): `markerIconExpression` concatenates the
@@ -383,7 +383,7 @@ SC-002 is proven.
     expression. Add `rotation` to `icon-rotate` (`icon-rotation-alignment`
     stays `viewport`).
   T022 passes.
-- [ ] T027 [US1] Update `packages/ui/src/MapView.svelte`:
+- [X] T027 [US1] Update `packages/ui/src/MapView.svelte`:
   - apply `layerFilters` to `circle` and `marker`;
   - `markerIconIds` becomes per-feature: keep `styleimagemissing` drawing
     any id, and drop unused icons on style change by their id prefix rather
@@ -391,7 +391,7 @@ SC-002 is proven.
   - paint and layout per channel.
   Check `data-rendered-features` and hit-testing, hover and selection with
   shaped markers varying by data.
-- [ ] T028 [P] [US1] Write `packages/ui/src/style/ChannelRow.svelte`
+- [X] T028 [P] [US1] Write `packages/ui/src/style/ChannelRow.svelte`
   (contracts/ui.md):
   - **Heading** with the property name;
   - **Fixed / By column** radiogroup, named "<Property>: Fixed" and
@@ -401,7 +401,7 @@ SC-002 is proven.
   - **By column** shows a column select (plus "SQL expression…" reusing the
     graduated expression input), a scale select from `scalesFor`, and a
     collapsible `ScaleEditor` with a one-line summary.
-- [ ] T029 [P] [US1] Write `packages/ui/src/style/ScaleEditor.svelte`:
+- [X] T029 [P] [US1] Write `packages/ui/src/style/ScaleEditor.svelte`:
   - **Categories:** `ClassList` in value mode with an output column;
   - **Classes:** method, count, manual bounds (as the graduated section
     today), plus a ramp (`RampPicker`) or a min–max range;
@@ -414,7 +414,7 @@ SC-002 is proven.
   (`'color' | 'px' | 'shape' | 'dash' | 'opacity' | 'degrees' | 'meters'`)
   and render the matching editor per row, with accessible names
   "<class label> <property>".
-- [ ] T030 [US1] Rebuild `packages/ui/src/LayerStylePanel.svelte`:
+- [X] T030 [US1] Rebuild `packages/ui/src/LayerStylePanel.svelte`:
   - rows from `channelsFor(geometry, draw)` in `CHANNEL_ORDER`, using
     `ChannelRow`;
   - remove the Size, Appearance and 3D sections;
@@ -431,13 +431,13 @@ SC-002 is proven.
     (FR-007);
   - notes per row: Other or cap, third varying channel (advice), fallback
     reason.
-- [ ] T031 [US1] Generalize legend groups for this slice in
+- [X] T031 [US1] Generalize legend groups for this slice in
   `packages/ui/src/MapLegend.svelte` and `ViewerLayout.svelte` (`legendSpec`):
   - one group per varying channel, in `CHANNEL_ORDER`, titled with the column;
   - entries are toggle buttons that hide the class through
     `setClassVisible(channel, key)`.
   Merging comes in US5. `mapImage.ts` takes the groups as `LegendSpec.groups`.
-- [ ] T032 [US1] Profile the panel at a 6× CPU throttle with 10 rows and 3
+- [X] T032 [US1] Profile the panel at a 6× CPU throttle with 10 rows and 3
   varying channels, against `feedback-ui-responsiveness`. Typing in a class
   label or dragging a fixed slider must not re-resolve data. Debounce with
   the existing pattern. Note the results in `research.md`.

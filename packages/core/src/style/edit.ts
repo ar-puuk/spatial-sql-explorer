@@ -657,11 +657,13 @@ export function setFixed(style: LayerStyle, channel: ChannelId, value: Output, p
   }
 }
 
+/**
+ * A default value is left unset. `undefined` rather than a deleted key: the
+ * store merges edits into the style as a patch, and a missing key would keep
+ * the old value.
+ */
 function withoutDefault<K extends keyof LayerStyle>(style: LayerStyle, key: K, def: LayerStyle[K]): LayerStyle {
-  if (style[key] !== def) return style
-  const out = { ...style }
-  delete out[key]
-  return out
+  return style[key] !== def ? style : { ...style, [key]: undefined }
 }
 
 /** A property By column (`enc`), or back to Fixed (null). */
@@ -670,9 +672,8 @@ export function setEncoding(style: LayerStyle, channel: ChannelId, enc: Encoding
   const channels = { ...s.channels }
   if (enc) channels[channel] = enc
   else delete channels[channel]
-  const out: LayerStyle = { ...s, channels }
-  if (!Object.keys(channels).length) delete out.channels
-  return out
+  // Undefined, not deleted, when the last property goes back to Fixed (see withoutDefault).
+  return { ...s, channels: Object.keys(channels).length ? channels : undefined }
 }
 
 function isTextColumn(layer: ResolveInput | null, column: string): boolean {

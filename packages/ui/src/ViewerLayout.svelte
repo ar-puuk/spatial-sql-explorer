@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, channelLegendGroups, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -52,9 +52,12 @@
   // Legend (spec 003 FR-010): for thematic styles, and for a customized
   // single symbol (one row); not for the untouched default.
   const legendRenderer = $derived(rendererOf(store.style))
+  // Spec 011: a group per other property set by a column (outline, shape, pattern…).
+  const legendChannels = $derived(channelLegendGroups(store.style, store.resolvedStyle))
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
       store.resolvedStyle.size?.status === 'ok' ||
+      legendChannels.length > 0 ||
       (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
   // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
@@ -88,8 +91,9 @@
             noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
           }
         : undefined,
-      // Spec 009: the size channel's group (reference sizes, then visible classes).
-      groups: legendSize
+      // Spec 009: the size channel's group (reference sizes, then visible classes); spec 011: one per other property.
+      groups: [
+        ...(legendSize
         ? [
             {
               title: legendSize.channel.caption,
@@ -103,7 +107,14 @@
               ],
             },
           ]
-        : undefined,
+        : []),
+        ...legendChannels.map((g) => ({
+          title: g.title,
+          shape: (g.channel === 'width' || g.channel === 'dash' ? 'line' : g.channel === 'size' || g.channel === 'shape' || g.channel === 'rotation' ? 'point' : layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area') as 'line' | 'point' | 'area',
+          alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+          rows: g.classes.flatMap((c, i) => (c.visible ? [{ color: g.symbols[i].fillColor, label: c.label, count: c.count, symbol: g.symbols[i] }] : [])),
+        })),
+      ],
     }
   })
   const loading = $derived(session.loadState === 'loading')
@@ -361,6 +372,8 @@
             onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
             symbols={legendSymbols}
             size={legendSize}
+            channels={legendChannels}
+            onToggleChannelClass={(channel, key, visible) => store.setChannelClassVisible(channel, key, visible)}
           />
         {/if}
         {@render mapOverlay?.()}

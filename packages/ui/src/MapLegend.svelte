@@ -5,7 +5,7 @@
   // store. Bottom-left, above the scale bar (research §8, amended): the style
   // panel opens on the right and must not cover it, and the feature
   // inspector (top-left) is transient.
-  import { markerExtent, type GeometryType, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
+  import { CHANNEL_NAMES, markerExtent, type ChannelId, type ChannelLegendGroup, type GeometryType, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
   import BivariateLegend from './style/BivariateLegend.svelte'
@@ -22,8 +22,11 @@
     symbols: SymbolSpec[]
     /** Spec 009: the size channel's group: its classes and their symbols (core `sizeSymbols`), drawn to scale. */
     size?: { channel: ResolvedSizeChannel; symbols: SymbolSpec[] } | null
+    /** Spec 011: one group per other property set by a column (core `channelLegendGroups`). */
+    channels?: ChannelLegendGroup[]
+    onToggleChannelClass?: (channel: ChannelId, key: string, visible: boolean) => void
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, size = null }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, size = null, channels = [], onToggleChannelClass = () => {} }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
@@ -68,7 +71,8 @@
           <span>Dense</span>
         </div>
       </div>
-    {:else}
+    {:else if !(resolved.classes.length === 1 && resolved.classes[0].kind === 'single' && (size || channels.length))}
+    <!-- The single symbol's row says nothing more once other properties have their own groups. -->
     <div role="group" aria-label={heading} class="group">
     <ul>
       {#each resolved.classes as c, i (c.key)}
@@ -127,6 +131,31 @@
       </ul>
       </div>
     {/if}
+    <!-- Spec 011: one group per other property set by a column, its swatches drawn with each class's output. -->
+    {#each channels as g (g.channel)}
+      {@const kind = g.channel === 'width' || g.channel === 'dash' ? 'line' : g.channel === 'size' || g.channel === 'shape' || g.channel === 'rotation' ? 'point' : shape}
+      <h4 class="group-title" title={g.title}>{g.title}</h4>
+      <div role="group" aria-label={g.title} class="group">
+        <ul>
+          {#each g.classes as c, i (c.key)}
+            <li class:hidden={!c.visible}>
+              <button
+                type="button"
+                class="swatch"
+                aria-pressed={!c.visible}
+                aria-label={`${c.visible ? 'Hide' : 'Show'} ${CHANNEL_NAMES[g.channel].toLowerCase()} class ${c.label}`}
+                title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
+                onclick={() => onToggleChannelClass(g.channel, c.key, !c.visible)}
+              >
+                <SymbolSwatch symbol={g.symbols[i]} {kind} scale={Math.min(1, (SWATCH / 2 - 1) / reachOf(g.symbols))} size={kind === 'point' ? SWATCH : 18} hollow={!c.visible} />
+              </button>
+              <span class="label" title={c.label}>{c.label}</span>
+              <span class="count">{nf.format(c.count)}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
   {/if}
 </section>
 
