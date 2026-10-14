@@ -105,7 +105,7 @@
       {@const ownTitle = !(gi === 0 && g.channels[0] === 'color') || !!g.gradient || !!g.note}
       {@const label = ownTitle ? g.title : heading}
       {#if ownTitle}
-        <h4 class="group-title" title={g.title}>{g.title}</h4>
+        <h2 class="group-title" title={g.title}>{g.title}</h2>
       {/if}
       <div role="group" aria-label={label} class="group" data-channels={g.channels.join(' ')}>
         {#if g.gradient}
@@ -146,7 +146,7 @@
     {/each}
     {#if proportional}
       {@const sc = Math.min(1, (SWATCH / 2 - 1) / propReach)}
-      <h4 class="group-title" title={proportional.channel.caption}>{proportional.channel.caption}</h4>
+      <h2 class="group-title" title={proportional.channel.caption}>{proportional.channel.caption}</h2>
       <div role="group" aria-label={proportional.channel.caption} class="group">
         <ul>
           <!-- Spec 009 US2: proportional reference sizes, smallest first; not classes, so not toggles. -->

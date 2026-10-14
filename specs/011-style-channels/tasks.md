@@ -909,7 +909,7 @@ and re-import into the app.
 - [x] T072 [P] Run the tracked check from research §1: dashes varying per
   feature on engine tiles (large-data fixture), with a pixel check. Record
   the result.
-- [ ] T073 [P] Check themes: run the new panel and Labels panel in light,
+- [x] T073 [P] Check themes: run the new panel and Labels panel in light,
   dark and high contrast (`theme.spec.ts` pattern), plus the
   `accessibility.spec.ts` keyboard pass over the new controls (SC-007).
 - [ ] T074 Update the documentation for slices 3–5. T039 already covered

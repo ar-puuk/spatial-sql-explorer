@@ -786,3 +786,32 @@ each idle was itself the 1–2 s long task, as spec 010 had found.
   Swatches scaled the dash by the shown line width, so a 4 px dash pattern
   was 16 px long in an 18 px swatch. The dash unit is now at most 2 px, in
   the live legend and the map image.
+
+## Polish: themes, high contrast and keyboard (T073) (2026-10-14)
+
+- **Coverage.** `accessibility-011.spec.ts` runs axe in light, dark and forced
+  colors (the browser's high contrast) over:
+  - Vary by attribute with Continuous, As is, and Conditions showing an
+    error;
+  - Color Continuous;
+  - the Labels panel, off and on with an expression error.
+
+  A keyboard pass covers the rail (arrows to Labels, Enter), every Labels
+  setting in Tab order, placement by arrow keys, and adding and writing a
+  condition.
+- **Fixed:** the legend's group titles were `h4` with nothing between them and
+  the page's `h1`, a heading-order violation as soon as the first group has
+  a title of its own (a continuous or as-is color). They are now `h2`.
+- **Forced colors:** nothing opts out (`forced-color-adjust`), so the browser
+  paints system colors. axe's contrast rule reads the author's colors under
+  the emulation and isn't run there.
+- **Environment, 2026-10-14:** a Windows Application Control policy started
+  blocking Playwright's downloaded browsers (`spawn UNKNOWN`; "An Application
+  Control policy has blocked this file"). The installed Google Chrome 155
+  is allowed. From here, the web suites run through a local config
+  (`playwright.chrome.local.config.ts`, not committed) with
+  `channel: 'chrome'`.
+  - On that Chrome, `accessibility.spec.ts` "keyboard: Cancel opening…"
+    fails every time (the empty state doesn't return within 3 s after
+    Cancel). It passed on the downloaded Chromium earlier today, and this
+    branch doesn't touch opening. Left as is.
