@@ -2,7 +2,7 @@
 // the selection, show selected only, and exporting the selected rows.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { exportDialog, inspectParquet, openFile, rowCount, writeParcels } from './helpers'
+import { exportDialog, grid, inspectParquet, openFile, rowCount, writeParcels } from './helpers'
 
 type Sel = { kind: string; count: number; ids: number[] | null }
 const hook = <T,>(page: Page, name: string) => page.evaluate((n) => (window as unknown as { __spatialExplorerE2E: Record<string, () => T> }).__spatialExplorerE2E[n](), name)
@@ -87,6 +87,21 @@ test('a map click selects that feature; Ctrl-click adds another', async ({ page 
   await page.mouse.click(b.x, b.y)
   await page.keyboard.up('Control')
   await expect.poll(async () => ((await selectionState(page)).ids ?? []).sort()).toEqual([drawn[0], drawn[1]].sort())
+})
+
+test('opening another file clears the previous one at once (user report)', async ({ page }) => {
+  test.setTimeout(120000)
+  await openFile(page, writeParcels(200), '?e2e=1')
+  await expect.poll(() => rowCount(page)).toBe(200)
+  await page.locator('input[type="file"]').setInputFiles(writeParcels(20000))
+  // While the next file opens, nothing of the previous one is shown: nothing on the map (asked of
+  // MapLibre itself), no table, no row count.
+  const drawn = () => page.evaluate(() => (document.querySelector('.canvas-host') as HTMLElement & { seRendered?: () => unknown[] }).seRendered?.().length ?? 0)
+  await expect.poll(drawn, { timeout: 1000, intervals: [50] }).toBe(0)
+  await expect(grid(page)).toHaveCount(0, { timeout: 1000 })
+  await expect(page.locator('.drawer-header > .count')).not.toContainText('200', { timeout: 1000 })
+  await expect(page.getByText('200 features')).toHaveCount(0)
+  await expect.poll(() => rowCount(page), { timeout: 60000 }).toBe(20000)
 })
 
 test('show selected only ends when a map click clears the selection (user report)', async ({ page }) => {

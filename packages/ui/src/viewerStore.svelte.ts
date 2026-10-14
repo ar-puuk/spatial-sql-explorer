@@ -1267,6 +1267,25 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     openStartedAt = null
     try {
       const ref = options.ref ?? (await hostAdapter.openFiles())[0]
+      // The previous file leaves the screen at once: its table, map and
+      // legend don't wait for its session to close or the next file to open.
+      drawGeneration++
+      unregisterTiles?.()
+      unregisterTiles = null
+      mapData = null
+      tileUrl = null
+      drawMode = null
+      setLayer(null)
+      initialLayerState = null
+      tilesArchive = null
+      const previousSession = querySession
+      querySession = null
+      resetQueryState()
+      catalog = null
+      if (options.layer === undefined) {
+        fileLayers = []
+        activeLayer = null
+      }
       openedRef = ref
       currentFileName = ref.displayName
       historyStateKey = ref.stateKey
@@ -1277,16 +1296,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       })
       // One file per viewer: the previous file's views, tables and session
       // go before the next file's `layer` view is created.
-      await querySession?.dispose().catch(() => {})
-      querySession = null
-      tilesArchive = null
-      // The previous file's drawing goes with it.
-      drawGeneration++
-      unregisterTiles?.()
-      unregisterTiles = null
-      mapData = null
-      tileUrl = null
-      drawMode = null
+      await previousSession?.dispose().catch(() => {})
       openStartedAt = performance.now()
       openPhase = 'registering'
       if (formatFromFileName(ref.displayName) === 'pmtiles') {
