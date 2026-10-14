@@ -1,0 +1,42 @@
+// Spike 011: serve the page and screenshot each case with software WebGL.
+import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+const require = createRequire('D:/GitHub/spatial-sql-explorer/package.json')
+const { chromium } = require('playwright')
+
+const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1'))
+const mlgl = 'D:/GitHub/spatial-sql-explorer/node_modules/maplibre-gl/dist'
+const types = { '.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf', '.map': 'application/json' }
+const server = http.createServer((req, res) => {
+  const u = new URL(req.url, 'http://x')
+  let f = null
+  if (u.pathname === '/') f = path.join(here, 'index.html')
+  else if (u.pathname.startsWith('/mlgl/')) f = path.join(mlgl, u.pathname.slice(6))
+  else if (u.pathname.startsWith('/spike/')) f = path.join(here, u.pathname.slice(7))
+  if (!f || !fs.existsSync(f)) { res.writeHead(404); return res.end() }
+  res.writeHead(200, { 'content-type': types[path.extname(f)] ?? 'application/octet-stream' })
+  fs.createReadStream(f).pipe(res)
+}).listen(4191)
+
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
+const page = await browser.newPage({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 1 })
+page.on('pageerror', (e) => console.log('  pageerror:', e.message.slice(0, 300)))
+page.on('requestfailed', (r) => console.log('  failed:', r.url()))
+page.on('console', (m) => console.log('  console:', m.text().slice(0, 200)))
+const cases = [
+  ['markers', '?mode=markers'],
+  ['labels-dead-glyphs-faces', '?mode=lines&faces=1&glyphs=' + encodeURIComponent('http://localhost:4191/nope/{fontstack}/{range}.pbf')],
+  ['labels-no-glyphs-no-faces', '?mode=lines'],
+  ['labels-dead-glyphs-no-faces', '?mode=lines&glyphs=' + encodeURIComponent('http://localhost:4191/nope/{fontstack}/{range}.pbf')],
+]
+for (const [name, qs] of cases) {
+  await page.goto('http://localhost:4191/' + qs)
+  await page.waitForFunction(() => window.__done, null, { timeout: 30000 }).catch(() => console.log('  (timeout)'))
+  await page.waitForTimeout(800)
+  console.log(name, 'errors:', String(JSON.stringify(await page.evaluate(() => window.__errors))).slice(0, 300))
+  await page.screenshot({ path: path.join(here, name + '.png') })
+}
+await browser.close()
+server.close()

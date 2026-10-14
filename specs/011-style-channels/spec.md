@@ -357,8 +357,16 @@ and labels on. Check its legend groups and labels against the live map.
 
 - **A column used by a property disappears** after a new query: that property
   falls back to Fixed with a one-line note. The other properties are unaffected.
-- **Mixed-geometry layers** show each part's properties (markers, lines, fills)
-  in separate groups. A column choice applies to its own part only.
+- **Mixed-geometry layers** list the properties of every part present. Each
+  property applies to the parts it fits:
+  - Color: marker fill, line color and polygon fill;
+  - Outline color and Outline width: markers and polygons;
+  - Size and Rotation: markers;
+  - Width: lines;
+  - Pattern: lines and polygon outlines;
+  - Opacity: all parts.
+  (Revised in planning, research §8: one setting per property, as today, not
+  one per part.)
 - **Heatmap**: while points are drawn as Heatmap, the marker properties are hidden
   and kept. Lines and polygons in a Mixed layer keep their own properties.
 - **Properties that don't apply**:
@@ -601,9 +609,9 @@ and labels on. Check its legend groups and labels against the live map.
   - no label rules or per-class label styles;
   - no callouts or leader lines;
   - no rich text.
-- **Label fonts** come from the map's text font service. Where no basemap is
-  drawn (Blank), labels still draw from that same font service, and fall back to
-  no labels with a one-line note when it is unreachable (offline first use).
+- **Label fonts:** labels are drawn with the system's sans-serif font. No font is
+  downloaded or bundled, so labels work offline and on every basemap, including
+  Blank. (Revised in planning, research §3.)
 - **Bivariate** stays 3×3 with its curated palettes (spec 009).
 - **Out of scope:**
   - more than one size property;
