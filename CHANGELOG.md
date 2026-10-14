@@ -55,6 +55,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Web app header: Copy link and Open file (now the primary button) are
+  grouped, and a divider sets them apart from the theme menu and a new link
+  to the source code on GitHub.
 - The style type's heading is **Color**, and "Single" is **Single color**: it
   sets only the color; Vary by attribute sets the rest.
 - The Size section moved into Vary by attribute ("Add… → Size", or Width on
