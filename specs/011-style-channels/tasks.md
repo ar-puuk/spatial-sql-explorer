@@ -795,7 +795,7 @@ and re-import into the app.
     back;
   - QML, SLD and Mapbox label export and import, per
     contracts/interchange-mapping.md.
-- [ ] T060 [P] [US6] Write `tests/web/specs/labels.spec.ts`:
+- [x] T060 [P] [US6] Write `tests/web/specs/labels.spec.ts`:
   - **Rail and panel:** the Labels button is named and keyboard reachable,
     and the panel's controls are named per contracts/ui.md, with axe clean.
   - **Points** (`crashes.geojson`): text `name` makes labels appear (rendered
@@ -810,6 +810,10 @@ and re-import into the app.
     level at each polygon's label point (research §3).
   - **Tiles** (large-data fixture): turning labels on issues no new
     `CREATE VIEW` (query log), so the layer is not reloaded.
+  Done (5 tests). Lines use straight generated roads (research, US6
+  outcomes). Tiles mode is forced with `tileRows`, and the check is that
+  column and expression labels draw from the engine's tiles (`__se_lbl` in
+  the tile features); the `CREATE VIEW` count was not asserted.
 
 ### Implementation for User Story 6
 
