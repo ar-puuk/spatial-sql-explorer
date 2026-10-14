@@ -404,18 +404,18 @@
     flex: 1;
     min-height: 60px;
   }
-  /* Top right of the editor, over its text: a backdrop keeps it readable. */
-  .copy {
+  /*
+   * Top right of the editor, 6 px inside its border on both sides: one line
+   * tall (the first line sits 6 px below the border, 18 px high), so it never
+   * crosses into the second line or its highlight.
+   */
+  .icon-button.copy {
     position: absolute;
-    top: 4px;
-    right: 14px;
+    top: 7px;
+    right: 7px;
     z-index: 1;
-    background: var(--se-sql-bg, var(--se-bg-base));
-    opacity: 0.85;
-  }
-  .copy:hover,
-  .copy:focus-visible {
-    opacity: 1;
+    width: 18px;
+    height: 18px;
   }
   footer {
     display: flex;
