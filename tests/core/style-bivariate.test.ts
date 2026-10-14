@@ -239,11 +239,14 @@ describe('bivariate style files (US5)', () => {
     expect(back.notes).toEqual([])
   })
 
-  it('a QGIS rule-based style this product did not write keeps the first-symbol fallback', () => {
+  it('a QGIS rule-based style this product did not write imports as rules (spec 010)', () => {
     const qml = exportAs(bivariate(), 'qml').text.replace(/\s*<Option name="spatialExplorer\/bivariate"[^>]*\/>/, '')
     const back = importStyle('x.qml', qml)
-    expect(rendererOf(back.style).kind).toBe('single')
-    expect(back.notes.join()).toMatch(/RuleRenderer/)
+    const r = rendererOf(back.style)
+    expect(r.kind).toBe('rules')
+    // One rule per cell (9), with QGIS conditions read as SQL.
+    expect(r.kind === 'rules' && r.rules.length).toBeGreaterThanOrEqual(9)
+    expect(back.notes.join()).toMatch(/QGIS expressions were imported as SQL conditions/)
   })
 
   it('SLD: one rule per visible cell, plus No value; notices; reloads as the single symbol', () => {

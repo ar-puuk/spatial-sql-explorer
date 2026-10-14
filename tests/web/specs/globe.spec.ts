@@ -31,12 +31,13 @@ test('globe on and off keeps the view; the map always opens flat', async ({ page
   await expect.poll(async () => (await mapState(page)).projection).toBe('mercator')
 })
 
-test('on the globe, views of a file read in parts keep their notices', async ({ page }) => {
+// Spec 010: engine tiles draw on the globe too (the thinned-view notice is gone with per-pan views).
+test('on the globe, engine tiles draw', async ({ page }) => {
   test.setTimeout(120000)
-  await openFile(page, fixture('parcels-10k.parquet'), '?e2e=1&cap=500')
+  await openFile(page, fixture('parcels-10k.parquet'), '?e2e=1&tileRows=1000')
   await globe(page).click()
   await expect.poll(async () => (await mapState(page)).projection).toBe('globe')
-  await expect(page.locator('.map-notice')).toContainText(/Showing|of/)
+  await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
 })
 
 test('on the globe, a click opens the inspector', async ({ page }) => {

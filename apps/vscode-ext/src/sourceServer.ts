@@ -177,6 +177,17 @@ export async function register(primaryPath: string, sidecarPaths: string[]): Pro
   return { token, port, urlFor: (name: string) => `${base}/${token}/${encodeURIComponent(name)}` }
 }
 
+/**
+ * Spec 010 phase 9: serves more files under an existing token (workspace files a
+ * query names). Names may hold '/' (`ws/data/links.shp`): the URL carries the
+ * name as one encoded segment, which `handle` decodes whole.
+ */
+export function addFiles(token: string, files: Array<{ name: string; fsPath: string }>): void {
+  const entry = entries.get(token)
+  if (!entry) throw new Error('The viewer is no longer serving files.')
+  for (const f of files) entry.files.set(f.name, f.fsPath)
+}
+
 /** Stops serving a token's files; the server stops with the last one. */
 export function release(token: string): Entry | undefined {
   const entry = entries.get(token)

@@ -1,0 +1,2799 @@
+{
+  "source": "maplibre-gl-basemap-control@0.14.4 (MIT, © 2026 Qiusheng Wu), plus CARTO GL and VersaTiles styles",
+  "basemaps": [
+    {
+      "id": "g-amap-satellite",
+      "name": "Amap Satellite",
+      "provider": "amap",
+      "providerName": "Amap",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Amap satellite imagery, reachable from mainland China. Pair with Amap Labels.",
+      "attribution": "&copy; <a href=\"https://www.amap.com\">高德地图 Amap</a>",
+      "tiles": [
+        "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
+        "https://webst02.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
+        "https://webst03.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
+        "https://webst04.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "warning": "Tiles are in the GCJ-02 datum: WGS84 data appears offset by roughly 100–700 m.",
+      "tags": [
+        "amap",
+        "gaode",
+        "高德",
+        "china",
+        "satellite",
+        "imagery",
+        "gcj02"
+      ]
+    },
+    {
+      "id": "g-amap-street",
+      "name": "Amap Street",
+      "provider": "amap",
+      "providerName": "Amap",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Amap street map of China, reachable from mainland China.",
+      "attribution": "&copy; <a href=\"https://www.amap.com\">高德地图 Amap</a>",
+      "tiles": [
+        "https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}",
+        "https://wprd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}",
+        "https://wprd03.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}",
+        "https://wprd04.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "warning": "Tiles are in the GCJ-02 datum: WGS84 data appears offset by roughly 100–700 m.",
+      "tags": [
+        "amap",
+        "gaode",
+        "高德",
+        "china",
+        "street",
+        "gcj02"
+      ]
+    },
+    {
+      "id": "g-amazon-hybrid",
+      "name": "Amazon Hybrid",
+      "provider": "amazon",
+      "providerName": "Amazon Location",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Amazon Location satellite imagery with road and label overlay.",
+      "attribution": "&copy; Amazon Location Service",
+      "url": "https://maps.geo.{aws-region}.amazonaws.com/v2/styles/Hybrid/descriptor?key={api-key}",
+      "key": "required",
+      "region": true,
+      "tags": [
+        "amazon",
+        "aws",
+        "location",
+        "style",
+        "hybrid",
+        "satellite",
+        "imagery",
+        "labels"
+      ]
+    },
+    {
+      "id": "g-amazon-monochrome",
+      "name": "Amazon Monochrome",
+      "provider": "amazon",
+      "providerName": "Amazon Location",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Amazon Location grey scale map style for overlays.",
+      "attribution": "&copy; Amazon Location Service",
+      "url": "https://maps.geo.{aws-region}.amazonaws.com/v2/styles/Monochrome/descriptor?key={api-key}",
+      "key": "required",
+      "region": true,
+      "tags": [
+        "amazon",
+        "aws",
+        "location",
+        "style",
+        "monochrome",
+        "light",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-amazon-satellite",
+      "name": "Amazon Satellite",
+      "provider": "amazon",
+      "providerName": "Amazon Location",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Amazon Location satellite imagery map style.",
+      "attribution": "&copy; Amazon Location Service",
+      "url": "https://maps.geo.{aws-region}.amazonaws.com/v2/styles/Satellite/descriptor?key={api-key}",
+      "key": "required",
+      "region": true,
+      "tags": [
+        "amazon",
+        "aws",
+        "location",
+        "style",
+        "satellite",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-amazon-standard",
+      "name": "Amazon Standard",
+      "provider": "amazon",
+      "providerName": "Amazon Location",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Amazon Location general-purpose vector map style.",
+      "attribution": "&copy; Amazon Location Service",
+      "url": "https://maps.geo.{aws-region}.amazonaws.com/v2/styles/Standard/descriptor?key={api-key}",
+      "key": "required",
+      "region": true,
+      "tags": [
+        "amazon",
+        "aws",
+        "location",
+        "style",
+        "standard",
+        "street"
+      ]
+    },
+    {
+      "id": "g-carto-dark-matter",
+      "name": "Carto Dark Matter",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Dark basemap for high-contrast overlays.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "dark",
+        "matter"
+      ]
+    },
+    {
+      "id": "g-carto-dark-matter-no-labels",
+      "name": "Carto Dark Matter No Labels",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Dark basemap without labels.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "dark",
+        "no labels"
+      ]
+    },
+    {
+      "id": "g-carto-positron",
+      "name": "Carto Positron",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Light",
+      "description": "Light basemap for data overlays.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api-key}",
+        "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "light",
+        "positron"
+      ]
+    },
+    {
+      "id": "g-carto-positron-no-labels",
+      "name": "Carto Positron No Labels",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Light",
+      "description": "Light basemap without labels.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "light",
+        "no labels"
+      ]
+    },
+    {
+      "id": "g-carto-voyager",
+      "name": "Carto Voyager",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Detailed street basemap with subtle styling.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key={api-key}",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key={api-key}",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key={api-key}",
+        "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "street",
+        "voyager"
+      ]
+    },
+    {
+      "id": "g-carto-voyager-labels-under",
+      "name": "Carto Voyager Labels Under",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Carto Voyager labels-under variant.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "voyager",
+        "labels"
+      ]
+    },
+    {
+      "id": "g-carto-voyager-no-labels",
+      "name": "Carto Voyager No Labels",
+      "provider": "carto",
+      "providerName": "Carto",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Carto Voyager without labels.",
+      "attribution": "&copy; OpenStreetMap contributors &copy; CARTO",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png?key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "carto",
+        "voyager",
+        "no labels"
+      ]
+    },
+    {
+      "id": "g-carto-gl-dark-matter",
+      "name": "CARTO Dark Matter",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark vector basemap for high-contrast overlays.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-carto-gl-dark-matter-nolabels",
+      "name": "CARTO Dark Matter No Labels",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark vector basemap without labels.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-carto-gl-positron",
+      "name": "CARTO Positron",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light vector basemap for data overlays.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "light"
+      ]
+    },
+    {
+      "id": "g-carto-gl-positron-nolabels",
+      "name": "CARTO Positron No Labels",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light vector basemap without labels.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "light"
+      ]
+    },
+    {
+      "id": "g-carto-gl-voyager",
+      "name": "CARTO Voyager",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Detailed vector street basemap with subtle styling.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "street"
+      ]
+    },
+    {
+      "id": "g-carto-gl-voyager-nolabels",
+      "name": "CARTO Voyager No Labels",
+      "provider": "carto-gl",
+      "providerName": "CARTO (vector)",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Voyager without labels.",
+      "attribution": "&copy; <a href=\"https://carto.com/about-carto/\">CARTO</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://basemaps.cartocdn.com/gl/voyager-nolabels-gl-style/style.json",
+      "key": "none",
+      "tags": [
+        "carto",
+        "vector",
+        "style",
+        "street"
+      ]
+    },
+    {
+      "id": "g-cyclosm",
+      "name": "CyclOSM",
+      "provider": "cyclosm",
+      "providerName": "CyclOSM",
+      "kind": "raster",
+      "category": "Cycling",
+      "description": "Cycling-focused OpenStreetMap style.",
+      "attribution": "CyclOSM | Map data: &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "cycling",
+        "osm"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2018",
+      "name": "EOX Sentinel-2 cloudless 2018",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2018 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2018)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2018_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2018"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2019",
+      "name": "EOX Sentinel-2 cloudless 2019",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2019 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2019)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2019_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2019"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2020",
+      "name": "EOX Sentinel-2 cloudless 2020",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2020 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2020"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2021",
+      "name": "EOX Sentinel-2 cloudless 2021",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2021 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2021)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2021"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2022",
+      "name": "EOX Sentinel-2 cloudless 2022",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2022 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2022)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2022_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2022"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2023",
+      "name": "EOX Sentinel-2 cloudless 2023",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2023 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2023)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2023"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2024",
+      "name": "EOX Sentinel-2 cloudless 2024",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2024 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2024)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2024"
+      ]
+    },
+    {
+      "id": "g-eox-s2cloudless-2025",
+      "name": "EOX Sentinel-2 cloudless 2025",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Cloudless Sentinel-2 satellite mosaic for 2025 (non-commercial use).",
+      "attribution": "Sentinel-2 cloudless <a href=\"https://cloudless.eox.at\">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "none",
+      "tags": [
+        "eox",
+        "sentinel",
+        "satellite",
+        "imagery",
+        "cloudless",
+        "copernicus",
+        "2025"
+      ]
+    },
+    {
+      "id": "g-eox-terrain",
+      "name": "EOX Terrain",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Natural-like terrain basemap from EOX Maps (non-commercial use).",
+      "attribution": "Terrain <a href=\"https://maps.eox.at\">EOX</a> (Data &copy; OpenStreetMap contributors and others, Rendering &copy; EOX)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/terrain_3857/default/g/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 14,
+      "key": "none",
+      "tags": [
+        "eox",
+        "terrain",
+        "hillshade"
+      ]
+    },
+    {
+      "id": "g-eox-terrain-light",
+      "name": "EOX Terrain Light",
+      "provider": "eox",
+      "providerName": "EOX",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Light terrain basemap from EOX Maps (non-commercial use).",
+      "attribution": "Terrain Light <a href=\"https://maps.eox.at\">EOX</a> (Data &copy; OpenStreetMap contributors and others, Rendering &copy; EOX)",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts/1.0.0/terrain-light_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 14,
+      "key": "none",
+      "tags": [
+        "eox",
+        "terrain",
+        "light",
+        "hillshade"
+      ]
+    },
+    {
+      "id": "g-esri-natgeo-world-map",
+      "name": "NatGeo World Map",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Street",
+      "description": "National Geographic style world map.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "natgeo"
+      ]
+    },
+    {
+      "id": "g-esri-ocean-basemap",
+      "name": "Ocean Basemap",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Marine",
+      "description": "Ocean reference basemap.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "ocean",
+        "marine"
+      ]
+    },
+    {
+      "id": "g-esri-world-dark-gray-canvas",
+      "name": "World Dark Gray Canvas",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Dark gray canvas basemap for high-contrast overlays.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "dark",
+        "gray",
+        "canvas"
+      ]
+    },
+    {
+      "id": "g-esri-world-gray-canvas",
+      "name": "World Gray Canvas",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Light",
+      "description": "Light gray canvas basemap.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "gray",
+        "canvas"
+      ]
+    },
+    {
+      "id": "g-esri-world-imagery",
+      "name": "World Imagery",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Satellite and aerial imagery.",
+      "attribution": "Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "featuredId": "esri-imagery",
+      "tags": [
+        "esri",
+        "satellite",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-esri-world-physical",
+      "name": "World Physical",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Physical world map.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "physical",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-esri-world-shaded-relief",
+      "name": "World Shaded Relief",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Shaded relief world map.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "relief",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-esri-world-street-map",
+      "name": "World Street Map",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Street",
+      "description": "ESRI street reference basemap.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "street"
+      ]
+    },
+    {
+      "id": "g-esri-world-terrain",
+      "name": "World Terrain",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "ESRI terrain base.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-esri-world-topo",
+      "name": "World Topographic",
+      "provider": "esri",
+      "providerName": "ESRI",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Reference topographic map.",
+      "attribution": "Tiles &copy; Esri and the GIS User Community",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "esri",
+        "topographic",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-google-hybrid",
+      "name": "Google Hybrid",
+      "provider": "google",
+      "providerName": "Google",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Google hybrid imagery tiles. Uses the Map Tiles API when a Google Maps API key is set, otherwise keyless xyz tiles.",
+      "attribution": "&copy; Google",
+      "tiles": [
+        "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+      ],
+      "sessionTiles": [
+        "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session={session}&key={api-key}"
+      ],
+      "googleSession": {
+        "mapType": "satellite",
+        "layerTypes": [
+          "layerRoadmap"
+        ]
+      },
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "optional",
+      "tags": [
+        "google",
+        "hybrid",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-google-maps",
+      "name": "Google Maps",
+      "provider": "google",
+      "providerName": "Google",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Google road map tiles. Uses the Map Tiles API when a Google Maps API key is set, otherwise keyless xyz tiles.",
+      "attribution": "&copy; Google",
+      "tiles": [
+        "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+      ],
+      "sessionTiles": [
+        "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session={session}&key={api-key}"
+      ],
+      "googleSession": {
+        "mapType": "roadmap"
+      },
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "optional",
+      "tags": [
+        "google",
+        "street"
+      ]
+    },
+    {
+      "id": "g-google-satellite",
+      "name": "Google Satellite",
+      "provider": "google",
+      "providerName": "Google",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Google satellite tiles. Uses the Map Tiles API when a Google Maps API key is set, otherwise keyless xyz tiles.",
+      "attribution": "&copy; Google",
+      "tiles": [
+        "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+      ],
+      "sessionTiles": [
+        "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session={session}&key={api-key}"
+      ],
+      "googleSession": {
+        "mapType": "satellite"
+      },
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "optional",
+      "tags": [
+        "google",
+        "satellite",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-google-terrain",
+      "name": "Google Terrain",
+      "provider": "google",
+      "providerName": "Google",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Google terrain tiles. Uses the Map Tiles API when a Google Maps API key is set, otherwise keyless xyz tiles.",
+      "attribution": "&copy; Google",
+      "tiles": [
+        "https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"
+      ],
+      "sessionTiles": [
+        "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session={session}&key={api-key}"
+      ],
+      "googleSession": {
+        "mapType": "terrain",
+        "layerTypes": [
+          "layerRoadmap"
+        ]
+      },
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "optional",
+      "tags": [
+        "google",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-mapbox-dark",
+      "name": "Mapbox Dark",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark Mapbox style for high-contrast overlays.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-mapbox-light",
+      "name": "Mapbox Light",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light Mapbox style for data overlays.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/light-v11?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "light",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-mapbox-navigation-day",
+      "name": "Mapbox Navigation Day",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Navigation",
+      "description": "Mapbox daytime navigation style.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "navigation",
+        "day"
+      ]
+    },
+    {
+      "id": "g-mapbox-navigation-night",
+      "name": "Mapbox Navigation Night",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Navigation",
+      "description": "Mapbox nighttime navigation style.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "navigation",
+        "night",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-mapbox-outdoors",
+      "name": "Mapbox Outdoors",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Mapbox outdoor recreation and terrain style.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/outdoors-v12?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "outdoors",
+        "terrain",
+        "recreation"
+      ]
+    },
+    {
+      "id": "g-mapbox-satellite",
+      "name": "Mapbox Satellite",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Mapbox satellite imagery style.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/satellite-v9?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "satellite",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-mapbox-satellite-streets",
+      "name": "Mapbox Satellite Streets",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Mapbox satellite imagery with streets and labels.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "satellite",
+        "streets",
+        "imagery",
+        "labels"
+      ]
+    },
+    {
+      "id": "g-mapbox-streets",
+      "name": "Mapbox Streets",
+      "provider": "mapbox",
+      "providerName": "Mapbox",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Mapbox general-purpose street map style.",
+      "attribution": "&copy; Mapbox &copy; OpenStreetMap contributors",
+      "url": "https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token={api-key}",
+      "key": "required",
+      "tags": [
+        "mapbox",
+        "vector",
+        "style",
+        "streets",
+        "street"
+      ]
+    },
+    {
+      "id": "g-maptiler-aquarelle",
+      "name": "MapTiler Aquarelle",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Artistic",
+      "description": "Watercolor-style vector basemap.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/aquarelle-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "aquarelle",
+        "watercolor",
+        "artistic"
+      ]
+    },
+    {
+      "id": "g-maptiler-backdrop",
+      "name": "MapTiler Backdrop",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Subtle monochrome context map.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/backdrop-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "backdrop",
+        "monochrome",
+        "context"
+      ]
+    },
+    {
+      "id": "g-maptiler-base",
+      "name": "MapTiler Base",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Street",
+      "description": "General-purpose vector basemap.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/base-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "base",
+        "street"
+      ]
+    },
+    {
+      "id": "g-maptiler-dataviz",
+      "name": "MapTiler Dataviz",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Minimal basemap for data visualization and overlays.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/dataviz-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "dataviz",
+        "data",
+        "light"
+      ]
+    },
+    {
+      "id": "g-maptiler-landscape",
+      "name": "MapTiler Landscape",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Terrain",
+      "description": "Light terrain and hillshade map.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/landscape-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "landscape",
+        "terrain",
+        "hillshade"
+      ]
+    },
+    {
+      "id": "g-maptiler-ocean",
+      "name": "MapTiler Ocean",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Marine",
+      "description": "Ocean bathymetry and marine-focused basemap.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/ocean-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "ocean",
+        "marine",
+        "bathymetry"
+      ]
+    },
+    {
+      "id": "g-maptiler-openstreetmap",
+      "name": "MapTiler OpenStreetMap",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Street",
+      "description": "OpenStreetMap style hosted by MapTiler.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/openstreetmap/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "openstreetmap",
+        "osm",
+        "street"
+      ]
+    },
+    {
+      "id": "g-maptiler-outdoor",
+      "name": "MapTiler Outdoor",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Outdoor recreation basemap with terrain detail.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/outdoor-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "outdoor",
+        "terrain",
+        "recreation"
+      ]
+    },
+    {
+      "id": "g-maptiler-satellite-hybrid",
+      "name": "MapTiler Satellite Hybrid",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Satellite imagery with labels, roads, and borders.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/hybrid-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "satellite",
+        "hybrid",
+        "imagery",
+        "labels"
+      ]
+    },
+    {
+      "id": "g-maptiler-satellite-plain",
+      "name": "MapTiler Satellite Plain",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Imagery",
+      "description": "Satellite imagery without the hybrid reference overlay.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/satellite-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "satellite",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-maptiler-streets",
+      "name": "MapTiler Streets",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Detailed street map for general navigation.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/streets-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "streets",
+        "street",
+        "navigation"
+      ]
+    },
+    {
+      "id": "g-maptiler-toner",
+      "name": "MapTiler Toner",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "High-contrast monochrome basemap.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/toner-v2/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "toner",
+        "monochrome",
+        "contrast"
+      ]
+    },
+    {
+      "id": "g-maptiler-topo",
+      "name": "MapTiler Topo",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Terrain",
+      "description": "Topographic basemap with contours and terrain context.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/topo-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "topo",
+        "topographic",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-maptiler-winter",
+      "name": "MapTiler Winter",
+      "provider": "maptiler",
+      "providerName": "MapTiler",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Winter sports and mountain activity basemap.",
+      "attribution": "&copy; MapTiler &copy; OpenStreetMap contributors",
+      "url": "https://api.maptiler.com/maps/winter-v4/style.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "maptiler",
+        "vector",
+        "style",
+        "winter",
+        "skiing",
+        "outdoor"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-cycling",
+      "name": "Maptoolkit Cycling",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Cycling",
+      "description": "Maptoolkit cycling style with bike routes and terrain.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/cycling.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "cycling",
+        "outdoor",
+        "routes"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-dark",
+      "name": "Maptoolkit Dark",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark Maptoolkit style for high-contrast overlays.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/dark.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-hiking",
+      "name": "Maptoolkit Hiking",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Maptoolkit hiking style with trails, rock drawing, and terrain.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/hiking.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "hiking",
+        "outdoor",
+        "trails",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-light",
+      "name": "Maptoolkit Light",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light Maptoolkit style for data overlays.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/light.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "light",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-street",
+      "name": "Maptoolkit Street",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Maptoolkit general-purpose street style.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/street.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "street",
+        "streets",
+        "navigation"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-summer",
+      "name": "Maptoolkit Summer",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Maptoolkit outdoor summer style with hillshading and terrain detail.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/summer.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "summer",
+        "outdoor",
+        "terrain",
+        "hillshade"
+      ]
+    },
+    {
+      "id": "g-maptoolkit-winter",
+      "name": "Maptoolkit Winter",
+      "provider": "maptoolkit",
+      "providerName": "Maptoolkit",
+      "kind": "vector",
+      "category": "Outdoor",
+      "description": "Maptoolkit winter sports style with slopes and mountain terrain.",
+      "attribution": "<a href=\"https://www.maptoolkit.org\">&copy; Maptoolkit</a> <a href=\"https://www.openstreetmap.org/copyright\">&copy; OSM</a>",
+      "url": "https://styles.maptoolkit.org/winter.json",
+      "key": "none",
+      "tags": [
+        "maptoolkit",
+        "vector",
+        "style",
+        "winter",
+        "skiing",
+        "slopes",
+        "outdoor"
+      ]
+    },
+    {
+      "id": "g-nasa-gibs-aster-gdem-shaded-relief",
+      "name": "ASTER GDEM Shaded Relief",
+      "provider": "nasa-gibs",
+      "providerName": "NASA GIBS",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "NASA ASTER GDEM greyscale shaded relief.",
+      "attribution": "Imagery provided by NASA Global Imagery Browse Services",
+      "tiles": [
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/ASTER_GDEM_Greyscale_Shaded_Relief/default/GoogleMapsCompatible_Level12/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 12,
+      "key": "none",
+      "tags": [
+        "nasa",
+        "gibs",
+        "relief",
+        "terrain"
+      ]
+    },
+    {
+      "id": "g-nasa-gibs-blue-marble",
+      "name": "Blue Marble",
+      "provider": "nasa-gibs",
+      "providerName": "NASA GIBS",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "NASA Blue Marble Next Generation imagery.",
+      "attribution": "Imagery provided by NASA Global Imagery Browse Services",
+      "tiles": [
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_NextGeneration/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 8,
+      "key": "none",
+      "tags": [
+        "nasa",
+        "gibs",
+        "blue marble"
+      ]
+    },
+    {
+      "id": "g-nasa-gibs-modis-terra-true-color",
+      "name": "MODIS Terra True Color",
+      "provider": "nasa-gibs",
+      "providerName": "NASA GIBS",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "NASA MODIS Terra corrected reflectance true color.",
+      "attribution": "Imagery provided by NASA Global Imagery Browse Services",
+      "tiles": [
+        "https://map1.vis.earthdata.nasa.gov/wmts-webmerc/MODIS_Terra_CorrectedReflectance_TrueColor/default//GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 9,
+      "key": "none",
+      "tags": [
+        "nasa",
+        "gibs",
+        "modis",
+        "true color"
+      ]
+    },
+    {
+      "id": "g-nasa-gibs-viirs-earth-at-night",
+      "name": "VIIRS Earth At Night 2012",
+      "provider": "nasa-gibs",
+      "providerName": "NASA GIBS",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "NASA VIIRS city lights imagery.",
+      "attribution": "Imagery provided by NASA Global Imagery Browse Services",
+      "tiles": [
+        "https://map1.vis.earthdata.nasa.gov/wmts-webmerc/VIIRS_CityLights_2012/default//GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 8,
+      "key": "none",
+      "tags": [
+        "nasa",
+        "gibs",
+        "night",
+        "viirs"
+      ]
+    },
+    {
+      "id": "g-openbasiskaart",
+      "name": "Openbasiskaart",
+      "provider": "openbasiskaart",
+      "providerName": "Openbasiskaart",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Netherlands topographic background map based on OpenStreetMap data.",
+      "attribution": "Map data &copy; OpenStreetMap contributors | Openbasiskaart",
+      "tiles": [
+        "https://www.openbasiskaart.nl/mapcache/wmts/1.0.0/osm-g/default/g/{z}/{y}/{x}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "netherlands",
+        "regional",
+        "topographic",
+        "osm",
+        "openbasiskaart"
+      ]
+    },
+    {
+      "id": "g-openfreemap-bright",
+      "name": "OpenFreeMap Bright",
+      "provider": "openfreemap",
+      "providerName": "OpenFreeMap",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Colorful OpenFreeMap vector street style.",
+      "attribution": "OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap",
+      "url": "https://tiles.openfreemap.org/styles/bright",
+      "key": "none",
+      "featuredId": "openfreemap-bright",
+      "tags": [
+        "openfreemap",
+        "vector",
+        "style",
+        "bright",
+        "street"
+      ]
+    },
+    {
+      "id": "g-openfreemap-dark",
+      "name": "OpenFreeMap Dark",
+      "provider": "openfreemap",
+      "providerName": "OpenFreeMap",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark OpenFreeMap vector style.",
+      "attribution": "OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap",
+      "url": "https://tiles.openfreemap.org/styles/dark",
+      "key": "none",
+      "featuredId": "openfreemap-dark",
+      "tags": [
+        "openfreemap",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-openfreemap-fiord",
+      "name": "OpenFreeMap Fiord",
+      "provider": "openfreemap",
+      "providerName": "OpenFreeMap",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Blue-toned dark OpenFreeMap vector style.",
+      "attribution": "OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap",
+      "url": "https://tiles.openfreemap.org/styles/fiord",
+      "key": "none",
+      "featuredId": "openfreemap-fiord",
+      "tags": [
+        "openfreemap",
+        "vector",
+        "style",
+        "fiord",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-openfreemap-liberty",
+      "name": "OpenFreeMap Liberty",
+      "provider": "openfreemap",
+      "providerName": "OpenFreeMap",
+      "kind": "vector",
+      "category": "Vector",
+      "description": "Open vector style loaded as a full MapLibre style.",
+      "attribution": "OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap",
+      "url": "https://tiles.openfreemap.org/styles/liberty",
+      "key": "none",
+      "featuredId": "openfreemap-liberty",
+      "tags": [
+        "openfreemap",
+        "vector",
+        "style"
+      ]
+    },
+    {
+      "id": "g-openfreemap-positron",
+      "name": "OpenFreeMap Positron",
+      "provider": "openfreemap",
+      "providerName": "OpenFreeMap",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light, minimal OpenFreeMap vector style for data overlays.",
+      "attribution": "OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap",
+      "url": "https://tiles.openfreemap.org/styles/positron",
+      "key": "none",
+      "featuredId": "openfreemap-positron",
+      "tags": [
+        "openfreemap",
+        "vector",
+        "style",
+        "positron",
+        "light"
+      ]
+    },
+    {
+      "id": "g-openrailwaymap",
+      "name": "OpenRailwayMap",
+      "provider": "openrailwaymap",
+      "providerName": "OpenRailwayMap",
+      "kind": "raster",
+      "category": "Transport",
+      "description": "Railway infrastructure map.",
+      "attribution": "Map data: &copy; OpenStreetMap contributors | Map style: OpenRailwayMap",
+      "tiles": [
+        "https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "rail",
+        "transport",
+        "osm"
+      ]
+    },
+    {
+      "id": "g-osm-ch",
+      "name": "OpenStreetMap CH",
+      "provider": "openstreetmap",
+      "providerName": "OpenStreetMap",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Swiss OpenStreetMap tile style.",
+      "attribution": "&copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tile.osm.ch/switzerland/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "osm",
+        "switzerland",
+        "regional"
+      ]
+    },
+    {
+      "id": "g-osm-de",
+      "name": "OpenStreetMap DE",
+      "provider": "openstreetmap",
+      "providerName": "OpenStreetMap",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "German OpenStreetMap tile style.",
+      "attribution": "&copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "osm",
+        "germany",
+        "regional"
+      ]
+    },
+    {
+      "id": "g-osm-hot",
+      "name": "OpenStreetMap HOT",
+      "provider": "openstreetmap",
+      "providerName": "OpenStreetMap",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Humanitarian OpenStreetMap Team style.",
+      "attribution": "&copy; OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team",
+      "tiles": [
+        "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "osm",
+        "hot",
+        "humanitarian"
+      ]
+    },
+    {
+      "id": "g-osm-standard",
+      "name": "OpenStreetMap Standard",
+      "provider": "openstreetmap",
+      "providerName": "OpenStreetMap",
+      "kind": "raster",
+      "category": "Street",
+      "description": "Community-maintained street map.",
+      "attribution": "&copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "featuredId": "osm",
+      "tags": [
+        "osm",
+        "street",
+        "standard"
+      ]
+    },
+    {
+      "id": "g-opentopomap",
+      "name": "OpenTopoMap",
+      "provider": "opentopomap",
+      "providerName": "OpenTopoMap",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Topographic map with relief and contour styling.",
+      "attribution": "Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap",
+      "tiles": [
+        "https://a.tile.opentopomap.org/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 17,
+      "key": "none",
+      "featuredId": "opentopomap",
+      "tags": [
+        "terrain",
+        "topo",
+        "relief"
+      ]
+    },
+    {
+      "id": "g-protomaps-black",
+      "name": "Protomaps Black",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Minimal black Protomaps basemap for data overlays.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/black/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "black",
+        "minimal",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-protomaps-contrast",
+      "name": "Protomaps Contrast",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Light",
+      "description": "High-contrast Protomaps basemap.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/contrast/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "contrast",
+        "accessibility"
+      ]
+    },
+    {
+      "id": "g-protomaps-dark",
+      "name": "Protomaps Dark",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark Protomaps vector basemap.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/dark/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-protomaps-grayscale",
+      "name": "Protomaps Grayscale",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Monochrome Protomaps basemap for data overlays.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/grayscale/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "grayscale",
+        "monochrome",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-protomaps-light",
+      "name": "Protomaps Light",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Light Protomaps vector basemap.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/light/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "light"
+      ]
+    },
+    {
+      "id": "g-protomaps-white",
+      "name": "Protomaps White",
+      "provider": "protomaps",
+      "providerName": "Protomaps",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Minimal white Protomaps basemap for data overlays.",
+      "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> &copy; <a href=\"https://openstreetmap.org\">OpenStreetMap</a>",
+      "url": "https://api.protomaps.com/styles/v5/white/en.json?key={api-key}",
+      "key": "required",
+      "tags": [
+        "protomaps",
+        "vector",
+        "style",
+        "white",
+        "minimal",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-stadia-alidade-satellite",
+      "name": "Stadia Alidade Satellite",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Satellite imagery with Alidade labels and roads.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}.jpg?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "alidade",
+        "satellite",
+        "imagery",
+        "labels"
+      ]
+    },
+    {
+      "id": "g-stadia-alidade-smooth",
+      "name": "Stadia Alidade Smooth",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Light",
+      "description": "Muted light basemap with few POIs, designed for overlays.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "alidade",
+        "smooth",
+        "light",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-stadia-alidade-smooth-dark",
+      "name": "Stadia Alidade Smooth Dark",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Dark counterpart to Alidade Smooth for overlays.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "alidade",
+        "smooth",
+        "dark",
+        "dataviz"
+      ]
+    },
+    {
+      "id": "g-stadia-osm-bright",
+      "name": "Stadia OSM Bright",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Street",
+      "description": "General-purpose OpenStreetMap street basemap.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "osm",
+        "bright",
+        "street"
+      ]
+    },
+    {
+      "id": "g-stadia-outdoors",
+      "name": "Stadia Outdoors",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Outdoor",
+      "description": "Outdoor basemap highlighting trails, parks, and ski slopes.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/outdoors/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "outdoors",
+        "trails",
+        "hiking",
+        "recreation"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-terrain",
+      "name": "Stamen Terrain",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Stamen terrain basemap with hill shading and vegetation.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "terrain",
+        "hillshade",
+        "relief"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-terrain-background",
+      "name": "Stamen Terrain Background",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "Stamen Terrain without labels or roads.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_terrain_background/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "terrain",
+        "background",
+        "hillshade",
+        "no labels"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-toner",
+      "name": "Stamen Toner",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "High-contrast black and white Stamen basemap.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "toner",
+        "dark",
+        "contrast",
+        "monochrome"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-toner-background",
+      "name": "Stamen Toner Background",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Stamen Toner without labels, for use under your own data.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_toner_background/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "toner",
+        "background",
+        "no labels",
+        "monochrome"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-toner-lite",
+      "name": "Stamen Toner Lite",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Light",
+      "description": "Lighter, lower-contrast variant of Stamen Toner.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}.png?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "toner",
+        "lite",
+        "light",
+        "monochrome"
+      ]
+    },
+    {
+      "id": "g-stadia-stamen-watercolor",
+      "name": "Stamen Watercolor",
+      "provider": "stadia",
+      "providerName": "Stadia Maps",
+      "kind": "raster",
+      "category": "Artistic",
+      "description": "Hand-painted watercolor basemap from Stamen Design.",
+      "attribution": "&copy; <a href=\"https://stadiamaps.com/\">Stadia Maps</a> &copy; <a href=\"https://stamen.com/\">Stamen Design</a> &copy; <a href=\"https://openmaptiles.org/\">OpenMapTiles</a> &copy; OpenStreetMap contributors",
+      "tiles": [
+        "https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg?api_key={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 16,
+      "key": "required",
+      "tags": [
+        "stadia",
+        "stamen",
+        "watercolor",
+        "artistic",
+        "painted"
+      ]
+    },
+    {
+      "id": "g-swisstopo-national-map-color",
+      "name": "Swiss National Map Color",
+      "provider": "swisstopo",
+      "providerName": "Swiss Federal Geoportal",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Swiss federal color national map.",
+      "attribution": "&copy; swisstopo",
+      "tiles": [
+        "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "switzerland",
+        "regional"
+      ]
+    },
+    {
+      "id": "g-swisstopo-national-map-grey",
+      "name": "Swiss National Map Grey",
+      "provider": "swisstopo",
+      "providerName": "Swiss Federal Geoportal",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Swiss federal grey national map.",
+      "attribution": "&copy; swisstopo",
+      "tiles": [
+        "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "switzerland",
+        "regional",
+        "grey"
+      ]
+    },
+    {
+      "id": "g-swisstopo-swissimage",
+      "name": "SWISSIMAGE",
+      "provider": "swisstopo",
+      "providerName": "Swiss Federal Geoportal",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "Swiss federal aerial imagery.",
+      "attribution": "&copy; swisstopo",
+      "tiles": [
+        "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "switzerland",
+        "imagery"
+      ]
+    },
+    {
+      "id": "g-tencent-dark",
+      "name": "Tencent Dark",
+      "provider": "tencent",
+      "providerName": "Tencent Maps",
+      "kind": "raster",
+      "category": "Dark",
+      "description": "Dark Tencent street map for high-contrast overlays, reachable from mainland China.",
+      "attribution": "&copy; <a href=\"https://map.qq.com\">腾讯地图 Tencent Maps</a>",
+      "tiles": [
+        "https://rt0.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=4&scene=0",
+        "https://rt1.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=4&scene=0",
+        "https://rt2.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=4&scene=0",
+        "https://rt3.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=4&scene=0"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "scheme": "tms",
+      "key": "none",
+      "warning": "Tiles are in the GCJ-02 datum: WGS84 data appears offset by roughly 100–700 m.",
+      "tags": [
+        "tencent",
+        "qq",
+        "腾讯",
+        "china",
+        "dark",
+        "gcj02"
+      ]
+    },
+    {
+      "id": "g-tencent-street",
+      "name": "Tencent Street",
+      "provider": "tencent",
+      "providerName": "Tencent Maps",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "Tencent street map of China, reachable from mainland China.",
+      "attribution": "&copy; <a href=\"https://map.qq.com\">腾讯地图 Tencent Maps</a>",
+      "tiles": [
+        "https://rt0.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0",
+        "https://rt1.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0",
+        "https://rt2.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0",
+        "https://rt3.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "scheme": "tms",
+      "key": "none",
+      "warning": "Tiles are in the GCJ-02 datum: WGS84 data appears offset by roughly 100–700 m.",
+      "tags": [
+        "tencent",
+        "qq",
+        "腾讯",
+        "china",
+        "street",
+        "gcj02"
+      ]
+    },
+    {
+      "id": "g-tianditu-imagery",
+      "name": "Tianditu Imagery",
+      "provider": "tianditu",
+      "providerName": "Tianditu",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "China's official satellite imagery, reachable from mainland China. Pair with Tianditu Imagery Labels. Requires a free Tianditu API key.",
+      "attribution": "&copy; <a href=\"https://www.tianditu.gov.cn\">天地图 Tianditu</a> (National Platform for Common Geospatial Information Services)",
+      "tiles": [
+        "https://t0.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t1.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t2.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t3.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t4.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t5.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t6.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t7.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "required",
+      "tags": [
+        "tianditu",
+        "china",
+        "天地图",
+        "imagery",
+        "satellite",
+        "img"
+      ]
+    },
+    {
+      "id": "g-tianditu-terrain",
+      "name": "Tianditu Terrain",
+      "provider": "tianditu",
+      "providerName": "Tianditu",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "China's official shaded relief terrain map. Pair with Tianditu Terrain Labels. Requires a free Tianditu API key.",
+      "attribution": "&copy; <a href=\"https://www.tianditu.gov.cn\">天地图 Tianditu</a> (National Platform for Common Geospatial Information Services)",
+      "tiles": [
+        "https://t0.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t1.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t2.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t3.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t4.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t5.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t6.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t7.tianditu.gov.cn/DataServer?T=ter_w&x={x}&y={y}&l={z}&tk={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 14,
+      "key": "required",
+      "tags": [
+        "tianditu",
+        "china",
+        "天地图",
+        "terrain",
+        "relief",
+        "hillshade",
+        "ter"
+      ]
+    },
+    {
+      "id": "g-tianditu-vector",
+      "name": "Tianditu Vector",
+      "provider": "tianditu",
+      "providerName": "Tianditu",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "China's official street map, reachable from mainland China. Published in CGCS2000, so WGS84 data overlays without a datum shift. Pair with Tianditu Vector Labels. Requires a free Tianditu API key.",
+      "attribution": "&copy; <a href=\"https://www.tianditu.gov.cn\">天地图 Tianditu</a> (National Platform for Common Geospatial Information Services)",
+      "tiles": [
+        "https://t0.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t1.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t2.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t3.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t4.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t5.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t6.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}",
+        "https://t7.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api-key}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "required",
+      "tags": [
+        "tianditu",
+        "china",
+        "天地图",
+        "vector",
+        "street",
+        "vec"
+      ]
+    },
+    {
+      "id": "g-topplusopen-color",
+      "name": "TopPlusOpen Color",
+      "provider": "topplusopen",
+      "providerName": "TopPlusOpen",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "German TopPlusOpen color basemap.",
+      "attribution": "Map data: &copy; dl-de/by-2-0",
+      "tiles": [
+        "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/{z}/{y}/{x}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "germany",
+        "regional"
+      ]
+    },
+    {
+      "id": "g-topplusopen-grey",
+      "name": "TopPlusOpen Grey",
+      "provider": "topplusopen",
+      "providerName": "TopPlusOpen",
+      "kind": "raster",
+      "category": "Regional",
+      "description": "German TopPlusOpen grey basemap.",
+      "attribution": "Map data: &copy; dl-de/by-2-0",
+      "tiles": [
+        "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web_grau/default/WEBMERCATOR/{z}/{y}/{x}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "key": "none",
+      "tags": [
+        "germany",
+        "regional",
+        "grey"
+      ]
+    },
+    {
+      "id": "g-usgs-us-imagery",
+      "name": "USGS US Imagery",
+      "provider": "usgs",
+      "providerName": "USGS",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "USGS imagery-only basemap.",
+      "attribution": "Tiles courtesy of the U.S. Geological Survey",
+      "tiles": [
+        "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "usgs",
+        "imagery",
+        "united states"
+      ]
+    },
+    {
+      "id": "g-usgs-us-imagery-topo",
+      "name": "USGS US Imagery Topo",
+      "provider": "usgs",
+      "providerName": "USGS",
+      "kind": "raster",
+      "category": "Imagery",
+      "description": "USGS imagery with topographic reference.",
+      "attribution": "Tiles courtesy of the U.S. Geological Survey",
+      "tiles": [
+        "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "usgs",
+        "imagery",
+        "topo",
+        "united states"
+      ]
+    },
+    {
+      "id": "g-usgs-us-shaded-relief",
+      "name": "USGS US Shaded Relief",
+      "provider": "usgs",
+      "providerName": "USGS",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "USGS shaded relief basemap without other reference content.",
+      "attribution": "Tiles courtesy of the U.S. Geological Survey",
+      "tiles": [
+        "https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "usgs",
+        "relief",
+        "hillshade",
+        "terrain",
+        "united states"
+      ]
+    },
+    {
+      "id": "g-usgs-us-topo",
+      "name": "USGS US Topo",
+      "provider": "usgs",
+      "providerName": "USGS",
+      "kind": "raster",
+      "category": "Terrain",
+      "description": "USGS topographic basemap.",
+      "attribution": "Tiles courtesy of the U.S. Geological Survey",
+      "tiles": [
+        "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "usgs",
+        "topo",
+        "united states"
+      ]
+    },
+    {
+      "id": "g-versatiles-colorful",
+      "name": "VersaTiles Colorful",
+      "provider": "versatiles",
+      "providerName": "VersaTiles",
+      "kind": "vector",
+      "category": "Street",
+      "description": "Colorful general-purpose vector map.",
+      "attribution": "&copy; <a href=\"https://versatiles.org\">VersaTiles</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://tiles.versatiles.org/assets/styles/colorful/style.json",
+      "key": "none",
+      "tags": [
+        "versatiles",
+        "vector",
+        "style",
+        "shortbread",
+        "street"
+      ]
+    },
+    {
+      "id": "g-versatiles-colorful-dark",
+      "name": "VersaTiles Colorful Dark",
+      "provider": "versatiles",
+      "providerName": "VersaTiles",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark version of Colorful.",
+      "attribution": "&copy; <a href=\"https://versatiles.org\">VersaTiles</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://tiles.versatiles.org/assets/styles/colorful-dark/style.json",
+      "key": "none",
+      "tags": [
+        "versatiles",
+        "vector",
+        "style",
+        "shortbread",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-versatiles-gray",
+      "name": "VersaTiles Gray",
+      "provider": "versatiles",
+      "providerName": "VersaTiles",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Gray vector map for data overlays.",
+      "attribution": "&copy; <a href=\"https://versatiles.org\">VersaTiles</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://tiles.versatiles.org/assets/styles/gray/style.json",
+      "key": "none",
+      "tags": [
+        "versatiles",
+        "vector",
+        "style",
+        "shortbread",
+        "light"
+      ]
+    },
+    {
+      "id": "g-versatiles-gray-dark",
+      "name": "VersaTiles Gray Dark",
+      "provider": "versatiles",
+      "providerName": "VersaTiles",
+      "kind": "vector",
+      "category": "Dark",
+      "description": "Dark gray vector map for data overlays.",
+      "attribution": "&copy; <a href=\"https://versatiles.org\">VersaTiles</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://tiles.versatiles.org/assets/styles/gray-dark/style.json",
+      "key": "none",
+      "tags": [
+        "versatiles",
+        "vector",
+        "style",
+        "shortbread",
+        "dark"
+      ]
+    },
+    {
+      "id": "g-versatiles-muted",
+      "name": "VersaTiles Muted",
+      "provider": "versatiles",
+      "providerName": "VersaTiles",
+      "kind": "vector",
+      "category": "Light",
+      "description": "Muted, low-contrast vector map.",
+      "attribution": "&copy; <a href=\"https://versatiles.org\">VersaTiles</a>, &copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      "url": "https://tiles.versatiles.org/assets/styles/muted/style.json",
+      "key": "none",
+      "tags": [
+        "versatiles",
+        "vector",
+        "style",
+        "shortbread",
+        "light"
+      ]
+    },
+    {
+      "id": "g-waymarkedtrails-cycling",
+      "name": "Waymarked Trails Cycling",
+      "provider": "waymarkedtrails",
+      "providerName": "Waymarked Trails",
+      "kind": "raster",
+      "category": "Cycling",
+      "description": "Cycling routes from Waymarked Trails.",
+      "attribution": "Map data: &copy; OpenStreetMap contributors | Map style: Waymarked Trails",
+      "tiles": [
+        "https://tile.waymarkedtrails.org/cycling/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "cycling",
+        "outdoor",
+        "trails"
+      ]
+    },
+    {
+      "id": "g-waymarkedtrails-hiking",
+      "name": "Waymarked Trails Hiking",
+      "provider": "waymarkedtrails",
+      "providerName": "Waymarked Trails",
+      "kind": "raster",
+      "category": "Outdoor",
+      "description": "Hiking routes from Waymarked Trails.",
+      "attribution": "Map data: &copy; OpenStreetMap contributors | Map style: Waymarked Trails",
+      "tiles": [
+        "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "hiking",
+        "outdoor",
+        "trails"
+      ]
+    },
+    {
+      "id": "g-waymarkedtrails-mtb",
+      "name": "Waymarked Trails MTB",
+      "provider": "waymarkedtrails",
+      "providerName": "Waymarked Trails",
+      "kind": "raster",
+      "category": "Cycling",
+      "description": "Mountain biking routes from Waymarked Trails.",
+      "attribution": "Map data: &copy; OpenStreetMap contributors | Map style: Waymarked Trails",
+      "tiles": [
+        "https://tile.waymarkedtrails.org/mtb/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "mtb",
+        "outdoor",
+        "trails"
+      ]
+    },
+    {
+      "id": "g-waymarkedtrails-slopes",
+      "name": "Waymarked Trails Slopes",
+      "provider": "waymarkedtrails",
+      "providerName": "Waymarked Trails",
+      "kind": "raster",
+      "category": "Outdoor",
+      "description": "Slope routes from Waymarked Trails.",
+      "attribution": "Map data: &copy; OpenStreetMap contributors | Map style: Waymarked Trails",
+      "tiles": [
+        "https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "key": "none",
+      "tags": [
+        "slopes",
+        "outdoor",
+        "trails"
+      ]
+    }
+  ]
+}

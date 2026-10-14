@@ -7,16 +7,17 @@ import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
-import { DEFAULT_QUERY, type Bbox, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest, type ViewFeatures, type ViewRequest } from '../models.js'
+import { DEFAULT_QUERY, type Feature, type Layer, type QueryableTable, type TablePage, type TablePageRequest } from '../models.js'
 import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
+import { pathLiterals, rewritePaths, type Rewritten } from '../sql/workspacePaths.js'
+import { registerSource, type RegisteredSource } from '../source/register.js'
+import type { WorkspaceResolution } from '../hostAdapter.js'
 import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { isDefaultQuery } from './resultModel.js'
 import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
-import type { FgbReader } from '../source/fgbReader.js'
-import { dropKeyTables } from '../source/sqlite.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
   categoryTotalsSql,
@@ -35,8 +36,10 @@ import {
   STYLE_VALUES_CAP,
   topCategoriesSql,
 } from '../view/stats.js'
-import { resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle } from '../style/model.js'
+import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
+import { EXPRESSION_VALUE_COLUMN, rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
+import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
 import type { CatalogSnapshot } from '../models.js'
@@ -45,20 +48,12 @@ import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
-import {
-  clampWgs84,
-  recordByIdSql,
-  fgbTileSql,
-  featuresByIdsSql,
-  thinnedIdsSql,
-  thinnedRowsSql,
-  viewBoxSql,
-  viewCountSql,
-  viewFeaturesSql,
-  viewTiles,
-  tileMeetsExtent,
-  type ViewTarget,
-} from '../view/viewport.js'
+import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
+import { drawModeFor, type DrawMode } from '../view/drawMode.js'
+import { allFeaturesSql } from '../view/features.js'
+import { searchValuesSql, type SearchHit } from '../view/search.js'
+import { featureCollector, type MapData } from '../view/featureBatches.js'
+import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
 
 /** contracts/query-service.md */
 export interface RunRequest {
@@ -101,8 +96,23 @@ export type RunOutcome =
  * `ctasLineOffset` is 1 for queries, which run as "CREATE … AS\n" + the
  * statement (research §5/§8).
  */
-function toEngineError(err: unknown, statement: ExecutedStatement, editorText: string, wrapped: boolean): EngineError {
+function toEngineError(err: unknown, statement: ExecutedStatement, editorText: string, wrapped: boolean, rewritten?: Rewritten): EngineError {
   const text = err instanceof Error ? err.message : String(err)
+  if (rewritten && rewritten.text !== statement.text) {
+    // The engine saw the rewritten statement (workspace paths): place the error there, then map it back.
+    const info = parseEngineError(text, {
+      editorText: rewritten.text,
+      statementOffset: 0,
+      ctasLineOffset: wrapped ? 1 : 0,
+      ctasPrefixLength: wrapped ? CTAS_PREFIX.length : 0,
+    })
+    if (info.position) {
+      const offset = statement.editorOffset + rewritten.toOriginal(info.position.offset)
+      const before = editorText.slice(0, offset)
+      info.position = { line: before.split('\n').length, column: offset - (before.lastIndexOf('\n') + 1) + 1, offset }
+    }
+    return info
+  }
   return parseEngineError(text, {
     editorText,
     statementOffset: statement.editorOffset,
@@ -171,30 +181,14 @@ export function resultFacts(built: BuiltResult, table: QueryableTable, defaultVi
 /** How map views reach `layer` (set by openFile; spec 007 research §6). */
 export interface LayerViewInfo {
   index: ViewTarget['index']
-  /** FlatGeobuf read in parts: the registered path. */
-  path?: string
-  /** FlatGeobuf read in parts: the feature id expression. */
-  rowidExpr?: string
-  /** FlatGeobuf read in parts: the file's envelope, in the layer CRS. */
-  extent?: Bbox | null
   /** The open counted no invalid geometry: views skip ST_IsValid. */
   allValid?: boolean
-  /**
-   * FlatGeobuf read in parts, in WGS84: views read the file in JS (index
-   * search + batched range reads) instead of GDAL (research.md US7 outcomes).
-   */
-  fgbReader?: FgbReader
   /** Quoted geometry column of `__se_layer`. */
   geom: string
   attrs: string[]
 }
 
-/** What whole-file work says on a FlatGeobuf read in parts, before Load (T044, data-model.md). */
-export function needsLoadMessage(sizeLabel: string): string {
-  return `Load the whole file (${sizeLabel}) to query it.`
-}
-
-/** A view request that couldn't run because a query or export holds the engine; the map asks again after. */
+/** A tile that couldn't be built because a query or export holds the engine; the map asks again after. */
 export class ViewSkippedError extends Error {}
 
 /** Background work (a table page, style statistics) interrupted by user work; ask again after `whenIdle()`. */
@@ -207,12 +201,13 @@ export class WorkPreemptedError extends Error {
 /**
  * What holds the engine (spec 007 FR-007):
  * - `view`: a map view, interrupted by anything;
+ * - `tile`: one vector tile of a big result (spec 010), the same as a view;
  * - `background`: table pages, style statistics, a feature by id; interrupted by user work;
  * - `work`: user work (a query, an export) and everything else; never interrupted.
  */
-export type EngineWorkKind = 'view' | 'background' | 'work'
+export type EngineWorkKind = 'view' | 'tile' | 'background' | 'work'
 
-/** A view row (attributes, `__se_rowid`, `__se_geojson`) as a map Feature. */
+/** A record row (attributes, `__se_rowid`, `__se_geojson`) as a Feature (featureById). */
 function toViewFeature(row: Record<string, unknown>): Feature {
   const { __se_geojson, __se_rowid, ...attributes } = row
   return {
@@ -230,6 +225,8 @@ export class QuerySession {
   private inFlight: Promise<unknown> | null = null
   /** What holds the engine (EngineWorkKind). */
   private inFlightKind: EngineWorkKind | null = null
+  /** User work waiting for in-flight views or tiles to stop (spec 010: they don't start meanwhile). */
+  private workWaiting = 0
   /** Marks the in-flight work as interrupted by newer work, before cancelling it. */
   private preemptInFlight: (() => void) | null = null
   /** Re-registers a source read in parts after an out-of-memory error (its handle reads as empty after). */
@@ -289,12 +286,19 @@ export class QuerySession {
     const span = statementToRun(request.editorText, request.selection)
     if (!span) return { kind: 'empty' }
     const statement: ExecutedStatement = { text: span.text, editorOffset: span.from }
-    if (this.needsLoad) return { kind: 'refused', reason: 'Load the whole file to query it.', statement }
     const policy = classifyStatement(span.text, this.protectedNames)
     if (!policy.allowed) {
       this.log?.(`[query] refused: ${policy.reason} — ${oneLine(span.text)}`)
       return { kind: 'refused', reason: policy.reason, statement }
     }
+    // Spec 010 phase 9: other workspace files the statement names, registered and rewritten.
+    const prepared = await this.prepareWorkspace(span.text)
+    if ('refused' in prepared) {
+      this.log?.(`[query] refused: ${prepared.refused} — ${oneLine(span.text)}`)
+      return { kind: 'refused', reason: prepared.refused, statement }
+    }
+    const rewritten = prepared.rewritten
+    const sql = rewritten.text
 
     const started = performance.now()
     const elapsed = (): number => Math.round(performance.now() - started)
@@ -320,20 +324,20 @@ export class QuerySession {
                   layerExtent: this.table.sourceExtent,
                 }),
             }),
-            span.text
+            sql
           )
           this.facts = resultFacts(result, this.table, false)
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         if (policy.kind === 'utility') {
-          const result = await this.utilityResult(span.text, isCancelled)
+          const result = await this.utilityResult(sql, isCancelled)
           this.facts = { ...resultFacts(result, this.table, false), exportable: false }
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         // Temp DDL: execute, then summarize.
-        await streamRows(this.conn, span.text, isCancelled)
+        await streamRows(this.conn, sql, isCancelled)
         const what = `${policy.object === 'table' ? 'temp table' : 'temp view'} \`${policy.name}\``
         let summary = `${policy.action === 'create' ? 'Created' : 'Dropped'} ${what}`
         if (policy.action === 'create' && policy.object === 'table') {
@@ -350,7 +354,7 @@ export class QuerySession {
           ? { kind: 'cancelled', durationMs: elapsed(), statement }
           : err instanceof OutOfMemoryError
             ? { kind: 'error', error: { kind: 'Out of Memory', message: err.message, hints: [] }, durationMs: elapsed(), statement }
-            : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query'), durationMs: elapsed(), statement }
+            : { kind: 'error', error: toEngineError(err, statement, request.editorText, policy.kind === 'query', rewritten), durationMs: elapsed(), statement }
     }
     this.log?.(`[query] ${describeOutcome(outcome)} — ${oneLine(span.text)}`)
     return outcome
@@ -408,6 +412,50 @@ export class QuerySession {
     }
   }
 
+  /** Spec 010 phase 9: reaches other workspace files (HostAdapter.resolveWorkspaceFiles), or null. */
+  private workspaceResolver: ((paths: string[]) => Promise<WorkspaceResolution[]>) | null = null
+  /** Workspace files registered with the engine, by path. */
+  private wsRegistered = new Map<string, RegisteredSource>()
+
+  /** Set by the store from the host: lets a query name other workspace files. */
+  setWorkspace(resolver: ((paths: string[]) => Promise<WorkspaceResolution[]>) | null): void {
+    this.workspaceResolver = resolver
+  }
+
+  /**
+   * Registers the workspace files a statement names (once each) and rewrites
+   * their literals to the engine paths. A path used as a file (ST_Read('x.shp'),
+   * FROM 'x.parquet') that can't be read refuses the statement with the host's
+   * reason; any other literal that happens to look like a file name is left alone.
+   */
+  private async prepareWorkspace(text: string): Promise<{ rewritten: Rewritten } | { refused: string }> {
+    const literals = pathLiterals(text)
+    const unchanged = { rewritten: { text, toOriginal: (o: number) => o } }
+    if (!literals.length || !this.workspaceResolver) return unchanged
+    const wanted = [...new Set(literals.map((l) => l.path))].filter((p) => !this.wsRegistered.has(p))
+    if (wanted.length) {
+      let resolved: WorkspaceResolution[]
+      try {
+        resolved = await this.workspaceResolver(wanted)
+      } catch (err) {
+        return { refused: `Workspace files could not be listed: ${err instanceof Error ? err.message : String(err)}` }
+      }
+      for (const r of resolved) {
+        if ('source' in r) {
+          try {
+            this.wsRegistered.set(r.path, await registerSource(this.db, r.source))
+            this.log?.(`[query] workspace file: ${r.path}`)
+          } catch (err) {
+            return { refused: `${r.path} could not be read: ${err instanceof Error ? err.message : String(err)}` }
+          }
+        } else if (literals.some((l) => l.path === r.path && l.asFile)) {
+          return { refused: r.error }
+        }
+      }
+    }
+    return { rewritten: rewritePaths(text, new Set(this.wsRegistered.keys())) }
+  }
+
   /** Names users can't replace or drop (statement policy). */
   get protectedNames(): string[] {
     return ['layer', ...(this.table.alias ? [this.table.alias] : [])]
@@ -424,13 +472,24 @@ export class QuerySession {
     // statistics) never blocks user work, and retries after (spec 007 FR-007).
     // Views wait for background work: they fire on every pan and the preview,
     // and would otherwise keep a style from ever finishing.
-    const interruptible = (): boolean => this.inFlightKind === 'view' || (kind === 'work' && this.inFlightKind === 'background')
-    while (this.inFlight && interruptible()) {
-      this.preemptInFlight?.()
-      await this.cancel()
+    const interruptible = (): boolean => this.inFlightKind === 'view' || this.inFlightKind === 'tile' || (kind === 'work' && this.inFlightKind === 'background')
+    // Spec 010: user work waiting for the engine goes first. A tile that retried as soon as the
+    // engine went idle would otherwise start again before the work, and be cancelled again, forever.
+    if ((kind === 'view' || kind === 'tile') && this.workWaiting > 0) throw new ViewSkippedError()
+    // The same for background work: retried at once, it restarted while the user work was still
+    // cancelling it, was preempted again, and the page never left the microtask queue (a hang).
+    if (kind === 'background' && this.workWaiting > 0) throw new WorkPreemptedError()
+    if (kind === 'work') this.workWaiting++
+    try {
+      while (this.inFlight && interruptible()) {
+        this.preemptInFlight?.()
+        await this.cancel()
+      }
+    } finally {
+      if (kind === 'work') this.workWaiting--
     }
     if (this.inFlight) {
-      if (kind === 'view') throw new ViewSkippedError()
+      if (kind === 'view' || kind === 'tile') throw new ViewSkippedError()
       throw new Error('A query is already running.')
     }
     this.cancelRequested = false
@@ -462,19 +521,19 @@ export class QuerySession {
    * Narrows the displayed result to rows matching `filters` (AND). Pages,
    * map views, style statistics, counts and export all read the narrowed
    * rows. Returns each filter as parsed (invalid ones aren't applied).
-   * Filters clear with a new result. Not for files read in parts
-   * (`needsLoad`), whose table is unavailable until loaded.
+   * Filters clear with a new result.
    */
   setFilters(filters: readonly ColumnFilter[]): ColumnFilter[] {
     const columns = this.facts?.columns ?? []
     const types = new Map(columns.map((c) => [c.name, c.type]))
     const parsed = filters.map((f) => parseFilter(f, types.get(f.column) ?? ''))
-    const where = this.needsLoad || this.utilityRows ? null : filtersToSql(parsed, columns)
+    const where = this.utilityRows ? null : filtersToSql(parsed, columns)
     this.filters = parsed
     if (where !== this.filterWhere) {
       this.filterWhere = where
       this.matchingRows = null
       this.pages.clear()
+      this.dataVersion++
     }
     return parsed
   }
@@ -508,6 +567,7 @@ export class QuerySession {
       this.selectedOnlyWhere = where
       this.matchingRows = null
       this.pages.clear()
+      this.dataVersion++
     }
   }
 
@@ -545,11 +605,6 @@ export class QuerySession {
     return target ? this.narrowed(target.relation) : plain
   }
 
-  /** Rows of the displayed result, narrowed by the filters when known. */
-  private displayedRows(): number {
-    return this.restriction() ? (this.matchingRows ?? Number.POSITIVE_INFINITY) : (this.facts?.totalRows ?? 0)
-  }
-
   /**
    * Counts the rows matching the filters (FR-011 "N of M"), as background
    * work. `matching` equals `total` when no filter applies.
@@ -578,19 +633,157 @@ export class QuerySession {
     const facts = this.facts
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
+    // Spec 010: rules and graduated expressions are evaluated by the engine.
+    if (facts && !this.utilityRows && (r.kind === 'rules' || (r.kind === 'graduated' && r.expression))) return this.resolveSqlStyle(style, base)
     const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
     // Spec 009: every channel column the style classifies.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : null
     const size = style.size && r.kind !== 'bivariate' && has(style.size.column) ? style.size : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
-    if (!facts || (!colorColumn && !size && !axes) || this.utilityRows || this.needsLoad) {
+    if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
     }
     const relation = this.statsRelation()
-    if (axes) return this.resolveBivariate(style, axes, base, relation)
+    // A change that only recolors (a ramp, a palette, a class color) reuses the data and the
+    // exact counts: hovering ramps in the picker re-ran the whole classification for each one.
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
+    const hit = this.styleCache
+    if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
+    this.styleInput = null
+    const out = await (axes ? this.resolveBivariate(style, axes, base, relation) : this.resolveClassified(style, r, base, relation, colorColumn, size))
+    if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
+    return out
+  }
+
+  /**
+   * Spec 010: rules (each condition checked, then one count per rule) and
+   * graduated expressions (checked, then classified as a column of a derived
+   * relation, size channel included). Cached like the other renderers.
+   */
+  private async resolveSqlStyle(style: LayerStyle, base: ResolveInput): Promise<ResolvedStyle> {
+    const r = rendererOf(style)
+    const relation = this.statsRelation()
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
+    const hit = this.styleCache
+    if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
+    this.styleInput = null
+    let out: ResolvedStyle
+    if (r.kind === 'rules') out = await this.resolveRules(style, r, base, relation)
+    else if (r.kind === 'graduated' && r.expression) {
+      const why = await this.expressionError(relation, r.expression, 'value')
+      if (why) return resolveStyleFrom(style, { ...base, expressionError: why })
+      const derived = `(SELECT *, ${expressionValueSql(r.expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${relation})`
+      const withValue: ResolveInput = { ...base, columns: [...base.columns, { name: EXPRESSION_VALUE_COLUMN, type: 'DOUBLE' }] }
+      const has = (c: string | undefined): c is string => !!c && withValue.columns.some((x) => x.name === c)
+      const size = style.size && has(style.size.column) ? style.size : null
+      out = await this.resolveClassified(style, r, withValue, derived, EXPRESSION_VALUE_COLUMN, size)
+    } else return resolveStyleFrom(style, base)
+    if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
+    return out
+  }
+
+  /** Engine answers about style expressions, by relation, purpose and text (a type or an error). */
+  private expressionChecks = new Map<string, string | null>()
+
+  /**
+   * Why a style expression can't be used over `relation`, or null: refused
+   * words first (checkExpression), then the engine's type for it (a condition
+   * must be true/false; a value, a number). No rows are read.
+   */
+  private async expressionError(relation: string, expression: string, purpose: ExpressionPurpose): Promise<string | null> {
+    const early = checkExpression(expression, purpose)
+    if (early) return early
+    const key = `${this.dataVersion}\u0000${relation}\u0000${purpose}\u0000${expression}`
+    const known = this.expressionChecks.get(key)
+    if (known !== undefined) return known
+    const why = await this.exclusive(async (isCancelled) => {
+      try {
+        const row = await singleRow<{ column_type: string }>(this.conn, expressionTypeSql(relation, expression), isCancelled)
+        const type = String(row.column_type ?? '')
+        if (purpose === 'condition' && !/^BOOL/i.test(type)) return `This gives ${type.toLowerCase() || 'a value'}, not true or false. Compare it, like pop > 1000.`
+        if (purpose === 'value' && !isNumericType(type)) return `This gives ${type.toLowerCase() || 'a value'}, not a number.`
+        return null
+      } catch (err) {
+        if (err instanceof QueryCancelledError) throw err
+        const info = parseEngineError(err instanceof Error ? err.message : String(err), { editorText: expression, statementOffset: 0, ctasLineOffset: 0 })
+        // The engine's wording ("not found in FROM clause! Candidate bindings: …") in plain words.
+        const missing = /Referenced column "([^"]+)" not found/i.exec(info.message)
+        const close = [...(info.hints.find((h) => /Candidate bindings/i.test(h)) ?? info.message).matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter((c) => c !== missing?.[1])
+        if (missing) return `No column "${missing[1]}" in this layer.${close.length ? ` Closest: ${close.slice(0, 4).join(', ')}.` : ''}`
+        return info.message
+      }
+    }, 'background')
+    if (this.expressionChecks.size > 200) this.expressionChecks.clear()
+    this.expressionChecks.set(key, why)
+    return why
+  }
+
+  /** Spec 010 rules: each condition checked, then features per rule in one pass. */
+  private async resolveRules(style: LayerStyle, r: RulesRenderer, base: ResolveInput, relation: string): Promise<ResolvedStyle> {
+    const ruleErrors: Record<string, string> = {}
+    for (const rule of r.rules) {
+      const why = await this.expressionError(relation, rule.where, 'condition')
+      if (why) ruleErrors[rule.id] = why
+    }
+    const usable = new Set(r.rules.filter((x) => !ruleErrors[x.id]).map((x) => x.id))
+    const ruleCounts = await this.exclusive(async (isCancelled) => {
+      const counts = new Map<number, number>()
+      await streamRows(this.conn, ruleCountsSql(relation, r.rules, usable), isCancelled, (batch) => {
+        for (const row of batch) counts.set(Number(row.cls), Number(row.n))
+      })
+      return counts
+    }, 'background')
+    return resolveStyleFrom(style, (this.styleInput = { ...base, ruleCounts, ruleErrors }))
+  }
+
+  /**
+   * Spec 010: what the data suggests for first rules: the first measure
+   * column's median, and the most common value of the first text column
+   * whose values repeat.
+   */
+  async ruleSuggestions(): Promise<RuleSuggestions> {
+    const facts = this.facts
+    if (!facts || this.utilityRows) return {}
+    const relation = this.statsRelation()
+    const numeric = measureColumns(facts.columns)[0]?.name
+    const texts = facts.columns.filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM)/i.test(c.type)).map((c) => c.name).slice(0, 6)
+    return this.exclusive(async (isCancelled) => {
+      const out: RuleSuggestions = {}
+      if (numeric) {
+        const m = await singleRow<{ m: number | null }>(this.conn, `SELECT median(TRY_CAST(${quoteIdent(numeric)} AS DOUBLE)) AS m FROM ${relation}`, isCancelled)
+        if (m.m !== null && Number.isFinite(Number(m.m))) out.numeric = { column: numeric, median: Number(m.m) }
+      }
+      for (const column of texts) {
+        const v = `CAST(${quoteIdent(column)} AS VARCHAR)`
+        const rows: Array<{ v: string; n: number }> = []
+        await streamRows(this.conn, `SELECT ${v} AS v, count(*) AS n FROM ${relation} WHERE nullif(${v}, '') IS NOT NULL GROUP BY 1 ORDER BY n DESC, v LIMIT 1`, isCancelled, (batch) => {
+          for (const row of batch) rows.push({ v: String(row.v), n: Number(row.n) })
+        })
+        if (rows[0] && rows[0].n > 1) {
+          out.text = { column, value: rows[0].v }
+          break
+        }
+      }
+      return out
+    }, 'background')
+  }
+
+  /** The input the last engine classification used (the cache's data). */
+  private styleInput: ResolveInput | null = null
+  private styleCache: { key: string; input: ResolveInput; resolved: ResolvedStyle } | null = null
+
+  /** Categorized, graduated and size channels: the engine's data, then the pure classification. */
+  private resolveClassified(
+    style: LayerStyle,
+    r: ReturnType<typeof rendererOf>,
+    base: ResolveInput,
+    relation: string,
+    colorColumn: string | null,
+    size: SizeChannel | null
+  ): Promise<ResolvedStyle> {
     const columns = [...new Set([colorColumn, size?.column].filter((c): c is string => !!c))]
     return this.exclusive(async (isCancelled) => {
-      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
+      const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : (base.rowCount ?? 0)
       const cap = jenksSample()
       const dataByColumn: Record<string, ColumnData> = {}
       if (n <= cap) {
@@ -600,7 +793,7 @@ export class QuerySession {
           for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
         })
         columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
-        return resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
+        return resolveStyleFrom(style, (this.styleInput = { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn }))
       }
       if (r.kind === 'categorized' && colorColumn) {
         const top: Array<{ value: string; count: number }> = []
@@ -642,7 +835,7 @@ export class QuerySession {
           dataByColumn[c.key] = { kind: 'numbers', column: c.column, sample, n: count, nulls, quantileStats }
         }
       }
-      const resolved = resolveStyleFrom(style, { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn })
+      const resolved = resolveStyleFrom(style, (this.styleInput = { ...base, data: colorColumn ? dataByColumn[colorColumn] : null, dataByColumn }))
       // Exact class counts, filled in after classifying (as graduated has since spec 007).
       const counted = async (column: string, classes: ResolvedStyle['classes']): Promise<ResolvedStyle['classes']> => {
         const ranges = classes.filter((c) => c.kind === 'range').map((c) => ({ lower: c.lower ?? 0, upper: c.upper ?? 0 }))
@@ -685,7 +878,7 @@ export class QuerySession {
           for (const row of batch) columns.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
         })
         columns.forEach((column, k) => (dataByColumn[column] = { kind: 'values', column, values: values[k] }))
-        return resolveStyleFrom(style, { ...base, dataByColumn })
+        return resolveStyleFrom(style, (this.styleInput = { ...base, dataByColumn }))
       }
       const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, columns), isCancelled)
       for (const [k, axis] of [r.x, r.y].entries()) {
@@ -702,7 +895,7 @@ export class QuerySession {
         const quantileStats = Object.fromEntries(around.map((pos) => [pos, atPos.get(pos) ?? 0]))
         dataByColumn[axis.column] = { kind: 'numbers', column: axis.column, sample, n: count, nulls: Number(totals[`nulls_${k}`]), quantileStats }
       }
-      const resolved = resolveStyleFrom(style, { ...base, dataByColumn })
+      const resolved = resolveStyleFrom(style, (this.styleInput = { ...base, dataByColumn }))
       if (resolved.status !== 'ok' || !resolved.grid) return resolved
       const counts = new Map<string, number>()
       let noValue = 0
@@ -725,12 +918,12 @@ export class QuerySession {
    * The value distribution of a numeric column of the displayed result
    * (spec 008 FR-003): exact, in two aggregation passes over the whole
    * result, as background work. Null when the column has no numbers, or the
-   * result can't be read in full yet (spec 007 needsLoad).
+   * result has no rows to read.
    */
   /** Spec 008 US6: rows drawn flat by the extrusion (missing, zero or negative height). */
   async extrusionFlatCount(e: Extrusion): Promise<number | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || e.source.kind !== 'column') return null
+    if (!facts || e.source.kind !== 'column') return null
     const column = e.source.column
     if (!facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) return this.utilityRows.filter((f) => !(Number(f.attributes[column]) * e.scale > 0)).length
@@ -742,7 +935,7 @@ export class QuerySession {
   /** Spec 008 US6: the height column's typical high value (95th percentile of positives), for the auto scale. */
   async extrusionHigh(column: string): Promise<number | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    if (!facts || !facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) {
       const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => v > 0).sort((a, b) => a - b)
       return values.length ? values[Math.min(values.length - 1, Math.floor(values.length * 0.95))] : null
@@ -753,9 +946,15 @@ export class QuerySession {
     }, 'background')
   }
 
-  async valueHistogram(column: string): Promise<ValueHistogram | null> {
+  async valueHistogram(column: string, expression?: string): Promise<ValueHistogram | null> {
     const facts = this.facts
-    if (!facts || this.needsLoad || !facts.columns.some((c) => c.name === column)) return null
+    // Spec 010: a graduated expression's values, from a relation that computes them (checked first).
+    if (expression && facts && !this.utilityRows) {
+      const plain = this.statsRelation()
+      if (await this.expressionError(plain, expression, 'value')) return null
+      return this.histogramOf(`(SELECT ${expressionValueSql(expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${plain})`, EXPRESSION_VALUE_COLUMN)
+    }
+    if (!facts || !facts.columns.some((c) => c.name === column)) return null
     if (this.utilityRows) {
       const values = this.utilityRows.map((f) => Number(f.attributes[column])).filter((v) => Number.isFinite(v))
       if (!values.length) return null
@@ -765,7 +964,10 @@ export class QuerySession {
       const rows = values.map((v) => ({ b: Math.min(n - 1, Math.floor(((v - min) / (max - min || 1)) * n)), n: 1 }))
       return histogramFrom(min, max, rows)
     }
-    const relation = this.statsRelation()
+    return this.histogramOf(this.statsRelation(), column)
+  }
+
+  private histogramOf(relation: string, column: string): Promise<ValueHistogram | null> {
     return this.exclusive(async (isCancelled) => {
       const totals = await singleRow<{ n: bigint | number; min: number | null; max: number | null }>(this.conn, numberTotalsSql(relation, column), isCancelled)
       if (!Number(totals.n) || totals.min === null || totals.max === null) return null
@@ -787,12 +989,35 @@ export class QuerySession {
   async distinctCounts(): Promise<Record<string, number>> {
     const facts = this.facts
     const textual = (facts?.columns ?? []).filter((c) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i.test(c.type))
-    if (!facts || !textual.length || this.utilityRows || this.needsLoad) return {}
+    if (!facts || !textual.length || this.utilityRows) return {}
     const relation = this.statsRelation()
     const select = textual.map((c, i) => `count(DISTINCT nullif(CAST(${quoteIdent(c.name)} AS VARCHAR), '')) AS d${i}`).join(', ')
     return this.exclusive(async (isCancelled) => {
       const row = await singleRow<Record<string, bigint | number>>(this.conn, `SELECT ${select} FROM (SELECT * FROM ${relation} LIMIT ${STYLE_VALUES_CAP})`, isCancelled)
       return Object.fromEntries(textual.map((c, i) => [c.name, Number(row[`d${i}`])]))
+    }, 'background')
+  }
+
+  private searchSeq = 0
+
+  /**
+   * Spec 010 phase 10: the displayed result's text values containing `q`
+   * (filters applied), one hit per column and value, best first. A search
+   * overtaken by a newer one before it runs returns nothing.
+   */
+  async searchValues(q: string, limit = 8): Promise<SearchHit[]> {
+    const seq = ++this.searchSeq
+    const target = this.pageTarget()
+    if (!target || this.utilityRows) return []
+    const sql = searchValuesSql(this.narrowed(target.relation), target.columns, q, limit)
+    if (!sql) return []
+    return this.exclusive(async (isCancelled) => {
+      if (seq !== this.searchSeq) return []
+      const hits: SearchHit[] = []
+      await streamRows(this.conn, sql, isCancelled, (batch) => {
+        for (const r of batch) hits.push({ id: Number(r.id), column: String(r.col), value: String(r.value), count: Number(r.n) })
+      })
+      return hits
     }, 'background')
   }
 
@@ -824,24 +1049,22 @@ export class QuerySession {
     return outOfMemoryMessage('work', limit)
   }
 
-  /** Resolves when nothing holds the engine (a skipped view waits for this, then asks again). */
+  /**
+   * Resolves when nothing holds the engine and no user work is waiting for it
+   * (a skipped view or preempted background work waits for this, then asks again).
+   */
   async whenIdle(): Promise<void> {
-    while (this.inFlight) await this.inFlight.catch(() => {})
+    for (;;) {
+      if (this.inFlight) await this.inFlight.catch(() => {})
+      // User work cancelling what held the engine: wait on a timer, not a microtask, so it can run.
+      else if (this.workWaiting > 0) await new Promise((resolve) => setTimeout(resolve, 10))
+      else return
+    }
   }
 
   /** Called once by openFile: how views reach `layer`. */
   setLayerView(info: LayerViewInfo): void {
     this.layerView = info
-  }
-
-  /**
-   * FlatGeobuf read in parts (T044): `layer` reads the file through
-   * spatial_filter_box. Whole-file statements there read it slowly in small
-   * parts and can't be interrupted midway, so queries, table pages, style
-   * statistics and export are refused until the file is loaded whole.
-   */
-  get needsLoad(): boolean {
-    return this.layerView?.index === 'fgb'
   }
 
   /** The relation the map draws: `layer`, or the last query's result with hidden columns added. */
@@ -850,9 +1073,9 @@ export class QuerySession {
     if (!facts || facts.defaultView) {
       const lv = this.layerView
       if (!lv) return null
-      const narrow = lv.index !== 'fgb' && !!this.restriction()
+      const narrow = !!this.restriction()
       const textAttrs = this.table.columns.filter((c) => isTemporalType(c.type) && lv.attrs.includes(c.name)).map((c) => c.name)
-      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, path: lv.path, rowidExpr: lv.rowidExpr, extent: lv.extent, allValid: lv.allValid, narrowed: narrow }
+      return { relation: narrow ? this.narrowed(INTERNAL_LAYER) : INTERNAL_LAYER, index: lv.index, geom: lv.geom, srid: this.table.srid, attrs: lv.attrs, textAttrs, allValid: lv.allValid, narrowed: narrow }
     }
     const g = facts.geometryColumn
     if (!g || !facts.exportable) return null
@@ -869,117 +1092,75 @@ export class QuerySession {
     }
   }
 
+  // --- Spec 010: how the map draws the displayed result ------------------------
+
+  /** The opened file's size (openFile): a big file's default view is drawn as tiles. */
+  private fileBytes: number | null = null
+  /** "Load all": draw this result as GeoJSON whatever its size (reset by a new result). */
+  private loadAll = false
+  /** Bumps whenever the drawn rows change (result, filters, show selected only, Load all): tile URLs and refetches key on it. */
+  dataVersion = 0
+
+  setFileBytes(n: number | null): void {
+    this.fileBytes = n
+  }
+
+  setLoadAll(on: boolean): void {
+    if (on === this.loadAll) return
+    this.loadAll = on
+    this.dataVersion++
+  }
+
+  /** Rows of the displayed result, narrowed by the filters once counted (else the whole result's). */
+  private displayedRowsKnown(): number {
+    const total = this.facts?.totalRows ?? 0
+    return this.restriction() && this.matchingRows !== null ? this.matchingRows : total
+  }
+
+  /** GeoJSON (once, from memory) or engine tiles (spec 010, drawMode.ts). */
+  drawMode(): DrawMode {
+    return drawModeFor({ rows: this.displayedRowsKnown(), fileBytes: this.fileBytes, defaultView: !!this.facts?.defaultView, loadAll: this.loadAll })
+  }
+
   /**
-   * The features of the displayed result in a map view (spec 007 FR-005):
-   * all of them up to the cap, else one per grid cell, spread across the
-   * view. A newer view or any user work interrupts it (FR-007).
+   * Spec 010 GeoJSON mode: every mappable row of the displayed result, as one FeatureCollection.
+   * `attrs` undefined: all visible attributes (GeoLibre does this; style changes then never refetch).
+   * Background work: user work preempts it, and the caller asks again.
    */
-  async view(req: ViewRequest): Promise<ViewFeatures> {
-    const started = performance.now()
+  async allFeatures(attrs: string[] | undefined, onProgress?: (n: number) => void, computed: readonly ComputedColumn[] = []): Promise<MapData> {
     return this.exclusive(async (isCancelled) => {
-      const delay = testOverrides().slowViewMs
+      // Spec 010: columns the style needs computed (a rule index, an expression's value) ride along.
+      const target = withComputed(this.viewTarget(), computed)
+      if (!target) return { type: 'FeatureCollection', features: [], dots: [] }
+      const wanted = attrs ? target.attrs.filter((a) => attrs.includes(a) || computed.some((c) => c.name === a)) : target.attrs
+      const collector = featureCollector()
+      await streamRows(this.conn, allFeaturesSql(target, wanted, (target.textAttrs ?? []).filter((a) => wanted.includes(a))), isCancelled, async (batch) => {
+        await collector.add(batch)
+        onProgress?.(collector.features.length)
+      })
+      return { type: 'FeatureCollection', features: collector.features, dots: collector.dots }
+    }, 'background')
+  }
+
+  /** Spec 010 tiles mode: one MVT tile of the displayed result. Empty tiles are a 0-byte array. */
+  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = []): Promise<Uint8Array> {
+    return this.exclusive(async (isCancelled) => {
+      const delay = testOverrides().slowTileMs
       if (delay) await new Promise((r) => setTimeout(r, delay))
-      const full = this.viewTarget()
-      if (!full) return { generation: req.generation, features: [], inView: 0, thinned: false, ms: 0 }
-      // Only the attributes the map needs (spec 007): a 4M-row overview read 148 MB with all of them.
-      const wanted = req.attrs
-      const target = wanted ? { ...full, attrs: full.attrs.filter((a) => wanted.includes(a)) } : full
-      const partial = target.attrs.length < full.attrs.length
-      let box = clampWgs84(req.bbox)
-      const boxSql = viewBoxSql(box, target.srid)
+      const target = withComputed(this.viewTarget(), computed)
+      if (!target) return new Uint8Array(0)
+      let box = tileBoundsWgs84(z, x, y)
+      const boxSql = viewBoxSql(clampWgs84(box), target.srid)
       if (boxSql) {
         const b = await singleRow<{ x0: number; y0: number; x1: number; y1: number }>(this.conn, boxSql, isCancelled)
         box = [b.x0, b.y0, b.x1, b.y1]
       }
-      const rows: Record<string, unknown>[] = []
-      const collect = (batch: Record<string, unknown>[]): void => {
-        rows.push(...batch)
-      }
-      // ~2 px in layer units: smaller features travel and draw as points.
-      const minSize = req.widthPx && req.widthPx > 0 ? ((box[2] - box[0]) / req.widthPx) * 2 : undefined
-      let inView: number
-      let thinned = false
-      const fgbReader = target.index === 'fgb' && this.facts?.defaultView !== false ? this.layerView?.fgbReader : undefined
-      if (fgbReader) {
-        // FlatGeobuf in parts, in JS: the features in view, or an overview from the index.
-        const v = await fgbReader.view(box, req.cap, isCancelled)
-        if (isCancelled()) throw new QueryCancelledError()
-        const features = wanted ? v.features.map((f) => ({ ...f, attributes: Object.fromEntries(Object.entries(f.attributes).filter(([k]) => wanted.includes(k))) })) : v.features
-        return {
-          generation: req.generation,
-          features: partial ? features.map((f) => (f.geometry?.type === 'Point' && Object.keys(f.attributes).length === 0 ? f : { ...f, partialAttributes: true })) : features,
-          inView: v.inView,
-          thinned: v.thinned,
-          ms: Math.round(performance.now() - started),
-          ...(v.exact ? {} : { inViewEstimated: true }),
-        }
-      } else if (target.index === 'fgb') {
-        // FlatGeobuf in parts: tiles, each capped (research §4: ~0.74 ms per feature).
-        const tiles = viewTiles(box)
-        const per = Math.max(1, Math.ceil(req.cap / tiles.length))
-        for (const tile of tiles) {
-          if (!tileMeetsExtent(tile, target.extent)) continue
-          const before = rows.length
-          try {
-            await streamRows(this.conn, fgbTileSql(target, tile, per + 1, minSize), isCancelled, collect)
-          } catch (err) {
-            // The engine's empty-filter bug (fgbTileSql): stale rows that don't parse. No features here.
-            if (err instanceof QueryCancelledError || !/Could not parse WKB/i.test(String(err))) throw err
-            rows.length = before
-            continue
-          }
-          if (rows.length - before > per) {
-            rows.length = before + per
-            thinned = true
-          }
-        }
-        inView = rows.length
-      } else {
-        // A result that fits under the cap needs no count: everything in view is fetched, so it IS the count.
-        const resultRows = this.restriction() ? this.displayedRows() : this.facts && !this.facts.defaultView ? this.facts.totalRows : this.table.totals.rows
-        if (resultRows <= req.cap) {
-          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
-          inView = rows.length
-        } else {
-          const n = await singleRow<{ n: bigint | number }>(this.conn, viewCountSql(target, box), isCancelled)
-          inView = Number(n.n)
-          thinned = inView > req.cap
-        }
-        if (thinned === false && resultRows <= req.cap) {
-          // Fetched above.
-        } else if (!thinned) {
-          await streamRows(this.conn, viewFeaturesSql(target, box, req.cap, minSize), isCancelled, collect)
-        } else if (target.index === 'columns') {
-          // Overview: dots from bbox columns; geometry only for features large enough to see.
-          await streamRows(this.conn, thinnedRowsSql(target, box, req.cap, inView), isCancelled, collect)
-          const large: number[] = []
-          for (const r of rows) {
-            const small = minSize !== undefined && Number(r.__se_xmax) - Number(r.__se_xmin) < minSize && Number(r.__se_ymax) - Number(r.__se_ymin) < minSize
-            if (small || r.__se_xmin === null) r.__se_geojson = r.__se_dotjson
-            else large.push(Number(r.__se_rowid))
-            delete r.__se_dotjson
-            delete r.__se_xmin
-            delete r.__se_ymin
-            delete r.__se_xmax
-            delete r.__se_ymax
-          }
-          if (large.length) {
-            const shapes = new Map<number, unknown>()
-            await streamRows(this.conn, featuresByIdsSql(target, large.join(', '), minSize), isCancelled, (batch) => {
-              for (const s of batch) shapes.set(Number(s.__se_rowid), s.__se_geojson)
-            })
-            for (const r of rows) if (r.__se_geojson === undefined) r.__se_geojson = shapes.get(Number(r.__se_rowid)) ?? null
-          }
-        } else {
-          await streamRows(this.conn, featuresByIdsSql(target, thinnedIdsSql(target, box, req.cap, inView), minSize), isCancelled, collect)
-        }
-      }
-      const features = rows
-        .filter((r) => r.__se_geojson !== null && r.__se_geojson !== undefined)
-        .map((r) => (partial ? { ...toViewFeature(r), partialAttributes: true } : toViewFeature(r)))
-      const atLeast = target.index === 'fgb' && thinned
-      return { generation: req.generation, features, inView, thinned, ms: Math.round(performance.now() - started), ...(atLeast ? { inViewAtLeast: true } : {}) }
-    }, 'view')
+      const columns = this.facts?.columns ?? this.table.columns
+      const typeOf = (name: string): string => computed.find((c) => c.name === name)?.type ?? columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
+      const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: typeOf(name) }))
+      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed), isCancelled)
+      return row.tile ?? new Uint8Array(0)
+    }, 'tile')
   }
 
   /** One feature by its stable id, wherever it is (selection outside the drawn set, FR-008). */
@@ -1029,6 +1210,8 @@ export class QuerySession {
     this.matchingRows = null
     this.selectedOnlyWhere = null
     if (this.facts?.exportable !== false) this.utilityRows = null
+    this.loadAll = false
+    this.dataVersion++
   }
 
   /** The relation pages read: `layer` with its row ids, or the result with ids added. */
@@ -1053,7 +1236,6 @@ export class QuerySession {
   async page(req: TablePageRequest): Promise<TablePage> {
     const cached = this.pages.get(req)
     if (cached) return cached
-    if (this.needsLoad) return { offset: req.offset, rows: [] }
     if (this.utilityRows) {
       const rows = this.utilityRows.slice(req.offset, req.offset + req.limit).map((f) => ({ id: Number(f.id), attributes: f.attributes, invalidGeometry: false }))
       return { offset: req.offset, rows }
@@ -1091,7 +1273,6 @@ export class QuerySession {
    * and a query never interleaves with it. Never touches __se_result.
    */
   async exportData(plan: ExportPlan, hooks: ExportHooks = {}, selection?: Selection): Promise<ExportResult> {
-    if (this.needsLoad) throw new Error('Load the whole file to export it.')
     const started = performance.now()
     try {
       const fill = plan.scope === 'selected' && selection ? selectionTableSql(selection) : null
@@ -1162,6 +1343,8 @@ export class QuerySession {
     if (this.disposed) return
     await this.cancel()
     this.disposed = true
+    for (const r of this.wsRegistered.values()) await r.drop()
+    this.wsRegistered.clear()
     const drop = async (sql: string): Promise<void> => {
       await this.conn.query(sql).catch(() => {})
     }
@@ -1174,7 +1357,6 @@ export class QuerySession {
     await drop('DROP TABLE IF EXISTS __se_bbox')
     await drop(`DROP TABLE IF EXISTS ${SOURCE_TABLE}`)
     await drop('DROP TABLE IF EXISTS __se_raw')
-    await dropKeyTables(this.conn).catch(() => {})
     await this.conn.close().catch(() => {})
     for (const path of this.liveFiles) await this.db.dropFile(path).catch(() => {})
   }
@@ -1206,3 +1388,40 @@ export function describeOutcome(o: RunOutcome): string {
   }
 }
 
+/** A draw target with the style's computed columns added (spec 010), or null. */
+function withComputed(t: ViewTarget | null, computed: readonly ComputedColumn[]): ViewTarget | null {
+  if (!t || !computed.length) return t
+  return { ...t, relation: withComputedSql(t.relation, computed), attrs: [...t.attrs, ...computed.map((c) => c.name)] }
+}
+
+/** Fields that only change how classes look, never which classes there are or their counts. */
+const PRESENTATION_KEYS = new Set([
+  'color', 'ramp', 'palette', 'label', 'visible', 'hidden', 'fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity',
+  'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash', 'sizeMin', 'sizeMax', 'extrusion',
+  // Spec 010 rules: the "Everything else" row's look.
+  'elseColor', 'elseLabel', 'elseVisible',
+])
+
+/** The style without its presentation: two styles with the same key classify the same data the same way. */
+export function styleDataKey(style: LayerStyle): string {
+  return JSON.stringify(style, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
+}
+
+/** A fresh classification's classes, with the exact counts the engine found for the same classes. */
+export function withCounts(fresh: ResolvedStyle, counted: ResolvedStyle): ResolvedStyle {
+  const merge = (now: ResolvedStyle['classes'], before: ResolvedStyle['classes']): ResolvedStyle['classes'] => {
+    const seen = new Map<string, number>()
+    const keyOf = (c: ResolvedStyle['classes'][number]): string => {
+      const n = (seen.get(c.kind) ?? 0) + 1
+      seen.set(c.kind, n)
+      return `${c.kind}#${n}`
+    }
+    const counts = new Map(before.map((c) => [keyOf(c), c.count]))
+    seen.clear()
+    const hadOther = before.some((c) => c.kind === 'other')
+    return now.map((c) => ({ ...c, count: counts.get(keyOf(c)) ?? c.count })).filter((c) => c.kind !== 'other' || hadOther)
+  }
+  const out: ResolvedStyle = { ...fresh, classes: merge(fresh.classes, counted.classes) }
+  if (fresh.size && counted.size) out.size = { ...fresh.size, classes: merge(fresh.size.classes, counted.size.classes) }
+  return out
+}

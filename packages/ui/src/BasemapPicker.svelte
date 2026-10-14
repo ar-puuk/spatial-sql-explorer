@@ -18,11 +18,16 @@
     appearance: 'light' | 'dark'
     blankColor: string | null
     notice: string | null
+    /** Spec 010: the active basemap when it came from "More basemaps…" (shown under the featured list). */
+    galleryEntry: { id: string; name: string } | null
     onChoose: (choice: BasemapChoice) => void
+    onMore: () => void
     onBlankColor: (color: string | null) => void
     onClose: () => void
+    /** Spec 010: inside the side panel (its title and close button are the panel's). */
+    embedded?: boolean
   }
-  let { activeId, followingTheme, appearance, blankColor, notice, onChoose, onBlankColor, onClose }: Props = $props()
+  let { activeId, followingTheme, appearance, blankColor, notice, galleryEntry, onChoose, onMore, onBlankColor, onClose, embedded = false }: Props = $props()
 
   let themeDefaultId = $derived(getDefaultBasemap(appearance).id)
   let blankInput = $state<HTMLInputElement>()
@@ -36,18 +41,22 @@
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     if ((e.target as HTMLElement).getAttribute('role') !== 'radio') return
     e.preventDefault()
+    // From a gallery basemap (not in the list), arrows start at the list's ends.
     const i = BASEMAP_CATALOG.findIndex((o) => o.id === activeId)
-    const next = BASEMAP_CATALOG[(i + (e.key === 'ArrowDown' ? 1 : BASEMAP_CATALOG.length - 1)) % BASEMAP_CATALOG.length]
+    const from = i >= 0 ? i : e.key === 'ArrowDown' ? -1 : 0
+    const next = BASEMAP_CATALOG[(from + (e.key === 'ArrowDown' ? 1 : BASEMAP_CATALOG.length - 1)) % BASEMAP_CATALOG.length]
     onChoose(next.id)
     queueMicrotask(() => (document.querySelector(`[data-basemap="${next.id}"]`) as HTMLElement | null)?.focus())
   }
 </script>
 
-<div class="panel" role="dialog" aria-label="Basemap" tabindex="-1" onkeydown={handleKeydown}>
-  <header>
-    <h2>Basemap</h2>
-    <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
-  </header>
+<div class="panel" class:embedded role={embedded ? 'region' : 'dialog'} aria-label="Basemap" tabindex="-1" onkeydown={handleKeydown}>
+  {#if !embedded}
+    <header>
+      <h2>Basemap</h2>
+      <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
+    </header>
+  {/if}
   <div class="options" role="radiogroup" aria-label="Basemap">
     {#each BASEMAP_CATALOG as entry (entry.id)}
       <div class="row" class:checked={entry.id === activeId}>
@@ -103,6 +112,19 @@
         {/if}
       </div>
     {/each}
+    {#if galleryEntry}
+      <div class="row checked">
+        <button type="button" role="radio" aria-checked="true" tabindex="0" data-basemap={galleryEntry.id} class="option" onclick={onMore}>
+          <span class="swatch gallery" aria-hidden="true"></span>
+          <span class="name">{galleryEntry.name}</span>
+          <span class="spacer"></span>
+          <Icon name="check" size={14} />
+        </button>
+      </div>
+    {/if}
+  </div>
+  <div class="more">
+    <button type="button" class="more-button" onclick={onMore}>More basemaps…</button>
   </div>
   {#if notice}
     <p class="notice" role="status"><Icon name="warning" size={14} />{notice}</p>
@@ -125,6 +147,17 @@
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
     outline: none;
+  }
+  /* Spec 010: inside the side panel, which has the title and the close button. */
+  .panel.embedded {
+    flex: 1;
+    width: auto;
+    min-height: 0;
+    max-height: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
   header {
     display: flex;
@@ -229,6 +262,28 @@
     border: 0;
     opacity: 0;
     pointer-events: none;
+  }
+  .swatch.gallery {
+    background: linear-gradient(135deg, var(--se-bg-hover), var(--se-map-bg));
+  }
+  .more {
+    padding: 4px 8px 8px;
+  }
+  .more-button {
+    width: 100%;
+    height: 24px;
+    border: 1px solid var(--se-button-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .more-button:hover {
+    background: var(--se-button-secondary-hover);
+  }
+  .more-button:focus-visible {
+    outline: 1px solid var(--se-focus);
   }
   .notice {
     display: flex;

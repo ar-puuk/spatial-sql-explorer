@@ -144,7 +144,7 @@ test('SC-001 (spec 003): categorize and graduate the ~10 MB file in under 1 s ea
   await openFile(page, fixture)
   await openQueryPanel(page)
   await runQuery(page, 'SELECT * FROM layer') // all 22,000 features
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const legend = page.getByRole('region', { name: 'Legend' })
 
   let t0 = Date.now()
@@ -173,7 +173,7 @@ test('SC-007 (spec 003): a thematic style on 50,000 rows never freezes the viewe
   await openFile(page, writeParcels(50_000, 'parcels-50k.geojson'))
   await openQueryPanel(page)
   await runQuery(page, 'SELECT * FROM layer') // exactly 50,000: no confirmation
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.evaluate(() => {
     const w = window as unknown as { __longTasks: number[] }
     w.__longTasks = []

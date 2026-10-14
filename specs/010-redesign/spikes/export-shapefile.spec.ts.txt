@@ -1,0 +1,10 @@
+// SPIKE (spec 010 Option B): save engine exports for inspection. Temporary.
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { exportVia, fixture, openFile } from './helpers'
+test('save shapefile', async ({ page }) => {
+  await openFile(page, fixture('usa-utm12n.gpkg'), '?e2e=1')
+  const { bytes } = await exportVia(page, { format: 'Shapefile (zip)', crs: 'result' })
+  fs.writeFileSync(path.join(process.env.SPIKE_OUT ?? '.', 'usa.shp.zip'), bytes)
+})

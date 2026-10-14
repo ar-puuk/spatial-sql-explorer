@@ -8,7 +8,7 @@ redistributed; see "Fetched at runtime, not bundled" at the end.
 
 ---
 
-## DuckDB-Wasm 1.32.0 (includes DuckDB 1.4.3)
+## DuckDB-Wasm 1.33.1-dev65.0 (includes DuckDB 1.5.6)
 
 Embedded SQL engine for every file read. The JavaScript bindings are bundled;
 the WebAssembly module and its worker script are downloaded at runtime from
@@ -2628,28 +2628,9 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ---
 
-## FlatGeobuf (JavaScript) 4.6.0
+## FlatBuffers (JavaScript) 24.12.23
 
-Reads FlatGeobuf files in parts for map views (spec 007): R-tree search and feature decoding.
-Source: https://github.com/flatgeobuf/flatgeobuf
-
-```
-Copyright (c) 2018, Björn Harrtell
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
----
-
-## FlatBuffers (JavaScript) 25.9.23
-
-Used by FlatGeobuf to decode its headers and features.
+Used by Apache Arrow (DuckDB-Wasm's result transport).
 Source: https://github.com/google/flatbuffers
 
 ```
@@ -3007,6 +2988,104 @@ The color ramps in `packages/core/src/style/ramps.ts` are data, not code.
 
 ---
 
+## GeoLibre
+
+Desktop GIS on DuckDB-Wasm and MapLibre; some functions are adapted from it (marked
+`// Adapted from GeoLibre …` in the code).
+Used: batched GeoJSON conversion and other adapted functions.
+Source: https://github.com/opengeos/GeoLibre
+
+```
+MIT License
+
+Copyright (c) 2026 Qiusheng Wu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## maplibre-gl-vector
+
+MapLibre plugin for drawing DuckDB data as GeoJSON or engine-built vector tiles.
+Used: the ST_AsMVT tile-query approach.
+Source: https://github.com/opengeos/maplibre-gl-vector
+
+```
+MIT License
+
+Copyright (c) 2026 Qiusheng Wu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## maplibre-gl-basemap-control
+
+MapLibre basemap catalog and control; its catalog data is generated into the app
+(scripts/basemap-catalog.mjs). The package itself is not bundled.
+Used: basemap catalog data.
+Source: https://github.com/opengeos/maplibre-gl-basemap-control
+
+```
+MIT License
+
+Copyright (c) 2026 Qiusheng Wu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
 ## Fetched at runtime, not bundled
 
 These are downloaded by the running app and are not redistributed with it.
@@ -3019,6 +3098,7 @@ They are listed for transparency and attribution.
   - **spatial**, which statically links GDAL (MIT/X), PROJ (MIT) and GEOS
     (LGPL-2.1). https://github.com/duckdb/duckdb-spatial
   - **parquet** and **json** (part of DuckDB, MIT).
+  - **excel** (DuckDB, MIT; xlsx export and input). https://github.com/duckdb/duckdb-excel
 - **sql.js WebAssembly** (MIT, see above), from `cdn.jsdelivr.net`.
 
 Every engine file above is checked against a SHA-256 recorded at build time

@@ -56,6 +56,8 @@
   // own. The lockdown (duckdbService.lockDown), not this hook, is the
   // security boundary: everything sent here is still refused file, network,
   // extension and settings access.
+  // MapView publishes data-rendered-features for tests (?e2e=1, or a browser under automation).
+  if (navigator.webdriver || new URLSearchParams(location.search).has('e2e')) document.documentElement.dataset.seTestHooks = ''
   if (new URLSearchParams(location.search).has('e2e')) {
     ;(window as unknown as { __spatialExplorerE2E: unknown }).__spatialExplorerE2E = {
       runRaw: (sql: string) => {
@@ -93,7 +95,7 @@
       },
       /** Spec 008 T024: the table filters and the narrowed row count. */
       filterState: () =>
-        JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.viewFeatures?.inView ?? null })),
+        JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.mapData?.features.length ?? null })),
       /** Spec 008 T025: the ticked rows. */
       selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
       /** Spec 008 T064: the map's projection and camera. */
@@ -147,11 +149,12 @@
             facts: store.session.layer?.facts ?? store.openFacts,
           })
         ),
-      /** Spec 007 T026: the drawn map view. */
-      viewState: () => {
-        const v = store.viewFeatures
-        return v ? { generation: v.generation, drawn: v.features.length, inView: v.inView, thinned: v.thinned, ms: v.ms } : null
-      },
+      /** Spec 010: how the map draws the result: the mode, the features in memory (GeoJSON), the tile URL. */
+      drawState: () => ({ mode: store.drawMode, features: store.mapData?.features.length ?? null, tileUrl: store.tileUrl, loading: store.drawLoading, loadedAll: store.loadedAll }),
+      /** Spec 010: engine calls made to draw (allFeatures and tiles); none while panning in GeoJSON mode. */
+      drawCalls: () => store.drawCalls,
+      /** Spec 010: engine tiles built, and served from the tile cache. */
+      tileStats: async () => (await import('@spatial-explorer/ui')).engineTileStats(),
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),
@@ -173,7 +176,7 @@
         const cy = v ? (v[1] + v[3]) / 2 : 0
         let best: [number, number] = [cx, cy]
         let bestD = Infinity
-        for (const f of store.viewFeatures?.features ?? []) {
+        for (const f of store.mapData?.features ?? []) {
           if (f.geometry?.type !== 'Polygon') continue
           const ring = f.geometry.coordinates[0]
           const x = ring.reduce((s, c) => s + c[0], 0) / ring.length
@@ -187,28 +190,7 @@
         return best
       },
       outsideFeatureId: () => store.outsideFeature?.id ?? null,
-      drawnIds: () => [...(store.viewFeatures?.features.map((f) => f.id) ?? []), ...(store.outsideFeature ? [store.outsideFeature.id] : [])],
-      /** Every drawn feature's bbox meets the last requested view (no stale view drawn). */
-      drawnInsideView: () => {
-        const v = store.lastViewBbox
-        const features = store.viewFeatures?.features ?? []
-        if (!v) return false
-        const within = (c: unknown): boolean => {
-          if (Array.isArray(c) && typeof c[0] === 'number') return true
-          return false
-        }
-        return features.every((f) => {
-          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-          const visit = (c: unknown): void => {
-            if (within(c)) {
-              const [x, y] = c as number[]
-              x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y)
-            } else if (Array.isArray(c)) c.forEach(visit)
-          }
-          if (f.geometry && 'coordinates' in f.geometry) visit(f.geometry.coordinates)
-          return x0 <= v[2] && x1 >= v[0] && y0 <= v[3] && y1 >= v[1]
-        })
-      },
+      drawnIds: () => [...(store.mapData?.features.map((f) => f.id) ?? []), ...(store.outsideFeature ? [store.outsideFeature.id] : [])],
       /** Spec 003 T006: the displayed result's attribute columns and types. */
       layerColumns: () => JSON.parse(JSON.stringify(store.session.layer?.columns ?? null)),
     }
@@ -425,8 +407,21 @@
       />
     {:else}
       <ViewerLayout {store} {fileName}>
-        {#snippet mapOverlay()}
-          <StatusBar session={store.session} facts={store.openFacts} />
+        {#snippet statusBar()}
+          <StatusBar
+            docked
+            session={store.session}
+            facts={store.openFacts}
+            draw={{
+              mode: store.drawMode,
+              features: store.mapData?.features.length ?? null,
+              loading: store.drawLoading,
+              progress: store.drawProgress,
+              loadedAll: store.loadedAll,
+              onLoadAll: () => store.loadAll(),
+              onDrawAsTiles: () => store.drawAsTiles(),
+            }}
+          />
         {/snippet}
       </ViewerLayout>
     {/if}

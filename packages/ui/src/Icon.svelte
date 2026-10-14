@@ -41,9 +41,13 @@
     | 'sun'
     | 'moon'
     | 'monitor'
+    | 'maximize'
+    | 'restore'
 
   const PATHS: Record<IconName, string> = {
     plus: 'M8 3.5v9M3.5 8h9',
+    maximize: 'M3 3.5h10v9H3z',
+    restore: 'M5 5.5h8v7H5zM3 10.5V3.5h8',
     minus: 'M3.5 8h9',
     fit: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10M5.5 5.5h5v5h-5z',
     paint: 'M10.5 2.5l3 3-6.25 6.25-3-3zM4.25 8.75L2.5 13.5l4.75-1.75',

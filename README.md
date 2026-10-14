@@ -14,11 +14,17 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
 
 - **Look**: GeoJSON, GeoPackage (several layers), SQLite/SpatiaLite (e.g.
   Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
-  PMTiles, on a map and in an attribute table kept in sync. Files of several GB load only what's in view. Vector and raster
-  basemaps, a globe view, place search, and any source CRS.
+  PMTiles and Excel, on a map and in an attribute table kept in sync. Small
+  results are drawn once from memory; big ones (millions of rows, several GB)
+  from vector tiles the engine builds as you pan, with a "Load all" option.
+  129 basemaps from 26 providers (keyed ones with your own key), a globe view,
+  one search box for layer values, coordinates and places, and any source CRS.
 - **Query**: DuckDB spatial SQL against the file as the table `layer`, with
-  autocomplete and inline errors; results replace the map and the table.
-- **Style**: single, categorized, graduated and bivariate styles, ramps
+  autocomplete and inline errors; results replace the map and the table. A
+  query can read other files too: workspace files by relative path in VS Code
+  (`ST_Read('data/links.shp')`), added files on the web.
+- **Style**: single, categorized, graduated (by a column or a SQL expression),
+  bivariate and rule-based (SQL conditions, first match wins) styles, ramps
   previewed on the map, size by a column (classed or proportional), marker
   shapes and dashed lines, layer opacity, 3D polygon extrusion. Saved as a QGIS `.qml` sidecar;
   imports and exports QML, SLD and Mapbox GL style JSON.

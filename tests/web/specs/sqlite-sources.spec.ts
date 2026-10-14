@@ -4,7 +4,9 @@
 import { test, expect, type Page } from '@playwright/test'
 import { fixture, openFile } from './helpers'
 
-const layerList = (page: Page) => page.getByRole('listbox', { name: 'Layers in this file' })
+// Spec 010: the file's layers are a select next to the search box.
+const layerPicker = (page: Page) => page.getByRole('combobox', { name: 'Layer' })
+const layerOptions = (page: Page) => layerPicker(page).locator('option')
 const statusBar = (page: Page) => page.locator('.status-bar')
 
 async function sql(page: Page, statement: string): Promise<Array<Record<string, unknown>>> {
@@ -17,9 +19,9 @@ async function sql(page: Page, statement: string): Promise<Array<Record<string, 
 
 test('a GeoPackage layer with ids that do not start at 1 opens, with its fid', async ({ page }) => {
   await openFile(page, fixture('gapped-ids.gpkg'), '?e2e=1')
-  await expect(layerList(page).getByRole('option')).toHaveCount(3)
+  await expect(layerOptions(page)).toHaveCount(3)
   // `zones` (ids 101..123) is the first layer with geometry: it used to fail with "thread constructor failed".
-  await expect(layerList(page).getByRole('option').nth(0)).toHaveAttribute('aria-selected', 'true')
+  await expect(layerPicker(page)).toHaveValue('zones')
   await expect(statusBar(page)).toContainText('12 features')
   await expect(page.locator('.canvas-host')).toHaveAttribute('data-rendered-features', /^[1-9]/)
   await expect(page.getByRole('alert')).toHaveCount(0)
@@ -31,6 +33,8 @@ test('a GeoPackage layer with ids that do not start at 1 opens, with its fid', a
   // Same column types as GDAL's GeoPackage reader gives.
   const types = Object.fromEntries((await sql(page, 'DESCRIBE layer')).map((r) => [r.column_name, r.column_type]))
   expect(types).toMatchObject({ fid: 'BIGINT', zone: 'VARCHAR', households: 'INTEGER', opened: 'DATE', active: 'BOOLEAN' })
+  // One id column (DuckDB 1.5 reads `fid` itself; a restored copy would add `fid_1`).
+  expect(Object.keys(types).filter((c) => /^fid/i.test(c))).toEqual(['fid'])
   // The CRS comes from the GeoPackage catalog.
   await expect(statusBar(page)).toContainText('EPSG:4326')
 
@@ -44,15 +48,16 @@ test('a GeoPackage with ids 1..N keeps the fast reader and gains its fid', async
   const rows = await sql(page, 'SELECT min(fid) AS lo, max(fid) AS hi, count(*) AS n FROM layer')
   expect(rows[0].lo).toBe(1)
   expect(rows[0].hi).toBe(rows[0].n)
+  expect((await sql(page, 'DESCRIBE layer')).map((r) => r.column_name).filter((c) => /^fid/i.test(String(c)))).toEqual(['fid'])
 })
 
 test('a SQLite network (Cube 7 shape): nodes keep n, links and attribute tables are layers', async ({ page }) => {
   await openFile(page, fixture('cube-network.sqlite'), '?e2e=1')
-  const options = layerList(page).getByRole('option')
+  const options = layerOptions(page)
   await expect(options).toHaveCount(3)
-  await expect(options.nth(0)).toHaveAccessibleName('cubedb__BY__node, Point, 8')
-  await expect(options.nth(1)).toHaveAccessibleName('cubedb__BY__link, LineString, 8')
-  await expect(options.nth(2)).toHaveAccessibleName('cubedb__BY__transit_mode, table, 3')
+  await expect(options.nth(0)).toHaveText('cubedb__BY__node, Point, 8')
+  await expect(options.nth(1)).toHaveText('cubedb__BY__link, LineString, 8')
+  await expect(options.nth(2)).toHaveText('cubedb__BY__transit_mode, table, 3')
   await expect(statusBar(page)).toContainText('8 features')
   await expect(statusBar(page)).toContainText('EPSG:26912')
 
@@ -69,9 +74,20 @@ test('a SQLite network (Cube 7 shape): nodes keep n, links and attribute tables 
   ])
 
   // Switching to the links draws them.
-  await options.nth(1).click()
-  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await layerPicker(page).selectOption('cubedb__BY__link')
+  await expect(layerPicker(page)).toHaveValue('cubedb__BY__link')
   await expect(statusBar(page)).toContainText('8 features')
+})
+
+// Spec 010 phase 6: the engine reads ids itself and sqlite_scanner lists tables; sql.js only serves GeoPackage export.
+test('opening GeoPackage and SQLite files never loads sql.js', async ({ page }) => {
+  const requests: string[] = []
+  page.on('request', (r) => requests.push(r.url()))
+  await openFile(page, fixture('gapped-ids.gpkg'), '?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(fixture('cube-network.sqlite'))
+  await expect(layerOptions(page)).toHaveCount(3)
+  await expect(layerOptions(page).nth(2)).toHaveText('cubedb__BY__transit_mode, table, 3')
+  expect(requests.filter((u) => /sql-wasm/.test(u))).toEqual([])
 })
 
 test('a .db file opens like .sqlite', async ({ page }) => {
@@ -81,6 +97,6 @@ test('a .db file opens like .sqlite', async ({ page }) => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-db-')), 'network.db')
   fs.copyFileSync(fixture('cube-network.sqlite'), file)
   await openFile(page, file)
-  await expect(layerList(page).getByRole('option')).toHaveCount(3)
+  await expect(layerOptions(page)).toHaveCount(3)
   await expect(statusBar(page)).toContainText('8 features')
 })

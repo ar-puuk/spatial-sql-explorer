@@ -7,11 +7,10 @@
   import type { CompletionSource } from '@codemirror/autocomplete'
   import type { SQLNamespace } from '@codemirror/lang-sql'
   import SqlEditor from './SqlEditor.svelte'
-  import { functionSource, schemaFromCatalog } from './completion.js'
+  import { functionSource, pathSource, schemaFromCatalog } from './completion.js'
   import ResultCrsChip from './ResultCrsChip.svelte'
   import QueryHistory from './QueryHistory.svelte'
   import Icon from './Icon.svelte'
-  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
@@ -19,13 +18,15 @@
     store: ViewerStore
     collapsed: boolean
     onToggle: () => void
+    /** Spec 010: inside the bottom panel's SQL tab, which shows and hides it (no toggle of its own). */
+    embedded?: boolean
     schema?: SQLNamespace
     completionSources?: CompletionSource[]
   }
-  let { store, collapsed, onToggle, schema: schemaProp, completionSources: sourcesProp }: Props = $props()
+  let { store, collapsed, onToggle, embedded = false, schema: schemaProp, completionSources: sourcesProp }: Props = $props()
   // FR-015: completion from the live catalog unless a caller supplies its own.
   const schema = $derived(schemaProp ?? schemaFromCatalog(store.catalog))
-  const completionSources = $derived<CompletionSource[]>(sourcesProp ?? [functionSource(store.catalog)])
+  const completionSources = $derived<CompletionSource[]>(sourcesProp ?? [functionSource(store.catalog), pathSource(store.workspaceFiles)])
 
   const DOCS_URL = 'https://duckdb.org/docs/stable/core_extensions/spatial/functions'
   const nf = new Intl.NumberFormat('en-US')
@@ -94,6 +95,11 @@
   export function focusEditor(): void {
     editor?.focus()
   }
+
+  /** Spec 010: inserts text at the editor's cursor (a file name from the Files list). */
+  export function insertText(text: string): void {
+    editor?.insertText(text)
+  }
 </script>
 
 <!-- Esc cancels a running query from anywhere in the panel, handled in the
@@ -111,10 +117,12 @@
   }}
 >
   <header>
-    <button type="button" class="toggle" aria-expanded={!collapsed} aria-controls="query-body" onclick={onToggle} title="Toggle the query panel (Ctrl+Shift+Q)">
-      <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
-      <span class="title">Query</span>
-    </button>
+    {#if !embedded}
+      <button type="button" class="toggle" aria-expanded={!collapsed} aria-controls="query-body" onclick={onToggle} title="Toggle the query panel (Ctrl+Shift+Q)">
+        <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
+        <span class="title">Query</span>
+      </button>
+    {/if}
     {#if store.queryTable}
       <span class="query-table" title="Query the opened file as this table">
         <code>{store.queryTable.name}</code>{#if store.queryTable.alias}<span class="alias"> / <code>{store.queryTable.alias}</code></span>{/if}
@@ -144,8 +152,8 @@
       {#if busy}
         <button type="button" class="secondary" onclick={() => void store.cancelQuery()} title="Cancel (Esc)"><Icon name="close" size={14} />Cancel</button>
       {:else}
-        <button type="button" class="primary" onclick={() => run()} title={store.tilesOnlyReason ?? (store.needsLoad ? 'Load the whole file to query it' : 'Run (Ctrl+Enter)')}
-          disabled={!!store.needsLoad || !!store.tilesOnlyReason}
+        <button type="button" class="primary" onclick={() => run()} title={store.tilesOnlyReason ?? 'Run (Ctrl+Enter)'}
+          disabled={!!store.tilesOnlyReason}
           ><Icon name="arrow-up" size={14} />Run</button
         >
       {/if}
@@ -173,8 +181,6 @@
   <div class="body" id="query-body" hidden={collapsed}>
     {#if store.tilesOnlyReason}
       <UnavailableNotice text={store.tilesOnlyReason} />
-    {:else if store.needsLoad}
-      <LoadWholeNotice sizeLabel={store.needsLoad.sizeLabel} onLoad={() => void store.loadWhole()} />
     {/if}
     <div class="editor">
       <SqlEditor

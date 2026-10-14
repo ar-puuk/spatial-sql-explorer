@@ -1,7 +1,7 @@
 // T014 (spec 002, US1): run a query and see the result on the map and in the
 // table (quickstart Scenarios 1 and 6), in the production web build.
 import { test, expect } from '@playwright/test'
-import { editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, setQuery, status } from './helpers'
+import { editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, setQuery, status, showSql } from './helpers'
 
 test('the default query reproduces the initial view, and a filter replaces it', async ({ page }) => {
   await openFile(page, fixture('world-boundaries.geojson'))
@@ -46,10 +46,12 @@ test('measurements use the source CRS; results are drawn from the resolved CRS (
   await runQuery(page, 'SELECT name, round(ST_Area(geom) / 1e6) AS km2, geom FROM layer')
   await expect(grid(page).locator('tbody tr:not(.spacer)').first()).toContainText('10179528')
   await expect(page.locator('.result-crs')).toContainText('EPSG:26912')
-  await expect(page.locator('.result-crs')).toContainText('layer')
+  // DuckDB 1.5 types GDAL geometry with its CRS: the engine says, no guess needed.
+  await expect(page.locator('.result-crs')).toContainText('engine')
 
   await runQuery(page, "SELECT ST_Transform(geom, 'EPSG:26912', 'EPSG:4326', always_xy := true) AS geom FROM layer")
   await expect(page.locator('.result-crs')).toContainText('EPSG:4326')
+  // ST_Transform with CRS strings returns untyped GEOMETRY in 1.5: detected from the extent.
   await expect(page.locator('.result-crs')).toContainText('detected')
   await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
 })
@@ -62,26 +64,29 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   // Change the view: a filter and a different fill color.
   await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
   expect(await rowCount(page)).toBe(8)
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  await page.getByRole('dialog', { name: 'Layer style' }).locator('input[type="color"]').first().fill('#ff0000')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  await page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first().fill('#ff0000')
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Unedited since the last run: Reset needs no confirmation.
+  await showSql(page)
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
   await expect(editor(page)).toHaveText('SELECT * FROM layer')
   expect(await rowCount(page)).toBe(180)
   await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveText(initialScale ?? '')
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  await expect(page.getByRole('dialog', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3b82f6')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3b82f6')
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Edited text: Reset asks first, and "Keep" keeps it.
   await setQuery(page, 'SELECT name FROM layer -- my work')
+  await showSql(page)
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
   await expect(queryPanel(page).getByText('Discard your query changes?')).toBeVisible()
   await queryPanel(page).getByRole('button', { name: 'Keep' }).click()
   await expect(editor(page)).toHaveText('SELECT name FROM layer -- my work')
+  await showSql(page)
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
   await queryPanel(page).getByRole('button', { name: 'Discard' }).click()
   await expect(editor(page)).toHaveText('SELECT * FROM layer')
@@ -116,6 +121,7 @@ test('the session reports which result is displayed (default view, query, Reset)
   expect(await facts()).toMatchObject({ defaultView: false, totalRows: 8 })
   await runQuery(page, 'DESCRIBE layer')
   expect(await facts()).toMatchObject({ exportable: false })
+  await showSql(page)
   await page.getByRole('button', { name: 'Reset to the original view' }).click()
   const discard = page.getByRole('button', { name: 'Discard' })
   if (await discard.isVisible()) await discard.click()

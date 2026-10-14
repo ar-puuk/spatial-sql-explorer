@@ -37,7 +37,7 @@ export function outOfMemoryMessage(stage: 'open-whole' | 'open' | 'work', limitS
   const limit = memoryLimitLabel(limitSetting)
   switch (stage) {
     case 'open-whole':
-      return 'This file is too large to read in full here (out of memory). Convert it to GeoParquet or FlatGeobuf to open it at any size.'
+      return 'This file is too large to read in full here (out of memory). Convert it to GeoParquet to open it at any size.'
     case 'open':
       return `Opening this file ran out of memory (${limit} limit). Convert it to GeoParquet to open it at any size.`
     case 'work':

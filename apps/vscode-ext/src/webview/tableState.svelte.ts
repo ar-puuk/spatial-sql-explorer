@@ -13,7 +13,7 @@ export interface TableStateReport {
   layers: Array<{ name: string; geometryType: string | null; featureCount: number | null }>
   activeLayer: string | null
   rowCount: number | null
-  /** Spec 008 T088: the Search places button is shown (the setting). */
+  /** Spec 008 T088: place search is offered (the setting); spec 010: the search box on the map. */
   placeSearch: boolean
 }
 

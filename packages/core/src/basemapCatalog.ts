@@ -24,6 +24,15 @@ export interface BasemapCatalogEntry {
   maxzoom?: number
   /** Raster rows: values for `{s}` in the URL template, spread across requests. */
   subdomains?: string[]
+  /** Spec 010 gallery rows (basemapGallery.ts): raster tile URLs as they are, with the key applied. */
+  tiles?: string[]
+  tileSize?: number
+  scheme?: 'xyz' | 'tms'
+  /** Gallery rows: the provider id and name (for its API key and messages). */
+  provider?: string
+  providerName?: string
+  /** Gallery rows: an API key is in the URLs. */
+  keyed?: boolean
 }
 
 export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [

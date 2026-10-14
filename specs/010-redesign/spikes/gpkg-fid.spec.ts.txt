@@ -1,0 +1,36 @@
+// SPIKE (spec 010 S5, revised after the 1.5 upgrade): does ST_Read return the real GeoPackage ids? Temporary.
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import { fixture, openFile } from './helpers'
+
+const require = createRequire(import.meta.url)
+const run = (page: Page, sql: string) =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).then((r: any) => r.rows).catch((e: Error) => ({ error: e.message.slice(0, 250) })), sql)
+
+test('S5: ST_Read ids vs the GeoPackage key, per layer', async ({ page }) => {
+  test.setTimeout(240000)
+  const initSqlJs = require('sql.js')
+  const SQL = await initSqlJs()
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  for (const file of ['sample.gpkg', 'multi-layer.gpkg', 'gapped-ids.gpkg', 'three-layers.gpkg', 'usa-utm12n.gpkg']) {
+    const bytes = fs.readFileSync(fixture(file))
+    const path = `/se-source/s5/${file}`
+    await page.evaluate(([p, b]) => (window as any).__spatialExplorerE2E.spike010.register(p, b), [path, bytes.toString('base64')] as const)
+    const db = new SQL.Database(bytes)
+    const tables = db.exec("SELECT table_name, data_type FROM gpkg_contents")[0].values as Array<[string, string]>
+    const meta = await run(page, `SELECT unnest(layers).name AS name FROM ST_Read_Meta('${path}')`)
+    console.log('S5', file, 'ST_Read_Meta layers', JSON.stringify(meta))
+    const metaRaw = await run(page, `SELECT to_json(layers[1]) AS l FROM ST_Read_Meta('${path}')`)
+    console.log('S5', file, 'layer[1] meta keys', JSON.stringify(Object.keys(JSON.parse(metaRaw[0]?.l ?? '{}'))), JSON.stringify(metaRaw).slice(0, 300))
+    for (const [table, type] of tables) {
+      const pk = (db.exec(`PRAGMA table_info("${table}")`)[0].values as unknown[][]).find((c) => c[5] === 1)?.[1] as string | undefined
+      const real = pk ? (db.exec(`SELECT "${pk}" FROM "${table}" ORDER BY rowid`)[0]?.values ?? []).map((r: unknown[]) => Number(r[0])) : []
+      const cols = await run(page, `SELECT list(column_name) AS c FROM (DESCRIBE SELECT * FROM ST_Read('${path}', layer := '${table}'))`)
+      const got = Array.isArray(cols) && pk && cols[0].c.includes(pk) ? await run(page, `SELECT list("${pk}") AS ids FROM ST_Read('${path}', layer := '${table}')`) : null
+      const ids = Array.isArray(got) ? got[0].ids : null
+      console.log('S5', file, table, type, 'pk', pk, 'cols', JSON.stringify(Array.isArray(cols) ? cols[0].c : cols), 'match', ids ? JSON.stringify(ids) === JSON.stringify(real) : false, 'real', JSON.stringify(real.slice(0, 8)), 'engine', JSON.stringify(ids?.slice(0, 8) ?? got))
+    }
+    db.close()
+  }
+})

@@ -18,6 +18,13 @@
     type GraduatedMethod,
     rendererOf,
     startStyle,
+    addRule,
+    updateRule,
+    removeRule,
+    moveRule,
+    setRulesElse,
+    suggestedRules,
+    type RuleSuggestions,
     addClass,
     deleteClass,
     setCategorizedAuto,
@@ -62,12 +69,12 @@
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
-  import LoadWholeNotice from './LoadWholeNotice.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
   import SaveStyleButton from './style/SaveStyleButton.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
   import BivariatePicker from './style/BivariatePicker.svelte'
   import BivariateLegend from './style/BivariateLegend.svelte'
+  import RulesEditor from './style/RulesEditor.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -92,15 +99,16 @@
     onReset: () => void
     onDismissNotice: () => void
     onClose: () => void
-    /** Spec 007 T044: a FlatGeobuf read in parts; thematic styles need the whole file. */
-    needsLoad?: { sizeLabel: string } | null
-    onLoad?: () => void
     /** Spec 007: rows being classified by the engine (shown after 300 ms), or null. */
     classifyingRows?: number | null
     /** Spec 008 US6: polygons drawn flat by the extrusion (missing, zero or negative height), or null. */
     extrusionFlat?: number | null
     /** Spec 008 US6: a height scale that makes a column visible at the layer's extent. */
     onSuggestScale?: (column: string) => Promise<number>
+    /** Spec 010: inside the side panel (no title or close button of its own). */
+    embedded?: boolean
+    /** Spec 010: example rules from the data, for a first rules style. */
+    onSuggestRules?: () => Promise<RuleSuggestions>
   }
   let {
     style,
@@ -121,11 +129,11 @@
     onReset,
     onDismissNotice,
     onClose,
-    needsLoad = null,
-    onLoad = () => {},
     classifyingRows = null,
     extrusionFlat = null,
     onSuggestScale,
+    embedded = false,
+    onSuggestRules,
   }: Props = $props()
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
@@ -176,6 +184,7 @@
     { kind: 'categorized', label: 'Categorized', hint: 'A color per value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a numeric column' },
     { kind: 'bivariate', label: 'Bivariate', hint: 'Colors by two numeric columns, from a 3×3 square' },
+    { kind: 'rules', label: 'Rules', hint: 'Colors by SQL conditions: the first that holds colors a feature' },
   ]
   const renderer = $derived(rendererOf(style))
   const thematic = $derived(renderer.kind !== 'single')
@@ -183,8 +192,8 @@
   /** Why a renderer can't be chosen, or null. */
   function unavailable(kind: Renderer['kind']): string | null {
     if (kind === 'single') return null
-    if (needsLoad) return 'Load the whole file to style by its values.'
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
+    if (kind === 'rules') return layer?.columns.length ? null : 'This result has no attribute columns.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -192,6 +201,38 @@
   function chooseRenderer(kind: Renderer['kind']): void {
     if (kind === renderer.kind || unavailable(kind)) return
     onChange(startStyle(style, kind, layer))
+    if (kind === 'rules') void suggestRules()
+  }
+
+  // --- Spec 010: rules and graduated by expression ----------------------------
+  /** A first rules style gets two example rules from the data (unless rules were added meanwhile). */
+  async function suggestRules(): Promise<void> {
+    const s = await onSuggestRules?.().catch(() => ({}))
+    const now = rendererOf(style)
+    if (!s || now.kind !== 'rules' || now.rules.length) return
+    const rules = suggestedRules(s)
+    if (rules.length) onChange({ renderer: { ...now, rules } })
+  }
+
+  const EXPRESSION = '__expression'
+  /** "Expression…" chosen in the Value select, before an expression is written. */
+  let expressionMode = $state(false)
+  const usingExpression = $derived(renderer.kind === 'graduated' && (!!renderer.expression || expressionMode))
+  function chooseValue(value: string): void {
+    if (value === EXPRESSION) {
+      expressionMode = true
+      return
+    }
+    expressionMode = false
+    chooseColumn(value)
+  }
+  function commitExpression(text: string): void {
+    if (renderer.kind !== 'graduated') return
+    const expression = text.trim()
+    if (!expression) return
+    if (expression === renderer.expression) return
+    // A new expression starts new classes (as a new column does); the label follows the text.
+    apply({ ...style, renderer: { ...renderer, expression, column: '', method: renderer.method === 'manual' ? 'quantile' : renderer.method, classes: [] } })
   }
 
   /** Radio group keys: arrows move and apply, skipping unavailable entries (WAI-ARIA radio group). */
@@ -234,7 +275,7 @@
   }
 
   function chooseColumn(column: string): void {
-    if (renderer.kind === 'single') return
+    if (renderer.kind === 'single' || renderer.kind === 'rules') return
     onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
   }
 
@@ -293,14 +334,22 @@
   }
 </script>
 
-<div class="panel" aria-label="Layer style" role="dialog" tabindex="-1" onkeydown={handleKeydown}>
-  <header>
-    <h2>Layer style</h2>
-    <span class="source" title={styleSource ?? undefined}>
-      {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
-    </span>
-    <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
-  </header>
+<div class="panel" class:embedded aria-label="Layer style" role={embedded ? 'region' : 'dialog'} tabindex="-1" onkeydown={handleKeydown}>
+  {#if embedded}
+    <div class="source-row">
+      <span class="source" title={styleSource ?? undefined}>
+        {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
+      </span>
+    </div>
+  {:else}
+    <header>
+      <h2>Layer style</h2>
+      <span class="source" title={styleSource ?? undefined}>
+        {styleSource ?? 'Default'}{styleDirty ? ' · modified' : ''}
+      </span>
+      <button type="button" class="icon-button" aria-label="Close" title="Close" onclick={onClose}><Icon name="close" /></button>
+    </header>
+  {/if}
 
   <div class="body">
     <!-- Spec 008 FR-001: one flow, top to bottom; only the sections that apply to the chosen type. -->
@@ -342,9 +391,6 @@
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
-      {#if needsLoad}
-        <LoadWholeNotice sizeLabel={needsLoad.sizeLabel} purpose="style by its values" {onLoad} />
-      {/if}
     </section>
 
     {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
@@ -352,15 +398,37 @@
         <h3 id="style-sec-by">Color by</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
-          <select id="style-column" value={renderer.column} onchange={(e) => chooseColumn(e.currentTarget.value)}>
-            {#if !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
+          <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
+            {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
               <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
             {/if}
             {#each columnsFor(renderer.kind) as c (c.name)}
               <option value={c.name}>{c.name} · {c.type}</option>
             {/each}
+            {#if renderer.kind === 'graduated'}
+              <option value={EXPRESSION}>Expression…</option>
+            {/if}
           </select>
         </div>
+        {#if renderer.kind === 'graduated' && usingExpression}
+          <div class="expression">
+            <input
+              type="text"
+              class="mono"
+              aria-label="Expression"
+              aria-describedby="style-expression-hint"
+              placeholder="gdp_md * 1e6 / pop_est"
+              spellcheck="false"
+              autocomplete="off"
+              value={renderer.expression ?? ''}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              onchange={(e) => commitExpression(e.currentTarget.value)}
+            />
+            <p class="hint" id="style-expression-hint">A SQL expression over this layer's columns, e.g. gdp_md * 1e6 / pop_est</p>
+          </div>
+        {/if}
       </section>
 
       {#if renderer.kind === 'graduated'}
@@ -434,6 +502,26 @@
       </section>
     {/if}
 
+    <!-- Spec 010: rules (the first matching condition colors a feature). -->
+    {#if renderer.kind === 'rules'}
+      <section aria-labelledby="style-sec-rules">
+        <h3 id="style-sec-rules">Rules</h3>
+        <p class="hint">SQL conditions on this layer's columns. The first rule a feature matches colors it.</p>
+        <RulesEditor
+          {renderer}
+          {resolved}
+          onUpdate={(id, patch) => apply(updateRule(style, id, patch))}
+          onAdd={() => apply(addRule(style))}
+          onRemove={(id) => apply(removeRule(style, id))}
+          onMove={(id, by) => apply(moveRule(style, id, by))}
+          onElse={(patch) => apply(setRulesElse(style, patch))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+        {/if}
+      </section>
+    {/if}
+
     <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
     <!-- Spec 009 US4: bivariate (contracts/ui.md "Style panel"). -->
     {#if renderer.kind === 'bivariate'}
@@ -478,8 +566,8 @@
             class="switch"
             aria-label="Size by column"
             aria-checked={sizeOn}
-            disabled={!sizeOn && (numericColumns.length === 0 || needsLoad !== null)}
-            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : needsLoad ? 'Load the whole file to size by its values.' : undefined}
+            disabled={!sizeOn && numericColumns.length === 0}
+            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : undefined}
             onclick={toggleSize}
           >
             <span class="track" aria-hidden="true"><span class="thumb"></span></span>
@@ -827,6 +915,24 @@
     font-size: var(--se-font-size);
     outline: none;
   }
+  /* Spec 010: inside the side panel, which has the title and the close button. */
+  .panel.embedded {
+    /* The side panel can be as narrow as 240 px: the renderer choice wraps (below). */
+    container-type: inline-size;
+    flex: 1;
+    width: auto;
+    min-height: 0;
+    max-height: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .source-row {
+    display: flex;
+    flex: none;
+    padding: 0 12px 4px;
+  }
   header {
     display: flex;
     align-items: center;
@@ -879,6 +985,44 @@
   }
   .renderers button:first-child {
     border-left: 0;
+  }
+  /* Spec 010: five style types don't fit a side panel on one row: three per row. */
+  @container (max-width: 420px) {
+    .renderers {
+      grid-auto-flow: row;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .renderers button:nth-child(3n + 1) {
+      border-left: 0;
+    }
+    .renderers button:nth-child(n + 4) {
+      border-top: 1px solid var(--se-input-border);
+    }
+  }
+  .expression {
+    display: grid;
+    gap: 3px;
+  }
+  .expression input {
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-input-fg, var(--se-text-primary));
+    font-family: var(--se-font-mono);
+    font-size: 0.92em;
+  }
+  .expression input:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
+  .hint {
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.88em;
+    line-height: 1.35;
   }
   .renderers button[aria-checked='true'] {
     background: var(--se-button-bg);
@@ -1105,6 +1249,7 @@
   }
   footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     padding: 8px 8px 8px 12px;

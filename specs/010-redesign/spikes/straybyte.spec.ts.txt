@@ -1,0 +1,17 @@
+// SPIKE (spec 010 S7/S9): where does the stray first byte come from? Temporary.
+import { test, type Page } from '@playwright/test'
+import { fixture, openFile } from './helpers'
+const run = (page: Page, sql: string) =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).then((r: any) => JSON.stringify(r.rows).slice(0, 200)).catch((e: Error) => 'ERROR ' + e.message.slice(0, 200)), sql)
+const head = async (page: Page, p: string) => {
+  const b = Buffer.from(await page.evaluate((x) => (window as any).__spatialExplorerE2E.spike010.file(x), p), 'base64')
+  return `${b.length} bytes, head ${JSON.stringify([...b.subarray(0, 8)])} "${b.subarray(0, 8).toString('latin1').replace(/[^\x20-\x7e]/g, '.')}"`
+}
+test('stray byte', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  for (const [name, opts] of [['csv', "(FORMAT CSV, HEADER)"], ['parquet', '(FORMAT PARQUET)'], ['xlsx', '(FORMAT xlsx, HEADER true)'], ['geojson', "(FORMAT GDAL, DRIVER 'GeoJSON')"], ['json', '(FORMAT JSON)']] as const) {
+    const p = `/se-source/__se_export-sb.${name}`
+    console.log('SB', name, await run(page, `COPY (SELECT name FROM layer LIMIT 3) TO '${p}' ${opts}`), await head(page, p))
+    console.log('SB', name, 'engine reads first bytes as', await run(page, `SELECT substr(content::VARCHAR, 1, 12) AS s, size FROM read_blob('${p}')`))
+  }
+})

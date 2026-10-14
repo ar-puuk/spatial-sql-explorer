@@ -44,3 +44,21 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_009.py C:\tmp\qgis009
 ```
 
 Last run: see `specs/009-multichannel-bivariate/research.md` §5.
+
+## Rules and graduated by expression (`check_010_rules.py`, spec 010)
+
+`tests/core/qgis-rules-cases.test.ts` writes the cases when `SE_QGIS_RULES`
+names a directory: a small polygon GeoJSON (overlapping and missing values),
+the rules QML and the graduated-by-expression QML the app saves, and the color
+each feature gets in the app (first matching rule). `check_010_rules.py` loads
+them into QGIS, renders the layer and samples each feature's center pixel
+(`symbolsForFeature` also lists an ELSE rule's symbol for matched features;
+QGIS applies ELSE while rendering), then prints the graduated renderer's
+`classAttribute`. It exits 1 on any mismatch.
+
+```
+SE_QGIS_RULES=out npx vitest run qgis-rules-cases   (in tests/core)
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_010_rules.py out
+```
+
+Last run: see `specs/010-redesign/research.md`, "Phase 11".

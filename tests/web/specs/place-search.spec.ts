@@ -24,14 +24,14 @@ async function setup(page: Page, reply: (q: string) => unknown[] | 'offline'): P
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   return requests
 }
-const box = (page: Page) => page.getByRole('searchbox', { name: 'Search places' })
+const box = (page: Page) => page.getByRole('combobox', { name: 'Search' })
 
 test('the notice comes first and only once; Enter searches; a result moves the map; only the text is sent', async ({ page }) => {
   test.setTimeout(120000)
   const requests = await setup(page, (q) => (/salt lake/i.test(q) ? SALT_LAKE : []))
-  await page.getByRole('button', { name: 'Search places' }).click()
+  // Spec 010: the search box is always on the map (no button to open it).
   await expect(page.getByRole('search')).toBeVisible()
-  await expect(box(page)).toBeFocused()
+  await box(page).click()
   // Typing sends nothing.
   await box(page).pressSequentially('Salt Lake City', { delay: 20 })
   await page.waitForTimeout(500)
@@ -43,7 +43,7 @@ test('the notice comes first and only once; Enter searches; a result moves the m
   await expect(notice).toContainText('sends only the text you type')
   expect(requests).toHaveLength(0)
   await notice.getByRole('button', { name: 'Search' }).click()
-  const places = page.getByRole('listbox', { name: 'Places' })
+  const places = page.getByRole('group', { name: 'Places' })
   await expect(places.getByRole('option')).toHaveCount(2)
   expect(requests).toHaveLength(1)
 
@@ -62,22 +62,20 @@ test('the notice comes first and only once; Enter searches; a result moves the m
   const c = (await mapState(page)).center!
   expect(Math.abs(c[0] - -111.92)).toBeLessThan(0.3)
   expect(Math.abs(c[1] - 40.78)).toBeLessThan(0.3)
-  await expect(page.getByRole('dialog', { name: 'Search places' })).toContainText('Search © OpenStreetMap contributors (Nominatim)')
+  await expect(page.locator('.search-box')).toContainText('Search © OpenStreetMap contributors (Nominatim)')
 
   // The notice is remembered: after a reload, a new search shows no notice.
   await page.reload()
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  await page.getByRole('button', { name: 'Search places' }).click()
   await box(page).fill('Salt Lake')
   await box(page).press('Enter')
-  await expect(page.getByRole('listbox', { name: 'Places' }).getByRole('option')).toHaveCount(2)
+  await expect(page.getByRole('group', { name: 'Places' }).getByRole('option')).toHaveCount(2)
   await expect(page.getByRole('dialog', { name: 'Place search' })).toHaveCount(0)
 })
 
 test('no places found, and the service unreachable', async ({ page }) => {
   let offline = false
   await setup(page, () => (offline ? 'offline' : []))
-  await page.getByRole('button', { name: 'Search places' }).click()
   await box(page).fill('Nowhere at all')
   await box(page).press('Enter')
   await page.getByRole('dialog', { name: 'Place search' }).getByRole('button', { name: 'Search' }).click()
@@ -86,7 +84,8 @@ test('no places found, and the service unreachable', async ({ page }) => {
   await box(page).fill('Anywhere')
   await box(page).press('Enter')
   await expect(page.getByRole('alert').filter({ hasText: "Can't reach the place search service" })).toBeVisible()
-  // Escape closes the panel.
+  // Escape clears the message; the search box stays on the map.
   await box(page).press('Escape')
-  await expect(page.getByRole('search')).toHaveCount(0)
+  await expect(page.getByRole('alert').filter({ hasText: "Can't reach the place search service" })).toHaveCount(0)
+  await expect(page.getByRole('search')).toBeVisible()
 })

@@ -31,10 +31,10 @@ describe('engine assets (run scripts/engine-assets.mjs after upgrading)', () => 
     expect(ENGINE_ASSETS.sqljs.wasm.sha256).toBe(sha(path.join(dir, 'dist/sql-wasm.wasm')))
   })
 
-  it('extensions: spatial, parquet and json for the same DuckDB release, each with a hash', () => {
+  it('extensions: spatial, parquet, json, excel and sqlite_scanner (spec 010) for the same DuckDB release, each with a hash', () => {
     const { duckdb, platform, files } = ENGINE_ASSETS.extensions
     expect(duckdb).toBe(ENGINE_ASSETS.duckdb.release)
-    expect(Object.keys(files).sort()).toEqual(['json', 'parquet', 'spatial'])
+    expect(Object.keys(files).sort()).toEqual(['excel', 'json', 'parquet', 'spatial', 'sqlite_scanner'])
     for (const [name, f] of Object.entries(files)) {
       expect(f.url).toBe(`https://extensions.duckdb.org/${duckdb}/${platform}/${name}.duckdb_extension.wasm`)
       expect(f.sha256).toMatch(/^[0-9a-f]{64}$/)

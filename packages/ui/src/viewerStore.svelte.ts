@@ -11,6 +11,13 @@ import {
   openFile,
   prewarmDuckDb,
   resolveBasemap,
+  applyKey,
+  basemapKeyName,
+  BASEMAP_CATALOG,
+  findGalleryBasemap,
+  KEY_SIGNUP,
+  resolveGalleryUrls,
+  toCatalogEntry,
   themeAppearance,
   type BasemapCatalogEntry,
   type BasemapChoice,
@@ -38,7 +45,6 @@ import {
   type RunOutcome,
   planExport,
   loadCrsCatalog,
-  isTemporalType,
   activeExtrusion,
   autoExtrusionScale,
   extrusionColumn,
@@ -58,10 +64,9 @@ import {
   type DatasetFacts,
   type OpenPhase,
   type Feature,
-  type ViewFeatures,
+  type DrawMode,
   type TablePage,
   PAGE_SIZE,
-  viewCapFor,
   ViewSkippedError,
   WorkPreemptedError,
   OutOfMemoryError,
@@ -71,11 +76,22 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { formatFromFileName, styleDataColumns } from '@spatial-explorer/core'
+import { computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
+import { registerTileProvider } from './engineTiles.js'
 
-/** The attribute columns a style draws from (spec 007: map views read only these). */
+/** Each store's tile URLs are its own (several viewers share the protocol in one page). */
+let viewerSeq = 0
+
+/** A short, stable hash of a string (tile URL keys). */
+function hashKey(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
+/** The attribute columns a style draws from (spec 010: engine tiles carry only these). */
 function styleColumns(style: LayerStyle): string[] {
   // Spec 009: every channel's columns (color, bivariate axes, size).
   const cols = styleDataColumns(style)
@@ -116,6 +132,34 @@ export type MapImageOutcome =
 /** Spec 008: the engine's check of a typed EPSG code. */
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
 
+/** Spec 010 layout (Option A): the side panel and the bottom panel, shared by both shells and remembered. */
+export type SideTab = 'style' | 'details' | 'basemap'
+export interface LayoutState {
+  sideOpen: boolean
+  sideTab: SideTab
+  /** Side panel width in px (240–560). */
+  sideWidth: number
+  bottomTab: 'table' | 'sql'
+  bottomCollapsed: boolean
+  /** Bottom panel height as a fraction of the main column (0.15–0.85). */
+  bottomFraction: number
+}
+export const DEFAULT_LAYOUT: LayoutState = { sideOpen: false, sideTab: 'style', sideWidth: 300, bottomTab: 'table', bottomCollapsed: false, bottomFraction: 0.32 }
+
+/** A saved layout, checked field by field (anything odd falls back to the default). */
+export function readLayout(saved: unknown): LayoutState {
+  const s = (saved && typeof saved === 'object' ? saved : {}) as Partial<Record<keyof LayoutState, unknown>>
+  const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d)
+  return {
+    sideOpen: typeof s.sideOpen === 'boolean' ? s.sideOpen : DEFAULT_LAYOUT.sideOpen,
+    sideTab: s.sideTab === 'style' || s.sideTab === 'details' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
+    sideWidth: num(s.sideWidth, 240, 560, DEFAULT_LAYOUT.sideWidth),
+    bottomTab: s.bottomTab === 'sql' ? 'sql' : 'table',
+    bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,
+    bottomFraction: num(s.bottomFraction, 0.15, 0.85, DEFAULT_LAYOUT.bottomFraction),
+  }
+}
+
 export interface ViewerStore {
   readonly session: ViewerSession
   /** The open file's query session (spec 002), or null before a file is open. */
@@ -124,6 +168,8 @@ export interface ViewerStore {
   readonly queryText: string
   setQueryText(text: string): void
   readonly queryPhase: QueryPhase
+  /** Spec 010: bumps when a query returns a result (the layout then shows the Table tab). */
+  readonly resultSeq: number
   /** The status line text (FR-010), e.g. "✓ 8 rows · 8 mapped · 84 ms". */
   readonly queryStatus: string
   readonly queryError: EngineError | null
@@ -175,7 +221,8 @@ export interface ViewerStore {
   setProjection(projection: 'mercator' | 'globe'): void
   /** The map's camera after its last move (null before the first). */
   readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
-  setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }): void
+  /** The map moved: its camera and (spec 010) its WGS84 bounds. */
+  setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds?: [number, number, number, number]): void
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
   readonly mapLayer: Layer | null
   readonly mapDimmed: boolean
@@ -192,6 +239,8 @@ export interface ViewerStore {
   markPlaceSearchNoticeShown(): void
   /** Fits the map to a WGS84 box (a found place). */
   fitTo(bbox: [number, number, number, number]): void
+  /** Spec 010 phase 10: text values of the displayed result containing `q` (the search box). */
+  searchValues(q: string): Promise<SearchHit[]>
   /** Spec 008 US7: the map image dialog. */
   readonly mapImageOpen: boolean
   openMapImage(): void
@@ -253,11 +302,16 @@ export interface ViewerStore {
   readonly extrusionFlat: number | null
   /** Spec 008 US6: a height scale that makes `column` visible at the layer's extent (1 when unknown). */
   suggestExtrusionScale(column: string): Promise<number>
+  /** Spec 010: example rules from the data (a numeric column's median, a text column's most common value). */
+  ruleSuggestions(): Promise<RuleSuggestions>
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
   readonly legendCollapsed: boolean
   setLegendCollapsed(collapsed: boolean): void
+  /** Spec 010: the panels' arrangement, remembered through HostAdapter.saveState('layout'). */
+  readonly layout: LayoutState
+  setLayout(patch: Partial<LayoutState>): void
   /** FR-009: hide or show one class on the map. */
   setClassVisible(key: string, visible: boolean): void
   /** Where the current style came from, e.g. "world.qml"; null for defaults or local edits. */
@@ -282,19 +336,35 @@ export interface ViewerStore {
   readonly sourceChanged: boolean
   reloadSource(): void
   setBasemap(choice: BasemapChoice): void
+  /**
+   * Spec 010: a "More basemaps…" entry. Reads the provider's key; without a
+   * needed key it asks for one (`keyRequest`) and returns 'needsKey'.
+   */
+  chooseGalleryBasemap(id: string): Promise<'applied' | 'needsKey'>
+  /** Which keyed providers have a stored key (never the keys themselves). */
+  readonly basemapKeys: Readonly<Record<string, boolean>>
+  /** Stores (or with null, removes) a provider's key, then retries a choice that was waiting for it. */
+  setBasemapKey(provider: string, key: string | null, region?: string | null): Promise<void>
+  /** Amazon Location: the AWS region its styles are served from (not a secret: a saved setting). */
+  readonly awsRegion: string | null
+  /** A gallery choice waiting for its provider's key (the gallery shows the key form). */
+  readonly keyRequest: { basemapId: string; provider: string; providerName: string; needsRegion: boolean } | null
+  cancelKeyRequest(): void
+  /** A gallery entry's URLs with the stored key (previews); null when it needs a key the user hasn't given. */
+  galleryPreviewUrls(id: string): Promise<{ url?: string; tiles?: string[] } | null>
+  /** Where basemap keys are kept (the key form says so). */
+  readonly keyStorage: 'vscode' | 'browser'
   reportBasemapFailure(message: string): void
   dismissBasemapNotice(): void
   prewarm(): void
   load(): Promise<void>
-  /**
-   * Spec 007 T044: a FlatGeobuf read in parts. The map works; queries, the
-   * table, thematic styles and export wait for `loadWhole()`. Null otherwise.
-   */
-  readonly needsLoad: { sizeLabel: string } | null
-  /** Re-opens the file whole into memory (progress and Cancel through the open). */
-  loadWhole(): Promise<void>
   /** Spec 008 US3: the layers of a multi-layer file, and the one shown; empty for single-layer files. */
   readonly fileLayers: ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>
+  /** Spec 010 phase 9: data files a query can name (VS Code: the workspace; web: the open file and added ones). */
+  readonly workspaceFiles: ReadonlyArray<WorkspaceFile>
+  /** Web: files can be added for queries (a picker or a drop). */
+  readonly canAddWorkspaceFiles: boolean
+  addWorkspaceFiles(files?: File[]): Promise<void>
   readonly activeLayer: string | null
   /**
    * Shows another layer of the file (FR-016). A layer with geometry is opened
@@ -316,20 +386,35 @@ export interface ViewerStore {
   readonly openStartedAt: number | null
   readonly openFacts: DatasetFacts | null
   cancelOpen(): Promise<void>
-  /** Spec 007: the features drawn for the current map view (FR-005), and what the map should say about them (FR-006, FR-016). */
-  readonly viewFeatures: ViewFeatures | null
-  readonly viewLoading: boolean
+  /** Spec 010: how the map draws the displayed result: GeoJSON once, or engine tiles. Null before the first draw. */
+  readonly drawMode: DrawMode | null
+  /** GeoJSON mode: every mappable feature of the result (plain objects, never proxied). */
+  readonly mapData: MapData | null
+  /** Tiles mode: the vector source URL template (`se-tiles://key/{z}/{x}/{y}`). */
+  readonly tileUrl: string | null
+  /** The GeoJSON load takes longer than 300 ms; drawProgress counts its features so far. */
+  readonly drawLoading: boolean
+  readonly drawProgress: number | null
+  /** "Load all" was chosen for this result: the map offers "Draw as tiles" back. */
+  readonly loadedAll: boolean
+  /** Draws this result as GeoJSON whatever its size. */
+  loadAll(): void
+  /** Back to tiles after "Load all". */
+  drawAsTiles(): void
+  /** Test hook: engine calls made to draw (allFeatures and tiles). */
+  readonly drawCalls: number
+  /** A drawn feature (GeoJSON mode) as the inspector shows it, or null. */
+  drawnFeature(id: string | number): Feature | null
+  /** What the map should say about the drawing (FR-014 out of memory, FR-016 fallback). */
   readonly viewNotice: { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null
   /** A selected feature outside the drawn set, fetched by id and drawn highlighted (FR-008). */
   readonly outsideFeature: Feature | null
   /** The full record of a map-selected feature (view rows carry only the style's columns). */
   readonly detailFeature: Feature | null
-  /** The map drew the latest view data (MapLibre idle after setData). */
+  /** The map drew the latest data (MapLibre idle after setData). */
   notifyPainted(): void
-  /** The map moved (debounced): load the result's features for this WGS84 view. */
-  requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void>
   dismissViewNotice(): void
-  /** The last view the map asked for (WGS84). */
+  /** The map's last bounds (WGS84). */
   readonly lastViewBbox: [number, number, number, number] | null
   /** Moves the camera (test hooks); MapView applies each new request once. */
   readonly cameraRequest: { center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null
@@ -371,8 +456,33 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let sourceChanged = $state(false)
   let blankColor = $state<string | null>(null)
   const BLANK_COLOR_KEY = 'basemap.blankColor'
+  // Spec 010 T042: the basemap choice is remembered; gallery entries with a key resolve here.
+  const BASEMAP_CHOICE_KEY = 'basemap.choice'
+  let resolvedGallery = $state.raw<BasemapCatalogEntry | null>(null)
+  let basemapKeys = $state<Record<string, boolean>>({})
+  let keyRequest = $state<{ basemapId: string; provider: string; providerName: string; needsRegion: boolean } | null>(null)
+  const AWS_REGION_KEY = 'basemap.awsRegion'
+  let awsRegion = $state<string | null>(null)
+  void hostAdapter
+    .loadState<string>(AWS_REGION_KEY)
+    .then((saved) => {
+      if (typeof saved === 'string' && /^[a-z]{2}(-[a-z]+)+-\d$/.test(saved)) awsRegion = saved
+    })
+    .catch(() => {})
+  let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
   let legendCollapsed = $state(false)
+  const LAYOUT_KEY = 'layout'
+  let layout = $state<LayoutState>({ ...DEFAULT_LAYOUT })
+  let layoutTouched = false
+  let layoutSave: ReturnType<typeof setTimeout> | null = null
+  void hostAdapter
+    .loadState<unknown>(LAYOUT_KEY)
+    .then((saved) => {
+      // A change made before the saved layout arrived wins.
+      if (saved !== undefined && !layoutTouched) layout = readLayout(saved)
+    })
+    .catch(() => {})
   void hostAdapter
     .loadState<boolean>(LEGEND_COLLAPSED_KEY)
     .then((saved) => {
@@ -403,9 +513,85 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   })
 
   const basemap = $derived.by(() => {
-    const entry = resolveBasemap(basemapChoice, session.basemapAppearance)
-    return basemapFailed ? resolveBasemap('blank', session.basemapAppearance) : entry
+    if (basemapFailed) return resolveBasemap('blank', session.basemapAppearance)
+    if (resolvedGallery && resolvedGallery.id === basemapChoice) return resolvedGallery
+    return resolveBasemap(basemapChoice, session.basemapAppearance)
   })
+
+  function applyBasemapChoice(choice: BasemapChoice, persist: boolean): void {
+    basemapChoice = choice
+    basemapFailed = false
+    basemapNotice = null
+    syncBasemapEnabled()
+    if (persist) void hostAdapter.saveState(BASEMAP_CHOICE_KEY, choice).catch(() => {})
+  }
+
+  async function readKey(provider: string): Promise<string | null> {
+    try {
+      return (await hostAdapter.getSecret?.(basemapKeyName(provider))) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * A gallery choice with its key. Without a needed key: a user's pick asks for
+   * one; a restored choice falls back to the theme default with a notice.
+   */
+  async function useGalleryBasemap(id: string, from: 'user' | 'restore'): Promise<'applied' | 'needsKey'> {
+    const seq = ++basemapSeq
+    const g = findGalleryBasemap(id)
+    if (!g) {
+      if (from === 'restore') applyBasemapChoice('auto', false)
+      return 'applied'
+    }
+    // The same basemap as a featured row: that row is the choice (its preview, its theme default).
+    if (g.featuredId) {
+      basemapSeq++
+      keyRequest = null
+      applyBasemapChoice(g.featuredId, from === 'user')
+      return 'applied'
+    }
+    const key = g.key === 'none' ? null : await readKey(g.provider)
+    if (seq !== basemapSeq) return 'applied' // a newer choice won
+    let urls: Awaited<ReturnType<typeof resolveGalleryUrls>>
+    try {
+      urls = await resolveGalleryUrls(g, key, g.region ? awsRegion : null)
+    } catch (err) {
+      // Google's session request failed: the key is likely wrong or lacks the Map Tiles API.
+      if (seq !== basemapSeq) return 'applied'
+      basemapNotice = `${g.name}: ${err instanceof Error ? err.message : String(err)}`
+      return 'applied'
+    }
+    if (seq !== basemapSeq) return 'applied'
+    if ('needsKey' in urls) {
+      if (from === 'user') {
+        keyRequest = { basemapId: g.id, provider: g.provider, providerName: g.providerName, needsRegion: !!g.region }
+        return 'needsKey'
+      }
+      applyBasemapChoice('auto', true)
+      basemapNotice = `${g.name} needs an API key. Showing ${resolveBasemap('auto', session.basemapAppearance).name}.`
+      return 'needsKey'
+    }
+    resolvedGallery = toCatalogEntry(g, urls, key !== null && g.key !== 'none')
+    keyRequest = null
+    applyBasemapChoice(g.id, from === 'user')
+    return 'applied'
+  }
+
+  // Which keyed providers have a key, and the remembered choice.
+  void Promise.all(Object.keys(KEY_SIGNUP).map(async (p) => [p, (await readKey(p)) !== null] as const)).then((pairs) => {
+    basemapKeys = Object.fromEntries(pairs)
+  })
+  void hostAdapter
+    .loadState<string>(BASEMAP_CHOICE_KEY)
+    .then((saved) => {
+      // Only while nothing was chosen in this session.
+      if (typeof saved !== 'string' || saved === 'auto' || basemapChoice !== 'auto' || basemapSeq > 0) return
+      if (findGalleryBasemap(saved)) void useGalleryBasemap(saved, 'restore')
+      else if (BASEMAP_CATALOG.some((e) => e.id === saved)) applyBasemapChoice(saved, false)
+    })
+    .catch(() => {})
   /** Keeps the session's informational flag in step with the derived entry. */
   function syncBasemapEnabled(): void {
     session.basemapEnabled = basemap.type !== 'blank'
@@ -416,10 +602,21 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // The viewer's query session (spec 002). Deliberately not $state: it holds
   // live engine connections, which must never be proxied or posted.
   let querySession: QuerySession | null = null
+  let workspaceFiles = $state.raw<WorkspaceFile[]>([])
+  async function refreshWorkspaceFiles(): Promise<void> {
+    if (!hostAdapter.listWorkspaceFiles) return
+    try {
+      workspaceFiles = await hostAdapter.listWorkspaceFiles()
+    } catch {
+      workspaceFiles = []
+    }
+  }
+  hostAdapter.onWorkspaceFilesChanged?.(() => void refreshWorkspaceFiles())
 
   // --- spec 002: query state ------------------------------------------------
   let queryText = $state(DEFAULT_QUERY)
   let queryPhase = $state<QueryPhase>('idle')
+  let resultSeq = $state(0)
   let queryStatus = $state('')
   let queryError = $state<EngineError | null>(null)
   let queryErrorRange = $state<{ from: number; to: number } | null>(null)
@@ -497,7 +694,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const qs = querySession
     tableRevision++
     narrowRevision++
-    if (lastViewArgs) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
+    void refreshDraw()
     if (!qs || (!filters.some((f) => f.valid) && !showSelectedOnly)) {
       filterCounts = null
       filtering = false
@@ -508,6 +705,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     try {
       const counts = await retryWhenBusy(qs, () => qs.filterCounts())
       if (revision === narrowRevision) filterCounts = counts
+      // Once counted, the narrowed rows may fall under (or over) the tile threshold.
+      if (revision === narrowRevision && qs === querySession && qs.drawMode() !== drawMode) void refreshDraw()
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: filter count failed', err)
     } finally {
@@ -536,17 +735,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
   async function refreshHistogram(s: LayerStyle, layer: Layer | null, qs: QuerySession | null): Promise<void> {
     const r = rendererOf(s)
-    if (r.kind !== 'graduated' || !r.column || !layer || !qs) {
+    if (r.kind !== 'graduated' || !(r.column || r.expression) || !layer || !qs) {
       histogramKey = null
       styleHistogram = null
       return
     }
-    if (histogramKey && histogramKey.layer === layer && histogramKey.column === r.column) return
-    const key = { layer, column: r.column }
+    // Spec 010: an expression's values are charted like a column's.
+    const column = r.expression ? `=${r.expression}` : r.column
+    if (histogramKey && histogramKey.layer === layer && histogramKey.column === column) return
+    const key = { layer, column }
     histogramKey = key
     styleHistogram = null
     try {
-      const h = await retryWhenBusy(qs, () => qs.valueHistogram(key.column))
+      const h = await retryWhenBusy(qs, () => qs.valueHistogram(r.column, r.expression))
       if (histogramKey === key) styleHistogram = h
     } catch (err) {
       if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: value distribution failed', err)
@@ -596,6 +797,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const r = await retryWhenBusy(qs, () => qs.resolveStyle(s))
       if (generation === styleGeneration) {
         resolvedStyle = r
+        // Spec 010: rules and expressions are computed per feature by the engine; new SQL, new drawing.
+        if (computedKey(computedColumns(s, r)) !== drawnComputedKey) void refreshDraw()
         // After the style: the chart is secondary, and must not compete with it for the engine.
         void refreshHistogram(s, layer, qs).then(() => refreshFlat(s, layer, qs))
       }
@@ -628,6 +831,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void displayedLayer
       void narrowRevision
       void untrack(() => refreshStyle())
+      // Spec 010: GeoJSON carries every column; tiles carry the style's, so new ones need new tiles.
+      untrack(() => {
+        if (drawMode === 'tiles' && querySession && styleColumns(style).join('\u0000') !== tileColumnsKey) drawTiles(querySession)
+      })
     })
   })
   let mapDimmed = $state(false)
@@ -729,10 +936,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let openedRef: OpenedFileRef | null = null
   let openedSize = $state<number | null>(null)
 
-  const sizeLabel = (bytes: number): string =>
-    bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
-  const needsLoad = $derived(session.layer?.facts?.needsLoad && openedSize !== null ? { sizeLabel: sizeLabel(openedSize) } : null)
-
   // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
   let tilesArchive = $state.raw<TilesArchive | null>(null)
   const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
@@ -741,8 +944,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       ? 'Open a file first.'
       : tilesOnlyReason
         ? tilesOnlyReason
-        : needsLoad
-        ? `Load the whole file (${needsLoad.sizeLabel}) to export it.`
         : queryPhase === 'running'
           ? 'Wait for the running query to finish.'
           : (exportPlan?.blocked ?? null)
@@ -831,7 +1032,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         resultCrs = built.resultCrs ? { label: built.resultCrs.crs.label, source: built.resultCrs.source } : resultCrs
         resultGeometryColumn = built.geometryColumn
         queryPhase = 'succeeded'
+        resultSeq++
         lastRunText = outcome.statement.text
+        loadedAll = false
+        void refreshDraw()
         break
       }
       case 'ddl':
@@ -864,37 +1068,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
-  // Spec 007: map views (research §6). Each request gets a generation; an
-  // older one's features never replace a newer one's, and the previous
-  // features stay drawn until replaced (FR-007).
-  let viewFeatures = $state.raw<ViewFeatures | null>(null)
-  let viewLoading = $state(false)
   let outsideFeature = $state.raw<Feature | null>(null)
-  let viewGeneration = 0
-  let lastViewArgs: { bbox: [number, number, number, number]; zoom: number; widthPx?: number } | null = null
-  /** The attribute columns the drawn view carries (the style's column; spec 007). */
-  let viewAttrs: string[] = []
-  // The map reports each paint of new view data (MapView onPainted).
-  let paintWaiters: Array<() => void> = []
-  function waitForPaint(timeoutMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      const done = (): void => {
-        clearTimeout(timer)
-        paintWaiters = paintWaiters.filter((w) => w !== done)
-        resolve()
-      }
-      const timer = setTimeout(done, timeoutMs)
-      paintWaiters.push(done)
-    })
-  }
-  /** The full record of a map-selected feature whose view row had only the style's columns. */
+  /** The full record of a map-selected feature (tiles carry only the style's columns). */
   let detailFeature = $state.raw<Feature | null>(null)
-  /** The layer whose first view already had its preview (see requestView). */
-  let previewedLayer: Layer | null = null
-  /** Features in the quick first view of a new file or result. */
-  const PREVIEW_CAP = 2_000
   let fallbackDismissed = $state(false)
-  // FR-014: a map view, table page or style that ran out of memory says so (the session has recovered).
+  // FR-014: a draw, table page or style that ran out of memory says so (the session has recovered).
   let memoryNotice = $state<string | null>(null)
   function noteOutOfMemory(err: unknown): boolean {
     if (!(err instanceof OutOfMemoryError)) return false
@@ -903,73 +1081,115 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   }
   let lastViewBbox = $state.raw<[number, number, number, number] | null>(null)
   let cameraRequest = $state<{ center: [number, number]; zoom: number; pitch?: number; bearing?: number; seq: number } | null>(null)
-  const viewNf = new Intl.NumberFormat()
 
-  async function requestView(bbox: [number, number, number, number], zoom: number, widthPx?: number): Promise<void> {
-    const qs = querySession
-    const layer = session.layer
-    // A table-only result keeps the previous features, dimmed (spec 002 FR-006).
-    if (!qs || !layer || mapDimmed) return
-    lastViewBbox = bbox
-    const generation = ++viewGeneration
-    const current = (): boolean => generation === viewGeneration && querySession === qs
-    const slow = setTimeout(() => {
-      if (generation === viewGeneration) viewLoading = true
-    }, 300)
-    const cap = viewCapFor(layer.facts?.readMode ?? 'whole')
-    lastViewArgs = { bbox, zoom, widthPx }
+  // --- Spec 010: drawing the displayed result --------------------------------
+  // GeoJSON mode: every feature, read once, drawn from memory (panning does no
+  // engine work). Tiles mode: MapLibre asks the engine for each tile it shows.
+  const viewerId = `v${++viewerSeq}`
+  let drawMode = $state<DrawMode | null>(null)
+  let mapData = $state.raw<MapData | null>(null)
+  let tileUrl = $state<string | null>(null)
+  let drawLoading = $state(false)
+  let drawProgress = $state<number | null>(null)
+  let loadedAll = $state(false)
+  let drawCalls = $state(0)
+  let drawGeneration = 0
+  let unregisterTiles: (() => void) | null = null
+  /** The columns the current tiles carry (joined), to notice a style that needs others. */
+  let tileColumnsKey = ''
+  /** Spec 010: the computed columns (rules, expressions) of the current drawing, as one key. */
+  let drawnComputedKey = ''
+  const computedKey = (c: readonly ComputedColumn[]): string => c.map((x) => `${x.name}=${x.sql}`).join('\u0000')
+  /** The columns the current style needs computed by the engine for the map. */
+  const currentComputed = (): ComputedColumn[] => computedColumns(style, resolvedStyle)
+
+  /** Tiles mode: a new provider and URL for the current data and style columns. */
+  function drawTiles(qs: QuerySession): void {
+    unregisterTiles?.()
     const attrs = styleColumns(style)
-    viewAttrs = attrs
-    // The first view of a new file or result is drawn in two steps: a quick
-    // spread-out preview, then the full view, which replaces it without a
-    // blank map (FR-007). The preview shows no subset notice (it's replaced at
-    // once). Only for files in memory, where drawing dominates; for files read
-    // in parts the overview is I/O-bound, and a preview would double it.
-    let preview = previewedLayer !== layer && cap > PREVIEW_CAP && (layer.facts?.readMode ?? 'whole') === 'whole'
-    previewedLayer = layer
-    try {
-      // A view never blocks user work (a query, export, autocomplete): it is
-      // skipped or interrupted, then asked again once the engine is free,
-      // unless a newer view came meanwhile. No attempt limit: each retry
-      // waits for the engine to go idle, and background work (styles, the
-      // value distribution, table pages) can take the engine first several
-      // times in a row (spec 008: a view gave up after 5 and the map stayed empty).
-      while (current()) {
+    const computed = currentComputed()
+    tileColumnsKey = attrs.join('\u0000')
+    drawnComputedKey = computedKey(computed)
+    const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey + '\u0001' + drawnComputedKey)}`
+    unregisterTiles = registerTileProvider(key, async (z, x, y) => {
+      // A tile never blocks user work: skipped or interrupted, it asks again once the engine is free.
+      for (;;) {
         try {
-          const v = await qs.view({ generation, bbox, zoom, cap: preview ? PREVIEW_CAP : cap, widthPx, attrs })
-          if (!current()) return
-          if (preview) {
-            viewFeatures = { ...v, thinned: false, preview: true }
-            preview = false
-            // Paint the preview before loading the full view; otherwise a
-            // quick full view replaces it unseen (at most 1 s).
-            await waitForPaint(1000)
-            continue
-          }
-          viewFeatures = v
-          return
+          drawCalls++
+          return await qs.tile(z, x, y, attrs, computed)
         } catch (err) {
-          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError)) throw err
+          if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError) || qs !== querySession) throw err
           await qs.whenIdle()
         }
       }
+    })
+    tileUrl = `se-tiles://${key}/{z}/{x}/{y}`
+    mapData = null
+    drawMode = 'tiles'
+    drawLoading = false
+    drawProgress = null
+    hostAdapter.setStatus({ drawMode: 'tiles', drawLoadAllAvailable: true })
+  }
+
+  /** Draws the displayed result in the mode its size calls for (after a new file, result, filter or Load all). */
+  async function refreshDraw(): Promise<void> {
+    const qs = querySession
+    // A table-only result keeps the previous drawing, dimmed (spec 002 FR-006).
+    if (!qs || !session.layer || mapDimmed) return
+    const generation = ++drawGeneration
+    if (qs.drawMode() === 'tiles') {
+      drawTiles(qs)
+      return
+    }
+    const slow = setTimeout(() => {
+      if (generation === drawGeneration) drawLoading = true
+    }, 300)
+    const computed = currentComputed()
+    try {
+      const data = await retryWhenBusy(qs, () => {
+        drawCalls++
+        return qs.allFeatures(
+          undefined,
+          (n) => {
+            if (generation === drawGeneration) drawProgress = n
+          },
+          computed
+        )
+      })
+      // An older load never replaces a newer one; the previous drawing stays until this one arrives.
+      if (generation !== drawGeneration || qs !== querySession) return
+      unregisterTiles?.()
+      unregisterTiles = null
+      tileUrl = null
+      mapData = data
+      drawnComputedKey = computedKey(computed)
+      drawMode = 'geojson'
+      hostAdapter.setStatus({ drawMode: 'geojson', drawLoadAllAvailable: false })
     } catch (err) {
-      if (!noteOutOfMemory(err)) console.warn('Spatial Explorer: map view failed', err)
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn('Spatial Explorer: drawing the result failed', err)
     } finally {
       clearTimeout(slow)
-      if (generation === viewGeneration) viewLoading = false
+      if (generation === drawGeneration) {
+        drawLoading = false
+        drawProgress = null
+      }
     }
+  }
+
+  /** A GeoJSON-mode feature as the inspector shows it: the row id, its geometry, its attributes. */
+  function drawnFeature(id: string | number): Feature | null {
+    const f = mapData?.features.find((x) => x.id === id)
+    if (!f) return null
+    // The map's promoteId copy of the row id isn't an attribute.
+    const attributes = { ...((f.properties ?? {}) as Feature['attributes']) }
+    delete attributes.__id
+    return { id: f.id as number, geometry: f.geometry, attributes }
   }
 
   const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
-    const v = viewFeatures
-    if (v?.thinned) {
-      const of = v.inViewEstimated ? `about ${viewNf.format(v.inView)}` : v.inViewAtLeast ? `more than ${viewNf.format(v.inView)}` : viewNf.format(v.inView)
-      return { text: `Showing ${viewNf.format(v.features.length)} of ${of} in view. Zoom in to see all.`, kind: 'info', dismissible: false }
-    }
     return null
   })
 
@@ -987,10 +1207,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     prompt?.resolve(open)
   }
 
-  async function loadWhole(): Promise<void> {
-    if (!openedRef || !needsLoad) return
-    await load({ ref: openedRef, loadWhole: true })
-  }
 
   // --- Spec 008 US3: layers of a multi-layer file -----------------------------
   let fileLayers = $state.raw<ReadonlyArray<{ name: string; geometryType: string | null; featureCount: number | null }>>([])
@@ -1013,16 +1229,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, layer: name })
   }
 
-  async function load(options: { ref?: OpenedFileRef; loadWhole?: boolean; layer?: string } = {}): Promise<void> {
-    const keptStyle = options.loadWhole ? { style, styleSource, styleDirty } : options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
-    if (options.layer === undefined && !options.loadWhole) layerStyles.clear()
+  async function load(options: { ref?: OpenedFileRef; layer?: string } = {}): Promise<void> {
+    const keptStyle = options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
+    if (options.layer === undefined) layerStyles.clear()
     session.loadState = 'loading'
     session.loadError = null
     session.selectedFeatureId = null
     openCancelled = false
     openFacts = null
-    viewFeatures = null
     outsideFeature = null
+    detailFeature = null
+    loadedAll = false
     fallbackDismissed = false
     memoryNotice = null
     openPhase = null
@@ -1042,6 +1259,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       await querySession?.dispose().catch(() => {})
       querySession = null
       tilesArchive = null
+      // The previous file's drawing goes with it.
+      drawGeneration++
+      unregisterTiles?.()
+      unregisterTiles = null
+      mapData = null
+      tileUrl = null
+      drawMode = null
       openStartedAt = performance.now()
       openPhase = 'registering'
       if (formatFromFileName(ref.displayName) === 'pmtiles') {
@@ -1078,12 +1302,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           },
           isCancelled: () => openCancelled,
         },
-        { loadWhole: options.loadWhole, layer: options.layer }
+        { layer: options.layer }
       )
       openInterrupt = null
       openPhase = null
       openStartedAt = null
       querySession = opened.session
+      // Spec 010 phase 9: a query may name other workspace files.
+      const resolveWorkspace = hostAdapter.resolveWorkspaceFiles?.bind(hostAdapter)
+      opened.session.setWorkspace(resolveWorkspace ?? null)
+      void refreshWorkspaceFiles()
       resetQueryState()
       catalog = null
       void refreshCatalog()
@@ -1096,8 +1324,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (activeLayer && historyStateKey) loadColumnView(`${historyStateKey}#${activeLayer}`)
       setLayer(layer)
       session.loadState = 'ready'
+      void refreshDraw()
       if (keptStyle) {
-        // Loading the whole file (or switching layer) keeps that layer's style.
+        // Switching layer keeps that layer's style.
         style = keptStyle.style
         styleSource = keptStyle.styleSource
         styleDirty = keptStyle.styleDirty
@@ -1231,8 +1460,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         setLayer(original)
         session.selectedFeatureId = null
         applySidecar(original.styleSidecar)
+        loadedAll = false
+        void refreshDraw()
       }
       queryStatus = 'Reset to the original view'
+    },
+    get resultSeq() {
+      return resultSeq
     },
     get queryPhase() {
       return queryPhase
@@ -1390,6 +1624,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     fitTo(bbox) {
       fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
     },
+    async searchValues(q) {
+      const qs = querySession
+      if (!qs) return []
+      return qs.searchValues(q).catch(() => [])
+    },
     get placeSearchEnabled() {
       return placeSearchEnabled
     },
@@ -1408,8 +1647,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get mapCamera() {
       return mapCamera
     },
-    setMapCamera(camera) {
+    setMapCamera(camera, bounds) {
       mapCamera = camera
+      if (bounds) lastViewBbox = bounds
     },
     setProjection(next) {
       projection = next
@@ -1572,6 +1812,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get extrusionFlat() {
       return extrusionFlat
     },
+    async ruleSuggestions() {
+      const qs = querySession
+      if (!qs) return {}
+      return retryWhenBusy(qs, () => qs.ruleSuggestions()).catch(() => ({}))
+    },
     async suggestExtrusionScale(column) {
       const qs = querySession
       const layer = displayedLayer
@@ -1592,6 +1837,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get legendCollapsed() {
       return legendCollapsed
+    },
+    get layout() {
+      return layout
+    },
+    setLayout(patch) {
+      layoutTouched = true
+      layout = { ...layout, ...patch }
+      // Drags change the layout on every move: save once they settle.
+      if (layoutSave) clearTimeout(layoutSave)
+      layoutSave = setTimeout(() => void hostAdapter.saveState(LAYOUT_KEY, layout).catch(() => {}), 300)
     },
     setLegendCollapsed(collapsed) {
       legendCollapsed = collapsed
@@ -1647,10 +1902,53 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return basemapNotice
     },
     setBasemap(choice) {
-      basemapChoice = choice
-      basemapFailed = false
-      basemapNotice = null
-      syncBasemapEnabled()
+      if (findGalleryBasemap(choice)) {
+        void useGalleryBasemap(choice, 'user')
+        return
+      }
+      basemapSeq++
+      keyRequest = null
+      applyBasemapChoice(choice, true)
+    },
+    chooseGalleryBasemap: (id) => useGalleryBasemap(id, 'user'),
+    get basemapKeys() {
+      return basemapKeys
+    },
+    async setBasemapKey(provider, key, region) {
+      const value = key?.trim() || null
+      if (region !== undefined) {
+        awsRegion = region?.trim() || null
+        await hostAdapter.saveState(AWS_REGION_KEY, awsRegion).catch(() => {})
+      }
+      await hostAdapter.setSecret?.(basemapKeyName(provider), value)
+      basemapKeys = { ...basemapKeys, [provider]: value !== null }
+      const waiting = keyRequest
+      if (value && waiting?.provider === provider) {
+        await useGalleryBasemap(waiting.basemapId, 'user')
+        return
+      }
+      // The current basemap uses this provider: resolve it again with (or without) the key.
+      const current = findGalleryBasemap(basemapChoice)
+      if (current?.provider === provider) await useGalleryBasemap(current.id, value ? 'user' : 'restore')
+    },
+    get keyRequest() {
+      return keyRequest
+    },
+    get awsRegion() {
+      return awsRegion
+    },
+    cancelKeyRequest() {
+      keyRequest = null
+    },
+    async galleryPreviewUrls(id) {
+      const g = findGalleryBasemap(id)
+      if (!g) return null
+      const key = g.key === 'required' ? await readKey(g.provider) : null
+      const urls = applyKey(g, key, g.region ? awsRegion : null)
+      return 'needsKey' in urls ? null : urls
+    },
+    get keyStorage() {
+      return hostAdapter.secretLocation ?? 'browser'
     },
     reportBasemapFailure(message) {
       basemapFailed = true
@@ -1664,10 +1962,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       prewarmDuckDb(duckdbAssets)
     },
     load: () => load(),
-    get needsLoad() {
-      return needsLoad
-    },
-    loadWhole,
     get wholeReadPrompt() {
       return wholeReadPrompt
     },
@@ -1685,32 +1979,41 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return activeLayer
     },
     switchLayer,
+    get workspaceFiles() {
+      return workspaceFiles
+    },
+    get canAddWorkspaceFiles() {
+      return !!hostAdapter.addWorkspaceFiles
+    },
+    async addWorkspaceFiles(files) {
+      await hostAdapter.addWorkspaceFiles?.(files)
+      await refreshWorkspaceFiles()
+    },
     inspectTileFeature(feature) {
       detailFeature = feature
       session.selectedFeatureId = feature?.id ?? null
     },
     selectFeature(id) {
       session.selectedFeatureId = id
-      // A view row carries only the style's columns (spec 007): fetch the full record for the inspector.
-      // So do dates and times (spec 008): the record has them as text, the drawn row as numbers.
-      const drawn = viewFeatures?.features.find((f) => f.id === id)
-      const temporal = querySession?.lastResult?.columns.some((c) => isTemporalType(c.type)) ?? false
-      if ((drawn?.partialAttributes || (drawn && temporal)) && typeof id === 'number' && querySession) {
-        const qs = querySession
-        void retryWhenBusy(qs, () => qs.featureById(id))
-          .then((f) => {
-            if (session.selectedFeatureId === id) detailFeature = f
-          })
-          .catch(() => {})
-      }
+      // Spec 010: GeoJSON features carry every column (dates as text); a tile carries only the style's,
+      // so in tiles mode the full record is fetched, and drawn as the selection overlay too.
+      if (drawMode !== 'tiles' || typeof id !== 'number' || !querySession) return
+      const qs = querySession
+      void retryWhenBusy(qs, () => qs.featureById(id))
+        .then((f) => {
+          if (session.selectedFeatureId !== id) return
+          detailFeature = f
+          outsideFeature = f
+        })
+        .catch(() => {})
     },
     get detailFeature() {
       return detailFeature
     },
     zoomToFeature(id) {
       session.selectedFeatureId = id
-      // FR-008: a feature outside the drawn set is fetched by its stable id, drawn highlighted, then zoomed to.
-      const drawn = viewFeatures?.features.some((f) => f.id === id) || outsideFeature?.id === id
+      // FR-008: a feature not in memory (tiles mode) is fetched by its stable id, drawn highlighted, then zoomed to.
+      const drawn = mapData?.features.some((f) => f.id === id) || outsideFeature?.id === id
       if (drawn || typeof id !== 'number' || !querySession) {
         zoomRequest = { id, seq: (zoomRequest?.seq ?? 0) + 1 }
         return
@@ -1724,21 +2027,50 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         })
         .catch(() => {})
     },
-    get viewFeatures() {
-      return viewFeatures
+    get drawMode() {
+      return drawMode
     },
-    get viewLoading() {
-      return viewLoading
+    get mapData() {
+      return mapData
     },
+    get tileUrl() {
+      return tileUrl
+    },
+    get drawLoading() {
+      return drawLoading
+    },
+    get drawProgress() {
+      return drawProgress
+    },
+    get loadedAll() {
+      return loadedAll
+    },
+    loadAll() {
+      const qs = querySession
+      if (!qs) return
+      qs.setLoadAll(true)
+      loadedAll = true
+      void refreshDraw()
+    },
+    drawAsTiles() {
+      const qs = querySession
+      if (!qs) return
+      qs.setLoadAll(false)
+      loadedAll = false
+      void refreshDraw()
+    },
+    get drawCalls() {
+      return drawCalls
+    },
+    drawnFeature,
     get viewNotice() {
       return viewNotice
     },
     get outsideFeature() {
       return outsideFeature
     },
-    requestView,
     notifyPainted() {
-      for (const w of [...paintWaiters]) w()
+      // MapView reports each paint of new data; tests read the paint counter it keeps.
     },
     get lastViewBbox() {
       return lastViewBbox
@@ -1767,8 +2099,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       }
       style = sanitizeStyle({ ...style, ...patch })
       styleDirty = true
-      // A thematic column the drawn view doesn't carry yet: load the view again with it.
-      if (lastViewArgs && styleColumns(style).some((c) => !viewAttrs.includes(c))) void requestView(lastViewArgs.bbox, lastViewArgs.zoom, lastViewArgs.widthPx)
     },
     previewStyle(next) {
       if (next === null) {

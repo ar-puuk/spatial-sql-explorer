@@ -3,7 +3,7 @@
 // a SHA-256 recorded here, at build time:
 //   - DuckDB-WASM's worker and wasm, from jsDelivr (byte-identical to npm:
 //     hashed from node_modules);
-//   - the spatial, parquet and json extensions, from extensions.duckdb.org
+//   - the spatial, parquet, json and excel extensions, from extensions.duckdb.org
 //     (not on npm: downloaded once, hashed, and cached for the test mirror);
 //   - sql.js's wasm (the GeoPackage writer), from jsDelivr.
 //
@@ -18,10 +18,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-/** The DuckDB release inside @duckdb/duckdb-wasm 1.32.0 (checked against `pragma_version()` at start-up). */
-const DUCKDB_VERSION = 'v1.4.3'
+/** The DuckDB release inside @duckdb/duckdb-wasm 1.33.1-dev65.0 (checked against `pragma_version()` at start-up). */
+const DUCKDB_VERSION = 'v1.5.6'
 const PLATFORM = 'wasm_eh'
-const EXTENSIONS = ['spatial', 'parquet', 'json']
+const EXTENSIONS = ['spatial', 'parquet', 'json', 'excel', 'sqlite_scanner']
 const CACHE = path.join(ROOT, 'scripts', '.engine-cache')
 
 const pkgDir = (name) => {

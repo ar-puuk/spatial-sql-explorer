@@ -2,7 +2,7 @@
   "name": "spatial-explorer",
   "displayName": "Spatial Explorer: Spatial SQL & Map Viewer",
   "description": "Open a geospatial file and see it on a map and in a table, without opening a desktop GIS.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "publisher": "arpuuk",
@@ -45,7 +45,7 @@
         "spatialExplorer.placeSearch.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the place search on the map. Searches send only the typed text to OpenStreetMap Nominatim."
+          "description": "Offer place results in the map's search box. A place search sends only the typed text to OpenStreetMap Nominatim, and only when you ask for it. Off: the box searches the layer and coordinates only."
         }
       }
     },
@@ -86,6 +86,9 @@
             "filenamePattern": "*.csv"
           },
           {
+            "filenamePattern": "*.xlsx"
+          },
+          {
             "filenamePattern": "*.parquet"
           },
           {
@@ -112,6 +115,11 @@
         "icon": "$(globe)"
       },
       {
+        "command": "spatialExplorer.loadAll",
+        "title": "Load All Features",
+        "category": "Spatial Explorer"
+      },
+      {
         "command": "spatialExplorer.exportData",
         "title": "Export Data…",
         "category": "Spatial Explorer",
@@ -128,7 +136,7 @@
       "explorer/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i && !explorerResourceIsFolder",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i && !explorerResourceIsFolder",
           "group": "navigation@20"
         },
         {
@@ -140,25 +148,29 @@
       "editor/title/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i",
           "group": "1_open@20"
         }
       ],
       "editor/title": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i && activeEditor == workbench.editors.files.textFileEditor",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i && activeEditor == workbench.editors.files.textFileEditor",
           "group": "navigation@20"
         }
       ],
       "commandPalette": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|parquet|gml|sqlite|db)$/i"
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i"
         },
         {
           "command": "spatialExplorer.exportData",
           "when": "activeCustomEditorId == spatialExplorer.editor || activeCustomEditorId == spatialExplorer.editorOption"
+        },
+        {
+          "command": "spatialExplorer.loadAll",
+          "when": "false"
         }
       ]
     }

@@ -1,14 +1,13 @@
 // Spec 007 (large files): opening in the real web build. T018 covers US1 (facts
-// first, overview, cancel); US4 (whole-read formats) and the FlatGeobuf
-// "load for queries" flow are added by later tasks. The `?e2e=1` overrides
-// (cap, wholeThreshold, slowParse, …) let 10,000-row fixtures exercise the
+// first, overview, cancel); US4 (whole-read formats). Spec 010 reads FlatGeobuf
+// whole. The `?e2e=1` overrides (wholeThreshold, slowParse, tileRows, …) let 10,000-row fixtures exercise the
 // large-file paths; see helpers.ts.
 import { test, expect, type Page } from '@playwright/test'
 import { fixture, largeData, openFixture } from './helpers'
 
 interface OpenState {
   phase: string
-  facts: { rows: number; readMode: string; spatialIndex: string; crs: { label: string }; geometryType: string; fallback: string | null; needsLoad: boolean } | null
+  facts: { rows: number; readMode: string; spatialIndex: string; crs: { label: string }; geometryType: string; fallback: string | null } | null
 }
 
 const openState = (page: Page): Promise<OpenState> =>
@@ -18,7 +17,7 @@ const statusBar = (page: Page) => page.locator('.status-bar')
 
 test.describe('US1: open a large file and see it quickly', () => {
   test('GeoParquet with a covering bbox: whole-file facts, read in parts', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.parquet', '?e2e=1&cap=1000')
+    await openFixture(page, 'parcels-10k.parquet', '?e2e=1')
     await expect(statusBar(page)).toContainText('10,000 features')
     await expect(statusBar(page)).toContainText('EPSG:4326')
     await expect(statusBar(page)).toContainText('Polygon')
@@ -28,24 +27,31 @@ test.describe('US1: open a large file and see it quickly', () => {
   })
 
   test('GeoParquet without a covering bbox: a bbox index is built once', async ({ page }) => {
-    await openFixture(page, 'parcels-10k-nobbox.parquet', '?e2e=1&cap=1000')
+    await openFixture(page, 'parcels-10k-nobbox.parquet', '?e2e=1')
     await expect(statusBar(page)).toContainText('10,000 features')
     await expect.poll(async () => (await openState(page)).facts?.spatialIndex).toBe('built')
     expect((await openState(page)).facts?.readMode).toBe('partial')
   })
 
-  test('FlatGeobuf read in parts: facts from the header', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&cap=1000&wholeThreshold=1')
-    // Validity isn't scanned when reading in parts: rows, not features (FR-016).
-    await expect(statusBar(page)).toContainText('10,000 rows')
+  // Spec 010: FlatGeobuf is read whole, like GeoJSON; over the threshold the read is announced first.
+  test('FlatGeobuf is read whole; over the threshold the read is announced', async ({ page }) => {
+    await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
+      route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
+    )
+    await page.goto('/?e2e=1&wholeThreshold=1')
+    await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.fgb'))
+    await expect(page.getByRole('dialog')).toContainText('FlatGeobuf files must be read in full.')
+    await page.getByRole('dialog').getByRole('button', { name: /^Open/ }).click()
+    await expect(statusBar(page)).toContainText('10,000 features')
     await expect(statusBar(page)).toContainText('EPSG:4326')
-    expect((await openState(page)).facts).toMatchObject({ rows: 10000, readMode: 'partial-view', spatialIndex: 'file' })
+    expect((await openState(page)).facts).toMatchObject({ rows: 10000, readMode: 'whole' })
   })
 
-  test('the map shows a thinned overview of the whole extent, and says so', async ({ page }) => {
-    await openFixture(page, 'parcels-10k.parquet', '?e2e=1&cap=1000')
-    await expect(page.locator('.map-notice')).toContainText(/Showing (9\d\d|1,000) of 10,000 in view\. Zoom in to see all\./)
+  // Spec 010: the whole result is drawn (GeoJSON under 100,000 rows); no subset, no notice.
+  test('the map draws the whole extent, with no subset notice', async ({ page }) => {
+    await openFixture(page, 'parcels-10k.parquet', '?e2e=1')
     await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached' })
+    await expect(page.locator('.map-notice')).toHaveCount(0)
     const rendered = Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))
     expect(rendered).toBeGreaterThan(0)
   })
@@ -61,39 +67,13 @@ test.describe('US1: open a large file and see it quickly', () => {
     const t0 = Date.now()
     await cancel.click()
     await expect(page.getByText('Drag a geospatial file here')).toBeVisible({ timeout: 3000 })
+    console.log(`TIMING SC-002 cancel during open: ${Date.now() - t0} ms`)
     expect(Date.now() - t0).toBeLessThan(3000)
     await expect(page.locator('.error-banner')).toHaveCount(0)
 
     await page.goto('/?e2e=1')
     await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.parquet'))
     await expect(statusBar(page)).toContainText('10,000 features', { timeout: 60000 })
-  })
-})
-
-// T044/T045: a FlatGeobuf read in parts draws the map from its index; whole-file
-// work waits for "Load", which re-opens it in memory with queries enabled.
-test.describe('FlatGeobuf: load the whole file to query it', () => {
-  test('the query panel, table and export offer Load; after it, queries run on all rows', async ({ page }) => {
-    test.setTimeout(120000)
-    await openFixture(page, 'parcels-10k.fgb', '?e2e=1&cap=1000&wholeThreshold=1')
-    expect((await openState(page)).facts).toMatchObject({ readMode: 'partial-view', needsLoad: true })
-
-    const notice = page.getByRole('status').filter({ hasText: /Load the whole file \(.+ MB\) to list its rows\./ })
-    await expect(notice).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Export data…' })).toBeDisabled()
-    await page.keyboard.press('Control+Shift+Q')
-    const queryNotice = page.getByRole('status').filter({ hasText: /Load the whole file \(.+ MB\) to query it\./ })
-    await expect(queryNotice).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Run' })).toBeDisabled()
-
-    const t0 = Date.now()
-    await queryNotice.getByRole('button', { name: 'Load' }).click()
-    await expect.poll(async () => (await openState(page)).facts?.needsLoad, { timeout: 60000 }).toBe(false)
-    console.log(`TIMING T044 load whole (parcels-10k.fgb): ${Date.now() - t0} ms`)
-    expect((await openState(page)).facts).toMatchObject({ rows: 10000, readMode: 'whole' })
-    await expect(notice).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Export data…' })).toBeEnabled()
-    await expect(page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr:not(.spacer):not(.skeleton)').first()).toBeVisible()
   })
 })
 
@@ -114,7 +94,7 @@ test.describe('US4: an honest path for formats read whole', () => {
     await page.goto('/?e2e=1&wholeThreshold=1000000')
     await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.geojson'))
     await expect(dialog(page)).toBeVisible({ timeout: 10000 })
-    await expect(dialog(page)).toContainText('GeoJSON files must be read in full. This one is 5 MB and may take about 5 seconds. GeoParquet and FlatGeobuf open at any size.')
+    await expect(dialog(page)).toContainText('GeoJSON files must be read in full. This one is 5 MB and may take about 5 seconds. GeoParquet opens at any size.')
     await expect(dialog(page).getByRole('button', { name: 'Open' })).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(statusBar(page)).toContainText('10,000 features', { timeout: 60000 })
@@ -178,7 +158,7 @@ test.describe('US4: out of memory', () => {
   test('opening a whole-read file that does not fit: the message, then another file opens', async ({ page }) => {
     await page.goto('/?e2e=1&memoryLimit=8MB')
     await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.geojson'))
-    await expect(page.getByText('This file is too large to read in full here (out of memory). Convert it to GeoParquet or FlatGeobuf to open it at any size.')).toBeVisible({
+    await expect(page.getByText('This file is too large to read in full here (out of memory). Convert it to GeoParquet to open it at any size.')).toBeVisible({
       timeout: 60000,
     })
     await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.parquet'))

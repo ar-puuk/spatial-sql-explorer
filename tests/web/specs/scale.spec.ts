@@ -23,19 +23,14 @@ test.afterAll(() => {
   console.log('SCALE', JSON.stringify(results))
 })
 
-interface ViewState {
-  generation: number
-  drawn: number
-  inView: number
-  thinned: boolean
-  ms: number
-}
 const hook = <T>(page: Page, name: string, ...args: unknown[]): Promise<T> =>
   page.evaluate(([n, a]) => (window as unknown as { __spatialExplorerE2E: Record<string, (...x: unknown[]) => unknown> }).__spatialExplorerE2E[n as string](...(a as unknown[])) as T, [
     name,
     args,
   ] as const)
-const viewState = (page: Page): Promise<ViewState | null> => hook(page, 'viewState')
+/** Settled map frames so far (MapView data-idles). */
+const idles = async (page: Page): Promise<number> => Number((await page.locator('.canvas-host').getAttribute('data-idles')) ?? 0)
+const rendered = async (page: Page): Promise<number> => Number((await page.locator('.canvas-host').getAttribute('data-rendered-features')) ?? 0)
 const statusBar = (page: Page) => page.locator('.status-bar')
 
 /** Records long tasks (SC-004) from the first script on. */
@@ -74,21 +69,22 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   expect(open.factsMs, 'SC-001: facts within 5 s').toBeLessThanOrEqual(5000)
   expect(open.overviewMs, 'SC-001: overview within 10 s').toBeLessThanOrEqual(10000)
 
-  // SC-003: 10 city views, each drawn within 2 s of the pan stopping, at or below the cap.
+  // SC-003 (spec 010: engine tiles): 10 city views, each drawn within 2 s of the jump (the map idle with features).
+  expect((await hook<{ mode: string }>(page, 'drawState')).mode).toBe('tiles')
   const views: number[] = []
+  const tiles0 = await hook<{ calls: number; buildMs: number[] }>(page, 'tileStats')
   for (const [lon, lat] of CITIES.slice(0, 10)) {
-    const before = (await viewState(page))?.generation ?? 0
-    const paints = Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0)
+    const before = await idles(page)
     const t0 = Date.now()
     await hook(page, 'jumpTo', lon, lat, 13)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 15000 }).toBeGreaterThan(before)
-    await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0), { timeout: 15000 }).toBeGreaterThan(paints)
+    // Polled every 50 ms: the default intervals grow to 1 s and round each view up by as much.
+    await expect.poll(() => idles(page), { timeout: 15000, intervals: [50] }).toBeGreaterThan(before)
     views.push(Date.now() - t0)
-    const v = (await viewState(page))!
-    expect(v.drawn).toBeLessThanOrEqual(25000)
+    expect(await rendered(page)).toBeGreaterThan(0)
   }
-  results.sc003_cityViewsMs = { each: views, max: Math.max(...views) }
-  // The 150 ms debounce after moveend is part of "after the pan stops".
+  const tiles1 = await hook<{ calls: number; buildMs: number[] }>(page, 'tileStats')
+  const built = tiles1.buildMs.slice(tiles0.buildMs.length).sort((x, y) => x - y)
+  results.sc003_cityViewsMs = { each: views, max: Math.max(...views), tilesBuilt: tiles1.calls - tiles0.calls, tileMsMedian: built[Math.floor(built.length / 2)] ?? null, tileMsMax: built[built.length - 1] ?? null }
   expect(Math.max(...views), 'SC-003: every view within 2 s').toBeLessThanOrEqual(2000)
 
   // SC-004 continues: a query and a style on the whole file.
@@ -96,7 +92,7 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   const { runQuery } = await import('./helpers')
   await runQuery(page, 'SELECT * FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('rows', { timeout: 120000 })
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 120000 })
@@ -104,27 +100,20 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   expect(results.sc004_longestTaskMs as number, 'SC-004: no task blocks the viewer for 1 s').toBeLessThan(1000)
 })
 
-test('SC-001: 1.45 GB FlatGeobuf opens from its header and index', async ({ page }) => {
-  test.setTimeout(300000)
+// Spec 010: FlatGeobuf is read whole (its per-pan partial reads are gone): announced, read into
+// memory, then drawn from engine tiles. Recorded, not held to spec 007's read-in-parts limits.
+test('spec 010: 1.45 GB FlatGeobuf is read whole and drawn from tiles', async ({ page }) => {
+  test.setTimeout(600000)
   const file = largeData('parcels-4m.fgb')
   await page.goto('/?e2e=1')
-  const open = await timeOpen(page, file, '4,000,000')
-  results.sc001_fgb4m = { sizeMB: Math.round(fs.statSync(file).size / 1e6), ...open }
-  expect(open.factsMs).toBeLessThanOrEqual(5000)
-  expect(open.overviewMs).toBeLessThanOrEqual(10000)
-
-  // SC-003 for FlatGeobuf in parts: zoomed views read their features from the file.
-  const views: Array<{ ms: number; drawn: number; thinned: boolean }> = []
-  for (const [lon, lat] of CITIES.slice(0, 5)) {
-    const before = (await viewState(page))?.generation ?? 0
-    const t0 = Date.now()
-    await hook(page, 'jumpTo', lon, lat, 15)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 30000 }).toBeGreaterThan(before)
-    const v = (await viewState(page))!
-    views.push({ ms: Date.now() - t0, drawn: v.drawn, thinned: v.thinned })
-  }
-  results.sc003_fgbCityViews = views
-  for (const v of views) expect(v.ms, 'SC-003: FlatGeobuf view within 2 s').toBeLessThanOrEqual(2000)
+  const t0 = Date.now()
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await page.getByRole('dialog', { name: 'Read the whole file?' }).getByRole('button', { name: 'Open' }).click()
+  await expect(statusBar(page)).toContainText('4,000,000', { timeout: 540000 })
+  const openMs = Date.now() - t0
+  await expect.poll(async () => (await hook<{ mode: string }>(page, 'drawState')).mode, { timeout: 60000 }).toBe('tiles')
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 120000 })
+  results.spec010_fgb4mWhole = { sizeMB: Math.round(fs.statSync(file).size / 1e6), openMs, overviewMs: Date.now() - t0 }
 })
 
 test('SC-005: Cancel ends any open within 3 s (GeoParquet, FlatGeobuf, 325 MB GeoJSON)', async ({ page }) => {
@@ -216,9 +205,9 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   const open = await timeOpen(page, file, '27,000,000')
   await sample('open')
   for (const [i, [lon, lat]] of CITIES.slice(0, 5).entries()) {
-    const before = (await viewState(page))?.generation ?? 0
+    const before = await idles(page)
     await hook(page, 'jumpTo', lon, lat, 13)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 30000 }).toBeGreaterThan(before)
+    await expect.poll(() => idles(page), { timeout: 30000, intervals: [50] }).toBeGreaterThan(before)
     await sample(`city${i + 1}`)
   }
   await page.keyboard.press('Control+Shift+Q')
@@ -227,12 +216,12 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   await expect(page.locator('.query-status')).toContainText('rows', { timeout: 300000 })
   const filtered = (await page.locator('.query-status').textContent()) ?? ''
   await sample('filter')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await expect(page.getByRole('region', { name: 'Legend' })).toContainText('value · Quantile', { timeout: 300000 })
   await sample('style')
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   const { bytes } = await exportVia(page, { format: 'GeoParquet' })
   await sample('export')
   results.sc002_session27m = { sizeMB: Math.round(fs.statSync(file).size / 1e6), ...open, filtered: filtered.trim(), exportMB: Math.round(bytes.length / 1e6), engineMemoryMiB: memory }
@@ -279,8 +268,8 @@ test('spec 009 SC-007: two-column styles on 1M rows within 2x one graduated colu
   // Points (centroids), so the size channel applies: the same 1,000,166 rows for all three styles.
   await runQuery(page, 'SELECT parcel_id, acres, value, year_built, ST_Centroid(geom) AS geom FROM layer WHERE value > 1500000')
   await expect(page.locator('.query-status')).toContainText('1,000,166 rows', { timeout: 120000 })
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  const panel = page.getByRole('dialog', { name: 'Layer style' })
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Layer style' })
   const legend = page.getByRole('region', { name: 'Legend' })
   /** Time from an edit to the legend showing `text`. */
   const timed = async (edit: () => Promise<void>, text: string | RegExp) => {

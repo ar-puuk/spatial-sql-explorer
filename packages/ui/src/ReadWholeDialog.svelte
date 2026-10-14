@@ -16,6 +16,7 @@
     geojson: 'GeoJSON',
     shapefile: 'Shapefile',
     csv: 'CSV',
+    xlsx: 'Excel workbook',
     gml: 'GML',
     geopackage: 'GeoPackage',
     sqlite: 'SQLite',
@@ -30,9 +31,9 @@
   const seconds = $derived(Math.max(5, Math.round((mb * MS_PER_MB) / 1000 / 5) * 5))
   const duration = $derived(seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`)
   const name = $derived(FORMAT_NAMES[format] ?? format)
-  // GeoParquet or FlatGeobuf only arrive here when partial reads failed (FR-015).
+  // GeoParquet only arrives here when partial reads failed (FR-015); FlatGeobuf is read whole since spec 010.
   const lead = $derived(
-    format === 'geoparquet' || format === 'flatgeobuf' ? 'Partial reads aren’t available here, so this file must be read in full.' : `${name} files must be read in full.`
+    format === 'geoparquet' ? 'Partial reads aren’t available here, so this file must be read in full.' : `${name} files must be read in full.`
   )
 
   let openButton = $state<HTMLButtonElement>()
@@ -72,7 +73,7 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="read-whole-title" aria-describedby="read-whole-text" tabindex="-1" onkeydown={onKeydown}>
     <h2 id="read-whole-title">Read the whole file?</h2>
     <p id="read-whole-text">
-      {lead} This one is {sizeLabel} and may take about {duration}. GeoParquet and FlatGeobuf open at any size.
+      {lead} This one is {sizeLabel} and may take about {duration}. GeoParquet opens at any size.
     </p>
     <footer>
       <button type="button" class="secondary" onclick={() => answer(false)}>Cancel</button>

@@ -1,6 +1,6 @@
 {
   "name": "@spatial-explorer/tests-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,6 @@
   "devDependencies": {
     "@maplibre/maplibre-gl-style-spec": "26.4.4",
     "fflate": "^0.8.3",
-    "flatgeobuf": "^4.6.0",
     "happy-dom": "^20.14.6",
     "sql.js": "^1.14.2",
     "vitest": "^5.0.3"

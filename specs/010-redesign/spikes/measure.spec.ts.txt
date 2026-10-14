@@ -1,0 +1,77 @@
+// SPIKE (spec 010 phase 4 checkpoint): open time, pan smoothness and tile times. Temporary.
+import { test, expect, type Page } from '@playwright/test'
+import { fixture, largeData } from './helpers'
+
+const hook = <T>(page: Page, name: string, ...args: unknown[]): Promise<T> =>
+  page.evaluate(([n, a]) => (window as any).__spatialExplorerE2E[n as string](...(a as unknown[])), [name, args] as const) as Promise<T>
+
+async function pan(page: Page, dx: number, dy: number): Promise<void> {
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + dx, y + dy, { steps: 10 })
+  await page.mouse.up()
+}
+
+for (const [file, label] of [
+  ['parcels-10k.geojson', 'GeoJSON mode, 10k'],
+  ['parcels-77k.geojson', 'GeoJSON mode, 77k'],
+  ['parcels-230k.geojson', 'tiles mode, 230k'],
+] as const) {
+  test(label, async ({ page }) => {
+    test.setTimeout(600000)
+    await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+    await page.addInitScript(() => {
+      const w = window as any
+      w.__longTasks = []
+      new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) w.__longTasks.push({ d: Math.round(e.duration), t: Math.round(e.startTime) })
+      }).observe({ type: 'longtask', buffered: true })
+    })
+    await page.goto('/?e2e=1&wholeThreshold=2000000000')
+    await expect(page.getByText('SQL engine ready')).toBeVisible({ timeout: 60000 })
+    const t0 = Date.now()
+    await page.locator('input[type="file"]').setInputFiles(file.includes('10k') ? fixture(file) : largeData(file))
+    await expect(page.locator('.status-bar')).toContainText('features', { timeout: 300000 })
+    const factsMs = Date.now() - t0
+    await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-paints')) ?? 0), { timeout: 300000 }).toBeGreaterThan(0)
+    console.log('rendered at overview', await page.locator('.canvas-host').getAttribute('data-rendered-features'))
+    const drawnMs = Date.now() - t0
+    const mode = (await hook<{ mode: string }>(page, 'drawState')).mode
+    // 5 pans at 6x CPU throttle (VS Code webviews are slower than headless Chromium).
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+    // Users have no test hooks: no rendered-feature count on each idle.
+    await page.evaluate(() => delete document.documentElement.dataset.seTestHooks)
+    await page.evaluate(() => ((window as any).__longTasks = []))
+    const calls0 = await hook<number>(page, 'drawCalls')
+    const tiles0 = await hook<{ calls: number }>(page, 'tileStats')
+    const p0 = Date.now()
+    for (const [dx, dy] of [[200, 80], [-260, -40], [120, 160], [-180, -120], [90, -60]]) {
+      await pan(page, dx, dy)
+      await page.waitForTimeout(400)
+    }
+    const idle0 = Number((await page.locator('.canvas-host').getAttribute('data-idles')) ?? 0)
+    await expect.poll(async () => Number((await page.locator('.canvas-host').getAttribute('data-idles')) ?? 0), { timeout: 120000 }).toBeGreaterThan(idle0 - 1)
+    const panMs = Date.now() - p0
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
+    const long = await page.evaluate(() => (window as any).__longTasks as Array<{ d: number }>)
+    const tiles1 = await hook<{ calls: number }>(page, 'tileStats')
+    console.log(
+      'MEASURE',
+      JSON.stringify({
+        label,
+        mode,
+        factsMs,
+        drawnMs,
+        panPhaseMs: panMs,
+        engineCallsWhilePanning: (await hook<number>(page, 'drawCalls')) - calls0,
+        tilesBuiltWhilePanning: tiles1.calls - tiles0.calls,
+        longTasksDuringPans6x: long.length,
+        longestTaskMs6x: Math.max(0, ...long.map((l) => l.d)),
+      })
+    )
+    await page.locator('.map-view').screenshot({ path: `${process.env.SPIKE_OUT}/measure-${mode}.png` })
+  })
+}

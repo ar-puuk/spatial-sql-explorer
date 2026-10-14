@@ -53,13 +53,13 @@ test('a result over the materialize cap: exact count, every row in the table, wh
   await expect(grid(page).locator('tbody tr:not(.spacer):not(.skeleton)').first()).toContainText(String(lo))
 
   // Natural breaks over 4,958 values with a 2,000-value sample: the legend says so; counts are exact.
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
   await page.getByRole('radio', { name: 'Graduated' }).click()
   await page.getByLabel('Column', { exact: true }).selectOption('value')
   await page.getByLabel('Method', { exact: true }).selectOption('jenks')
   await expect(legend(page)).toContainText('Natural breaks, 5 classes (estimated from 2,000 values)')
   await expect.poll(() => legendTotal(page)).toBe(FILTERED_ROWS)
-  await page.getByRole('button', { name: 'Layer style' }).click()
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Export writes the whole result.
   const { bytes } = await exportVia(page, { format: 'GeoParquet' })

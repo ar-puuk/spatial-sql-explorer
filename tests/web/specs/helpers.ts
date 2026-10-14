@@ -31,6 +31,8 @@ export async function openQueryPanel(page: Page): Promise<void> {
 
 /** Replaces the editor text (no auto-indent surprises: inserted, not typed). */
 export async function setQuery(page: Page, sql: string): Promise<void> {
+  // Spec 010: a result switches the bottom panel to its Table tab; the editor is on the SQL tab.
+  if (!(await editor(page).isVisible())) await openQueryPanel(page)
   await editor(page).click()
   await page.keyboard.press('Control+A')
   await page.keyboard.press('Delete')
@@ -44,7 +46,14 @@ export async function runQuery(page: Page, sql?: string): Promise<void> {
   await expect(status(page)).not.toContainText(/Running|Fetching/, { timeout: 60000 })
 }
 
-export const rowCount = async (page: Page): Promise<number> => Number(await grid(page).getAttribute('aria-rowcount')) - 1
+// A CSS locator: the grid keeps its row count while its tab is hidden (spec 010 bottom panel).
+export const rowCount = async (page: Page): Promise<number> => Number(await page.locator('[role="grid"][aria-label="Attribute table"]').getAttribute('aria-rowcount')) - 1
+
+/** Spec 010: a result shows the Table tab; the query panel's buttons are on the SQL tab. */
+export async function showSql(page: Page): Promise<void> {
+  if (!(await editor(page).isVisible())) await page.getByRole('tab', { name: 'SQL' }).click()
+  await expect(editor(page)).toBeVisible()
+}
 
 /** Deterministic parcel-like polygons (spec 001's performance fixture shape), written to a temp file. */
 export function writeParcels(count: number, name = `parcels-${count}.geojson`): string {
@@ -98,12 +107,12 @@ export function writeSquares(): string {
  *
  * `search` may carry the spec 007 test overrides, which the app honors only
  * with `e2e=1` (packages/core/src/source/readModes.ts, `TEST_OVERRIDE_KEYS`):
- * - `cap=<n>`: display cap for map views (exercises thinning on small data);
  * - `wholeThreshold=<bytes>`: whole-read announcement / FlatGeobuf in-memory threshold;
  * - `materializeCap=<n>`: results above this many rows stay views;
  * - `jenksSample=<n>`: natural-breaks sample size;
  * - `memoryLimit=<size>`: engine memory limit (out-of-memory tests);
- * - `slowViewMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests.
+ * - `slowTileMs=<ms>` / `slowParse=1`: artificial delays for loading-cue and cancel tests;
+ * - `tileRows=<n>`: results with at least this many rows are drawn as tiles (spec 010).
  */
 export async function openFixture(page: Page, name: string, search = '?e2e=1'): Promise<void> {
   await openFile(page, fixture(name), search)
@@ -160,4 +169,16 @@ export async function inspectParquet(page: Page, bytes: Buffer) {
       ).__spatialExplorerE2E.inspectParquet(b64),
     bytes.toString('base64')
   )
+}
+
+/**
+ * Spec 010: opens the side panel on Style (a remembered layout may have it open
+ * already), then fits the layer again: the panel takes width from the map, and
+ * tests that count drawn features need them all in view.
+ */
+export async function openStyle(page: Page): Promise<void> {
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Style', exact: true }).click()
+  await expect(panel).toBeVisible()
+  await page.getByRole('button', { name: 'Zoom to layer' }).click()
 }

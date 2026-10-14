@@ -10,14 +10,17 @@ import {
   rendererOf,
   rgbToHex,
   round,
+  ruleLabel as ruleDefLabel,
   sanitizeStyle,
   type LayerStyle,
+  type RulesRenderer,
   type ResolvedStyle,
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
 import type { StyleExport } from './qml.js'
-import { categorizedFrom, classLayerStyle, graduatedFrom, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange } from './interchange.js'
+import { categorizedFrom, classLayerStyle, graduatedFrom, portableRules, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange, type PortableRule } from './interchange.js'
+import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern, proportionalSize, type MarkerShape } from './symbol.js'
 
 function param(name: string, value: string | number): string {
@@ -209,14 +212,66 @@ function bivariateRules(style: LayerStyle, geometry: StyleGeometry, resolved: Re
   return rules.join('\n')
 }
 
+/** Spec 010: a simple rule condition as an OGC filter expression. */
+function whereFilter(w: SimpleWhere): string {
+  if (w.kind !== 'cmp') return `<ogc:${w.kind === 'and' ? 'And' : 'Or'}>${w.items.map(whereFilter).join('')}</ogc:${w.kind === 'and' ? 'And' : 'Or'}>`
+  if (w.op === 'like') return `<ogc:PropertyIsLike wildCard="%" singleChar="_" escape="\\">${prop(w.column)}${literal(w.value)}</ogc:PropertyIsLike>`
+  const name = { '=': 'PropertyIsEqualTo', '!=': 'PropertyIsNotEqualTo', '<': 'PropertyIsLessThan', '<=': 'PropertyIsLessThanOrEqualTo', '>': 'PropertyIsGreaterThan', '>=': 'PropertyIsGreaterThanOrEqualTo' }[w.op]
+  return `<ogc:${name}>${prop(w.column)}${literal(w.value)}</ogc:${name}>`
+}
+
+/**
+ * Spec 010: rules as SLD rules. SLD draws every rule whose filter matches, so
+ * each rule also says "and none of the rules before it" (the first matching
+ * rule colors a feature). Hidden rules are left out but still exclude their
+ * features from later rules; "Everything else" is the ElseFilter, or (with
+ * hidden rules) the explicit "none of the rules".
+ */
+function rulesRules(style: LayerStyle, geometry: StyleGeometry, r: RulesRenderer, portable: PortableRule[]): string {
+  const families = geometry === 'Mixed' ? MIXED_RULES : [{ geom: geometry, types: [] as string[] }]
+  const anyHidden = portable.some((p) => !p.rule.visible)
+  const out: string[] = []
+  const and = (tests: string[]): string => (tests.length === 1 ? tests[0] : `<ogc:And>${tests.join('')}</ogc:And>`)
+  for (const f of families) {
+    const geom = f.geom as Exclude<StyleGeometry, 'Mixed'>
+    const geomTest = f.types.length ? geometryTypeFilter(f.types).replace(/^<ogc:Filter>|<\/ogc:Filter>$/g, '') : ''
+    const rule = (label: string, color: string, filter: string): void => {
+      const look = geom === 'LineString' ? { ...style, strokeColor: color } : { ...style, fillColor: color }
+      out.push(`          <Rule>
+            <Name>${escapeXml(label)}</Name>
+            <Title>${escapeXml(label)}</Title>
+            ${filter}
+            ${symbolizer(geom, look)}
+          </Rule>`)
+    }
+    portable.forEach((p, k) => {
+      if (!p.rule.visible) return
+      const before = portable.slice(0, k).map((q) => `<ogc:Not>${whereFilter(q.where)}</ogc:Not>`)
+      rule(ruleDefLabel(p.rule), p.rule.color, `<ogc:Filter>${and([whereFilter(p.where), ...before, ...(geomTest ? [geomTest] : [])])}</ogc:Filter>`)
+    })
+    if (r.elseVisible) {
+      if (anyHidden && portable.length) {
+        const none = portable.map((q) => `<ogc:Not>${whereFilter(q.where)}</ogc:Not>`)
+        rule(r.elseLabel, r.elseColor, `<ogc:Filter>${and([...none, ...(geomTest ? [geomTest] : [])])}</ogc:Filter>`)
+      } else rule(r.elseLabel, r.elseColor, `${geomTest ? `<ogc:Filter>${geomTest}</ogc:Filter>` : ''}<ElseFilter/>`)
+    }
+  }
+  return out.join('\n')
+}
+
 export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName: string, resolved?: ResolvedStyle): StyleExport {
   const style = sanitizeStyle(input)
-  const { thematic } = thematicForExport(style, resolved)
+  const { thematic } = thematicForExport(style, resolved, 'sld')
   const notes = previewExportNotice(style, 'sld', resolved).items
   const sizeClasses = geometry === 'Polygon' ? null : sizeExportClasses(style, resolved)
   const isBivariate = rendererOf(style).kind === 'bivariate' && resolved?.status === 'ok' && !!resolved.grid
+  // Spec 010: rules, when every condition is simple (else the single symbol, with a notice).
+  const rr = rendererOf(style)
+  const portable = rr.kind === 'rules' && resolved?.status === 'ok' ? portableRules(style, resolved, 'sld') : null
   const rules = isBivariate && resolved
     ? bivariateRules(style, geometry, resolved)
+    : rr.kind === 'rules' && portable
+    ? rulesRules(style, geometry, rr, portable)
     : sizeClasses && style.size
     ? channelRules(style, geometry, thematic ? { column: thematic.renderer.column, classes: thematic.classes } : null, { column: style.size.column, classes: sizeClasses })
     : thematic

@@ -16,14 +16,20 @@ import {
   rendererOf,
   rgbToHex,
   round,
+  ruleLabel,
   sanitizeStyle,
+  DEFAULT_ELSE_LABEL,
+  OTHER_COLOR,
   type LayerStyle,
   type ResolvedStyle,
+  type RuleDef,
+  type RulesRenderer,
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
 import { QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
+import { checkExpression } from './sqlExpression.js'
 
 const PX_PER_MM = 96 / 25.4
 const PX_PER_PT = 96 / 72
@@ -231,6 +237,84 @@ ${symbols.join('\n')}
   </renderer-v2>`
 }
 
+/** A rule's QGIS filter after earlier ones: QGIS draws every matching rule, ours only the first, so earlier conditions are excluded. */
+const ruleGuard = (where: string): string => ` AND NOT coalesce((${where}), FALSE)`
+function guardedFilter(where: string, before: readonly string[]): string {
+  return before.length ? `(${where})${before.map(ruleGuard).join('')}` : where
+}
+
+/**
+ * Spec 010: rules as QGIS's rule-based renderer: one rule per usable rule (its
+ * condition as the filter, QGIS expressions sharing SQL's simple comparison
+ * syntax; hidden rules unchecked), then the ELSE rule. QGIS draws every rule
+ * that matches, so each filter also excludes the rules before it. The renderer
+ * itself rides along in `spatialExplorer/rules`.
+ */
+function rulesRendererXml(style: LayerStyle, r: RulesRenderer, resolved: ResolvedStyle | undefined, kind: 'fill' | 'line' | 'marker'): string {
+  const errors = new Set((resolved?.classes ?? []).flatMap((c) => (c.kind === 'rule' && c.ruleId && c.error ? [c.ruleId] : [])))
+  const usable = r.rules.filter((rule) => !checkExpression(rule.where, 'condition') && !errors.has(rule.id))
+  const rules: string[] = []
+  const symbols: string[] = []
+  const look = (color: string): LayerStyle => (kind === 'line' ? { ...style, strokeColor: color } : { ...style, fillColor: color })
+  usable.forEach((rule, k) => {
+    const filter = guardedFilter(rule.where.trim(), usable.slice(0, k).map((x) => x.where.trim()))
+    const unchecked = rule.visible ? '' : ' checkstate="0"'
+    rules.push(`      <rule filter="${escapeXml(filter)}" key="{se-rule-${escapeXml(rule.id)}}" label="${escapeXml(ruleLabel(rule))}" symbol="${k}"${unchecked}/>`)
+    symbols.push(symbolXml(kind, look(rule.color), String(k)))
+  })
+  const n = usable.length
+  rules.push(`      <rule filter="ELSE" key="{se-else}" label="${escapeXml(r.elseLabel)}" symbol="${n}"${r.elseVisible ? '' : ' checkstate="0"'}/>`)
+  symbols.push(symbolXml(kind, look(r.elseColor), String(n)))
+  return `  <renderer-v2 type="RuleRenderer" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    <rules key="{se-rules}">
+${rules.join('\n')}
+    </rules>
+    <symbols>
+${symbols.join('\n')}
+    </symbols>
+  </renderer-v2>`
+}
+
+/** Spec 010: a QGIS rule-based renderer this product didn't write, as rules (top-level rules; ELSE is everything else). */
+function rulesFromQgis(renderer: Element, notes: string[]): RulesRenderer {
+  const symbols = new Map<string, string>()
+  for (const s of Array.from(renderer.getElementsByTagName('symbols')[0]?.children ?? [])) {
+    const name = s.getAttribute('name')
+    const color = symbolColor(s)
+    if (name !== null && color) symbols.set(name, color)
+  }
+  const top = Array.from(renderer.getElementsByTagName('rules')[0]?.children ?? []).filter((el) => el.localName === 'rule')
+  const out: RulesRenderer = { kind: 'rules', rules: [], elseColor: OTHER_COLOR, elseVisible: true, elseLabel: DEFAULT_ELSE_LABEL }
+  let nested = false
+  let scaled = false
+  for (const el of top) {
+    if (Array.from(el.children).some((c) => c.localName === 'rule')) nested = true
+    if (el.hasAttribute('scalemindenom') || el.hasAttribute('scalemaxdenom')) scaled = true
+    const filter = (el.getAttribute('filter') ?? '').trim()
+    const color = symbols.get(el.getAttribute('symbol') ?? '')
+    const visible = el.getAttribute('checkstate') !== '0'
+    const label = el.getAttribute('label') ?? ''
+    if (filter.toUpperCase() === 'ELSE') {
+      out.elseVisible = visible
+      if (label.trim()) out.elseLabel = label
+      if (color) out.elseColor = color
+      continue
+    }
+    if (!color && !filter) continue
+    // Our own guard (see guardedFilter) comes off again.
+    const before = out.rules.map((x) => x.where)
+    const suffix = before.map(ruleGuard).join('')
+    const where = before.length && filter.startsWith('(') && filter.endsWith(`)${suffix}`) ? filter.slice(1, filter.length - suffix.length - 1) : filter || 'TRUE'
+    const rule: RuleDef = { id: `r${out.rules.length + 1}`, label: '', where, color: color ?? DEFAULT_LAYER_STYLE.fillColor, visible }
+    if (label && label !== ruleLabel({ label: '', where })) rule.label = label
+    out.rules.push(rule)
+  }
+  if (nested) notes.push('Nested rules were not imported; only the top-level rules were.')
+  if (scaled) notes.push("Rules' scale ranges were not imported: every rule applies at every zoom.")
+  notes.push('QGIS expressions were imported as SQL conditions; QGIS-only functions show an error on their rule.')
+  return out
+}
+
 /** A size channel from a QGIS data-defined size this product didn't write (a size assistant transformer), or null. */
 function sizeFromQgis(layerEl: Element, kind: string, notes: string[]): LayerStyle['size'] | null {
   const dd = Array.from(layerEl.children).find((c) => c.tagName === 'data_defined_properties')
@@ -320,6 +404,8 @@ ${symbols}
     }
   }
   if (r.method === 'manual') props['spatialExplorer/method'] = 'manual'
+  // Spec 010: an expression is the renderer's attribute (QGIS accepts expressions there); its label rides along.
+  if (r.expression) props['spatialExplorer/expression'] = JSON.stringify({ expression: r.expression, column: r.column })
   const ranges = th.classes.flatMap((c, i) =>
     c.kind === 'range' ? [`      <range lower="${c.lower}" upper="${c.upper}" label="${escapeXml(c.label)}" render="${c.visible}" symbol="${i}"/>`] : []
   )
@@ -332,7 +418,7 @@ ${symbols}
   }
   return {
     props,
-    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.column)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+    renderer: `  <renderer-v2 type="graduatedSymbol" attr="${escapeXml(r.expression ?? r.column)}" graduatedMethod="GraduatedColor" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
     <ranges>
 ${ranges.join('\n')}
     </ranges>
@@ -432,6 +518,11 @@ ${symbolXml(kind, style, '0', sizeDd)}
   if (r.kind === 'bivariate' && resolved?.status === 'ok' && resolved.grid) {
     renderer = bivariateRendererXml(style, resolved, kind)
     props = { 'spatialExplorer/bivariate': JSON.stringify(r) }
+  }
+  // Spec 010: rules, as a rule-based renderer.
+  if (r.kind === 'rules') {
+    renderer = rulesRendererXml(style, r, resolved, kind)
+    props = { 'spatialExplorer/rules': JSON.stringify(r) }
   }
   // Our own size channel, kept whole for a lossless reload here.
   if (style.size) props['spatialExplorer/size'] = JSON.stringify(style.size)
@@ -551,7 +642,10 @@ export function qmlToStyle(text: string): StyleImportResult {
   const thematicType = rendererType === 'categorizedSymbol' || rendererType === 'graduatedSymbol'
   // Spec 009: our own bivariate rules (a RuleRenderer with the renderer in a custom property).
   const ownBivariate = rendererType === 'RuleRenderer' ? readCustomProperties(doc).get('spatialExplorer/bivariate') : undefined
-  if (rendererType !== 'singleSymbol' && !thematicType && !ownBivariate) {
+  // Spec 010: our own rules (the renderer in a custom property), or any other rule-based renderer.
+  const ownRules = rendererType === 'RuleRenderer' && !ownBivariate ? readCustomProperties(doc).get('spatialExplorer/rules') : undefined
+  const foreignRules = rendererType === 'RuleRenderer' && !ownBivariate && !ownRules
+  if (rendererType !== 'singleSymbol' && !thematicType && rendererType !== 'RuleRenderer') {
     notes.push(`This QML uses a "${rendererType}" renderer, which isn't supported; its first symbol was imported as a single symbol.`)
   }
   const symbol = renderer.getElementsByTagName('symbol')[0]
@@ -615,8 +709,20 @@ export function qmlToStyle(text: string): StyleImportResult {
 
   if (thematicType) {
     const attr = renderer.getAttribute('attr') ?? ''
-    if (/[()"+\s]/.test(attr)) notes.push(`The classes use an expression ("${attr}"), not a column; they may not match any column here.`)
     const custom = readCustomProperties(doc)
+    // Spec 010: graduated by expression (ours from the property; QGIS's own attribute expressions too).
+    let expression: { expression: string; column: string } | null = null
+    try {
+      const own = custom.get('spatialExplorer/expression')
+      if (own) expression = JSON.parse(own) as { expression: string; column: string }
+    } catch {
+      // ignore a malformed property
+    }
+    const looksLikeExpression = /[()"+*/\s]/.test(attr)
+    if (!expression && looksLikeExpression && rendererType === 'graduatedSymbol') {
+      expression = { expression: attr, column: '' }
+      notes.push(`The classes use the QGIS expression "${attr}"; it was imported as a SQL expression (QGIS-only functions won't work).`)
+    } else if (!expression && looksLikeExpression) notes.push(`The classes use an expression ("${attr}"), not a column; they may not match any column here.`)
     const symbols = new Map<string, string>()
     const sizes = new Map<string, number>()
     for (const s of Array.from(renderer.getElementsByTagName('symbols')[0]?.children ?? [])) {
@@ -667,6 +773,26 @@ export function qmlToStyle(text: string): StyleImportResult {
         // ignore a malformed property
       }
       style.renderer = graduatedFrom(attr, ranges.filter((r) => Number.isFinite(r.lower) && Number.isFinite(r.upper)), { method, ramp, noValue, size })
+      if (expression && style.renderer.kind === 'graduated') style.renderer = { ...style.renderer, column: expression.column, expression: expression.expression }
+    }
+  }
+
+  if (ownRules || foreignRules) {
+    let rules: LayerStyle['renderer']
+    try {
+      rules = ownRules ? (JSON.parse(ownRules) as LayerStyle['renderer']) : rulesFromQgis(renderer, notes)
+    } catch {
+      rules = rulesFromQgis(renderer, notes)
+    }
+    if (rules?.kind === 'rules' && rules.rules.length === 0 && foreignRules) {
+      // Nothing readable: a rules style of "Everything else" only would hide the data's look.
+      notes.length = 0
+      notes.push('This QML RuleRenderer has no rules that could be imported; its first symbol was imported as a single symbol.')
+    } else {
+      style.renderer = rules
+      // The first rule's symbol carries a rule color, not the single symbol's.
+      delete style.fillColor
+      if (cls === 'SimpleLine') delete style.strokeColor
     }
   }
 

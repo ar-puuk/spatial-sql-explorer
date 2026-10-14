@@ -121,10 +121,30 @@ async function captureVsCode() {
       await win.keyboard.type(file)
       await win.waitForTimeout(600)
       await win.keyboard.press('Enter')
+      // Formats with "option" priority open as text: reopen them in the viewer, as a user would.
+      if (/\.(geojson|json|csv|xlsx|parquet)$/i.test(file)) {
+        await win.waitForTimeout(1500)
+        await win.keyboard.press('Control+Shift+P')
+        await win.keyboard.type('Spatial Explorer: Open in Spatial Explorer')
+        await win.waitForTimeout(600)
+        await win.keyboard.press('Enter')
+      }
 
-      const view = win.frameLocator('iframe.webview').frameLocator('iframe')
-      // Wait for real rendered data, not a fixed delay.
-      await view.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 90000 })
+      const view = win.frameLocator('iframe.webview:visible').frameLocator('iframe')
+      // A file over the whole-read threshold is announced first (spec 007/010): read it.
+      const announce = view.getByRole('dialog', { name: 'Read the whole file?' })
+      await announce.waitFor({ state: 'visible', timeout: 8000 }).then(
+        () => announce.getByRole('button', { name: 'Open' }).click(),
+        () => {}
+      )
+      // Wait for real rendered data, not a fixed delay. On a timeout, keep what the window showed.
+      await view
+        .locator('.canvas-host[data-rendered-features]')
+        .waitFor({ state: 'attached', timeout: 240000 })
+        .catch(async (err) => {
+          await shot(win, `vscode-${slug(theme)}-timeout`)
+          throw err
+        })
       await win.waitForTimeout(1500)
       const name = `vscode-${slug(theme)}`
       await shot(win, `${name}-loaded`)
@@ -134,33 +154,37 @@ async function captureVsCode() {
         await win.waitForTimeout(1200)
       })
       await step('style panel', async () => {
-        await view.getByRole('button', { name: 'Layer style' }).click({ timeout: 5000 })
+        await view.getByRole('button', { name: 'Style', exact: true }).click({ timeout: 5000 })
         await win.waitForTimeout(500)
         await shot(win, `${name}-style`)
-        await view.getByRole('button', { name: 'Layer style' }).click({ timeout: 5000 })
       })
       await step('basemap picker', async () => {
-        await view.getByRole('button', { name: 'Basemap' }).click({ timeout: 3000 })
+        await view.getByRole('button', { name: 'Basemap', exact: true }).click({ timeout: 3000 })
         await win.waitForTimeout(500)
         await shot(win, `${name}-basemap`)
-        await view.getByRole('button', { name: 'Basemap' }).click({ timeout: 3000 })
+        await view.getByRole('button', { name: 'More basemaps…' }).click({ timeout: 3000 })
+        await win.waitForTimeout(2500)
+        await shot(win, `${name}-basemap-gallery`)
+        await win.keyboard.press('Escape')
+        await view.getByRole('button', { name: 'Basemap', exact: true }).click({ timeout: 3000 })
       })
       await step('inspect on map click', async () => {
-        const box = await win.locator('iframe.webview').boundingBox()
+        const box = await win.locator('iframe.webview:visible').boundingBox()
         await win.mouse.click(box.x + box.width / 2, box.y + box.height * 0.35)
         await win.waitForTimeout(800)
         await shot(win, `${name}-inspect`)
       })
       await step('open the query panel', async () => {
-        await win.keyboard.press('Escape')
-        await view.locator('.attribute-table table').focus()
-        await win.keyboard.press('Control+Shift+Q')
+        await view.getByRole('tab', { name: 'SQL' }).click({ timeout: 5000 })
+        await win.waitForTimeout(400)
+        await shot(win, `${name}-sql-tab`)
       })
       await queryScenes(view, win, name)
       await styleScenes(view, win, name)
       await exportScenes(view, win, name, async () => win.keyboard.press('Control+Alt+Shift+F12'))
+      await largeResultScene(view, win, name)
       await step('native status bar while hovering', async () => {
-        const box = await win.locator('iframe.webview').boundingBox()
+        const box = await win.locator('iframe.webview:visible').boundingBox()
         await win.mouse.move(box.x + box.width / 2 - 20, box.y + box.height * 0.3)
         await win.mouse.move(box.x + box.width / 2, box.y + box.height * 0.3)
         await win.waitForTimeout(600)
@@ -180,9 +204,15 @@ async function captureVsCode() {
  * large result: paged in the table, a thinned overview on the map. `ui` finds elements (the webview frame in VS Code), `win` types and
  * captures.
  */
+/** Spec 010: a result shows the Table tab; the editor is on the SQL tab. */
+async function showSql(ui) {
+  if (!(await ui.getByRole('textbox', { name: 'SQL query' }).isVisible())) await ui.getByRole('tab', { name: 'SQL' }).click()
+}
+
 async function queryScenes(ui, win, prefix) {
   const editor = ui.getByRole('textbox', { name: 'SQL query' })
   const replace = async (sql) => {
+    await showSql(ui)
     await editor.click()
     await win.keyboard.press('Control+A')
     // VS Code applies a webview's select-all asynchronously; let it land
@@ -195,7 +225,8 @@ async function queryScenes(ui, win, prefix) {
   await step('query panel with a result', async () => {
     await replace("SELECT name, round(ST_Area(geom)) AS area, geom\nFROM layer\nWHERE name LIKE 'S%'\nORDER BY area DESC")
     await win.keyboard.press('Control+Enter')
-    await ui.locator('.query-status').filter({ hasText: '✓' }).waitFor({ timeout: 30000 })
+    // The status is on the SQL tab, hidden once the result shows the Table tab.
+    await ui.locator('.query-status').filter({ hasText: '✓' }).waitFor({ state: 'attached', timeout: 30000 })
     await win.waitForTimeout(1200)
     await shot(win, `${prefix}-query`)
   })
@@ -216,19 +247,38 @@ async function queryScenes(ui, win, prefix) {
     await win.keyboard.press('Escape')
   })
   await step('history popover', async () => {
+    await showSql(ui)
     await ui.getByRole('button', { name: 'Query history' }).click()
     await ui.getByRole('listbox', { name: 'Query history' }).waitFor({ timeout: 5000 })
     await win.waitForTimeout(300)
     await shot(win, `${prefix}-query-history`)
     await win.keyboard.press('Escape')
   })
-  await step('large result: thinned overview', async () => {
-    await replace('SELECT a.* FROM layer a, range(400) b')
+}
+
+/**
+ * Spec 010: 72,000 detailed polygons drawn whole (GeoJSON mode). Last of the
+ * shared scenes: in software WebGL, buffer uploads stay slow for a while after
+ * it, and the style scenes' screenshots timed out behind them.
+ */
+async function largeResultScene(ui, win, prefix) {
+  const editor = ui.getByRole('textbox', { name: 'SQL query' })
+  await step('large result: drawn whole (spec 010 GeoJSON mode)', async () => {
+    const paints = ui.locator('.canvas-host')
+    const before = Number((await paints.getAttribute('data-paints')) ?? 0)
+    await showSql(ui)
+    await editor.click()
+    await win.keyboard.press('Control+A')
+    await win.waitForTimeout(250)
+    await win.keyboard.press('Delete')
+    await win.keyboard.insertText('SELECT a.* FROM layer a, range(400) b')
+    await win.keyboard.press('Escape')
     await win.keyboard.press('Control+Enter')
-    await ui.locator('.query-status').filter({ hasText: '72,000 rows' }).waitFor({ timeout: 60000 })
-    await ui.locator('.map-notice').filter({ hasText: 'Zoom in to see all' }).waitFor({ timeout: 30000 })
+    await ui.locator('.query-status').filter({ hasText: '72,000 rows' }).waitFor({ state: 'attached', timeout: 60000 })
+    const deadline = Date.now() + 120000
+    while (Number((await paints.getAttribute('data-paints')) ?? 0) <= before && Date.now() < deadline) await win.waitForTimeout(250)
     await win.waitForTimeout(1200)
-    await shot(win, `${prefix}-query-thinned`)
+    await shot(win, `${prefix}-query-large`)
   })
 }
 
@@ -240,6 +290,7 @@ async function queryScenes(ui, win, prefix) {
 async function styleScenes(ui, win, prefix) {
   const editor = ui.getByRole('textbox', { name: 'SQL query' })
   const run = async (sql) => {
+    await showSql(ui)
     await editor.click()
     await win.keyboard.press('Control+A')
     await win.waitForTimeout(250)
@@ -250,17 +301,20 @@ async function styleScenes(ui, win, prefix) {
     const status = ui.locator('.query-status')
     const before = await status.textContent()
     await win.keyboard.press('Control+Enter')
-    const deadline = Date.now() + 30000
+    // The same result can show the same text as before: "Running…" in between counts too.
+    const deadline = Date.now() + 60000
+    let sawRunning = false
     while (Date.now() < deadline) {
       const now = (await status.textContent()) ?? ''
-      if (now !== before && now.includes('✓')) return
-      await win.waitForTimeout(100)
+      if (now.includes('Running')) sawRunning = true
+      if ((now !== before || sawRunning) && now.includes('✓')) return
+      await win.waitForTimeout(50)
     }
     throw new Error(`query did not finish: ${sql}`)
   }
   await step('style: categorized with legend', async () => {
     await run('SELECT *, round(ST_Area(geom), 1) AS area FROM layer')
-    await ui.getByRole('button', { name: 'Layer style' }).click()
+    if (!(await ui.getByRole('region', { name: 'Layer style' }).isVisible())) await ui.getByRole('button', { name: 'Style', exact: true }).click()
     await ui.getByRole('radio', { name: 'Categorized' }).click()
     await ui.getByLabel('Column').selectOption('name')
     await win.waitForTimeout(1200)
@@ -308,7 +362,7 @@ async function exportScenes(ui, win, prefix, beforeSave) {
     await shot(win, `${prefix}-export`)
   })
   await step('export: done with notices', async () => {
-    await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await dialog.getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     await beforeSave()
     if (prefix.startsWith('web')) {
       await Promise.all([win.waitForEvent('download', { timeout: 30000 }), dialog.getByRole('button', { name: 'Export…' }).click()])
@@ -321,6 +375,7 @@ async function exportScenes(ui, win, prefix, beforeSave) {
     await dialog.getByRole('button', { name: 'Done' }).click()
   })
   await step('export: a large result', async () => {
+    await showSql(ui)
     await editor.click()
     await win.keyboard.press('Control+A')
     await win.waitForTimeout(250)
@@ -328,14 +383,14 @@ async function exportScenes(ui, win, prefix, beforeSave) {
     await win.keyboard.insertText('SELECT a.name, ST_Centroid(a.geom) AS geom FROM layer a, range(10000) b LIMIT 1000000')
     await win.keyboard.press('Escape')
     await win.keyboard.press('Control+Enter')
-    await ui.locator('.query-status').filter({ hasText: '1,000,000 rows' }).waitFor({ timeout: 60000 })
+    await ui.locator('.query-status').filter({ hasText: '1,000,000 rows' }).waitFor({ state: 'attached', timeout: 60000 })
     await ui.getByRole('button', { name: 'Export data…' }).click()
     await dialog.waitFor({ timeout: 5000 })
     await win.waitForTimeout(400)
     await shot(win, `${prefix}-export-large`)
   })
   await step('export: running progress', async () => {
-    await dialog.getByRole('radio', { name: 'GeoJSON', exact: true }).click()
+    await dialog.getByLabel('Format', { exact: true }).selectOption({ label: 'GeoJSON' })
     await dialog.getByRole('button', { name: 'Export…' }).click()
     await dialog.getByRole('status').filter({ hasText: /rows written/ }).waitFor({ timeout: 30000 })
     await shot(win, `${prefix}-export-progress`)
@@ -368,11 +423,12 @@ async function largeScenesWeb(browser, base, scheme) {
       await page.waitForTimeout(1300)
       await shot(page, `${prefix}-open-progress`)
     })
-    await step('thinned overview', async () => {
-      await open('?e2e=1&cap=1000', 'parcels-10k.parquet')
-      await page.locator('.map-notice').filter({ hasText: 'Zoom in to see all' }).waitFor({ timeout: 60000 })
-      await page.waitForTimeout(1200)
-      await shot(page, `${prefix}-overview`)
+    await step('tiles mode', async () => {
+      await open('?e2e=1&tileRows=1000', 'parcels-10k.parquet')
+      await page.locator('.status-bar').getByRole('button', { name: 'Load all' }).waitFor({ timeout: 60000 })
+      await page.locator('.canvas-host[data-paints]').waitFor({ state: 'attached', timeout: 60000 })
+      await page.waitForTimeout(2500)
+      await shot(page, `${prefix}-tiles`)
     })
     await step('a city', async () => {
       await hook('jumpTo', -112.6, 37.4, 12)
@@ -401,11 +457,12 @@ async function largeScenesWeb(browser, base, scheme) {
       await page.waitForTimeout(400)
       await shot(page, `${prefix}-pmtiles`)
     })
-    await step('FlatGeobuf: load the whole file', async () => {
-      await open('?e2e=1&wholeThreshold=1&cap=1000', 'parcels-10k.fgb')
-      await page.getByRole('button', { name: 'Load' }).first().waitFor({ timeout: 60000 })
+    await step('tiles mode: Load all', async () => {
+      await open('?e2e=1&tileRows=1000', 'parcels-10k.parquet')
+      await page.locator('.status-bar').getByRole('button', { name: 'Load all' }).click({ timeout: 60000 })
+      await page.locator('.status-bar').filter({ hasText: /All drawn/ }).waitFor({ timeout: 60000 })
       await page.waitForTimeout(1500)
-      await shot(page, `${prefix}-fgb-load`)
+      await shot(page, `${prefix}-load-all`)
     })
   } finally {
     await page.close()
@@ -475,16 +532,19 @@ async function captureWeb() {
         await page.waitForTimeout(1200)
       })
       await step('style panel', async () => {
-        await page.getByRole('button', { name: 'Layer style' }).click()
+        await page.getByRole('button', { name: 'Style', exact: true }).click()
         await page.waitForTimeout(400)
         await shot(page, `web-${scheme}-style`)
-        await page.getByRole('button', { name: 'Layer style' }).click()
       })
       await step('basemap picker', async () => {
-        await page.getByRole('button', { name: 'Basemap' }).click({ timeout: 3000 })
+        await page.getByRole('button', { name: 'Basemap', exact: true }).click({ timeout: 3000 })
         await page.waitForTimeout(400)
         await shot(page, `web-${scheme}-basemap`)
-        await page.getByRole('button', { name: 'Basemap' }).click({ timeout: 3000 })
+        await page.getByRole('button', { name: 'More basemaps…' }).click({ timeout: 3000 })
+        await page.waitForTimeout(2500)
+        await shot(page, `web-${scheme}-basemap-gallery`)
+        await page.keyboard.press('Escape')
+        await page.getByRole('button', { name: 'Basemap', exact: true }).click({ timeout: 3000 })
       })
       await step('inspect on map click', async () => {
         const box = await page.locator('.canvas-host').boundingBox()
@@ -494,10 +554,13 @@ async function captureWeb() {
       })
       await step('open the query panel', async () => {
         await page.keyboard.press('Control+Shift+Q')
+        await page.waitForTimeout(400)
+        await shot(page, `web-${scheme}-sql-tab`)
       })
       await queryScenes(page, page, `web-${scheme}`)
       await styleScenes(page, page, `web-${scheme}`)
       await exportScenes(page, page, `web-${scheme}`, async () => {})
+      await largeResultScene(page, page, `web-${scheme}`)
       await page.close()
       await largeScenesWeb(browser, `http://localhost:${port}`, scheme)
     }

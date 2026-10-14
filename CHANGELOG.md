@@ -9,6 +9,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-13
+
+### Added
+
+- **Rule-based styling** (spec 010).
+  - Color features by SQL conditions, such as `continent = 'Africa'` or
+    `pop_est > 1e8`. The first rule a feature matches colors it; the rest are
+    "Everything else". Each rule shows its feature count and can be hidden,
+    relabeled or moved up and down.
+  - A first rules style starts with two examples taken from the data.
+  - A condition that can't be used says why under its field (for example,
+    `No column "nope" in this layer. Closest: …`) and matches nothing; the
+    rest of the map still draws.
+  - Saved to QML as QGIS's rule-based renderer, which QGIS draws the same
+    (first match included), and reopens here as rules. Rule-based styles made
+    in QGIS open as rules. SLD and Mapbox GL keep the rules when every
+    condition is a simple comparison.
+- **Graduated by expression** (spec 010): classify a SQL expression, such as
+  `gdp_md * 1e6 / pop_est`, instead of a column ("Expression…" in the Column
+  list), with its value distribution. Saved to QML as the class attribute.
+- **SQL across files** (spec 010).
+  - VS Code: a query reads other files in the workspace by their path from
+    the workspace root, for example `ST_Read('data/links.shp')` joined with
+    `layer`; the result is drawn.
+  - Web: add files (SQL tab, Add files… or drop them) and read them by name.
+  - The Files list beside the SQL editor inserts a file's reader call, and
+    paths are suggested inside quotes.
+- **One search box** on the map (spec 010) for values in the layer (one
+  result per value, with its count; choosing it selects and zooms to the
+  feature), coordinates (`-111.9, 40.7`, or `40.7, -111.9` pasted from a web
+  map), and places (still sent only when you ask, after the one-time notice).
+- **More basemaps** (spec 010): a gallery of 129 basemaps from 26 providers,
+  grouped by provider, with previews and a search. Keyless CARTO GL and
+  VersaTiles vector styles. Keyed providers (MapTiler, Stadia, Protomaps,
+  CARTO, Google, Mapbox, Amazon and others) ask for a key, kept in VS Code's
+  secret storage or the browser.
+- **Load all**: a big result drawn from tiles can be loaded whole (status
+  bar), for exact rendering at every zoom.
+- **Excel input**: `.xlsx` files open like a CSV with coordinates.
+
+### Changed
+
+- **Faster maps** (spec 010).
+  - Results under 100,000 rows are read once and drawn from memory: panning
+    and zooming do no engine work. Bigger results are drawn from vector tiles
+    the engine builds as they come into view. Spec 007's re-query on every pan
+    is gone.
+  - Lines and polygons too small to see at the current zoom are drawn as
+    dots instead of disappearing.
+  - At 6× CPU slowdown, 5 pans over 10,000 parcels show no long task.
+- **New layout** (spec 010): an activity rail opens a side panel (Style,
+  Details, Basemap); the table and SQL are tabs of a bottom panel that can be
+  maximized or hidden; the layout is remembered.
+- **FlatGeobuf is read whole** into the engine, like GeoJSON (big files are
+  announced first), instead of in parts.
+- The map can always be tilted and rotated (right-drag), so a basemap's own
+  3D buildings show. Reset view flattens it.
+- Switching basemaps never reloads the data.
+- GeoPackage and SQLite are read by the engine (sqlite_scanner); feature ids
+  are the file's own.
+- The SQL engine is DuckDB 1.5.6 (DuckDB-WASM 1.33.1-dev65).
+
+### Removed
+
+- The separate place search button and popover (the search box covers it).
+
 ## [0.2.0] - 2026-10-12
 
 ### Added

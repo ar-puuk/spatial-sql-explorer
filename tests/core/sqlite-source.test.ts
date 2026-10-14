@@ -47,14 +47,12 @@ describe('layer readers', () => {
     expect(stReadSql('/se-source/a.gpkg', 'zones')).toBe(`ST_Read('/se-source/a.gpkg', layer := 'zones')`)
   })
   it('a plain read is the reader itself', () => {
-    expect(layerReadSql({ reader, key: null, decodeGeometry: null })).toBe(reader)
-  })
-  it('the restored key comes first, joined by position', () => {
-    expect(layerReadSql({ reader, key: { column: 'n', table: '__se_key_0' }, decodeGeometry: null })).toBe(`(SELECT k.k AS "n", r.* FROM __se_key_0 k POSITIONAL JOIN ${reader} r)`)
+    expect(layerReadSql({ reader, decodeGeometry: null })).toBe(reader)
   })
   it('a GeoPackage blob is decoded in place of the raw column', () => {
-    const sql = layerReadSql({ reader, key: { column: 'fid', table: '__se_key_1' }, decodeGeometry: 'geom' })
-    expect(sql).toContain('k.k AS "fid", r.* EXCLUDE ("geom"), TRY(ST_GeomFromWKB(')
-    expect(sql).toContain(') AS "geom" FROM __se_key_1 k POSITIONAL JOIN ')
+    // The engine reads the feature id itself (spec 010 S5): no key to join.
+    const sql = layerReadSql({ reader, decodeGeometry: 'geom' })
+    expect(sql).toContain('(SELECT r.* EXCLUDE ("geom"), TRY(ST_GeomFromWKB(')
+    expect(sql).toContain(`) AS "geom" FROM ${reader} r)`)
   })
 })

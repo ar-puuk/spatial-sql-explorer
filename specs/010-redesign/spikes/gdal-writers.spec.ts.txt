@@ -1,0 +1,43 @@
+// SPIKE (spec 010 S7): GDAL COPY writers on DuckDB 1.5.6, re-run of spec 008's spike. Temporary.
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fixture, openFile } from './helpers'
+
+const E = (page: Page) => (window: any) => window.__spatialExplorerE2E.spike010
+const run = (page: Page, sql: string) =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).then((r: any) => ({ rows: r.rows })).catch((e: Error) => ({ error: e.message.slice(0, 200) })), sql)
+const fileB64 = (page: Page, p: string) =>
+  page.evaluate((x) => (window as any).__spatialExplorerE2E.spike010.file(x).catch((e: Error) => 'ERR ' + e.message.slice(0, 120)), p)
+void E
+
+const drivers: Array<[string, string, string]> = [
+  ['GPKG', 'gpkg', "LAYER_CREATION_OPTIONS ('SPATIAL_INDEX=NO')"],
+  ['FlatGeobuf', 'fgb', "LAYER_CREATION_OPTIONS ('SPATIAL_INDEX=NO')"],
+  ['ESRI Shapefile', 'shp', "LAYER_CREATION_OPTIONS ('ENCODING=UTF-8')"],
+  ['KML', 'kml', ''],
+  ['GeoJSONSeq', 'geojsonl', ''],
+  ['GeoJSON', 'geojson', ''],
+]
+
+test('S7: GDAL writers', async ({ page }) => {
+  test.setTimeout(600000)
+  const out = process.env.SPIKE_OUT
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  console.log('S7 tbl', JSON.stringify(await run(page, `CREATE OR REPLACE TEMP TABLE s7 AS SELECT i AS id, 'name ' || i AS name, (i * 1.5)::DOUBLE AS v, ST_Buffer(ST_Point(-111.9 + i * 0.01, 40.7), 0.004) AS geom FROM range(20) r(i)`)))
+  let n = 0
+  for (const [driver, ext, lco] of drivers) {
+    for (const variant of ['plain', 'registered', 'vsimem']) {
+      const target = variant === 'vsimem' ? `/vsimem/s7-${++n}.${ext}` : `/se-source/__se_export-s7-${++n}.${ext}`
+      if (variant === 'registered') await page.evaluate((p) => (window as any).__spatialExplorerE2E.spike010.register(p, ''), target)
+      const opts = ['FORMAT GDAL', `DRIVER '${driver}'`, ...(lco ? [lco] : []), "LAYER_NAME 's7'", "SRS 'EPSG:4326'"]
+      const w = await run(page, `COPY s7 TO '${target}' (${opts.join(', ')})`)
+      const back = 'error' in w ? null : await run(page, `SELECT count(*) AS n, list(DISTINCT ST_GeometryType(geom)::VARCHAR) AS t FROM ST_Read('${target}')`)
+      const crs = 'error' in w ? null : await run(page, `SELECT layers[1].geometry_fields[1].crs.auth_code AS code FROM ST_Read_Meta('${target}')`)
+      const b64 = 'error' in w ? '' : await fileB64(page, target)
+      const bytes = b64.startsWith('ERR') ? b64 : Buffer.from(b64, 'base64').length
+      if (out && typeof bytes === 'number' && bytes > 0) fs.writeFileSync(path.join(out, `s7-${variant}.${ext}`), Buffer.from(b64, 'base64'))
+      console.log('S7', driver, variant, JSON.stringify({ write: 'error' in w ? w.error : 'ok', back: back && ('error' in back ? back.error : back.rows[0]), crs: crs && ('error' in crs ? crs.error : crs.rows[0]?.code), bytesOut: bytes }))
+    }
+  }
+})

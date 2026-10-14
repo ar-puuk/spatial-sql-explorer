@@ -1,0 +1,30 @@
+// SPIKE (spec 010, engine upgrade): why our GeoParquet doesn't read back in 1.5.6. Temporary.
+import { test } from '@playwright/test'
+import { fixture, openFile } from './helpers'
+
+test('geoparquet read-back variants', async ({ page }) => {
+  await openFile(page, fixture('sample.parquet'), '?e2e=1')
+  const run = (sql: string) => page.evaluate((s) => (window as any).__spatialExplorerE2E.runRaw(s).then((r: unknown) => JSON.stringify(r, (_k, v) => (typeof v === 'bigint' ? Number(v) : v)).slice(0, 300)).catch((e: Error) => 'ERR ' + e.message.slice(0, 120)), sql)
+  const col = { encoding: 'WKB', geometry_types: ['Point'] }
+  const variants: Record<string, object> = {
+    noCrs: { version: '1.1.0', primary_column: 'geom', columns: { geom: col } },
+    crsNull: { version: '1.1.0', primary_column: 'geom', columns: { geom: { ...col, crs: null } } },
+    crs4326id: { version: '1.1.0', primary_column: 'geom', columns: { geom: { ...col, crs: { type: 'GeographicCRS', name: 'WGS 84', id: { authority: 'EPSG', code: 4326 } } } } },
+    crsCrs84id: { version: '1.1.0', primary_column: 'geom', columns: { geom: { ...col, crs: { type: 'GeographicCRS', name: 'WGS 84 (CRS84)', id: { authority: 'OGC', code: 'CRS84' } } } } },
+    noVersion: { primary_column: 'geom', columns: { geom: col } },
+  }
+  let i = 10
+  for (const [name, g] of Object.entries(variants)) {
+    const p = `/se-source/__se_export-spk${++i}.parquet`
+    const kv = JSON.stringify(g).replace(/'/g, "''")
+    await run(`COPY (SELECT 1 AS id, ST_AsWKB(ST_Point(0.5, 0.5)) AS geom) TO '${p}' (FORMAT PARQUET, GEOPARQUET_VERSION 'NONE', KV_METADATA {geo: '${kv}'})`)
+    console.log(name, await run(`SELECT count(*) AS n, any_value(typeof(geom)) AS t FROM read_parquet('${p}')`))
+  }
+  for (const v of ['V1', 'V2', 'BOTH']) {
+    const p = `/se-source/__se_export-spk${++i}.parquet`
+    console.log('native', v, await run(`COPY (SELECT 1 AS id, ST_Point(0.5, 0.5) AS geom) TO '${p}' (FORMAT PARQUET, GEOPARQUET_VERSION '${v}')`), await run(`SELECT count(*) AS n, any_value(typeof(geom)) AS t FROM read_parquet('${p}')`))
+  }
+  const p = `/se-source/__se_export-spk${++i}.parquet`
+  await run(`COPY (SELECT 1 AS id, ST_SetCRS(ST_Point(0.5, 0.5), 'EPSG:4326') AS geom) TO '${p}' (FORMAT PARQUET)`)
+  console.log('native 4326', await run(`SELECT count(*) AS n, any_value(typeof(geom)) AS t FROM read_parquet('${p}')`))
+})

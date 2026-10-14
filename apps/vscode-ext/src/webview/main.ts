@@ -93,6 +93,9 @@ async function main(): Promise<void> {
       // Test-only (spec 007 T031): move the camera; the map then loads that view.
       const m = event.data as { lon: number; lat: number; zoom: number }
       store.jumpTo([m.lon, m.lat], m.zoom)
+    } else if (msg.type === 'loadAll') {
+      // Spec 010: the status bar's Load all.
+      store.loadAll()
     } else if (msg.type === 'openExport') {
       store.openExport()
     } else if (msg.type === 'testRunExport') {
@@ -153,10 +156,11 @@ async function main(): Promise<void> {
     for (let i = 0; i < 40; i++) {
       const canvas = document.querySelector('.maplibregl-canvas')
       const rendered = (document.querySelector('.canvas-host') as HTMLElement | null)?.dataset.renderedFeatures
-      if (canvas && rendered !== undefined) {
+      // The rendered count is published with test hooks only (MapView); without them the canvas is enough.
+      if (canvas && (rendered !== undefined || document.documentElement.dataset.seTestHooks === undefined)) {
         const rect = canvas.getBoundingClientRect()
         mapCanvasRect = { width: rect.width, height: rect.height }
-        renderedFeatureCount = Number(rendered)
+        renderedFeatureCount = rendered === undefined ? null : Number(rendered)
         break
       }
       await new Promise((resolve) => setTimeout(resolve, 250))

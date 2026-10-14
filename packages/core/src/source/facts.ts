@@ -10,10 +10,14 @@ import { quoteIdent, singleRow } from '../query/util.js'
 
 const literal = (s: string): string => `'${s.replace(/'/g, "''")}'`
 
-/** `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`. */
+/**
+ * `EPSG:<code>` from a DuckDB GEOMETRY type (`GEOMETRY('EPSG:4326')`) or a PROJJSON `id`.
+ * OGC:CRS84 (WGS84 lon/lat, which DuckDB 1.5 types GeoParquet's default CRS as) is 4326 here.
+ */
 export function epsgFrom(text: string | null | undefined): number | null {
   const m = /EPSG[:"\s,]*(?:code"?\s*:\s*)?(\d{4,6})/i.exec(text ?? '')
-  return m ? Number(m[1]) : null
+  if (m) return Number(m[1])
+  return /\bCRS:?84\b|"code"\s*:\s*"CRS84"/i.test(text ?? '') ? 4326 : null
 }
 
 export interface ParquetFacts {
@@ -113,33 +117,6 @@ export async function parquetFacts(conn: AsyncDuckDBConnection, path: string, is
     sourceExtent,
     geometryTypes: (meta?.geometry_types ?? []).map((t) => t.replace(/\s*Z$/i, '')),
   }
-}
-
-export interface FlatGeobufFacts {
-  rows: number
-  srid: number | null
-  geometryType: string
-  /** Every column ST_Read exposes (including GDAL's OGC_FID, the stable feature id). */
-  columns: Array<{ name: string; type: string }>
-}
-
-/** Count, CRS and geometry type from the header via ST_Read_Meta; the extent comes from parseFgbHeader. */
-export async function flatGeobufFacts(conn: AsyncDuckDBConnection, path: string, isCancelled: () => boolean): Promise<FlatGeobufFacts> {
-  const p = literal(path)
-  const m = await singleRow<{ n: bigint | number | null; gtype: string | null; auth_name: string | null; auth_code: string | null }>(
-    conn,
-    `SELECT layers[1].feature_count AS n, layers[1].geometry_fields[1].type AS gtype,
-            layers[1].geometry_fields[1].crs.auth_name AS auth_name, layers[1].geometry_fields[1].crs.auth_code AS auth_code
-     FROM ST_Read_Meta(${p})`,
-    isCancelled
-  )
-  const described = await conn.query(`DESCRIBE SELECT * FROM ST_Read(${p})`)
-  const columns = described.toArray().map((r) => {
-    const j = r.toJSON() as { column_name: string; column_type: string }
-    return { name: String(j.column_name), type: String(j.column_type) }
-  })
-  const code = m.auth_name === 'EPSG' && m.auth_code ? Number(m.auth_code) : NaN
-  return { rows: Number(m.n ?? 0), srid: Number.isFinite(code) ? code : null, geometryType: m.gtype ?? 'Unknown', columns }
 }
 
 /** A source-CRS extent as WGS84 (envelope corners reprojected by the engine). */

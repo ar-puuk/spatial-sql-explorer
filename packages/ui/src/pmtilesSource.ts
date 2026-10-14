@@ -80,7 +80,6 @@ export async function openTilesArchive(ref: OpenedFileRef, hostAdapter: HostAdap
     readMode: 'tiles',
     spatialIndex: 'file',
     fallback: null,
-    needsLoad: false,
     tiles: { minZoom: header.minZoom, maxZoom: header.maxZoom, layers },
   }
   const layer: Layer = {

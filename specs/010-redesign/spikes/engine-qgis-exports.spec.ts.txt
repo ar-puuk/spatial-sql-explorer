@@ -1,0 +1,18 @@
+// SPIKE (spec 010 phase 1b): every spatial export of two reference files, saved for tests/qgis/read_back.py. Temporary.
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { exportVia, fixture, openFile } from './helpers'
+
+const OUT = process.env.SPIKE_OUT ?? '.'
+for (const [file, crs] of [['world-boundaries.geojson', 'result'], ['usa-utm12n.gpkg', 'result']] as const) {
+  test(`exports of ${file}`, async ({ page }) => {
+    test.setTimeout(240000)
+    await openFile(page, fixture(file))
+    for (const format of ['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf', 'Shapefile (zip)', 'KML', 'GeoJSON (newline-delimited)', 'CSV']) {
+      const wgs = ['GeoJSON', 'KML', 'GeoJSON (newline-delimited)'].includes(format)
+      const { name, bytes } = await exportVia(page, { format, ...(wgs ? {} : { crs }) })
+      fs.writeFileSync(path.join(OUT, `${path.parse(file).name}--${name}`), bytes)
+    }
+  })
+}

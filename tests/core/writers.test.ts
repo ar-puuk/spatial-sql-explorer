@@ -1,26 +1,22 @@
-// T048 (spec 008 US4, research §3): the JS export writers, read back with
-// their formats' own readers in Node (flatgeobuf, sql.js, unzip). The engine
+// T048 (spec 008 US4, research §3): the JS export writers (spec 010: GeoJSON,
+// KML, Shapefile and GeoPackage; the engine writes the rest), read back in Node. The engine
 // and QGIS read-backs are in tests/web/specs/export-formats.spec.ts and
 // tests/qgis/read_back.py.
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { unzipSync, strFromU8 } from 'fflate'
-import { geojson as fgb } from 'flatgeobuf'
 import initSqlJs from 'sql.js'
 import type { Geometry } from 'geojson'
 import {
-  columnLetters,
   dbfFieldNames,
   dbfRenames,
-  flatGeobufWriter,
   geoPackageWriter,
   gpkgGeometry,
   kmlWriter,
   shapefileWriter,
   toWkb,
   writerColumnsOf,
-  xlsxWriter,
   type RowWriter,
 } from '@spatial-explorer/core'
 
@@ -59,9 +55,6 @@ describe('helpers', () => {
     expect(dbfFieldNames(['a very long column name', 'a very long column name 2', 'Ünïcode', 'ok'])).toEqual(['a_very_lon', 'a_very_l_1', 'Unicode', 'ok'])
     expect(dbfRenames(['short', 'a very long column name'])).toEqual([{ from: 'a very long column name', to: 'a_very_lon' }])
   })
-  it('spreadsheet column letters', () => {
-    expect([0, 25, 26, 701, 702].map(columnLetters)).toEqual(['A', 'Z', 'AA', 'ZZ', 'AAA'])
-  })
   it('WKB of a point, little endian', () => {
     const b = toWkb({ type: 'Point', coordinates: [1, 2] })
     const v = new DataView(b.buffer)
@@ -85,23 +78,6 @@ describe('KML', () => {
     expect(kml).toContain('<outerBoundaryIs><LinearRing><coordinates>0,0 4,0 4,4 0,4 0,0</coordinates></LinearRing></outerBoundaryIs><innerBoundaryIs>')
     expect(kml).toContain('<MultiGeometry><Polygon>')
     expect(kml.trim().endsWith('</Document></kml>')).toBe(true)
-  })
-})
-
-describe('FlatGeobuf', () => {
-  it('reads back with the flatgeobuf library: count, properties, geometry, CRS', async () => {
-    const bytes = await write(flatGeobufWriter(columns, 26912))
-    expect([...bytes.slice(0, 3)]).toEqual([0x66, 0x67, 0x62])
-    let header: { crs: { code: number } | null; featuresCount: number } | null = null
-    const features = []
-    for await (const f of fgb.deserialize(bytes, { headerMetaFn: (h) => (header = h as unknown as typeof header) })) features.push(f)
-    expect(features).toHaveLength(3)
-    expect(header!.featuresCount).toBe(3)
-    expect(header!.crs?.code).toBe(26912)
-    expect(features[0].properties).toMatchObject({ name: 'Alpha & <Co>', area: 1.5, open: true, founded: '2020-05-01' })
-    expect(features[0].geometry.type).toBe('Polygon')
-    expect((features[0].geometry as { coordinates: number[][][] }).coordinates).toHaveLength(2)
-    expect(features[1].geometry.type).toBe('MultiPolygon')
   })
 })
 
@@ -138,21 +114,6 @@ describe('Shapefile (zip)', () => {
     w.add({ values: rows[0].values, geometry: square })
     const files = unzipSync(await w.finish())
     expect(Object.keys(files).filter((n) => n.endsWith('.shp')).sort()).toEqual(['mixed_points.shp', 'mixed_polygons.shp'])
-  })
-})
-
-describe('Excel workbook', () => {
-  it('a valid package: header row, inline strings, numbers, booleans', async () => {
-    const files = unzipSync(await write(xlsxWriter(columns)))
-    expect(Object.keys(files).sort()).toEqual(['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'])
-    const sheet = strFromU8(files['xl/worksheets/sheet1.xml'])
-    expect(sheet.match(/<row /g)).toHaveLength(4)
-    expect(sheet).toContain('<c r="A1" t="inlineStr"><is><t xml:space="preserve">name</t></is></c>')
-    expect(sheet).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Alpha &amp; &lt;Co&gt;</t></is></c>')
-    expect(sheet).toContain('<c r="B2"><v>12</v></c>')
-    expect(sheet).toContain('<c r="D2" t="b"><v>1</v></c>')
-    // A big integer beyond 2^53 stays exact, as text.
-    expect(sheet).toContain('<c r="B3" t="inlineStr"><is><t xml:space="preserve">9007199254740993</t></is></c>')
   })
 })
 

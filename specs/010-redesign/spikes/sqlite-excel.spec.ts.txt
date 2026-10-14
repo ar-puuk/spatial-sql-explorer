@@ -1,0 +1,45 @@
+// SPIKE (spec 010 S8/S9): sqlite_scanner on registered files; excel extension writing and reading xlsx. Temporary.
+import { test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fixture, openFile } from './helpers'
+
+const run = (page: Page, sql: string) =>
+  page.evaluate((s) => (window as any).__spatialExplorerE2E.spike010.run(s).then((r: any) => JSON.stringify(r.rows).slice(0, 300)).catch((e: Error) => 'ERROR ' + e.message.slice(0, 700)), sql)
+const reg = (page: Page, p: string, file: string) =>
+  page.evaluate(([x, b]) => (window as any).__spatialExplorerE2E.spike010.register(x, b), [p, fs.readFileSync(file).toString('base64')] as const)
+
+test('S8/S9', async ({ page }) => {
+  test.setTimeout(240000)
+  const out = process.env.SPIKE_OUT ?? '.'
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  console.log('ext', await run(page, "SELECT list(extension_name) AS e FROM duckdb_extensions() WHERE loaded"))
+  await reg(page, '/se-source/s8/cube-network.sqlite', fixture('cube-network.sqlite'))
+  await reg(page, '/se-source/s8/sample.gpkg', fixture('sample.gpkg'))
+  await reg(page, '/se-source/s8/gapped-ids.gpkg', fixture('gapped-ids.gpkg'))
+  if (process.env.S8_JOURNAL) for (const n of ['cube-network.sqlite', 'sample.gpkg', 'gapped-ids.gpkg']) await page.evaluate((p) => (window as any).__spatialExplorerE2E.spike010.register(p, ''), `/se-source/s8/${n}-journal`)
+  for (const sql of [
+    "SELECT * FROM sqlite_scan('/se-source/s8/cube-network.sqlite', 'cubedb__BY__transit_mode')",
+    "SELECT name, type FROM sqlite_scan('/se-source/s8/cube-network.sqlite', 'sqlite_master')",
+    "SELECT count(*) AS n, min(fid) AS lo, max(fid) AS hi FROM sqlite_scan('/se-source/s8/sample.gpkg', 'sample')",
+    "SELECT list(fid) AS ids FROM sqlite_scan('/se-source/s8/gapped-ids.gpkg', 'zones')",
+    "SELECT list(n) AS ids FROM sqlite_scan('/se-source/s8/cube-network.sqlite', 'cubedb__BY__node')",
+    "ATTACH '/se-source/s8/cube-network.sqlite' AS g (TYPE sqlite, READ_ONLY)",
+    "SELECT table_name FROM duckdb_tables() WHERE database_name = 'g'",
+    "SELECT * FROM g.cubedb__BY__transit_mode",
+    "SELECT count(*) FROM sqlite_scan('/etc/passwd', 'x')",
+  ]) console.log('S8', sql.slice(0, 90), '=>', await run(page, sql))
+
+  // S9: write xlsx, read the bytes back out; read an xlsx made by openpyxl.
+  const target = '/se-source/__se_export-s9.xlsx'
+  console.log('S9 write', await run(page, `COPY (SELECT name, round(ST_Area(geom), 4) AS area FROM layer ORDER BY name LIMIT 180) TO '${target}' (FORMAT xlsx, HEADER true)`))
+  const b64 = await page.evaluate((p) => (window as any).__spatialExplorerE2E.spike010.file(p), target)
+  const bytes = Buffer.from(b64, 'base64')
+  fs.writeFileSync(path.join(out, 's9-export.xlsx'), bytes)
+  console.log('S9 bytes', bytes.length, 'head', JSON.stringify([...bytes.subarray(0, 6)]))
+  console.log('S9 read own', await run(page, `SELECT count(*) AS n FROM read_xlsx('${target}')`))
+  await reg(page, '/se-source/s9/places.xlsx', path.join(out, 'places.xlsx'))
+  console.log('S9 read openpyxl', await run(page, "SELECT * FROM read_xlsx('/se-source/s9/places.xlsx')"))
+  console.log('S9 points', await run(page, "SELECT name, ST_AsText(ST_Point(lon, lat)) AS g FROM read_xlsx('/se-source/s9/places.xlsx')"))
+  console.log('S9 describe', await run(page, "SELECT list(column_name || ' ' || column_type) AS c FROM (DESCRIBE SELECT * FROM read_xlsx('/se-source/s9/places.xlsx'))"))
+})

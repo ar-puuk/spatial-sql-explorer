@@ -1,7 +1,7 @@
 <script lang="ts" module>
   // Drawn once per page load: the landing page comes back after a cancelled
   // open, and must not redo this work then.
-  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'GML', 'PMTiles']
+  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'Excel', 'GML', 'PMTiles']
 
   // Fixed data colors (theme-independent, like every data ramp): a warm
   // sequential ramp in the brand's amber family.
@@ -206,7 +206,7 @@
         </article>
         <article>
           <header><span class="num">03</span>Style</header>
-          <p>Categorized, graduated and bivariate styles, sizes by a column, with a legend. Reads and writes QGIS QML.</p>
+          <p>Categorized, graduated, bivariate and rule-based styles, sizes by a column, with a legend. Reads and writes QGIS QML.</p>
           <div class="demo ramp" aria-hidden="true">
             <span class="bar">{#each RAMP as c (c)}<i style="background: {c}"></i>{/each}</span><span class="cap">Graduated · Jenks</span>
           </div>

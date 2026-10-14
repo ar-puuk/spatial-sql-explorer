@@ -42,6 +42,7 @@ const CASES: Array<{ file: string; viewType: string; features: number; crs: stri
   { file: 'usa-utm12n.parquet', viewType: 'spatialExplorer.editorOption', features: 1, crs: 'EPSG:26912', note: 'GeoParquet with a non-WGS84 CRS from its metadata' },
   { file: 'sample-wkb.parquet', viewType: 'spatialExplorer.editorOption', features: 179, crs: 'EPSG:4326 (WGS84)', assumed: true, note: 'plain Parquet, WKB BLOB, no CRS' },
   { file: 'multi-layer.gpkg', viewType: 'spatialExplorer.editor', features: 179, crs: 'EPSG:4326 (WGS84)', note: 'two layers listed (spec 008 US3); the first (countries) opens' },
+  { file: 'places.xlsx', viewType: 'spatialExplorer.editorOption', features: 3, crs: 'EPSG:4326 (WGS84)', assumed: true, note: 'Excel workbook with lon/lat columns (spec 010), opened like a CSV' },
 ]
 
 suite('SC-002: every supported format opens', () => {

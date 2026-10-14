@@ -18,6 +18,8 @@
   --se-bg-base: #fffbf2;
   --se-bg-panel: #f2ece0;
   --se-bg-elevated: #ffffff;
+  /* Links on the side panel's cream (spec 010): amber-800, AA there; the accent itself is not. */
+  --se-link: #92400e;
   --se-bg-hover: #fef3c7;
   --se-border: #e8dfc8;
 
@@ -53,7 +55,8 @@
 
   --se-map-bg: #f5efe3;
   --se-map-selection: #d97706;
-  --se-map-bottom-inset: 24px;
+  /* Spec 010: the status bar is a row under the panels, not over the map. */
+  --se-map-bottom-inset: 0px;
 
   --se-control-bg: rgba(255, 251, 242, 0.9);
   --se-control-border: #d4c5a9;
@@ -143,6 +146,7 @@
     --se-bg-base: #0e171e;
     --se-bg-panel: #131e28;
     --se-bg-elevated: #192430;
+    --se-link: #fbbf24;
     --se-bg-hover: #2d1c04;
     --se-border: #1e2e3c;
 
@@ -241,6 +245,7 @@
     --se-bg-base: #0e171e;
     --se-bg-panel: #131e28;
     --se-bg-elevated: #192430;
+    --se-link: #fbbf24;
     --se-bg-hover: #2d1c04;
     --se-border: #1e2e3c;
 

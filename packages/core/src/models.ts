@@ -5,9 +5,6 @@ export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed'
 
 export type Bbox = [minX: number, minY: number, maxX: number, maxY: number]
 
-/** Default cap on how many features are loaded/rendered per layer (FR-019). */
-export const DEFAULT_FEATURE_CAP = 1000
-
 export interface CrsInfo {
   /** Human-readable identifier for display (e.g. an EPSG code or WKT-derived name). */
   label: string
@@ -21,8 +18,6 @@ export interface Feature {
   /** Reprojected to EPSG:4326 for display. */
   geometry: GeoJSON.Geometry | null
   attributes: Record<string, string | number | boolean | null>
-  /** Spec 007: only the columns a map view needed; fetch by id for the full record. */
-  partialAttributes?: boolean
   /** PMTiles (US5): the archive layer the feature came from, shown by the inspector. */
   sourceLayer?: string
 }
@@ -80,7 +75,7 @@ export interface Layer {
 // --- Spec 007: large files and viewport loading ------------------------------------
 
 /** How the engine reaches a file (research §4). `tiles`: the map reads it, not the engine. */
-export type ReadModeKind = 'partial' | 'partial-view' | 'whole' | 'tiles'
+export type ReadModeKind = 'partial' | 'whole' | 'tiles'
 
 /** Where map views get feature bounding boxes. */
 export type SpatialIndexKind = 'covering' | 'built' | 'building' | 'file' | 'rtree' | 'none'
@@ -113,42 +108,8 @@ export interface DatasetFacts {
    * FlatGeobuf read in parts (T044): the map works, but queries, the table,
    * thematic styles and export wait until the user loads the whole file.
    */
-  needsLoad: boolean
   /** PMTiles (US5): the archive's zoom range and vector layers, from its header and metadata. */
   tiles?: { minZoom: number; maxZoom: number; layers: string[] }
-}
-
-/** A map view to load (data-model.md). `bbox` is WGS84. */
-export interface ViewRequest {
-  generation: number
-  bbox: Bbox
-  zoom: number
-  cap: number
-  /** The map canvas width in CSS pixels: features under ~2 px are sent as points so they stay visible. */
-  widthPx?: number
-  /**
-   * The attribute columns the map needs (the style's column), or undefined
-   * for all. Fewer columns read far less of a large file; features then
-   * carry `partialAttributes` and the inspector fetches the full record.
-   */
-  attrs?: string[]
-}
-
-export interface ViewFeatures {
-  generation: number
-  /** WGS84 geometry; `id` is the stable `__se_rowid`. */
-  features: Feature[]
-  /** Exact count of the result's mappable rows intersecting the view. */
-  inView: number
-  /** inView > cap: one feature per grid cell was drawn. */
-  thinned: boolean
-  /** FlatGeobuf read in parts: `inView` is a floor ("more than"), not an exact count. */
-  inViewAtLeast?: boolean
-  /** `inView` is estimated from a spatial index (FlatGeobuf in parts: ~16 features per index node). */
-  inViewEstimated?: boolean
-  /** A quick first view, replaced by the full one at once (no subset notice). */
-  preview?: boolean
-  ms: number
 }
 
 export interface TablePageRequest {

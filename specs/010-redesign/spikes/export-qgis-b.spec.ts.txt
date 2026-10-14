@@ -1,0 +1,17 @@
+// SPIKE (spec 010 Option B): engine-written FlatGeobuf and xlsx, saved for QGIS / openpyxl. Temporary.
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { exportDialog, exportVia, fixture, openFile } from './helpers'
+for (const file of ['world-boundaries.geojson', 'usa-utm12n.gpkg']) {
+  test(`fgb + xlsx of ${file}`, async ({ page }) => {
+    await openFile(page, fixture(file))
+    const fgb = await exportVia(page, { format: 'FlatGeobuf', crs: 'result' })
+    fs.writeFileSync(path.join(process.env.SPIKE_OUT!, `${path.parse(file).name}--${fgb.name}`), fgb.bytes)
+    await exportDialog(page).getByRole('button', { name: 'Done' }).click()
+    await page.getByRole('button', { name: 'Export data…' }).click()
+    await exportDialog(page).getByRole('switch', { name: 'Include geometry' }).click()
+    const x = await exportVia(page, { format: 'Excel workbook' })
+    fs.writeFileSync(path.join(process.env.SPIKE_OUT!, `${path.parse(file).name}--${x.name}`), x.bytes)
+  })
+}

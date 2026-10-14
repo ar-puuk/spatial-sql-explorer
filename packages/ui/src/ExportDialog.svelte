@@ -190,16 +190,15 @@
               resultSrid={plan.crs.resultSrid}
               extent={store.exportExtent}
               disabled={running || plan.crs.forced}
-              disabledLabel={plan.crs.forced ? `EPSG:4326 · WGS 84, required by ${EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? 'this format'}` : undefined}
-              describedBy="export-crs-status"
+              disabledLabel={plan.crs.forced ? 'EPSG:4326 · WGS 84' : undefined}
+              describedBy={plan.crs.forced ? undefined : 'export-crs-status'}
               invalid={check?.state === 'invalid'}
               valueName={check?.state === 'ok' ? check.name : null}
               onChoose={chooseCrs}
             />
           </div>
-          {#if plan.crs.forced}
-            <p class="hint" id="export-crs-status">{plan.crs.reason}</p>
-          {:else if request.crs === 'custom' && check}
+          <!-- A format that fixes the CRS just disables the picker (user request 2026-10-13: no explanation needed). -->
+          {#if !plan.crs.forced && request.crs === 'custom' && check}
             <p class="hint" id="export-crs-status" class:invalid={check.state === 'invalid'} role="status">
               {check.state === 'checking' ? 'Checking the CRS…' : check.state === 'ok' ? `Coordinates are reprojected to EPSG:${check.code}.` : check.reason}
             </p>

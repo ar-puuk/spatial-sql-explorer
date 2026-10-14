@@ -24,14 +24,23 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 - **Correct positions in any CRS.** The source coordinate system is read from
   the file and shown in the status bar, and the data is reprojected for
   display. Files with no CRS are clearly marked as "WGS84 assumed".
-- **Map views.** OpenFreeMap vector basemaps (Positron, Liberty, Bright, Dark,
-  Fiord), Satellite, Topographic and OpenStreetMap, or a blank background in a
-  color you choose. Switch to a **globe**, set in a night sky. **Search
-  places** to jump to a city or address.
+- **Map views.** A short list of basemaps (OpenFreeMap, Satellite, Topographic,
+  OpenStreetMap, or a blank background in a color you choose), and **More
+  basemaps…**: 129 basemaps from 26 providers, grouped by provider, with
+  previews. Keyed providers (MapTiler, Stadia, Protomaps, Google, Mapbox and
+  others) use your own key, kept in VS Code's secret storage. Switch to a
+  **globe**, set in a night sky; tilt and rotate with a right-drag, so a
+  basemap's 3D buildings show.
+- **One search box** on the map: values in the layer (choose one to select
+  and zoom to its feature), coordinates (`-111.9, 40.7`), and places.
 - **Thematic maps that QGIS understands.**
   - Single, categorized or graduated (equal interval, quantile, natural
     breaks), with a chart of the column's values and ramps previewed on the
     map as you browse them.
+  - **Graduated by expression**: classify a SQL expression such as
+    `gdp_md * 1e6 / pop_est` instead of a column.
+  - **Rules**: color by SQL conditions (`continent = 'Africa'`), the first
+    match wins, with a count per rule. QGIS draws the saved rules the same.
   - **Bivariate maps**: two numeric columns colored from a 3×3 square, with
     a keyboard legend square whose cells hide their features.
   - **Size by a column**: line width or marker size by another numeric
@@ -51,7 +60,8 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
   SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the selection.
   Results go to the map and the table. Autocomplete covers your columns and the
   spatial functions, errors are underlined where they happen, and recent
-  queries are kept per file.
+  queries are kept per file. A query can read **other files in the
+  workspace** by their path from the workspace root, listed beside the editor.
 - **Export.** From the **Export** button above the table, or **Spatial
   Explorer: Export Data…**:
   - with geometry: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
@@ -80,6 +90,10 @@ SELECT name, round(ST_Area(geom)) AS area, geom FROM layer ORDER BY area DESC;
 -- Buffer by 100 CRS units (meters in a projected layer) and keep the result
 CREATE TEMP TABLE near AS SELECT name, ST_Buffer(geom, 100) AS geom FROM layer;
 SELECT count(*) FROM near;
+
+-- Join another workspace file (its path from the workspace root)
+SELECT a.*, b.name AS district
+FROM layer a JOIN ST_Read('data/districts.shp') b ON ST_Intersects(a.geom, b.geom);
 ```
 
 Queries are read-only. Only `TEMP` tables and views can be created, and they
@@ -88,17 +102,17 @@ refused with a reason.
 
 ## Large files
 
-Files of several GB open without being loaded into memory where the format
-allows it. The map draws the features in view (up to 25,000; above that an
-even sample, with a notice); queries, the table, styles and export always
-work on the whole data. Measured on a laptop in the web build (VS Code is
-similar):
+Results under 100,000 rows are read once and drawn from memory, so panning
+does no work. Bigger ones are drawn from vector tiles the engine builds as they
+come into view (**Load all** in the status bar draws everything). Queries, the
+table, styles and export always work on the whole data. Measured on a laptop in
+the web build:
 
 | Format | How it's read | Measured |
 |---|---|---|
-| GeoParquet / Parquet | In parts, any size | 1.1 GB (6M rows): facts 2 s, overview 4.9 s, city views < 2 s. 5 GB (27M rows): overview 9.5 s, engine memory < 60 MB |
-| FlatGeobuf (with index) | In parts, any size; queries need **Load** (into memory) | 1.45 GB (4M rows): facts 2 s, overview 2.7 s, city views 0.4 s |
-| GeoJSON, Shapefile, CSV, GML, GeoPackage, SQLite | Read in full, once; announced above 100 MB | 325 MB GeoJSON: ~34 s |
+| GeoParquet / Parquet | In parts, any size | 1.1 GB (6M rows): facts 2.2 s, overview 5.1–5.4 s, city views 0.9–2.5 s. 5 GB (27M rows): facts 2.3 s, overview 5.8 s; a 135,191-row filter in 17 s |
+| FlatGeobuf | Read whole, then drawn from tiles; announced above 100 MB | 1.45 GB (4M rows): 26 s to open, overview at 28 s |
+| GeoJSON, Shapefile, CSV, GML, GeoPackage, SQLite, Excel | Read whole, once; announced above 100 MB | 172 MB GeoJSON (235k rows): 11–13 s. 325 MB GeoJSON: 24 s |
 | PMTiles (vector) | Tiles in view only; view-only | Any size |
 
 Opening can always be cancelled (within 3 s). Running out of memory (the
@@ -126,7 +140,7 @@ only). File Geodatabase folders can't be read; the extension offers an
 
 | Setting | Default | What it does |
 |---|---|---|
-| `spatialExplorer.placeSearch.enabled` | `true` | Shows the place search on the map. Turn it off to hide it. |
+| `spatialExplorer.placeSearch.enabled` | `true` | Offers place results in the map's search box. Off: it searches the layer and coordinates only. |
 
 ## Privacy and network
 

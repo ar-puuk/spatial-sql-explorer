@@ -57,6 +57,10 @@ export interface StatusFields {
   /** Spec 007: `rows` when invalid geometry isn't known yet (large files read in parts), so the count never over-claims. */
   countLabel?: 'features' | 'rows'
   cursor?: { lon: number; lat: number } | null
+  /** Spec 010: how the map draws the result (VS Code: a status bar item). */
+  drawMode?: 'geojson' | 'tiles'
+  /** Spec 010: "Load all" is offered (tiles mode). */
+  drawLoadAllAvailable?: boolean
 }
 
 export interface HostAdapter {
@@ -105,6 +109,28 @@ export interface HostAdapter {
    */
   loadState<T>(key: string): Promise<T | undefined>
   saveState(key: string, value: unknown): Promise<void>
+
+  /**
+   * Spec 010: a basemap provider's API key (names `basemapKey.<provider>`).
+   * VS Code: SecretStorage. Web: localStorage (this browser only). A null
+   * value removes it.
+   */
+  getSecret?(name: string): Promise<string | undefined>
+  setSecret?(name: string, value: string | null): Promise<void>
+
+  /**
+   * Spec 010 phase 9: data files a query can name, by their path relative to
+   * the workspace root (VS Code) or the name of a file the user added (web).
+   * Paths use '/'.
+   */
+  listWorkspaceFiles?(): Promise<WorkspaceFile[]>
+  /** The engine source of each path (primary + same-basename sidecars, names `ws/<path>`), or why it can't be read. */
+  resolveWorkspaceFiles?(paths: string[]): Promise<WorkspaceResolution[]>
+  /** Web: lets the user add files (a picker); VS Code omits it (the workspace is the folder). */
+  addWorkspaceFiles?(files?: File[]): Promise<WorkspaceFile[]>
+  onWorkspaceFilesChanged?(cb: () => void): () => void
+  /** Where secrets live, for the key form's wording. */
+  readonly secretLocation?: 'vscode' | 'browser'
 
   /**
    * Fires when the opened file changes on disk (spec.md edge case: stale data
@@ -167,3 +193,15 @@ export interface SaveResult {
   /** Display location for confirmation messages (a file name or path). */
   location?: string
 }
+
+/** Spec 010 phase 9: a data file a query can name. */
+export interface WorkspaceFile {
+  /** Relative to the workspace root (VS Code) or the file's name (web), with '/'. */
+  path: string
+  size: number
+  /** The file this viewer opened (the `layer` table). */
+  open?: boolean
+}
+
+/** How a referenced path reaches the engine: a source, or why not (`missing`: no such file). */
+export type WorkspaceResolution = { path: string; source: FileSource } | { path: string; error: string; missing?: boolean }

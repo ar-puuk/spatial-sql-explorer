@@ -1,6 +1,6 @@
 {
   "name": "@spatial-explorer/tests-vscode-ext",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "pretest": "cd ../../apps/vscode-ext && npm run build && cd ../../tests/vscode-ext && tsc -p ./tsconfig.json",

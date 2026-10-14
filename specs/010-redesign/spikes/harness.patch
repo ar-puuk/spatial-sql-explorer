@@ -1,0 +1,234 @@
+diff --git a/apps/vscode-ext/src/extension.ts b/apps/vscode-ext/src/extension.ts
+index 63127c5..a6111f5 100644
+--- a/apps/vscode-ext/src/extension.ts
++++ b/apps/vscode-ext/src/extension.ts
+@@ -811,6 +811,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
+       testOverrides = o ?? {}
+     }),
+     vscode.commands.registerCommand('spatialExplorer._getMapView', () => lastMapViewState),
++    // SPIKE (spec 010 S2), temporary.
++    vscode.commands.registerCommand('spatialExplorer._spike010', (t: unknown) => provider.postToActive({ type: 'testSpike010', ...(t as object) })),
+     vscode.commands.registerCommand('spatialExplorer._jumpTo', (lon: number, lat: number, zoom: number) => provider.postToActive({ type: 'testJumpTo', lon, lat, zoom })),
+ 
+     // Spec 005 test hook: write the next data export to this path (no dialog).
+diff --git a/apps/vscode-ext/src/webview/main.ts b/apps/vscode-ext/src/webview/main.ts
+index c113cc7..5b99d53 100644
+--- a/apps/vscode-ext/src/webview/main.ts
++++ b/apps/vscode-ext/src/webview/main.ts
+@@ -116,6 +116,20 @@ async function main(): Promise<void> {
+       void store.cancelOpen()
+     } else if (msg.type === 'testCancelQuery') {
+       void store.cancelQuery()
++    } else if (msg.type === 'testSpike010') {
++      // SPIKE (spec 010 S2), temporary: an engine tile drawn through a custom protocol in this webview.
++      const qs = store.querySession
++      const t = event.data as { sql: string; z: number; x: number; y: number; id: number }
++      void (async () => {
++        try {
++          const rows = await qs!.runRaw(t.sql)
++          const tile = rows[0]?.tile as Uint8Array
++          const { renderTileCheck } = await import('@spatial-explorer/ui')
++          reportMapViewState({ spike010: { bytes: tile?.length ?? 0, ...(await renderTileCheck(tile, t.z, t.x, t.y, t.id)) } })
++        } catch (e) {
++          reportMapViewState({ spike010: { error: String(e) } })
++        }
++      })()
+     } else if (msg.type === 'testSelectFeature') {
+       store.selectFeature(msg.id ?? null)
+       reportSelectionChanged(store.session.selectedFeatureId)
+diff --git a/apps/web/src/App.svelte b/apps/web/src/App.svelte
+index 4109125..e290083 100644
+--- a/apps/web/src/App.svelte
++++ b/apps/web/src/App.svelte
+@@ -63,6 +63,78 @@
+         if (!qs) throw new Error('No file is open.')
+         return qs.runRaw(sql)
+       },
++      // SPIKE (spec 010 phase 2), temporary: removed after the spikes.
++      spike010: {
++        b64: (b: Uint8Array) => {
++          let s = ''
++          for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000))
++          return btoa(s)
++        },
++        /** Runs SQL on the viewer's (locked) connection; BLOB cells come back as base64. */
++        run: async (sql: string) => {
++          const qs = store.querySession
++          if (!qs) throw new Error('No file is open.')
++          const t = performance.now()
++          const rows = await qs.runRaw(sql)
++          const ms = performance.now() - t
++          const out = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Uint8Array ? { b64: (window as any).__spatialExplorerE2E.spike010.b64(v), bytes: v.length } : typeof v === 'bigint' ? Number(v) : v])))
++          return { ms, rows: JSON.parse(JSON.stringify(out, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))) }
++        },
++        register: async (path: string, base64: string) => {
++          const { getDuckDb } = await import('@spatial-explorer/core')
++          const db = await getDuckDb(duckdbAssets)
++          await db.registerFileBuffer(path, Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)))
++        },
++        file: async (path: string) => {
++          const { getDuckDb } = await import('@spatial-explorer/core')
++          const db = await getDuckDb(duckdbAssets)
++          return (window as any).__spatialExplorerE2E.spike010.b64(await db.copyFileToBuffer(path))
++        },
++        /** An unlocked engine (no lockdown), for statements the locked one refuses by design. */
++        unlocked: async (sqls: string[]) => {
++          const core = await import('@spatial-explorer/core')
++          const w = window as unknown as { __spike010Db?: Awaited<ReturnType<typeof core.createDuckDb>> }
++          if (!w.__spike010Db) {
++            w.__spike010Db = await core.createDuckDb(duckdbAssets)
++            const c = await w.__spike010Db.connect()
++            await core.loadSpatialExtension(c, duckdbAssets)
++            await c.close()
++          }
++          const conn = await w.__spike010Db.connect()
++          const out: unknown[] = []
++          try {
++            for (const sql of sqls) {
++              try {
++                const r = await conn.query(sql)
++                out.push({ rows: JSON.parse(JSON.stringify(r.toArray().slice(0, 20).map((x) => x.toJSON()), (_k, v) => (typeof v === 'bigint' ? Number(v) : v instanceof Uint8Array ? `<${v.length} bytes>` : v))) })
++              } catch (e) {
++                out.push({ error: String((e as Error).message ?? e).slice(0, 300) })
++              }
++            }
++          } finally {
++            await conn.close()
++          }
++          return out
++        },
++        unlockedFile: async (path: string) => {
++          const w = window as unknown as { __spike010Db: { copyFileToBuffer(p: string): Promise<Uint8Array> } }
++          return (window as any).__spatialExplorerE2E.spike010.b64(await w.__spike010Db.copyFileToBuffer(path))
++        },
++        addStub: async (name: string, base64: string) => {
++          const { addStubProtocol } = await import('@spatial-explorer/ui')
++          addStubProtocol(name, Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)))
++        },
++        stubCalls: async (name: string) => (await import('@spatial-explorer/ui')).stubProtocolCalls(name),
++        addStub: async (name: string, base64: string) => {
++          const { addStubProtocol } = await import('@spatial-explorer/ui')
++          addStubProtocol(name, Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)))
++        },
++        stubCalls: async (name: string) => (await import('@spatial-explorer/ui')).stubProtocolCalls(name),
++        renderTile: async (base64: string, z: number, x: number, y: number, id: number) => {
++          const { renderTileCheck } = await import('@spatial-explorer/ui')
++          return renderTileCheck(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)), z, x, y, id)
++        },
++      },
+       /**
+        * Spec 005 T014: reads an exported Parquet file back in the real
+        * engine (row count, column names, the `geo` metadata), then drops it.
+diff --git a/packages/ui/src/MapView.svelte b/packages/ui/src/MapView.svelte
+index a9f6641..fab40ce 100644
+--- a/packages/ui/src/MapView.svelte
++++ b/packages/ui/src/MapView.svelte
+@@ -676,6 +676,8 @@
+     map.on('styleimagemissing', (e: { id: string }) => {
+       if (map && isMarkerIconId(e.id)) addMarkerIcon(map, e.id)
+     })
++    // SPIKE (spec 010 S3), temporary.
++    ;(window as unknown as { __spike010Map?: unknown }).__spike010Map = map
+     map.on('load', () => {
+       registerHandlers()
+       mapReady = true
+diff --git a/packages/ui/src/index.ts b/packages/ui/src/index.ts
+index fd52344..1318fc9 100644
+--- a/packages/ui/src/index.ts
++++ b/packages/ui/src/index.ts
+@@ -11,3 +11,4 @@ export { default as ViewerLayout } from './ViewerLayout.svelte'
+ export { default as StatusBar } from './StatusBar.svelte'
+ export * from './viewerStore.svelte.js'
+ export type { LegendSpec, LegendGroup } from './mapImage.js'
++export { renderTileCheck, addStubProtocol, stubProtocolCalls } from './spike010.js' // SPIKE (spec 010 phase 2), temporary
+diff --git a/packages/ui/src/spike010.ts b/packages/ui/src/spike010.ts
+new file mode 100644
+index 0000000..8892031
+--- /dev/null
++++ b/packages/ui/src/spike010.ts
+@@ -0,0 +1,85 @@
++// SPIKE (spec 010 phase 2, S1/S2), temporary: draws one engine-built MVT tile in a
++// separate MapLibre map through a custom protocol, with promoteId and feature-state.
++import { addProtocol, Map as MapLibreMap } from 'maplibre-gl'
++
++let tileBytes: Uint8Array | null = null
++let calls = 0
++let registered = false
++
++export interface TileRenderCheck {
++  calls: number
++  rendered: number
++  ids: Array<string | number | undefined>
++  selectedState: unknown
++  props: Record<string, unknown> | null
++  error: string | null
++}
++
++export async function renderTileCheck(bytes: Uint8Array, z: number, x: number, y: number, selectId: number): Promise<TileRenderCheck> {
++  tileBytes = bytes
++  calls = 0
++  if (!registered) {
++    registered = true
++    addProtocol('spk010', async () => {
++      calls++
++      const b = tileBytes ?? new Uint8Array(0)
++      return { data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer }
++    })
++  }
++  const div = document.createElement('div')
++  div.style.cssText = 'position:fixed;left:0;top:0;width:512px;height:512px;z-index:9999'
++  document.body.appendChild(div)
++  // Center of tile z/x/y.
++  const n = 2 ** z
++  const lon = ((x + 0.5) / n) * 360 - 180
++  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n))) * 180) / Math.PI
++  let error: string | null = null
++  const map = new MapLibreMap({
++    container: div,
++    center: [lon, lat],
++    zoom: z,
++    attributionControl: false,
++    style: {
++      version: 8,
++      sources: { t: { type: 'vector', tiles: ['spk010://{z}/{x}/{y}'], minzoom: z, maxzoom: z, promoteId: { data: '__id' } } },
++      layers: [
++        { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
++        { id: 'f', type: 'fill', source: 't', 'source-layer': 'data', paint: { 'fill-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#f00', '#00f'] } },
++      ],
++    },
++  })
++  map.on('error', (e: { error?: { message?: string } }) => {
++    error = String(e.error?.message ?? e)
++  })
++  await new Promise<void>((resolve) => {
++    const t = setTimeout(resolve, 15000)
++    map.once('idle', () => {
++      clearTimeout(t)
++      resolve()
++    })
++  })
++  map.setFeatureState({ source: 't', sourceLayer: 'data', id: selectId }, { selected: true })
++  await new Promise<void>((resolve) => {
++    map.once('idle', () => resolve())
++    map.triggerRepaint()
++  })
++  const feats = map.queryRenderedFeatures({ layers: ['f'] })
++  const state = map.getFeatureState({ source: 't', sourceLayer: 'data', id: selectId })
++  const out = { calls, rendered: feats.length, ids: [...new Set(feats.map((f) => f.id))].slice(0, 20), selectedState: state, props: (feats[0]?.properties as Record<string, unknown> | undefined) ?? null, error }
++  map.remove()
++  div.remove()
++  return out
++}
++
++// S3: a stub data protocol that counts its calls.
++const stubCalls = new Map<string, number>()
++export function addStubProtocol(name: string, bytes: Uint8Array): void {
++  stubCalls.set(name, 0)
++  addProtocol(name, async () => {
++    stubCalls.set(name, (stubCalls.get(name) ?? 0) + 1)
++    return { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer }
++  })
++}
++export function stubProtocolCalls(name: string): number {
++  return stubCalls.get(name) ?? 0
++}

@@ -1,0 +1,15 @@
+// SPIKE (spec 010 Option B): xlsx export time, 100,000 rows. Temporary.
+import { test, expect } from '@playwright/test'
+import { openFile, writeParcels } from './helpers'
+const dialog = (page: import('@playwright/test').Page) => page.getByRole('dialog', { name: 'Export data' })
+test('xlsx 100k', async ({ page }) => {
+  test.setTimeout(400000)
+  await openFile(page, writeParcels(100_000, 'parcels-100k.geojson'), '?e2e=1')
+  await page.getByRole('button', { name: 'Export data…' }).click()
+  await dialog(page).getByRole('switch', { name: 'Include geometry' }).click()
+  await dialog(page).getByLabel('Format', { exact: true }).selectOption({ label: 'Excel workbook' })
+  const t0 = Date.now()
+  await dialog(page).getByRole('button', { name: 'Export…' }).click()
+  await expect(dialog(page)).toContainText('Saved', { timeout: 300000 })
+  console.log(`TIMING xlsx 100k export: ${Date.now() - t0} ms`)
+})

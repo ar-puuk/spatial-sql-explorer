@@ -4,14 +4,14 @@
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares } from './helpers'
+import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
 
 async function openStylePanel(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Layer style' }).click()
-  await expect(page.getByRole('dialog', { name: 'Layer style' })).toBeVisible()
+  await openStyle(page)
+  await expect(page.getByRole('region', { name: 'Layer style' })).toBeVisible()
 }
 
 async function legendCounts(page: Page): Promise<number[]> {
@@ -227,6 +227,7 @@ test.describe('styles follow query results (US5)', () => {
     await openStylePanel(page)
     await page.getByRole('radio', { name: 'Categorized' }).click()
     await expect(legend(page)).toContainText('categories')
+    await showSql(page)
     await page.getByRole('button', { name: 'Reset to the original view' }).click()
     const discard = page.getByRole('button', { name: 'Discard' })
     if (await discard.isVisible()) await discard.click()
