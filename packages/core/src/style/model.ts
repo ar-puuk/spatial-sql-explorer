@@ -9,7 +9,7 @@ import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './sy
 import type { ChannelId, Channels, DrawAs, Output, ScaleKind } from './channels.js'
 import { sanitizeLabels, type LabelSettings } from './labels.js'
 import { rendererOf, sizeOf, withExtrusion, withRenderer, withSize } from './legacy.js'
-import { sanitizeChannels, sanitizeDraw } from './channels.js'
+import { channelDataColumns, sanitizeChannels, sanitizeDraw } from './channels.js'
 
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
@@ -426,7 +426,13 @@ export function rendererColumns(renderer: Renderer): string[] {
 export function styleDataColumns(style: LayerStyle): string[] {
   const cols = rendererColumns(rendererOf(style))
   const size = sizeOf(style)?.column
-  return size && !cols.includes(size) ? [...cols, size] : cols
+  const out = size && !cols.includes(size) ? [...cols, size] : [...cols]
+  // Spec 011: every other property set by a column (height is the extrusion's, listed by the viewer).
+  for (const [id, enc] of Object.entries(style.channels ?? {}) as Array<[ChannelId, NonNullable<Channels[ChannelId]>]>) {
+    if (id === 'color' || id === 'height') continue
+    for (const c of channelDataColumns(id, enc)) if (!out.includes(c)) out.push(c)
+  }
+  return out
 }
 
 /** A short title for the color channel's columns: `zone`, `poverty_rate × obesity_rate`, or '' (single). */

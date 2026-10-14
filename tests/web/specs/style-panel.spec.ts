@@ -12,12 +12,16 @@ const swatch = (page: Page, i: number) => legendRows(page).nth(i).locator('.swat
 test('sections in a fixed order, and only those that apply', async ({ page }) => {
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Style', exact: true }).click()
+  // Spec 011: the properties of the layer's points, each Fixed or By column, in a fixed order.
   const headings = () => panel(page).locator('section h3').allTextContents()
-  expect(await headings()).toEqual(['Style', 'Size', 'Appearance', '3D'])
+  const rows = () => panel(page).locator('.channel h4').allTextContents()
+  const colorParts = () => panel(page).locator('[data-channel="color"] h5').allTextContents()
+  expect(await headings()).toEqual(['Style', 'Properties', '3D'])
+  expect(await rows()).toEqual(['Color', 'Outline color', 'Outline width', 'Size', 'Shape', 'Opacity', 'Rotation'])
   await chooseStyleType(page, 'Categorized')
-  expect(await headings()).toEqual(['Style', 'Color by', 'Colors', 'Size', 'Appearance', '3D'])
+  expect(await colorParts()).toEqual(['Color by', 'Colors'])
   await chooseStyleType(page, 'Graduated')
-  expect(await headings()).toEqual(['Style', 'Color by', 'Classification', 'Colors', 'Size', 'Appearance', '3D'])
+  expect(await colorParts()).toEqual(['Color by', 'Classification', 'Colors'])
   await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toContainText('Colors by ranges of a number or an expression')
   // No Apply step anywhere (FR-002).
   await expect(panel(page).getByRole('button', { name: /^Apply/ })).toHaveCount(0)

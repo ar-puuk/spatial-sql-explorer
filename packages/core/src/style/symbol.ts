@@ -170,7 +170,8 @@ export function baseSymbol(style: LayerStyle): SymbolSpec {
     strokeOpacity: s.strokeOpacity,
     strokeWidth: s.strokeWidth,
     lineColor: s.strokeColor,
-    lineWidth: s.strokeWidth,
+    // Spec 011: a line's fixed Width, when set apart from the outline width.
+    lineWidth: style.lineWidth ?? s.strokeWidth,
     radius: s.pointRadius,
     shape: style.markerShape ?? 'circle',
     dash: style.lineDash ?? 'solid',

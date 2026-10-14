@@ -53,7 +53,7 @@ test('a line pattern dashes polygon outlines and the legend, and is saved', asyn
 test('size classes on points: markers grow class by class, in the legend to scale', async ({ page }) => {
   await openFile(page, writeSquares())
   await openStyle(page)
-  await panel(page).getByRole('switch', { name: 'Size by column' }).click()
+  await panel(page).getByRole('radio', { name: 'Size: By column' }).click()
   await expect(panel(page).getByLabel('Size column')).toHaveValue('value')
   await expect(panel(page).getByLabel('Smallest size')).toHaveValue('2')
   await expect(panel(page).getByLabel('Largest size')).toHaveValue('10')

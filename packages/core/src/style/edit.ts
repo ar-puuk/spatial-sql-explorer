@@ -775,6 +775,19 @@ export function setChannelClass(style: LayerStyle, channel: ChannelId, key: stri
   })
 }
 
+/** A property's kind of scale (categories or classes this slice); its ramp or range is kept, classes start over. */
+export function setScaleKind(style: LayerStyle, channel: ChannelId, kind: Scale['kind'], _layer: ResolveInput | null): LayerStyle {
+  void _layer
+  return patchEncoding(style, channel, (e) => {
+    if (e.scale.kind === kind) return e
+    const old = e.scale as CategoriesScale | ClassesScale
+    const keep = { ...(old.ramp ? { ramp: old.ramp } : {}), ...(old.range ? { range: old.range } : {}) }
+    if (kind === 'categories') return { ...e, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: categoryCapFor(channel), ...keep } }
+    if (kind === 'classes') return { ...e, scale: { kind: 'classes', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, ...keep } }
+    return e
+  })
+}
+
 /** The classification method and class count of a property with classes (overrides by index start over). */
 export function setChannelClasses(style: LayerStyle, channel: ChannelId, patch: { method?: Exclude<GraduatedMethod, 'manual'>; classCount?: number }): LayerStyle {
   return patchEncoding(style, channel, (e) => {

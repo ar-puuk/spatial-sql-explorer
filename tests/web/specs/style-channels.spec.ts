@@ -27,7 +27,8 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   const drawn = (await rendered(page)) as string
   expect(Number(drawn)).toBeGreaterThan(0)
 
-  const toggle = panel(page).getByRole('switch', { name: 'Size by column' })
+  // Spec 011: the Width row's Fixed / By column replaces the Size by switch (lines are sized by width).
+  const toggle = panel(page).getByRole('radio', { name: 'Width: By column' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
@@ -53,7 +54,7 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await sizeGroup(page).locator('li').first().getByRole('button').click()
   await expect.poll(async () => Number(await rendered(page))).toBeLessThan(Number(drawn))
 
-  await toggle.click()
+  await panel(page).getByRole('radio', { name: 'Width: Fixed' }).click()
   await expect(sizeGroup(page)).toHaveCount(0)
   await expect.poll(() => rendered(page)).toBe(drawn)
 })
@@ -61,15 +62,16 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
 test('polygons have no size channel, and the old Graduated "Vary" switch is gone', async ({ page }) => {
   await openFile(page, writeParcels(50))
   await openStyle(page)
-  await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)
-  await expect(panel(page)).toContainText('Polygons have no size')
+  // Spec 011: polygons list no Size property at all.
+  await expect(panel(page).getByRole('radiogroup', { name: 'Size: Fixed or By column' })).toHaveCount(0)
+  await expect(panel(page).getByRole('radiogroup', { name: 'Outline width: Fixed or By column' })).toHaveCount(1)
   await chooseStyleType(page, 'Graduated')
   await expect(panel(page).getByRole('radiogroup', { name: 'Vary' })).toHaveCount(0)
 })
 
 test('proportional sizes: smooth widths with reference sizes in the legend, and back to classes (US2)', async ({ page }) => {
   await openRoads(page)
-  await panel(page).getByRole('switch', { name: 'Size by column' }).click()
+  await panel(page).getByRole('radio', { name: 'Width: By column' }).click()
   await panel(page).getByLabel('Size column').selectOption('aadt')
   const mode = panel(page).getByRole('radiogroup', { name: 'Size scale' })
   await expect(mode.getByRole('radio', { name: 'Classed' })).toHaveAttribute('aria-checked', 'true')
