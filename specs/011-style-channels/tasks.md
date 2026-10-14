@@ -685,7 +685,10 @@ and re-import into the app.
 
 ### Tests for User Story 7
 
-- [ ] T050 [P] [US7] Write `tests/core/style-interchange-011.test.ts`:
+- [x] T050 [P] [US7] Write `tests/core/style-interchange-011.test.ts`:
+  Done as one file per format: `style-qml-import-011`, `style-sld-011`,
+  `style-mapbox-011` (QML export is checked in QGIS by T051/T052). Continuous
+  and identity rows wait for US4.
   - **QML:** for every channel × scale, the data-defined keys and expression
     forms of contracts/interchange-mapping.md. This includes:
     - `fillColor`, `outlineColor`, `outlineWidth`, `name`, `angle`,
@@ -747,7 +750,7 @@ and re-import into the app.
   per class (no impossible combinations); the note is written by `sld.ts`
   on export. Import reads per-class outline, shape, pattern and rotation on
   one column, and a mark's rotation. Continuous as 10 classes waits for US4.
-- [ ] T056 [P] [US7] Implement the Mapbox export and import in
+- [x] T056 [P] [US7] Implement the Mapbox export and import in
   `packages/core/src/style/mapbox.ts`, reusing `channelExpression`.
 - [x] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
   Fix mismatches. Record the outcome (cases, mismatches 0) in `research.md`

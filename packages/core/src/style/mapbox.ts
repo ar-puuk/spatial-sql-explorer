@@ -24,8 +24,13 @@ import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions
 import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
 import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
+import { OUTPUT_KIND, type ChannelId, type Channels, type ClassDef, type Encoding } from './channels.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
+
+/** Spec 011: shapes by attribute need icons, which a style file can't carry. */
+export const MAPBOX_SHAPES_NOTE = "Mapbox GL styles draw marker shapes only from a sprite, which a style file can't carry: other tools draw circles (Spatial Explorer keeps the shapes by attribute)."
+
 
 const POLYGON_FILTER = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false]
 const LINE_FILTER = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false]
@@ -76,9 +81,15 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
     if (hiddenIdx.length) ruleHidden = ['!', ['in', index, ['literal', hiddenIdx]]]
   }
   const roundSize = (v: unknown): unknown => (typeof v === 'number' ? round(v) : v)
-  const pattern = dashPattern(style.lineDash)
+  // Spec 011: outline color and width, pattern and opacity per feature, as the map draws them (symbolExpressions).
+  const strokeColor = sym?.strokeColor ?? style.strokeColor
+  const strokeWidth = roundSize(sym?.strokeWidth ?? style.strokeWidth)
+  const opacity = sym?.opacity ?? style.opacity ?? 1
+  const times = (a: number): unknown => (opacity === 1 ? round(a) : typeof opacity === 'number' ? round(a * opacity) : ['*', round(a), opacity])
+  const pattern = sym ? sym.dash : dashPattern(style.lineDash)
   const dash = pattern ? { 'line-dasharray': pattern } : {}
-  if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point')) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  if ((style.markerShape ?? 'circle') !== 'circle' && wants('Point') && !sym?.shape) notes.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))
+  if (sym?.shape && wants('Point')) notes.push(MAPBOX_SHAPES_NOTE)
   const colorHidden = resolved ? visibilityFilter(drawn, resolved) : null
   const hidden = colorHidden && ruleHidden ? ['all', colorHidden, ruleHidden] : (colorHidden ?? ruleHidden)
   const fillColor = ruleColor ?? sym?.fillColor ?? style.fillColor
@@ -90,16 +101,16 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       type: 'fill',
       source,
       filter: filter(POLYGON_FILTER),
-      paint: { 'fill-color': fillColor, 'fill-opacity': round(style.fillOpacity) },
+      paint: { 'fill-color': fillColor, 'fill-opacity': times(style.fillOpacity) },
     })
-    if (style.strokeWidth > 0) {
+    if (style.strokeWidth > 0 || typeof strokeWidth !== 'number') {
       layers.push({
         id: `${layerName}-outline`,
         type: 'line',
         source,
         filter: filter(POLYGON_FILTER),
         layout: { 'line-join': 'round' },
-        paint: { 'line-color': style.strokeColor, 'line-width': round(style.strokeWidth), 'line-opacity': round(style.strokeOpacity), ...dash },
+        paint: { 'line-color': strokeColor, 'line-width': strokeWidth, 'line-opacity': times(style.strokeOpacity), ...dash },
       })
     }
   }
@@ -127,8 +138,8 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       layout: { 'line-join': 'round', 'line-cap': pattern ? 'butt' : 'round' },
       paint: {
         'line-color': lineColor,
-        'line-width': roundSize(sym?.lineWidth ?? style.strokeWidth),
-        'line-opacity': round(style.strokeOpacity),
+        'line-width': roundSize(sym?.lineWidth ?? style.lineWidth ?? style.strokeWidth),
+        'line-opacity': times(style.strokeOpacity),
         ...dash,
       },
     })
@@ -144,11 +155,11 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       filter: filter(POINT_FILTER),
       paint: {
         'circle-color': fillColor,
-        'circle-opacity': round(style.fillOpacity),
+        'circle-opacity': times(style.fillOpacity),
         'circle-radius': roundSize(sym?.radius ?? style.pointRadius),
-        'circle-stroke-color': style.strokeColor,
-        'circle-stroke-width': round(style.strokeWidth),
-        'circle-stroke-opacity': round(style.strokeOpacity),
+        'circle-stroke-color': strokeColor,
+        'circle-stroke-width': strokeWidth,
+        'circle-stroke-opacity': times(style.strokeOpacity),
       },
     })
   }
@@ -225,6 +236,51 @@ function rendererFromColor(e: unknown, notes: string[]): LayerStyle['renderer'] 
 
 // --- import ---------------------------------------------------------------
 
+/**
+ * Spec 011: a property by a column from a data-driven paint value: `match`
+ * over one `get` (categories) or `step` over one `get` (classes); null for
+ * anything else. Colors are read as hex, numbers as they are.
+ */
+function encodingFromMapbox(id: ChannelId, e: unknown): Encoding | null {
+  if (!Array.isArray(e)) return null
+  const output = (v: unknown): ClassDef | null => {
+    if (OUTPUT_KIND[id] === 'color') {
+      const hex = hexOf(v)
+      return hex ? { output: hex } : null
+    }
+    return typeof v === 'number' && Number.isFinite(v) ? { output: id === 'opacity' ? Math.min(1, Math.max(0, v)) : v } : null
+  }
+  if (e[0] === 'match') {
+    const column = columnOf(e[1])
+    const other = output(e[e.length - 1])
+    if (!column || !other) return null
+    const categories: Array<ClassDef & { value: string }> = []
+    for (let i = 2; i + 1 < e.length; i += 2) {
+      const o = output(e[i + 1])
+      if (!o) return null
+      for (const l of Array.isArray(e[i]) ? (e[i] as unknown[]) : [e[i]]) categories.push({ value: String(l), ...o })
+    }
+    return { source: { kind: 'column', column }, scale: { kind: 'categories', manual: true, categories, other, noValue: other, cap: Math.max(categories.length, 1) } }
+  }
+  if (e[0] === 'step') {
+    const column = columnOf(e[1])
+    if (!column) return null
+    const outs = [output(e[2])]
+    const breaks: number[] = []
+    for (let i = 3; i + 1 < e.length; i += 2) {
+      breaks.push(Number(e[i]))
+      outs.push(output(e[i + 1]))
+    }
+    if (!breaks.length || breaks.some((b) => !Number.isFinite(b)) || outs.some((o) => !o) || outs.length > 10) return null
+    // As the color classes: the open ends are closed one span away.
+    const span = breaks.length > 1 ? breaks[breaks.length - 1] - breaks[0] : Math.abs(breaks[0]) || 1
+    const bounds = [breaks[0] - span, ...breaks, breaks[breaks.length - 1] + span]
+    const classes = outs.map((o, index) => ({ index, lower: bounds[index], upper: bounds[index + 1], ...(o as ClassDef) }))
+    return { source: { kind: 'column', column }, scale: { kind: 'classes', method: 'manual', classCount: classes.length, classes, noValue: {} } }
+  }
+  return null
+}
+
 /** `['interpolate', ['linear'], ['get', col], v0, s0, v1, s1]` (two stops) as a proportional size channel, or null. */
 function proportionalFrom(e: unknown, scale: 'linear' | 'area'): LayerStyle['size'] | null {
   if (!Array.isArray(e) || e[0] !== 'interpolate' || !Array.isArray(e[1]) || e[1][0] !== 'linear' || e.length !== 7) return null
@@ -259,7 +315,10 @@ export function mapboxToStyle(text: string): StyleImportResult {
 
   const style: Partial<LayerStyle> = {}
   let skipped = 0
+  // Spec 011: data-driven values read as properties by a column (not counted as skipped).
+  const consumed = new Set<unknown>()
   const color = (v: unknown): { hex: string; a: number } | undefined => {
+    if (consumed.has(v)) return undefined
     if (typeof v !== 'string') {
       if (v !== undefined) skipped++
       return undefined
@@ -268,6 +327,7 @@ export function mapboxToStyle(text: string): StyleImportResult {
     return c ? { hex: rgbToHex(c), a: c.a } : undefined
   }
   const num = (v: unknown): number | undefined => {
+    if (consumed.has(v)) return undefined
     if (typeof v === 'number') return v
     if (v !== undefined) skipped++
     return undefined
@@ -321,6 +381,24 @@ export function mapboxToStyle(text: string): StyleImportResult {
     style.renderer = renderer
     notes.push(...thematicNotes)
   }
+
+  // Spec 011: other properties by a column (match / step over one get).
+  const channels: Channels = {}
+  const outlineLayer = layers.find((l, i) => l.type === 'line' && fillLayer && i > layers.indexOf(fillLayer)) ?? (fillLayer ? lineLayer : undefined)
+  const dataDriven: Array<[ChannelId, unknown]> = [
+    ['strokeColor', circleLayer?.paint?.['circle-stroke-color'] ?? (fillLayer ? outlineLayer?.paint?.['line-color'] : undefined)],
+    ['strokeWidth', circleLayer?.paint?.['circle-stroke-width'] ?? (fillLayer ? outlineLayer?.paint?.['line-width'] : undefined)],
+    ['opacity', (fillLayer ?? circleLayer ?? lineLayer)?.paint?.[fillLayer ? 'fill-opacity' : circleLayer ? 'circle-opacity' : 'line-opacity']],
+  ]
+  if (!fillLayer && !circleLayer && lineLayer && !proportionalFrom(lineLayer.paint?.['line-width'], 'linear')) dataDriven.push(['width', lineLayer.paint?.['line-width']])
+  for (const [id, value] of dataDriven) {
+    const enc = Array.isArray(value) ? encodingFromMapbox(id, value) : null
+    if (enc) {
+      channels[id] = enc
+      consumed.add(value)
+    }
+  }
+  if (Object.keys(channels).length) style.channels = channels
 
   if (fillLayer?.paint) {
     const c = renderer ? undefined : color(fillLayer.paint['fill-color'])
