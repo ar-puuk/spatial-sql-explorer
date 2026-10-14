@@ -15,8 +15,12 @@ import {
   rampColors,
   resolveStyle,
   sanitizeStyle,
+  HEAT_GAUSS,
+  heatmapPeak,
+  mercatorRadius,
   metersPerPixel,
   setHeatmap,
+  setHeatmapAutoIntensity,
   setHeatmapRadiusUnit,
   setSizeChannel,
   startStyle,
@@ -235,5 +239,58 @@ describe('radius in meters (fixed on the map)', () => {
     expect(mb.style.renderer).toMatchObject({ kind: 'heatmap', radiusUnit: 'm' })
     expect((mb.style.renderer as HeatmapRenderer).radiusMeters).toBeCloseTo(750, 3)
     expect(mb.notes).toContain('The heatmap radius is fixed on the map; it was read as meters at the equator.')
+  })
+})
+
+describe('automatic intensity (radius in meters)', () => {
+  /** A dense cluster near Salt Lake City and a sparse one, as WGS84 points. */
+  const pts: Array<[number, number, number]> = Array.from({ length: 1500 }, (_, i) => {
+    const dense = i < 1000
+    const a = i * 2.399963
+    const r = (dense ? 0.01 : 0.05) * Math.sqrt((dense ? i : i - 1000) / (dense ? 1000 : 500))
+    return [(dense ? -111.89 : -111.7) + r * Math.cos(a), (dense ? 40.76 : 40.6) + r * Math.sin(a), 1]
+  })
+  /** Brute force: MapLibre's kernel summed at every point, in Web Mercator meters. */
+  const brute = (radius: number): number => {
+    const R = 6378137
+    const xy = pts.map(([lon, lat]) => [(R * lon * Math.PI) / 180, R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))])
+    let best = 0
+    for (const [x0, y0] of xy) {
+      let d = 0
+      for (const [x, y] of xy) d += Math.exp((-4.5 * ((x - x0) ** 2 + (y - y0) ** 2)) / radius ** 2)
+      best = Math.max(best, d)
+    }
+    return best * HEAT_GAUSS
+  }
+
+  it('the grid estimate of the peak is within 10% of the exact sum', () => {
+    for (const meters of [200, 1000, 5000]) {
+      const radius = mercatorRadius(meters, 40.7)
+      const exact = brute(radius)
+      expect(Math.abs(heatmapPeak(pts, radius) - exact) / exact, `${meters} m`).toBeLessThan(0.1)
+    }
+  })
+  it('resolves to 1 / peak and the map paints with it; off, the slider’s value', () => {
+    const layer = { columns: [{ name: 'pop', type: 'BIGINT' }], features: pts.map(([lon, lat], id) => ({ id, geometry: { type: 'Point' as const, coordinates: [lon, lat] }, attributes: { pop: 1 } })) }
+    const on = setHeatmapAutoIntensity(heat({ intensity: 2 }), true, { latitude: 40.7, zoom: 11 })
+    expect(on.renderer).toMatchObject({ radiusUnit: 'm', autoIntensity: true, latitude: 40.7 })
+    const r = resolveStyle(on, layer)
+    const radius = mercatorRadius((on.renderer as HeatmapRenderer).radiusMeters as number, 40.7)
+    expect(r.heat?.intensity).toBeCloseTo(1 / heatmapPeak(pts, radius), 9)
+    expect(paintFor(on, r, '#000').heatmap['heatmap-intensity']).toBe(r.heat?.intensity)
+    // The engine's peak, when it gave one, wins.
+    expect(resolveStyle(on, { ...layer, heatPeak: 40 }).heat?.intensity).toBe(1 / 40)
+    const off = setHeatmapAutoIntensity(on, false, null)
+    expect(paintFor(off, resolveStyle(off, layer), '#000').heatmap['heatmap-intensity']).toBe(2)
+  })
+  it('pixels end it (on screen the densest spot changes with zoom), and files keep it', () => {
+    const on = setHeatmapAutoIntensity(heat(), true, { latitude: 0, zoom: 5 })
+    expect((setHeatmapRadiusUnit(on, 'px', { latitude: 0, zoom: 5 }).renderer as HeatmapRenderer).autoIntensity).toBe(false)
+    expect(sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'heatmap', autoIntensity: true } as never }).renderer).not.toHaveProperty('autoIntensity')
+    const resolved = resolveStyle(on, places)
+    const qml = exportStyle(on, 'qml', 'Point', 'p.geojson', resolved)
+    expect(qml.text).toContain('max_value="0"')
+    expect(qml.notes).toEqual([])
+    expect(importStyle('p.qml', qml.text).style.renderer).toEqual(on.renderer)
   })
 })

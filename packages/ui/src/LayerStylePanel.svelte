@@ -38,6 +38,7 @@
     setRamp,
     setHeatmap,
     setHeatmapRadiusUnit,
+    setHeatmapAutoIntensity,
     HEATMAP_METERS,
     HEATMAP_INTENSITY,
     HEATMAP_RADIUS,
@@ -596,6 +597,7 @@
           <input
             type="range"
             class="wide"
+            disabled={renderer.autoIntensity === true}
             aria-labelledby="heat-intensity-label"
             aria-valuetext={intensityText(renderer.intensity)}
             min="0"
@@ -604,8 +606,19 @@
             value={intensityToSlider(renderer.intensity)}
             oninput={(e) => apply(setHeatmap(style, { intensity: sliderToIntensity(Number(e.currentTarget.value)) }))}
           />
-          <span class="value">{intensityText(renderer.intensity)}</span>
+          <span class="value">{intensityText(renderer.autoIntensity && resolved.heat?.intensity !== undefined ? resolved.heat.intensity : renderer.intensity)}</span>
         </div>
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={renderer.autoIntensity === true}
+            onchange={(e) => apply(setHeatmapAutoIntensity(style, e.currentTarget.checked, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))}
+          />
+          <span>Automatic: the densest spot takes the last color</span>
+        </label>
+        {#if renderer.autoIntensity}
+          <p class="hint">Worked out from all the points, so it holds at every zoom (it needs the radius in meters).</p>
+        {/if}
         <RampPicker
           value={renderer.ramp}
           renderer="graduated"
@@ -1130,6 +1143,18 @@
   }
   .row.field {
     grid-template-columns: 72px 1fr;
+  }
+  /* Heatmap: automatic intensity, under its slider. */
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--se-text-primary);
+    cursor: pointer;
+  }
+  .check input {
+    margin: 0;
+    accent-color: var(--se-button-bg);
   }
   input.number {
     justify-self: start;

@@ -37,7 +37,7 @@ import {
   topCategoriesSql,
 } from '../view/stats.js'
 import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { EXPRESSION_VALUE_COLUMN, rendererOf, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, rendererOf, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
 import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
 import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
@@ -51,6 +51,7 @@ import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
+import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
 import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
@@ -635,6 +636,8 @@ export class QuerySession {
     const r = rendererOf(style)
     // Spec 010: rules and graduated expressions are evaluated by the engine.
     if (facts && !this.utilityRows && (r.kind === 'rules' || (r.kind === 'graduated' && r.expression))) return this.resolveSqlStyle(style, base)
+    // A heatmap with automatic intensity: its peak density from the engine first.
+    if (facts && !this.utilityRows && r.kind === 'heatmap' && r.autoIntensity && r.radiusUnit === 'm') return this.resolveHeatmapAuto(style, r, base)
     const has = (c: string | undefined): c is string => !!c && base.columns.some((x) => x.name === c)
     // Spec 009: every channel column the style classifies.
     // A heatmap's weight column is read for its largest value only.
@@ -679,6 +682,33 @@ export class QuerySession {
       const size = style.size && has(style.size.column) ? style.size : null
       out = await this.resolveClassified(style, r, withValue, derived, EXPRESSION_VALUE_COLUMN, size)
     } else return resolveStyleFrom(style, base)
+    if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
+    return out
+  }
+
+  /**
+   * Heatmap, automatic intensity: the peak density of the drawn points
+   * (view/heat.ts), then the weight column's largest value as usual. Cached
+   * like the other renderers (the radius in meters and the weight are data).
+   */
+  private async resolveHeatmapAuto(style: LayerStyle, r: HeatmapRenderer, base: ResolveInput): Promise<ResolvedStyle> {
+    const relation = this.statsRelation()
+    const key = `${this.dataVersion} ${relation} ${styleDataKey(style)}`
+    const hit = this.styleCache
+    if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
+    this.styleInput = null
+    const target = this.viewTarget()
+    const numeric = base.columns.find((c) => c.name === r.weight && isNumericType(c.type))
+    let input: ResolveInput = base
+    if (target) {
+      const radius = mercatorRadius(r.radiusMeters ?? HEATMAP_METERS.default, r.latitude ?? 0)
+      const row = await this.exclusive((isCancelled) => singleRow<{ peak: number | null }>(this.conn, heatmapPeakSql(target, radius, numeric ? r.weight : null), isCancelled), 'background')
+      const peak = Number(row.peak)
+      if (Number.isFinite(peak) && peak > 0) input = { ...base, heatPeak: peak }
+    }
+    let out: ResolvedStyle
+    if (numeric) out = await this.resolveClassified(style, r, input, relation, r.weight, null)
+    else out = resolveStyleFrom(style, (this.styleInput = input))
     if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
     return out
   }

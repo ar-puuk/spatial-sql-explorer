@@ -224,6 +224,12 @@ export interface HeatmapRenderer {
   intensity: number
   /** Low to high density; zero density is transparent. */
   ramp: RampRef
+  /**
+   * Intensity from the data: the densest spot takes the ramp's last color.
+   * Only with the radius in meters (on screen, the densest spot changes
+   * with zoom); `intensity` is kept for when it's turned off.
+   */
+  autoIntensity?: boolean
 }
 
 export const HEATMAP_RADIUS = { min: 2, max: 100, default: 20 } as const
@@ -273,7 +279,7 @@ export interface ResolvedStyle {
   /** Spec 009: the size channel, when one applies. */
   size?: ResolvedSizeChannel
   /** Heatmap: the density ramp (low to high) and, when weighted, the weight column's largest value. */
-  heat?: { colors: string[]; weight?: { column: string; max: number } }
+  heat?: { colors: string[]; weight?: { column: string; max: number }; intensity?: number }
 }
 
 /** A bivariate axis as resolved. */
@@ -593,6 +599,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
       ...(h.radiusUnit === 'm' ? { radiusUnit: 'm' as const } : {}),
       ...(typeof h.radiusMeters === 'number' && Number.isFinite(h.radiusMeters) ? { radiusMeters: num(h.radiusMeters, HEATMAP_METERS) } : h.radiusUnit === 'm' ? { radiusMeters: HEATMAP_METERS.default } : {}),
       ...(typeof h.latitude === 'number' && Number.isFinite(h.latitude) ? { latitude: clamp(h.latitude, -85, 85) } : {}),
+      ...(h.autoIntensity === true && h.radiusUnit === 'm' ? { autoIntensity: true } : {}),
     }
   }
   if (r.kind === 'rules') {

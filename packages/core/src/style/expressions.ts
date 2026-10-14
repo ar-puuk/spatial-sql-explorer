@@ -280,7 +280,8 @@ export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLa
   const w = heat.weight
   return {
     'heatmap-radius': heatmapRadius(r, layerLatitude),
-    'heatmap-intensity': r.intensity,
+    // Automatic: from the data (resolved.heat.intensity), once known.
+    'heatmap-intensity': r.autoIntensity && heat.intensity !== undefined ? heat.intensity : r.intensity,
     'heatmap-weight': w ? ['/', ['max', 0, ['to-number', ['get', w.column], 0]], w.max] : 1,
     'heatmap-color': color,
     'heatmap-opacity': style.layerOpacity ?? 1,

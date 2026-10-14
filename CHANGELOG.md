@@ -16,10 +16,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     transparent, and the densest areas take the ramp's last color.
   - Optionally weighted by a numeric column. Weights are scaled by the
     column's largest value, so big numbers don't flood the map.
-  - Radius, intensity and color ramp are adjustable.
+  - Radius, intensity (0.01 to 5, on a logarithmic slider) and color ramp
+    are adjustable.
   - The radius can be in pixels or in meters. In pixels it stays fixed on
     screen, so zooming out makes the map hotter. In meters it stays fixed on
     the map, so a place keeps its color at every zoom.
+  - **Automatic intensity** (an option): the engine finds the densest spot
+    of all the points once, and sets the intensity so that spot takes the
+    ramp's last color. MapLibre has no such setting of its own, so dense
+    data used to flood with the last color. It needs the radius in meters,
+    because in pixels the densest spot changes with zoom; turning it on
+    switches the radius to meters.
   - Points stay clickable, and their hover and selection still show.
   - The legend shows the ramp from sparse to dense, and the map image
     includes it.

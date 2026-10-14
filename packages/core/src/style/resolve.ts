@@ -3,12 +3,13 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, rendererColumns, rendererOf, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
 import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
+import { heatmapPeak, mercatorRadius } from '../view/heat.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -45,6 +46,8 @@ export interface ResolveInput {
   ruleErrors?: Readonly<Record<string, string>>
   /** Spec 010, graduated by expression: why the expression can't be used (from the engine). */
   expressionError?: string
+  /** Heatmap, automatic intensity: the peak density at intensity 1 (from the engine, view/heat.ts). */
+  heatPeak?: number
 }
 
 /** Rows in the result. */
@@ -165,14 +168,33 @@ function heatmap(style: LayerStyle, r: HeatmapRenderer, layer: ResolveInput | nu
     if (max > 0) weight = { column: r.weight, max }
     else notes.push(why ? `${why} Each point counts once.` : `Column "${r.weight}" has no positive values: each point counts once.`)
   }
+  // Automatic intensity (radius in meters): the engine's peak, or the features' own.
+  let intensity: number | undefined
+  if (r.autoIntensity && r.radiusUnit === 'm' && layer) {
+    const peak = layer.heatPeak ?? featuresPeak(r, layer, weight)
+    if (peak !== null && peak > 0) intensity = 1 / peak
+  }
   const caption = weight ? `Density · weighted by ${weight.column}` : 'Density'
   return {
     status: 'ok',
     caption,
     notes,
     classes: [{ key: 'single', kind: 'single', label: 'All points', color: colors[colors.length - 1] ?? style.fillColor, visible: true, count: rowsOf(layer) }],
-    heat: { colors, ...(weight ? { weight } : {}) },
+    heat: { colors, ...(weight ? { weight } : {}), ...(intensity !== undefined ? { intensity } : {}) },
   }
+}
+
+/** The peak density of features held in memory (WGS84 points), or null (no geometry: the engine's job). */
+function featuresPeak(r: HeatmapRenderer, layer: ResolveInput, weight: { column: string; max: number } | undefined): number | null {
+  const points: Array<[number, number, number]> = []
+  for (const f of layer.features ?? []) {
+    const g = f.geometry
+    if (g?.type !== 'Point') continue
+    const v = weight ? toNumber(f.attributes[weight.column]) : 1
+    points.push([g.coordinates[0], g.coordinates[1], weight ? Math.max(v ?? 0, 0) / weight.max : 1])
+  }
+  if (!points.length) return null
+  return heatmapPeak(points, mercatorRadius(r.radiusMeters ?? HEATMAP_METERS.default, r.latitude ?? 0))
 }
 
 /**

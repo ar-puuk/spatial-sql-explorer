@@ -102,7 +102,8 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   }
   // Heatmap: SLD has none; QGIS has no intensity.
   if (r.kind === 'heatmap' && format === 'sld') items.push(HEATMAP_SLD_NOTE)
-  if (r.kind === 'heatmap' && format === 'qml' && r.intensity !== 1) items.push(HEATMAP_QML_NOTE)
+  // Automatic intensity is QGIS's own default (its maximum follows the data).
+  if (r.kind === 'heatmap' && format === 'qml' && !r.autoIntensity && r.intensity !== 1) items.push(HEATMAP_QML_NOTE)
   // Spec 008 FR-027: SLD has no 3D.
   if (format === 'sld' && style.extrusion?.enabled) items.push('SLD has no 3D: the extrusion is left out.')
   if (format === 'mapbox' && (style.markerShape ?? 'circle') !== 'circle') items.push(MAPBOX_SHAPE_NOTE(style.markerShape ?? 'circle'))

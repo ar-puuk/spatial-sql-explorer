@@ -531,7 +531,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
       void _e
       void _s
       props = { 'spatialExplorer/heatmap': JSON.stringify(r), 'spatialExplorer/symbol': JSON.stringify(symbol) }
-      if (r.intensity !== 1) notes.push(HEATMAP_QML_NOTE)
+      if (!r.autoIntensity && r.intensity !== 1) notes.push(HEATMAP_QML_NOTE)
     } else notes.push('QGIS heatmaps are for point layers: this layer was exported with its single symbol.')
   }
   // Spec 010: rules, as a rule-based renderer.

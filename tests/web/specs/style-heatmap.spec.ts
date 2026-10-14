@@ -121,3 +121,47 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
     await expect.poll(async () => (await pixelsNear(page, [DENSEST]))[0], { timeout: 20000, intervals: [100] }).toBe(0)
   })
 }
+
+/** MapLibre's kernel summed exactly at every point of writePoints' data, in Web Mercator meters (radius: Mercator meters). */
+function exactPeak(file: string, radius: number): number {
+  const R = 6378137
+  const xy = (JSON.parse(fs.readFileSync(file, 'utf8')) as { features: Array<{ geometry: { coordinates: [number, number] } }> }).features.map(({ geometry: { coordinates: [lon, lat] } }) => [(R * lon * Math.PI) / 180, R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))])
+  let best = 0
+  for (const [x0, y0] of xy) {
+    let d = 0
+    for (const [x, y] of xy) d += Math.exp((-4.5 * ((x - x0) ** 2 + (y - y0) ** 2)) / radius ** 2)
+    best = Math.max(best, d)
+  }
+  return best * 0.3989422804014327
+}
+
+for (const mode of ['GeoJSON', 'tiles'] as const) {
+  test(`automatic intensity: from the engine, the densest spot just reaches the last color (${mode})`, async ({ page }) => {
+    test.setTimeout(90000)
+    const file = writePoints()
+    await openFile(page, file, mode === 'tiles' ? '?e2e=1&tileRows=10' : '?e2e=1')
+    await openStyle(page)
+    await chooseStyleType(page, 'Heatmap')
+    // Intensity 1 floods the dense cluster with the last color.
+    await expect.poll(async () => (await pixelsNear(page, [DENSEST]))[0], { timeout: 20000, intervals: [100] }).toBeGreaterThan(200)
+    const flooded = (await pixelsNear(page, [DENSEST]))[0]
+
+    // Automatic, from pixels: the radius switches to meters.
+    await page.getByRole('checkbox', { name: /^Automatic/ }).check()
+    await expect(page.getByRole('radio', { name: 'Meters' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('slider', { name: 'Intensity' })).toBeDisabled()
+    const meters = Number(await page.getByRole('spinbutton', { name: 'Radius in meters' }).inputValue())
+    const lat = (await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): { center: [number, number] } } }).__spatialExplorerE2E.mapState().center))[1]
+    const want = 1 / exactPeak(file, meters / Math.cos((lat * Math.PI) / 180))
+    const shown = page.locator('.row', { has: page.getByRole('slider', { name: 'Intensity' }) }).locator('.value')
+    await expect.poll(async () => Math.abs(parseFloat((await shown.textContent()) ?? '') / want - 1), { timeout: 20000, intervals: [100] }).toBeLessThan(0.15)
+
+    // The peak is still the top of the ramp (the last two stops), but no longer a flood.
+    await expect
+      .poll(async () => {
+        const [top, next] = await pixelsNear(page, [DENSEST, '#e31a1c'])
+        return top + next > 0 && top < flooded / 3
+      }, { timeout: 20000, intervals: [100] })
+      .toBe(true)
+  })
+}

@@ -559,7 +559,7 @@ export function suggestedRules(s: RuleSuggestions): RuleDef[] {
 }
 
 /** Heatmap: the weight column ('' = each point counts once), radius or intensity, kept within their ranges. */
-export function setHeatmap(style: LayerStyle, patch: Partial<Pick<HeatmapRenderer, 'weight' | 'radius' | 'intensity' | 'radiusUnit' | 'radiusMeters' | 'latitude'>>): LayerStyle {
+export function setHeatmap(style: LayerStyle, patch: Partial<Pick<HeatmapRenderer, 'weight' | 'radius' | 'intensity' | 'radiusUnit' | 'radiusMeters' | 'latitude' | 'autoIntensity'>>): LayerStyle {
   const r = rendererOf(style)
   if (r.kind !== 'heatmap') return style
   const clamp = (v: number, b: { min: number; max: number }) => Math.min(b.max, Math.max(b.min, v))
@@ -571,6 +571,7 @@ export function setHeatmap(style: LayerStyle, patch: Partial<Pick<HeatmapRendere
       ...(patch.radius !== undefined && Number.isFinite(patch.radius) ? { radius: clamp(patch.radius, HEATMAP_RADIUS) } : {}),
       ...(patch.intensity !== undefined && Number.isFinite(patch.intensity) ? { intensity: clamp(patch.intensity, HEATMAP_INTENSITY) } : {}),
       ...(patch.radiusUnit !== undefined ? { radiusUnit: patch.radiusUnit } : {}),
+      ...(patch.autoIntensity !== undefined ? { autoIntensity: patch.autoIntensity } : {}),
       ...(patch.radiusMeters !== undefined && Number.isFinite(patch.radiusMeters) ? { radiusMeters: clamp(patch.radiusMeters, HEATMAP_METERS) } : {}),
       ...(patch.latitude !== undefined && Number.isFinite(patch.latitude) ? { latitude: Math.min(85, Math.max(-85, patch.latitude)) } : {}),
     },
@@ -592,5 +593,18 @@ export function setHeatmapRadiusUnit(style: LayerStyle, unit: 'px' | 'm', view: 
     return setHeatmap(style, { radiusUnit: 'm', radiusMeters: meters, latitude })
   }
   const px = view && r.radiusMeters ? Math.round(r.radiusMeters / metersPerPixel(r.latitude ?? view.latitude, view.zoom)) : r.radius
-  return setHeatmap(style, { radiusUnit: 'px', radius: px })
+  // On screen the densest spot changes with zoom: automatic intensity ends.
+  return setHeatmap(style, { radiusUnit: 'px', radius: px, autoIntensity: false })
+}
+
+/**
+ * Heatmap: intensity from the data, or the slider's. Automatic needs the
+ * radius in meters, so turning it on with pixels switches (keeping the size
+ * on screen at `view`).
+ */
+export function setHeatmapAutoIntensity(style: LayerStyle, on: boolean, view: { latitude: number; zoom: number } | null): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'heatmap') return style
+  const inMeters = on && (r.radiusUnit ?? 'px') === 'px' ? setHeatmapRadiusUnit(style, 'm', view) : style
+  return setHeatmap(inMeters, { autoIntensity: on })
 }
