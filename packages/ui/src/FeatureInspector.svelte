@@ -88,6 +88,8 @@
     width: 300px;
     max-width: 100%;
     max-height: min(480px, 100%);
+    /* Borders inside that height, so the card ends where its slot does. */
+    box-sizing: border-box;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);

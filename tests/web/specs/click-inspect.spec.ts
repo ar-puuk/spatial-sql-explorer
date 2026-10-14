@@ -64,6 +64,10 @@ test('the inspector with 50 attributes: readable rows that scroll, a filter, and
   expect(Math.min(...heights)).toBeGreaterThanOrEqual(16)
   const scrolls = await inspector.locator('dl').evaluate((dl) => dl.scrollHeight > dl.clientHeight + 10)
   expect(scrolls).toBe(true)
+  // The card stops 8 px above the scale bar, the same gap as under the search box.
+  const card = (await inspector.boundingBox())!
+  const scale = (await page.locator('.maplibregl-ctrl-scale').boundingBox())!
+  expect(Math.round(scale.y - (card.y + card.height))).toBe(8)
   await expect(inspector.locator('dd').filter({ hasText: /^2020-01-01$/ }).first()).toBeVisible()
   // The filter narrows the list by name or value.
   const filter = inspector.getByLabel('Filter attributes')

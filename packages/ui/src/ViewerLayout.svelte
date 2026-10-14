@@ -711,7 +711,8 @@
     position: absolute;
     top: 48px;
     left: 10px;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
+    /* 8 px above the scale bar (10 px margin + 11px * 1.6 line + 1 px border), the gap under the search box. */
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px + 11px * 1.6 + 1px + 8px);
     z-index: 6;
     display: flex;
     flex-direction: column;

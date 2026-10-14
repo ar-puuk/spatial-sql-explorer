@@ -183,7 +183,8 @@
   .legend {
     position: absolute;
     left: 10px;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
+    /* 8 px above the scale bar (10 px margin + 11px * 1.6 line + 1 px border). */
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px + 11px * 1.6 + 1px + 8px);
     z-index: 5;
     display: flex;
     flex-direction: column;
