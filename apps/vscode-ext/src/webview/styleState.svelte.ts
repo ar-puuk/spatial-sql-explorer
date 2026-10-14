@@ -25,6 +25,9 @@ export interface StyleStateReport {
     classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>
     samples?: Array<{ value: number; size: number }>
   }
+  /** Spec 011 US6: the label settings, and why an expression label can't be used. */
+  labels?: unknown
+  labelError?: string
   /** Spec 011: the other properties that vary by a column, as resolved. */
   channels?: Record<string, { status: string; classes: Array<{ key: string; label: string; output?: string | number; visible: boolean; count: number }> }>
 }
@@ -55,6 +58,8 @@ export function watchStyleState(store: ViewerStore, report: (state: StyleStateRe
               samples: resolved.size.samples?.map((x) => ({ value: x.value, size: x.size })),
             }
           : undefined,
+        labels: store.style.labels,
+        labelError: resolved.labelError,
         channels: resolved.channels
           ? Object.fromEntries(
               Object.entries(resolved.channels).map(([id, rc]) => [

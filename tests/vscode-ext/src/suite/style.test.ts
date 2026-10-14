@@ -19,6 +19,8 @@ interface StyleState {
   classes: Array<{ key: string; label: string; color: string; visible: boolean; count: number }>
   size?: { column: string; mode: string; status: string; caption: string; classes: Array<{ key: string; label: string; size?: number; visible: boolean; count: number }>; samples?: Array<{ value: number; size: number }> }
   channels?: Record<string, { status: string; classes: Array<{ key: string; label: string; output?: string | number; visible: boolean; count: number }> }>
+  labels?: { enabled: boolean; source: { kind: string; expression?: string; column?: string } }
+  labelError?: string
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -380,7 +382,7 @@ suite('Spec 011 US7: properties by a column survive save and reopen', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   })
 
-  test('color and pattern by functional class, opacity by lanes with a hidden class', async function () {
+  test('color and pattern by functional class, opacity by lanes with a hidden class, expression labels', async function () {
     this.timeout(90000)
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-channels-'))
     const file = path.join(dir, 'roads.geojson')
@@ -407,9 +409,11 @@ suite('Spec 011 US7: properties by a column survive save and reopen', () => {
             dash: { source: { kind: 'column', column: 'functional_class' }, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: 4 } },
             opacity: { source: { kind: 'column', column: 'lanes' }, scale: { kind: 'classes', method: 'equal', classCount: 3, classes: [{ index: 2, visible: false }], noValue: {} } },
           },
+          labels: { enabled: true, source: { kind: 'expression', expression: "functional_class || ' ' || lanes" }, size: 14, color: '#112233', halo: { enabled: true, color: '#ffffff', width: 2 }, placement: { kind: 'point', anchor: 'above', offset: 4 } },
         },
         ready
       )
+      assert.strictEqual(before.labelError, undefined, 'the label expression is accepted')
       assert.ok((before.channels?.dash?.classes.length ?? 0) >= 2, 'the pattern has classes')
       assert.strictEqual(before.channels?.opacity?.classes.find((c) => c.key === 'range:2')?.visible, false)
       await vscode.commands.executeCommand('spatialExplorer._saveStyle')
@@ -423,6 +427,7 @@ suite('Spec 011 US7: properties by a column survive save and reopen', () => {
       assert.match(qml, /<Option name="outlineStyle" type="Map">/)
       assert.match(qml, /<Option name="alpha" type="Map">/)
       assert.match(qml, /name="spatialExplorer\/style"/)
+      assert.match(qml, /<labeling type="simple">/)
 
       await open()
       let after: StyleState | null = null
@@ -434,6 +439,8 @@ suite('Spec 011 US7: properties by a column survive save and reopen', () => {
       }
       assert.strictEqual(after?.source, 'roads.qml')
       assert.deepStrictEqual(after?.channels, before.channels)
+      assert.deepStrictEqual(after?.labels, before.labels)
+      assert.strictEqual(after?.labelError, undefined)
       assert.deepStrictEqual(after?.classes.map((c) => c.color), before.classes.map((c) => c.color))
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')

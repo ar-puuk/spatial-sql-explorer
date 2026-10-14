@@ -755,11 +755,12 @@ and re-import into the app.
 - [x] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
   Fix mismatches. Record the outcome (cases, mismatches 0) in `research.md`
   "SC-003", and in `tests/qgis/README.md` "Last run".
-- [ ] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
+- [x] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
   sidecar with three varying channels and labels on (an expression source);
   reopen; the same channels, legend and labels (FR-024).
   Channels done (color and pattern by class, opacity classes with one hidden:
-  identical after reopen, 2026-10-14). Labels are added with US6 (T067).
+  identical after reopen, 2026-10-14). Expression labels added with US6: the
+  sidecar carries QGIS labeling, and the labels come back identical.
 
 ---
 
