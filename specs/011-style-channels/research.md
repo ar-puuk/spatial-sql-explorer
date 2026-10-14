@@ -736,3 +736,41 @@ and add "Vary by attribute" under them. What changed:
   - two groups on one column by the same scale had the same title ("age_days
     · Continuous" twice). Such groups now name their properties ("Outline
     color · age_days · Continuous"), in the live legend and the image.
+
+## Polish: performance, SC-004 and SC-005 (2026-10-14)
+
+`tests/web/specs/performance-011.spec.ts` measures the following in the web
+build, in headless Chromium with software WebGL:
+- the time from a change to the map's next settled frame (`idle`);
+- the longest main-thread tasks during panel edits at 6× CPU.
+
+Test hooks are off, as in spec 010's benchmark: the rendered-feature count on
+each idle was itself the 1–2 s long task, as spec 010 had found.
+
+| Case | Repaint only | Fixed value, plain style (pre-011 path) | Fixed value, 2 properties varying | Property by a column | Continuous | Longest task at 6× |
+|---|---|---|---|---|---|---|
+| tiles, 100,000 parcels | 67 ms | 342 ms | 374 ms | 1,082 ms | 1,178 ms | 391 ms |
+| GeoJSON, 77,000 parcels | 45 ms | 613 ms | 640 ms | 616 ms | 1,007 ms | 386 ms |
+
+- **Fixed in this pass:** categories took 3.6 s to order the 77,000 distinct
+  values of an id column, twice per change, because `compareCategories` used
+  `localeCompare` with options, which builds a collator on every call. One
+  cached `Intl.Collator` gives the same order. The first property by a column
+  on 77k parcels went from 3.8 s to 0.62 s (an id column: from 7.8 s to
+  1.3 s). Categorized color gains the same.
+- **SC-004 is not met in full here:**
+  - A fixed value takes 340–640 ms to a settled frame, against 200 ms. The
+    pre-011 path costs the same on a plain style (fixedPlain), so spec 011
+    adds 30 ms. The cost is MapLibre re-evaluating data-driven paint over
+    every feature (no tile is requested again: 0 engine calls), not the
+    style code.
+  - A property by a column in tiles mode is 1.08 s, against 1 s: the tiles
+    are rebuilt to carry the new column (by design since spec 010).
+  - The longest task during edits at 6× is about 390 ms.
+  - These are recorded, not asserted, as spec 010's benchmark does.
+- **SC-005 is met** (230k parcels, tiles):
+  - A label setting reloads nothing (`sourceLoads` unchanged).
+  - Turning labels on rebuilds the tiles once (they carry the text column),
+    and the layer is not opened again.
+  - Panning at 6×: longest task 57 ms with labels, 0–64 ms without (spec
+    010's budget: 200 ms).

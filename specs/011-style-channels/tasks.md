@@ -897,13 +897,13 @@ and re-import into the app.
 
 ## Phase 11: Polish & Cross-Cutting
 
-- [ ] T070 [P] Profile SC-004 (`tests/web/specs/redesign-performance.spec.ts`
+- [x] T070 [P] Profile SC-004 (`tests/web/specs/redesign-performance.spec.ts`
   pattern) on a 100,000-row fixture:
   - a channel change reaches the map within 1 s;
   - a fixed value within 200 ms;
   - panel interactions at 6× CPU throttle.
   Record the results in `research.md`.
-- [ ] T071 [P] Check SC-005: on a tiles-mode layer, label toggle and setting
+- [x] T071 [P] Check SC-005: on a tiles-mode layer, label toggle and setting
   changes cause no data reload, and pan frame times stay within spec 010's
   budget with labels on. Record the results in `research.md`.
 - [ ] T072 [P] Run the tracked check from research §1: dashes varying per
