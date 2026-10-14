@@ -19,7 +19,8 @@
     layoutFor,
     isMarkerIconId,
     markerIconIds,
-    usesMarkerIcons,
+    drawsMarkerIcons,
+    layerFilters,
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
@@ -196,7 +197,7 @@
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
     const heat = drawsHeatmap(style, resolved)
     if (id === 'heatmap') return heat ? 'visible' : 'none'
-    if (id === 'marker' || id === 'marker-select') return usesMarkerIcons(style) && !heat ? 'visible' : 'none'
+    if (id === 'marker' || id === 'marker-select') return drawsMarkerIcons(style, resolved) && !heat ? 'visible' : 'none'
     if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
     return 'visible'
   }
@@ -221,11 +222,20 @@
       .filter((id) => map?.getLayer(id))
   }
 
-  /** Each layer's geometry filter, plus the hidden-class filter (FR-009). Shaped markers leave the circle layer only the dots. */
+  /**
+   * Each layer's geometry filter, plus the hidden-class filter (FR-009).
+   * Shaped markers leave the circle layer only the dots; with a shape by data
+   * (spec 011) the circle layer also keeps the points whose shape is a circle.
+   */
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     const hidden = visibilityFilter(style, resolved)
-    // Shaped markers draw every point; the circle layer then draws only the dots.
-    const geometry = def.id === 'circle' && usesMarkerIcons(style) && !drawsHeatmap(style, resolved) ? ['all', POINT, DOT, DOT_SHOWN] : def.filter
+    const extra = layerFilters(style, resolved)
+    const heat = drawsHeatmap(style, resolved)
+    let geometry = def.filter
+    if (def.id === 'circle' && !heat) {
+      if (extra.circle) geometry = ['all', POINT, DOT_SHOWN, ['any', DOT, extra.circle]]
+      else if (drawsMarkerIcons(style, resolved)) geometry = ['all', POINT, DOT, DOT_SHOWN]
+    } else if (extra[def.id as keyof typeof extra]) geometry = ['all', def.filter, extra[def.id as keyof typeof extra]]
     return hidden ? ['all', geometry, hidden] : geometry
   }
 
@@ -246,7 +256,10 @@
     if (icon) m.addImage(id, icon.image, { pixelRatio: icon.pixelRatio })
   }
   function pruneMarkerIcons(m: MapLibreMap): void {
-    const keep = new Set(usesMarkerIcons(style) ? markerIconIds(style, resolved) : [])
+    const ids = drawsMarkerIcons(style, resolved) ? markerIconIds(style, resolved) : []
+    // Spec 011: icons built per feature (shape or outline by data) can't be listed; they stay until the style lists its icons again.
+    if (drawsMarkerIcons(style, resolved) && ids.length === 0) return
+    const keep = new Set(ids)
     for (const id of m.listImages()) if (isMarkerIconId(id) && !keep.has(id)) m.removeImage(id)
     for (const id of keep) addMarkerIcon(m, id)
   }
@@ -267,6 +280,10 @@
     return e ? (e[1] + e[3]) / 2 : 0
   }
 
+  /** The paint and layout properties last set on each layer (so ones a style drops can be reset). Bookkeeping, not state. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const setProps = new Map<string, { paint: string[]; layout: string[] }>()
+
   function applyPaint(): void {
     if (!map || !mapReady) return
     if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
@@ -277,13 +294,22 @@
       if (!map.getLayer(l.id)) continue // mid data-source switch; replaceDataSource carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
       // An undefined value (a solid line's dash array) goes back to the default.
-      for (const [prop, value] of Object.entries(layerPaint(l.def.id, p))) {
+      const paint = layerPaint(l.def.id, p)
+      for (const [prop, value] of Object.entries(paint)) {
         map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], (value ?? null) as Parameters<MapLibreMap['setPaintProperty']>[2])
       }
-      for (const [key, value] of Object.entries(layerLayout(l.def, layouts))) {
+      const layout = layerLayout(l.def, layouts)
+      for (const [key, value] of Object.entries(layout)) {
         const prop = key as Parameters<MapLibreMap['setLayoutProperty']>[1]
         if (map.getLayoutProperty(l.id, prop) !== value) map.setLayoutProperty(l.id, prop, value as Parameters<MapLibreMap['setLayoutProperty']>[2])
       }
+      // Spec 011: properties a style no longer sets (opacity or rotation back to fixed) go back to the default.
+      const before = setProps.get(l.id)
+      if (before) {
+        for (const prop of before.paint) if (!(prop in paint)) map.setPaintProperty(l.id, prop as Parameters<MapLibreMap['setPaintProperty']>[1], null as unknown as Parameters<MapLibreMap['setPaintProperty']>[2])
+        for (const prop of before.layout) if (!(prop in layout)) map.setLayoutProperty(l.id, prop as Parameters<MapLibreMap['setLayoutProperty']>[1], undefined)
+      }
+      setProps.set(l.id, { paint: Object.keys(paint), layout: Object.keys(layout) })
     }
   }
 
@@ -847,10 +873,15 @@
     void style.strokeWidth
     void style.pointRadius
     void style.layerOpacity
-    void style.extrusion
+    void style.draw
+    void style.height
+    void style.heatmap
     void style.markerShape
     void style.lineDash
-    void style.size
+    void style.channels
+    void style.lineWidth
+    void style.rotation
+    void style.opacity
     void resolved
     void themeRevision
     void blankColor

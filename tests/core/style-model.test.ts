@@ -15,16 +15,16 @@ const SPEC_001: LayerStyle = {
 describe('renderer model', () => {
   it('a spec 001 style without a renderer behaves as single', () => {
     expect(rendererOf(SPEC_001)).toEqual({ kind: 'single' })
-    expect(sanitizeStyle(SPEC_001).renderer).toEqual({ kind: 'single' })
+    expect(rendererOf(sanitizeStyle(SPEC_001))).toEqual({ kind: 'single' })
   })
 
   it('the default style is single', () => {
-    expect(DEFAULT_LAYER_STYLE.renderer?.kind).toBe('single')
+    expect(rendererOf(DEFAULT_LAYER_STYLE).kind).toBe('single')
   })
 
   it('unknown renderer kinds sanitize to single, and values are clamped', () => {
-    expect(sanitizeStyle({ ...SPEC_001, renderer: { kind: 'dot-density' } as never }).renderer).toEqual({ kind: 'single' })
-    const g = sanitizeStyle({ ...SPEC_001, renderer: { kind: 'graduated', column: 'v', classCount: 40, method: 'nope' } as never }).renderer
+    expect(rendererOf(sanitizeStyle({ ...SPEC_001, renderer: { kind: 'dot-density' } as never }))).toEqual({ kind: 'single' })
+    const g = rendererOf(sanitizeStyle({ ...SPEC_001, renderer: { kind: 'graduated', column: 'v', classCount: 40, method: 'nope' } as never }))
     expect(g).toMatchObject({ kind: 'graduated', column: 'v', classCount: 10, method: 'quantile', ramp: { id: 'viridis', reversed: false } })
   })
 

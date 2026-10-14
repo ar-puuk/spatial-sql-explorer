@@ -1,7 +1,7 @@
 // A style change that only recolors reuses the engine's classification data (user report 2026-10-13:
 // hovering ramps in the picker lagged, each one re-ran the classification).
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_LAYER_STYLE, styleDataKey, withCounts, type LayerStyle, type ResolvedStyle } from '@spatial-explorer/core'
+import { DEFAULT_LAYER_STYLE, sanitizeStyle, styleDataKey, withCounts, type LayerStyle, type ResolvedStyle } from '@spatial-explorer/core'
 
 const graduated = (patch: Record<string, unknown>): LayerStyle =>
   ({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'graduated', column: 'value', method: 'jenks', classCount: 5, ramp: { id: 'viridis', reversed: false }, classes: [], noValue: { visible: true }, ...patch } }) as unknown as LayerStyle
@@ -31,5 +31,15 @@ describe('withCounts', () => {
       ['range', 3, '#222'],
       ['noValue', 2, '#ccc'],
     ])
+  })
+})
+
+describe('styleDataKey with channels (spec 011)', () => {
+  it('differs when the color channel classifies differently', () => {
+    const a = sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'graduated', column: 'a', method: 'quantile', classCount: 5, ramp: { id: 'viridis', reversed: false }, classes: [], noValue: {} } })
+    const b = sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'graduated', column: 'b', method: 'quantile', classCount: 5, ramp: { id: 'viridis', reversed: false }, classes: [], noValue: {} } })
+    expect(a.channels?.color).toBeDefined()
+    expect(styleDataKey(a)).not.toBe(styleDataKey(b))
+    expect(styleDataKey(a)).not.toBe(styleDataKey(sanitizeStyle(DEFAULT_LAYER_STYLE)))
   })
 })

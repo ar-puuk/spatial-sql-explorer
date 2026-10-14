@@ -4,12 +4,12 @@
 // GeoJSON source points at the data file name (the consumer re-points it);
 // our own LayerStyle is also embedded under `metadata` so a round trip
 // through Spatial Explorer is lossless even after a tool rewrites paints.
+import { legacyView } from './legacy.js'
 import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
   metersPerPixel,
   parseColor,
-  rendererOf,
   rgbToHex,
   round,
   sanitizeStyle,
@@ -18,6 +18,7 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
+import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
 import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
 import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
@@ -46,7 +47,7 @@ function whereExpression(w: SimpleWhere): unknown {
 }
 
 export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerName: string, dataFileName: string, resolved?: ResolvedStyle): StyleExport {
-  const style = sanitizeStyle(input)
+  const style = legacyView(sanitizeStyle(input))
   const source = 'data'
   const layers: unknown[] = []
   const wants = (g: Exclude<StyleGeometry, 'Mixed'>): boolean => geometry === 'Mixed' || geometry === g

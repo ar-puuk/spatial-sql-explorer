@@ -4,7 +4,8 @@
 // sit first in `ResolvedStyle.classes`, row-major from low/low (i + nx * j),
 // so a feature's cell position IS its class index on the map.
 import { BIVARIATE_PALETTES, type BivariatePalette } from './bivariateData.js'
-import { DEFAULT_BIVARIATE_PALETTE, rendererOf, type LayerStyle, type ResolvedStyle } from './model.js'
+import { DEFAULT_BIVARIATE_PALETTE, type LayerStyle, type ResolvedStyle } from './model.js'
+import { rendererOf } from './legacy.js'
 
 export { BIVARIATE_PALETTES, type BivariatePalette }
 

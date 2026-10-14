@@ -43,10 +43,11 @@
   {:else if kind === 'point'}
     <path
       d={markerPath(symbol.shape, radius, c, c)}
+      transform={symbol.rotation ? `rotate(${symbol.rotation} ${c} ${c})` : undefined}
       fill={hollow ? 'none' : symbol.fillColor}
-      fill-opacity={Math.max(symbol.fillOpacity, 0.15)}
+      fill-opacity={Math.max(symbol.fillOpacity * (symbol.opacity ?? 1), 0.15)}
       stroke={hollow ? symbol.fillColor : symbol.strokeColor}
-      stroke-opacity={hollow ? 1 : symbol.strokeOpacity}
+      stroke-opacity={hollow ? 1 : symbol.strokeOpacity * (symbol.opacity ?? 1)}
       stroke-width={hollow ? 1.5 : outline}
       stroke-linejoin="miter"
     />

@@ -24,10 +24,14 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   query can read other files too: workspace files by relative path in VS Code
   (`ST_Read('data/links.shp')`), added files on the web.
 - **Style**: single, categorized, graduated (by a column or a SQL expression),
-  bivariate and rule-based (SQL conditions, first match wins) styles, ramps
-  previewed on the map, size by a column (classed or proportional), marker
-  shapes and dashed lines, layer opacity, 3D polygon extrusion. Saved as a QGIS `.qml` sidecar;
-  imports and exports QML, SLD and Mapbox GL style JSON.
+  bivariate, rule-based (SQL conditions, first match wins) and heatmap
+  styles, ramps previewed on the map, and, under **Vary by attribute**, more
+  properties each by their own column (size or width, outline color and
+  width, shape, pattern, opacity, rotation), so one map can show several
+  variables at once (say, roads colored by level of service and widened by
+  traffic). A legend group per property, layer opacity, 3D polygon
+  extrusion. Saved as a QGIS `.qml` sidecar; imports and exports QML, SLD and
+  Mapbox GL style JSON.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;
   all, filtered or selected rows. The map exports as a PNG with its legend.

@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -52,29 +52,57 @@
   // Legend (spec 003 FR-010): for thematic styles, and for a customized
   // single symbol (one row); not for the untouched default.
   const legendRenderer = $derived(rendererOf(store.style))
+  // Spec 011: one group per property that varies, merged where properties read the same classes.
+  const legend = $derived(legendGroups(store.style, store.resolvedStyle))
+  // Spec 009 US2: proportional sizes are reference sizes, not classes: their own group.
+  const legendProportional = $derived.by(() => {
+    const size = store.resolvedStyle.size
+    if (size?.status !== 'ok' || size.mode !== 'proportional' || legendRenderer.kind === 'bivariate' || legendRenderer.kind === 'heatmap') return null
+    return { channel: size, symbols: sizeSymbols(store.style, store.resolvedStyle) }
+  })
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
-      store.resolvedStyle.size?.status === 'ok' ||
+      legend.length > 0 ||
+      !!legendProportional ||
       (['fillColor', 'strokeColor', 'fillOpacity', 'strokeOpacity', 'strokeWidth', 'pointRadius', 'layerOpacity', 'markerShape', 'lineDash'] as const).some((k) => store.style[k] !== DEFAULT_LAYER_STYLE[k])
   )
-  // Each legend class's symbol, as the map draws it (shape, size, pattern, opacity).
-  // Spec 009: with a size channel, color swatches are drawn at one readable width (sizes have their own group).
-  const legendSymbols = $derived.by(() => {
-    const symbols = classSymbols(store.style, store.resolvedStyle)
-    return store.resolvedStyle.size?.status === 'ok' ? symbols.map((s) => ({ ...s, lineWidth: Math.max(s.lineWidth, 3), radius: Math.max(s.radius, 5) })) : symbols
-  })
-  // Spec 009: the size channel's legend group, when it draws.
-  const legendSize = $derived(store.resolvedStyle.size?.status === 'ok' ? { channel: store.resolvedStyle.size, symbols: sizeSymbols(store.style, store.resolvedStyle) } : null)
+  // The single symbol, as the map draws it, for the row shown when nothing varies.
+  const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
   const legendTitle = $derived(rendererTitle(legendRenderer))
+  /** Hides or shows a legend entry: its class in every merged property. */
+  function toggleEntry(toggles: Array<{ channel: ChannelId; key: string }>, visible: boolean): void {
+    for (const t of toggles) {
+      if (t.channel === 'color' || t.key.startsWith('size:')) store.setClassVisible(t.key, visible)
+      else store.setChannelClassVisible(t.channel, t.key, visible)
+    }
+  }
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
     if (!layer || !showLegend) return null
     const r = store.resolvedStyle
+    const base = layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area'
+    const sizing = legend.some((g) => g.channels.includes('size') || g.channels.includes('width')) || !!legendProportional
+    const shapeOf = (g: LegendGroup): 'line' | 'point' | 'area' =>
+      g.channels.some((c) => c === 'shape' || c === 'rotation')
+        ? 'point'
+        : g.channels.some((c) => c === 'width' || c === 'dash')
+          ? 'line'
+          : g.channels.includes('size')
+            ? layer.geometryType === 'Point'
+              ? 'point'
+              : 'line'
+            : base
+    const rowsOf = (g: LegendGroup) => {
+      const readable = sizing && !(g.channels.includes('size') || g.channels.includes('width'))
+      return g.entries.flatMap((e) => (e.visible ? [{ color: e.symbol.fillColor, label: e.label, count: e.count, symbol: readable ? { ...e.symbol, lineWidth: Math.max(e.symbol.lineWidth, 3), radius: Math.max(e.symbol.radius, 5) } : e.symbol }] : []))
+    }
+    const colorGroup = legend[0]?.channels[0] === 'color' ? legend[0] : null
+    const others = colorGroup ? legend.slice(1) : legend
     return {
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
-      shape: layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area',
+      shape: colorGroup ? shapeOf(colorGroup) : base,
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
-      rows: r.heat ? [] : r.classes.flatMap((c, i) => (c.visible ? [{ color: c.color, label: c.label, count: r.classes.length > 1 ? c.count : undefined, symbol: legendSymbols[i] }] : [])),
+      rows: r.heat || r.grid ? [] : colorGroup ? rowsOf(colorGroup) : others.length || legendProportional ? [] : r.classes.map((c, i) => ({ color: c.color, label: c.label, symbol: legendSymbols[i] })),
       // A heatmap: its ramp.
       gradient: r.heat && r.status === 'ok' ? r.heat.colors : undefined,
       // Spec 009 US6: the bivariate square.
@@ -88,22 +116,25 @@
             noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
           }
         : undefined,
-      // Spec 009: the size channel's group (reference sizes, then visible classes).
-      groups: legendSize
-        ? [
-            {
-              title: legendSize.channel.caption,
-              shape: layer.geometryType === 'Point' ? ('point' as const) : ('line' as const),
-              alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
-              rows: [
-                ...(legendSize.channel.samples ?? []).map((x, i) => ({ color: store.style.fillColor, label: x.label, symbol: legendSize.symbols[i] })),
-                ...legendSize.channel.classes.flatMap((c, i) =>
-                  c.visible ? [{ color: c.color, label: c.label, count: c.count, symbol: legendSize.symbols[(legendSize.channel.samples?.length ?? 0) + i] }] : []
-                ),
-              ],
-            },
-          ]
-        : undefined,
+      // Spec 011: the other groups (merged where they share classes), then proportional sizes.
+      groups: [
+        ...others.map((g) => ({ title: g.title, shape: shapeOf(g), alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1), rows: rowsOf(g) })),
+        ...(legendProportional
+          ? [
+              {
+                title: legendProportional.channel.caption,
+                shape: layer.geometryType === 'Point' ? ('point' as const) : ('line' as const),
+                alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+                rows: [
+                  ...(legendProportional.channel.samples ?? []).map((x, i) => ({ color: store.style.fillColor, label: x.label, symbol: legendProportional.symbols[i] })),
+                  ...legendProportional.channel.classes.flatMap((c, i) =>
+                    c.visible ? [{ color: c.color, label: c.label, count: c.count, symbol: legendProportional.symbols[(legendProportional.channel.samples?.length ?? 0) + i] }] : []
+                  ),
+                ],
+              },
+            ]
+          : []),
+      ],
     }
   })
   const loading = $derived(session.loadState === 'loading')
@@ -360,7 +391,9 @@
             onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
             onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
             symbols={legendSymbols}
-            size={legendSize}
+            groups={legend}
+            onToggleEntry={toggleEntry}
+            proportional={legendProportional}
           />
         {/if}
         {@render mapOverlay?.()}

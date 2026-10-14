@@ -1,0 +1,77 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/mlgl/maplibre-gl.css">
+<style>html,body,#map{margin:0;width:900px;height:600px}</style></head>
+<body><div id="map"></div>
+<script type="module">
+import * as maplibregl from '/mlgl/maplibre-gl.mjs'
+const q = new URLSearchParams(location.search)
+const mode = q.get('mode') || 'markers'
+const glyphs = q.get('glyphs') // e.g. a dead URL to simulate a basemap glyph server offline
+
+// --- SDF shapes: analytic signed distance (texels, + outside), TinySDF's encoding:
+// alpha = 0.75 at the edge, minus 1/8 per texel outward (radius 8, cutoff 0.25).
+const STAR_INNER = Math.cos(72*Math.PI/180)/Math.cos(36*Math.PI/180)
+function poly(shape){
+  if (shape==='triangle') return [[-1,1],[1,1],[0,-1]]
+  if (shape==='square') return [[-1,-1],[1,-1],[1,1],[-1,1]]
+  if (shape==='star') return Array.from({length:10},(_,k)=>{const a=k*36*Math.PI/180,r=k%2?STAR_INNER:1;return [r*Math.sin(a),-r*Math.cos(a)]})
+  return null
+}
+function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay;const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy)));return Math.hypot(px-ax-t*dx,py-ay-t*dy)}
+function inside(px,py,p){let c=false;for(let i=0,j=p.length-1;i<p.length;j=i++){const [xi,yi]=p[i],[xj,yj]=p[j];if((yi>py)!==(yj>py)&&px<(xj-xi)*(py-yi)/(yj-yi)+xi)c=!c}return c}
+function sdfIcon(shape, R, pad=8){
+  const n=Math.ceil(2*(R*1.5+pad)); const img=new Uint8Array(n*n*4); const c=n/2
+  const p=poly(shape)?.map(([x,y])=>[c+x*R,c+y*R])
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const px=x+0.5,py=y+0.5; let d
+    if(!p) d=Math.hypot(px-c,py-c)-R
+    else { let m=Infinity; for(let i=0;i<p.length;i++){const a=p[i],b=p[(i+1)%p.length];m=Math.min(m,segDist(px,py,a[0],a[1],b[0],b[1]))} d=inside(px,py,p)?-m:m }
+    const a=Math.max(0,Math.min(255,Math.round(255*(0.75-d/8))))
+    img[(y*n+x)*4+3]=a
+  }
+  return {width:n,height:n,data:img}
+}
+// The current approach: a raster icon per look (fill + centered outline, miter joins).
+function rasterIcon(shape,R,fill,stroke,sw,pr=2){
+  const half=R*1.42+sw/2+1, size=Math.ceil(half*2*pr); const cv=document.createElement('canvas'); cv.width=cv.height=size
+  const ctx=cv.getContext('2d'); ctx.scale(pr,pr); const c=size/pr/2; const p=poly(shape)
+  const path=new Path2D(); if(!p){path.arc(c,c,R,0,7)} else p.forEach(([x,y],i)=>i?path.lineTo(c+x*R,c+y*R):path.moveTo(c+x*R,c+y*R)); path.closePath()
+  ctx.fillStyle=fill; ctx.fill(path); ctx.strokeStyle=stroke; ctx.lineWidth=sw; ctx.lineJoin='miter'; ctx.stroke(path)
+  return {image:ctx.getImageData(0,0,size,size),pixelRatio:pr}
+}
+
+const pts=[], lines=[]
+const shapes=['triangle','square','star']
+const colors=['#d7191c','#2b83ba','#1a9641']
+for(let i=0;i<3;i++)for(let j=0;j<3;j++){
+  pts.push({type:'Feature',properties:{shape:shapes[i],color:colors[j],rot:j*30,size:[0.6,1,1.6][j],name:`P${i}${j} ${['Main St','Ålesund','Δέλτα'][j]}`},geometry:{type:'Point',coordinates:[-0.02+i*0.02,0.012-j*0.012]}})
+}
+const dashes=['solid','dash','dot','dash-dot']
+dashes.forEach((d,i)=>lines.push({type:'Feature',properties:{dash:d,name:`Route ${d} Ünïcode`},geometry:{type:'LineString',coordinates:[[-0.03,-0.03+i*0.012],[0,-0.025+i*0.012],[0.03,-0.035+i*0.012]]}}))
+
+const style={version:8,sources:{p:{type:'geojson',data:{type:'FeatureCollection',features:pts}},l:{type:'geojson',data:{type:'FeatureCollection',features:lines}}},
+  layers:[{id:'bg',type:'background',paint:{'background-color':'#f4f4f0'}}]}
+if (glyphs) style.glyphs=glyphs
+if (q.get('faces')) style['font-faces']={'SE Label':[{url:'/spike/arial.ttf'}]}
+const map=new maplibregl.Map({container:'map',style,center:[0,-0.005],zoom:13.3,attributionControl:false,canvasContextAttributes:{preserveDrawingBuffer:true}})
+window.__errors=[]; map.on('error',e=>window.__errors.push(String(e.error?.message||e)))
+map.on('load',()=>{
+  const R=12
+  for(const s of shapes){ map.addImage('sdf-'+s, sdfIcon(s,R), {sdf:true}) }
+  for(const s of shapes)for(const c of colors) map.addImage(`ras-${s}-${c}`, rasterIcon(s,R,c,'#222',2).image,{pixelRatio:2})
+  if(mode==='markers'){
+    // Left half: SDF, outline as halo. Right half (shifted): raster per look.
+    map.addLayer({id:'sdf',type:'symbol',source:'p',layout:{'icon-image':['concat','sdf-',['get','shape']],'icon-size':['get','size'],'icon-rotate':['get','rot'],'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
+      paint:{'icon-color':['get','color'],'icon-halo-color':'#222','icon-halo-width':['*',1,['/',2,['get','size']]],'icon-opacity':['match',['get','shape'],'square',0.5,1],'icon-translate':[-170,0]}})
+    map.addLayer({id:'ras',type:'symbol',source:'p',layout:{'icon-image':['concat','ras-',['get','shape'],'-',['get','color']],'icon-size':['get','size'],'icon-rotate':['get','rot'],'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
+      paint:{'icon-translate':[170,0]}})
+  } else {
+    map.addLayer({id:'lines',type:'line',source:'l',paint:{'line-width':4,'line-color':'#444','line-dasharray':['match',['get','dash'],'dash',['literal',[4,2]],'dot',['literal',[1,2]],'dash-dot',['literal',[4,2,1,2]],['literal',[1,0]]]},layout:{'line-cap':'butt'}})
+    map.addLayer({id:'pts',type:'circle',source:'p',paint:{'circle-radius':4,'circle-color':['get','color']}})
+    map.addLayer({id:'lbl-l',type:'symbol',source:'l',layout:{'text-field':['get','name'],'symbol-placement':'line','text-font':[q.get('font')||'SE Label'],'text-size':13},paint:{'text-color':'#111','text-halo-color':'#fff','text-halo-width':1.5}})
+    map.addLayer({id:'lbl-p',type:'symbol',source:'p',layout:{'text-field':['get','name'],'text-font':[q.get('font')||'SE Label'],'text-size':['*',12,['get','size']],'text-anchor':'top','text-offset':[0,0.6]},paint:{'text-color':['get','color'],'text-halo-color':'#fff','text-halo-width':1.5}})
+  }
+  map.once('idle',()=>{window.__done=true})
+})
+</script></body></html>

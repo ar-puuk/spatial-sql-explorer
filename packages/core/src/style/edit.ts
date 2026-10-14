@@ -14,7 +14,6 @@ import {
   metersPerPixel,
   OTHER_COLOR,
   MIN_CLASS_COUNT,
-  rendererOf,
   type CategorizedRenderer,
   type ClassOverride,
   type GraduatedMethod,
@@ -32,10 +31,25 @@ import {
   type SizeChannel,
   type SizeMode,
 } from './model.js'
+import { rendererOf, sizeOf, toChannelShape } from './legacy.js'
 import { toCategory } from './classify.js'
 import { defaultRamp, rampColors } from './ramps.js'
-import { DEFAULT_SIZE_RANGE } from './symbol.js'
-import { eligibleColumns, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
+import { DEFAULT_SIZE_RANGE, type LineDash, type MarkerShape } from './symbol.js'
+import { eligibleColumns, isNumericType, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
+import {
+  OUTPUT_KIND,
+  categoryCapFor,
+  isColorChannel,
+  isOutputFor,
+  type CategoriesScale,
+  type ChannelId,
+  type ClassDef,
+  type ClassesScale,
+  type Encoding,
+  type Output,
+  type Scale,
+  type SymbolPart,
+} from './channels.js'
 
 const TEXTUAL = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|ENUM|BOOLEAN)/i
 
@@ -332,7 +346,7 @@ const SIZE = 'size:'
 export function setSizeChannel(style: LayerStyle, column: string | null, geometry: 'point' | 'line'): LayerStyle {
   // Off: `size: undefined` (not a deleted key), so it also clears through a patch merge (store.setStyle).
   if (column === null) return { ...style, size: undefined }
-  const was = style.size
+  const was = sizeOf(style)
   if (was) return { ...style, size: { ...was, column, method: was.method === 'manual' ? 'quantile' : was.method, classes: [] } }
   const range = DEFAULT_SIZE_RANGE[geometry]
   const size: SizeChannel = {
@@ -351,7 +365,8 @@ export function setSizeChannel(style: LayerStyle, column: string | null, geometr
 }
 
 function withSize(style: LayerStyle, patch: (s: SizeChannel) => SizeChannel): LayerStyle {
-  return style.size ? { ...style, size: patch(style.size) } : style
+  const was = sizeOf(style)
+  return was ? { ...style, size: patch(was) } : style
 }
 
 /** Classed or proportional (US2). Proportional has no classes: their overrides are dropped. */
@@ -414,7 +429,7 @@ export function setSizeClassVisible(style: LayerStyle, key: string, visible: boo
 
 /** A size class bound (switches to Manual); the neighbouring class moves with it, as graduated bounds do. */
 export function setSizeClassBound(style: LayerStyle, resolved: ResolvedStyle, index: number, side: 'lower' | 'upper', value: number): LayerStyle {
-  const s = style.size
+  const s = sizeOf(style)
   if (!s || s.mode !== 'classed' || !Number.isFinite(value)) return style
   let classes: RangeClassDef[] = s.classes
   if (s.method !== 'manual') {
@@ -607,4 +622,203 @@ export function setHeatmapAutoIntensity(style: LayerStyle, on: boolean, view: { 
   if (r.kind !== 'heatmap') return style
   const inMeters = on && (r.radiusUnit ?? 'px') === 'px' ? setHeatmapRadiusUnit(style, 'm', view) : style
   return setHeatmap(inMeters, { autoIntensity: on })
+}
+
+// --- Spec 011: one property at a time (contracts/style-core.md) ----------------
+
+/**
+ * A property's fixed value: written to the layer symbol field it reads from
+ * (`fixedValue`). A line's Color is the stroke color (spec 001's look).
+ */
+export function setFixed(style: LayerStyle, channel: ChannelId, value: Output, part: SymbolPart = 'fill'): LayerStyle {
+  if (!isOutputFor(channel, value)) return style
+  const s = toChannelShape(style)
+  switch (channel) {
+    case 'color':
+      return part === 'line' ? { ...s, strokeColor: value as string } : { ...s, fillColor: value as string }
+    case 'strokeColor':
+      return { ...s, strokeColor: value as string }
+    case 'strokeWidth':
+      return { ...s, strokeWidth: value as number }
+    case 'size':
+      return { ...s, pointRadius: value as number }
+    case 'width':
+      return { ...s, lineWidth: value as number }
+    case 'shape':
+      return withoutDefault({ ...s, markerShape: value as MarkerShape }, 'markerShape', 'circle')
+    case 'dash':
+      return withoutDefault({ ...s, lineDash: value as LineDash }, 'lineDash', 'solid')
+    case 'opacity':
+      return withoutDefault({ ...s, opacity: value as number }, 'opacity', 1)
+    case 'rotation':
+      return withoutDefault({ ...s, rotation: value as number }, 'rotation', 0)
+    case 'height':
+      return { ...s, height: { meters: value as number } }
+  }
+}
+
+/**
+ * A default value is left unset. `undefined` rather than a deleted key: the
+ * store merges edits into the style as a patch, and a missing key would keep
+ * the old value.
+ */
+function withoutDefault<K extends keyof LayerStyle>(style: LayerStyle, key: K, def: LayerStyle[K]): LayerStyle {
+  return style[key] !== def ? style : { ...style, [key]: undefined }
+}
+
+/** A property By column (`enc`), or back to Fixed (null). */
+export function setEncoding(style: LayerStyle, channel: ChannelId, enc: Encoding | null): LayerStyle {
+  const s = toChannelShape(style)
+  const channels = { ...s.channels }
+  if (enc) channels[channel] = enc
+  else delete channels[channel]
+  // Undefined, not deleted, when the last property goes back to Fixed (see withoutDefault).
+  return { ...s, channels: Object.keys(channels).length ? channels : undefined }
+}
+
+function isTextColumn(layer: ResolveInput | null, column: string): boolean {
+  const type = layer?.columns.find((c) => c.name === column)?.type ?? ''
+  return !isNumericType(type)
+}
+
+/** Output ranges a numeric property starts with (px, 0..1, degrees, meters). */
+export const CHANNEL_RANGES: Readonly<Partial<Record<ChannelId, { min: number; max: number }>>> = Object.freeze({
+  strokeWidth: { min: 0.5, max: 4 },
+  size: { min: DEFAULT_SIZE_RANGE.point.min, max: DEFAULT_SIZE_RANGE.point.max },
+  width: { min: DEFAULT_SIZE_RANGE.line.min, max: DEFAULT_SIZE_RANGE.line.max },
+  opacity: { min: 0.3, max: 1 },
+  rotation: { min: 0, max: 315 },
+  height: { min: 0, max: 100 },
+})
+
+/**
+ * A new encoding for a property set by `column` (data-model "Default scale"):
+ * categories for text, classes (quantile, 5) for numbers, and always
+ * categories for shapes and patterns. Outputs come from a ramp (colors) or a
+ * range (numbers) until the user sets them.
+ */
+export function startEncoding(channel: ChannelId, column: string, layer: ResolveInput | null): Encoding {
+  const kind = OUTPUT_KIND[channel]
+  const text = isTextColumn(layer, column) || kind === 'shape' || kind === 'dash'
+  const color = isColorChannel(channel)
+  const range = CHANNEL_RANGES[channel]
+  const source = { kind: 'column' as const, column }
+  if (text) {
+    const scale: CategoriesScale = {
+      kind: 'categories',
+      manual: false,
+      categories: [],
+      other: {},
+      noValue: {},
+      cap: categoryCapFor(channel),
+      ...(color ? { ramp: defaultRamp('categorized', distinctCount(layer, column, DEFAULT_CATEGORY_CAP + 1)) } : {}),
+      ...(range ? { range: { ...range } } : {}),
+    }
+    return { source, scale }
+  }
+  const scale: ClassesScale = {
+    kind: 'classes',
+    method: 'quantile',
+    classCount: DEFAULT_CLASS_COUNT,
+    classes: [],
+    noValue: {},
+    ...(color ? { ramp: defaultRamp('graduated', DEFAULT_CLASS_COUNT) } : {}),
+    ...(range ? { range: { ...range } } : {}),
+  }
+  return { source, scale }
+}
+
+/** Applies `patch` to a property's encoding (no change when the property is Fixed). */
+export function patchEncoding(style: LayerStyle, channel: ChannelId, patch: (e: Encoding) => Encoding): LayerStyle {
+  const s = toChannelShape(style)
+  const enc = s.channels?.[channel]
+  return enc ? setEncoding(s, channel, patch(enc)) : s
+}
+
+/** A property's column. The kind of scale is chosen again for the column; a ramp or range the user chose is kept. */
+export function setChannelColumn(style: LayerStyle, channel: ChannelId, column: string, layer: ResolveInput | null): LayerStyle {
+  const s = toChannelShape(style)
+  const was = s.channels?.[channel]
+  const fresh = startEncoding(channel, column, layer)
+  if (!was || was.scale.kind !== fresh.scale.kind) return setEncoding(s, channel, fresh)
+  const old = was.scale as CategoriesScale | ClassesScale
+  const keep = { ...(old.ramp ? { ramp: old.ramp } : {}), ...(old.range ? { range: old.range } : {}) }
+  return setEncoding(s, channel, { ...fresh, scale: { ...fresh.scale, ...keep } as Scale, ...(was.legend ? { legend: was.legend } : {}) })
+}
+
+/** A class's output, label or visibility, by its resolved key (`v:<value>`, `range:<i>`, `__other`, `__null`). */
+export function setChannelClass(style: LayerStyle, channel: ChannelId, key: string, patch: ClassDef): LayerStyle {
+  const merge = (d: ClassDef): ClassDef => {
+    const out: ClassDef = { ...d, ...patch }
+    if (out.visible !== false) delete out.visible
+    return out
+  }
+  return patchEncoding(style, channel, (e) => {
+    const scale = e.scale
+    if (scale.kind === 'categories') {
+      if (key === '__other') return { ...e, scale: { ...scale, other: merge(scale.other) } }
+      if (key === '__null') return { ...e, scale: { ...scale, noValue: merge(scale.noValue) } }
+      if (!key.startsWith('v:')) return e
+      const value = key.slice(2)
+      const found = scale.categories.some((c) => c.value === value)
+      const categories = found ? scale.categories.map((c) => (c.value === value ? { ...merge(c), value } : c)) : [...scale.categories, { value, ...merge({}) }]
+      return { ...e, scale: { ...scale, categories } }
+    }
+    if (scale.kind === 'classes') {
+      if (key === '__null') return { ...e, scale: { ...scale, noValue: merge(scale.noValue) } }
+      if (!key.startsWith('range:')) return e
+      const index = Number(key.slice('range:'.length))
+      const found = scale.classes.some((c) => c.index === index)
+      const classes = found ? scale.classes.map((c) => (c.index === index ? { ...merge(c), index } : c)) : [...scale.classes, { index, ...merge({}) }]
+      return { ...e, scale: { ...scale, classes } }
+    }
+    return e
+  })
+}
+
+/** A property's kind of scale (categories or classes this slice); its ramp or range is kept, classes start over. */
+export function setScaleKind(style: LayerStyle, channel: ChannelId, kind: Scale['kind'], _layer: ResolveInput | null): LayerStyle {
+  void _layer
+  return patchEncoding(style, channel, (e) => {
+    if (e.scale.kind === kind) return e
+    const old = e.scale as CategoriesScale | ClassesScale
+    const keep = { ...(old.ramp ? { ramp: old.ramp } : {}), ...(old.range ? { range: old.range } : {}) }
+    if (kind === 'categories') return { ...e, scale: { kind: 'categories', manual: false, categories: [], other: {}, noValue: {}, cap: categoryCapFor(channel), ...keep } }
+    if (kind === 'classes') return { ...e, scale: { kind: 'classes', method: 'quantile', classCount: DEFAULT_CLASS_COUNT, classes: [], noValue: {}, ...keep } }
+    return e
+  })
+}
+
+/** The classification method and class count of a property with classes (overrides by index start over). */
+export function setChannelClasses(style: LayerStyle, channel: ChannelId, patch: { method?: Exclude<GraduatedMethod, 'manual'>; classCount?: number }): LayerStyle {
+  return patchEncoding(style, channel, (e) => {
+    if (e.scale.kind !== 'classes') return e
+    const n = patch.classCount === undefined ? e.scale.classCount : Math.min(MAX_CLASS_COUNT, Math.max(MIN_CLASS_COUNT, Math.round(patch.classCount)))
+    const method = patch.method ?? (e.scale.method === 'manual' ? 'quantile' : e.scale.method)
+    return { ...e, scale: { ...e.scale, method, classCount: n, classes: [] } }
+  })
+}
+
+/** The smallest and largest output of a numeric property (classes spread between them). */
+export function setChannelRange(style: LayerStyle, channel: ChannelId, min: number, max: number): LayerStyle {
+  if (!isOutputFor(channel, min) || !isOutputFor(channel, max)) return style
+  const range = { min: Math.min(min, max), max: Math.max(min, max) }
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, range } } : e))
+}
+
+/** A color property's ramp. */
+export function setChannelRamp(style: LayerStyle, channel: ChannelId, ramp: RampRef): LayerStyle {
+  return patchEncoding(style, channel, (e) => (e.scale.kind === 'categories' || e.scale.kind === 'classes' ? { ...e, scale: { ...e.scale, ramp } } : e))
+}
+
+/** Hides a property's group from the legend (the map is unchanged), or shows it again. */
+export function setLegendHidden(style: LayerStyle, channel: ChannelId, hidden: boolean): LayerStyle {
+  return patchEncoding(style, channel, (e) => {
+    const legend = { ...e.legend }
+    if (hidden) legend.hidden = true
+    else delete legend.hidden
+    const out: Encoding = { ...e, legend }
+    if (!Object.keys(legend).length) delete out.legend
+    return out
+  })
 }

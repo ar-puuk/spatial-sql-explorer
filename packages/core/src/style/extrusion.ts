@@ -3,6 +3,7 @@
 // or negative heights are drawn flat (and counted). Shared by the map
 // (MapLibre `fill-extrusion`), QGIS QML (`<renderer-3d>`, research §5) and
 // Mapbox GL style JSON. SLD has no 3D: it is left out with a notice.
+import { extrusionOf } from './legacy.js'
 import { quoteIdent } from '../query/util.js'
 import type { Bbox, GeometryType } from '../models.js'
 import type { LayerStyle } from './model.js'
@@ -33,8 +34,8 @@ export function sanitizeExtrusion(e: Partial<Extrusion> | undefined): Extrusion 
 }
 
 /** The extrusion the map draws: on, polygons only, and a column chosen (or a constant). */
-export function activeExtrusion(style: Pick<LayerStyle, 'extrusion'>, geometryType: GeometryType | null | undefined): Extrusion | null {
-  const e = style.extrusion
+export function activeExtrusion(style: LayerStyle, geometryType: GeometryType | null | undefined): Extrusion | null {
+  const e = extrusionOf(style)
   if (!e?.enabled) return null
   if (geometryType !== 'Polygon' && geometryType !== 'Mixed') return null
   if (e.source.kind === 'column' && !e.source.column) return null
@@ -54,8 +55,8 @@ export function extrusionHeightExpression(e: Extrusion): unknown {
 }
 
 /** The column the extrusion reads (map views must carry it), or null. */
-export function extrusionColumn(style: Pick<LayerStyle, 'extrusion'>): string | null {
-  const e = style.extrusion
+export function extrusionColumn(style: LayerStyle): string | null {
+  const e = extrusionOf(style)
   return e?.enabled && e.source.kind === 'column' && e.source.column ? e.source.column : null
 }
 

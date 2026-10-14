@@ -7,7 +7,11 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, rendererOf, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { legacyView, rendererOf } from './legacy.js'
+import { isGenericChannel } from './resolve.js'
+import { CHANNEL_ORDER, fixedValue, type ChannelId, type SymbolPart } from './channels.js'
+import type { LineDash, MarkerShape } from './symbol.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
 
@@ -37,6 +41,7 @@ export function haloColor(selectionColor: string): string {
  * renderer, or a fallback, FR-012).
  */
 export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   if (resolved.status !== 'ok') return null
   const r = rendererOf(style)
   switch (r.kind) {
@@ -165,6 +170,7 @@ function activeSize(style: LayerStyle, resolved: ResolvedStyle): ResolvedSizeCha
 
 /** The size channel's class position per feature (classed), or null. */
 export function sizeIndexExpression(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   const size = activeSize(style, resolved)
   return size && size.mode === 'classed' ? rangeIndex(size.column, size.classes) : null
 }
@@ -201,37 +207,148 @@ function channelSize(style: LayerStyle, resolved: ResolvedStyle, fallback: numbe
 /** The largest marker radius the style draws: shaped-marker icons are drawn at it and scaled down (never up). */
 function largestRadius(style: LayerStyle, resolved: ResolvedStyle): number | null {
   const size = activeSize(style, resolved)
-  if (!size) return null
-  return Math.max(baseSymbol(style).radius, ...size.classes.map((c) => c.size ?? 0), ...(size.samples ?? []).map((x) => x.size))
+  const generic = genericResolved(style, resolved, 'size')
+  if (!size && !generic) return null
+  const sizes = generic ? generic.classes.map((c) => Number(c.output ?? 0)) : [...(size?.classes ?? []).map((c) => c.size ?? 0), ...(size?.samples ?? []).map((x) => x.size)]
+  return Math.max(baseSymbol(style).radius, ...sizes)
 }
+
+// --- Spec 011: channels with categories or classes (resolve.ts genericChannel) ---
+
+/** A generic channel as resolved, when it is drawn (ok), or null. */
+function genericResolved(style: LayerStyle, resolved: ResolvedStyle, id: ChannelId) {
+  const enc = style.channels?.[id]
+  const rc = resolved.channels?.[id]
+  return enc && rc && rc.status === 'ok' && isGenericChannel(id, enc) ? rc : null
+}
+
+/** A generic channel's class position per feature: categories by value, classes by range (graduated's rules). */
+function genericIndex(style: LayerStyle, resolved: ResolvedStyle, id: ChannelId): unknown | null {
+  const rc = genericResolved(style, resolved, id)
+  if (!rc) return null
+  if (style.channels?.[id]?.scale.kind === 'classes') return rangeIndex(rc.dataColumn, rc.classes)
+  return valueIndex(rc.dataColumn, rc.classes)
+}
+
+/** As `categorizedIndex`, on any column. */
+function valueIndex(column: string, classes: ResolvedClass[]): unknown {
+  const noValue = classes.findIndex((c) => c.key === '__null')
+  const other = classes.findIndex((c) => c.key === '__other')
+  const arms: unknown[] = []
+  classes.forEach((c, i) => {
+    if (c.kind === 'value' && c.value !== undefined) arms.push(c.value, i)
+  })
+  const v = ['var', 'v']
+  const byValue = arms.length ? ['match', ['to-string', v], ...arms, other] : other
+  return ['let', 'v', ['get', column], ['case', ['==', v, null], noValue, ['==', ['to-string', v], ''], noValue, byValue]]
+}
+
+/** A pattern as MapLibre's `line-dasharray` (solid: one dash with no gap). */
+const dashArray = (d: LineDash): number[] => dashPattern(d) ?? [1, 0]
+
+/**
+ * Spec 011: a channel's value per feature: a `match` on its class position
+ * when it varies by data (generic channels), else its fixed value.
+ */
+export function channelValue(style: LayerStyle, resolved: ResolvedStyle, id: ChannelId, part: SymbolPart = 'marker'): unknown {
+  const fixed = fixedValue(style, id, part)
+  const wrap = (v: unknown): unknown => (id === 'dash' ? ['literal', dashArray(v as LineDash)] : v)
+  const rc = genericResolved(style, resolved, id)
+  const index = genericIndex(style, resolved, id)
+  if (!rc || index === null) return id === 'dash' ? dashPattern(fixed as LineDash) : fixed
+  const arms: unknown[] = []
+  rc.classes.forEach((c, i) => arms.push(i, wrap(c.output ?? fixed)))
+  return arms.length ? ['match', index, ...arms, wrap(fixed)] : wrap(fixed)
+}
+
+/** Whether a channel varies by data in what is drawn (generic channels). */
+const varies = (style: LayerStyle, resolved: ResolvedStyle, id: ChannelId): boolean => genericResolved(style, resolved, id) !== null
+
+/** `a × b`, leaving `a` as it is when `b` is a constant 1. */
+const times = (a: unknown, b: unknown): unknown => (b === 1 ? a : typeof a === 'number' && typeof b === 'number' ? a * b : ['*', a, b])
 
 /** The class symbols as expressions (unselected): what `paintFor` draws and the Mapbox GL export writes. */
 export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
+  style = legacyView(style)
   const index = classIndexExpression(style, resolved)
   const base = baseSymbol(style)
   const symbols = classSymbols(style, resolved)
   // Spec 009: a size channel sets marker radius and line width per feature, on its own column.
   const radius = channelSize(style, resolved, base.radius) ?? perClassSize(index, symbols, (x) => x.radius, base.radius)
   const lineWidth = channelSize(style, resolved, base.lineWidth) ?? perClassSize(index, symbols, (x) => x.lineWidth, base.lineWidth)
+  // Spec 011: size and width by categories (generic channels) replace the size channel's.
+  const sizeBy = varies(style, resolved, 'size') ? (channelValue(style, resolved, 'size') as unknown[]) : radius
+  const widthBy = varies(style, resolved, 'width') ? (channelValue(style, resolved, 'width', 'line') as unknown[]) : lineWidth
   const iconRadius = largestRadius(style, resolved)
   const icon = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
+  const fillColor = perClass(index, symbols, (x) => x.fillColor, base.fillColor)
+  // Spec 011: shape, outline color or outline width by data: the icon id is built per feature (research §2).
+  const perFeatureIcon = varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')
+  const num = (n: number) => String(Math.round(n * 100) / 100)
+  const iconExpr = perFeatureIcon
+    ? [
+        'concat',
+        'se-marker|',
+        channelValue(style, resolved, 'shape'),
+        '|',
+        fillColor,
+        '|',
+        num(base.fillOpacity),
+        '|',
+        channelValue(style, resolved, 'strokeColor'),
+        '|',
+        num(base.strokeOpacity),
+        '|',
+        ['to-string', channelValue(style, resolved, 'strokeWidth')],
+        '|',
+        num(iconRadius ?? base.radius),
+      ]
+    : perClass(index, symbols, icon, icon(base))
   return {
     index,
-    fillColor: perClass(index, symbols, (x) => x.fillColor, base.fillColor),
+    fillColor,
     lineColor: perClass(index, symbols, (x) => x.lineColor, base.lineColor),
-    radius: radius as number | unknown[],
-    lineWidth: lineWidth as number | unknown[],
+    radius: sizeBy as number | unknown[],
+    lineWidth: widthBy as number | unknown[],
     /** Marker icon per feature (shapes other than the circle). */
-    icon: perClass(index, symbols, icon, icon(base)),
+    icon: iconExpr,
     /** Spec 009: icons are drawn at the largest radius and scaled per feature by the size channel; null = 1. */
-    iconSize: iconRadius === null ? null : typeof radius === 'number' ? radius / iconRadius : ['/', radius, iconRadius],
+    iconSize: iconRadius === null ? null : typeof sizeBy === 'number' ? sizeBy / iconRadius : ['/', sizeBy, iconRadius],
     /** In line widths, for MapLibre `line-dasharray`; null when solid. */
-    dash: dashPattern(style.lineDash),
+    dash: varies(style, resolved, 'dash') ? channelValue(style, resolved, 'dash', 'line') : dashPattern(style.lineDash),
+    /** Spec 011: marker and polygon outline color and width, opacity and marker rotation, per feature or fixed. */
+    strokeColor: channelValue(style, resolved, 'strokeColor'),
+    strokeWidth: channelValue(style, resolved, 'strokeWidth'),
+    opacity: channelValue(style, resolved, 'opacity'),
+    rotation: channelValue(style, resolved, 'rotation'),
+    /** Spec 011: the shape per feature when it varies, else null (the layers split by `layerFilters`). */
+    shape: varies(style, resolved, 'shape') ? channelValue(style, resolved, 'shape') : null,
   }
+}
+
+/**
+ * Spec 011: extra filters when the shape varies by data: circles stay on the
+ * circle layer, every other shape goes to the marker (icon) layer.
+ */
+export function layerFilters(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, unknown>> {
+  style = legacyView(style)
+  if (!varies(style, resolved, 'shape')) return {}
+  const shape = channelValue(style, resolved, 'shape')
+  const circle: MarkerShape = 'circle'
+  return { circle: ['==', shape, circle], marker: ['!=', shape, circle], 'marker-select': ['!=', shape, circle] }
+}
+
+/** Spec 011: whether shaped-marker icons are drawn (a fixed shape other than the circle, or a shape by data). */
+export function drawsMarkerIcons(style: LayerStyle, resolved: ResolvedStyle): boolean {
+  style = legacyView(style)
+  return (style.markerShape ?? 'circle') !== 'circle' || varies(style, resolved, 'shape')
 }
 
 /** Every marker icon the style draws (the map makes the missing ones and drops the rest). */
 export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
+  style = legacyView(style)
+  // Spec 011: icons built per feature are made when the map asks for them; nothing to list.
+  if (varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')) return []
   const iconRadius = largestRadius(style, resolved)
   const id = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
   return [...new Set([id(baseSymbol(style)), ...classSymbols(style, resolved).map(id)])]
@@ -242,11 +359,12 @@ export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): strin
  * dashed lines (round caps would fill the gaps of a dotted line).
  */
 export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, Record<string, unknown>>> {
-  const dashed = (style.lineDash ?? 'solid') !== 'solid'
-  const { icon, iconSize } = symbolExpressions(style, resolved)
+  style = legacyView(style)
+  const dashed = (style.lineDash ?? 'solid') !== 'solid' || varies(style, resolved, 'dash')
+  const { icon, iconSize, rotation } = symbolExpressions(style, resolved)
   return {
     line: { 'line-cap': dashed ? 'butt' : 'round' },
-    marker: { 'icon-image': icon, ...(iconSize !== null ? { 'icon-size': iconSize } : {}) },
+    marker: { 'icon-image': icon, ...(iconSize !== null ? { 'icon-size': iconSize } : {}), ...(rotation !== 0 ? { 'icon-rotate': rotation } : {}) },
   }
 }
 
@@ -263,6 +381,7 @@ export function heatmapRadius(r: HeatmapRenderer, layerLatitude = 0): number | u
 
 /** True when the map draws points as a heatmap (and their circles only to show hover and selection). */
 export function drawsHeatmap(style: LayerStyle, resolved: ResolvedStyle): boolean {
+  style = legacyView(style)
   return rendererOf(style).kind === 'heatmap' && resolved.status === 'ok' && !!resolved.heat
 }
 
@@ -272,6 +391,7 @@ export function drawsHeatmap(style: LayerStyle, resolved: ResolvedStyle): boolea
  * negative values weigh 0). The layer opacity applies.
  */
 export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLatitude = 0): Record<string, unknown> {
+  style = legacyView(style)
   const r = rendererOf(style)
   const heat = resolved.heat
   if (r.kind !== 'heatmap' || !heat) return {}
@@ -290,13 +410,14 @@ export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLa
 
 /** `layerLatitude`: the layer's center, for a heatmap radius in meters that has no latitude of its own. */
 export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionColor: string, layerLatitude = 0): MapPaint {
+  style = legacyView(style)
   // Spec 008: the layer opacity scales the fill and outline opacities.
   const s = withLayerOpacity(style)
   const sel = selectionColor
   // Thematic renderers vary the color (polygon and point fill, and the line
   // color of line layers, FR-006; polygon outlines keep the stroke), or, by
   // size, the marker size and the line width.
-  const { index, fillColor, lineColor, radius, lineWidth, dash } = symbolExpressions(style, resolved)
+  const { index, fillColor, lineColor, radius, lineWidth, dash, strokeColor, strokeWidth, opacity } = symbolExpressions(style, resolved)
   const thematic = index !== null
   const outlineWidth = Math.max(s.strokeWidth, 1) + 1.5
   const lineOutline = plus(atLeast1(lineWidth), 1.5)
@@ -318,18 +439,18 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     },
     fill: {
       'fill-color': ['case', selected, sel, fillColor],
-      'fill-opacity': ['case', selected, Math.max(s.fillOpacity, 0.6), hovered, Math.min(1, s.fillOpacity + 0.15), s.fillOpacity],
+      'fill-opacity': ['case', selected, Math.max(s.fillOpacity, 0.6), hovered, Math.min(1, s.fillOpacity + 0.15), times(s.fillOpacity, opacity)],
     },
     'fill-outline': {
-      'line-color': ['case', selected, sel, s.strokeColor],
-      'line-width': ['case', selected, outlineWidth, s.strokeWidth],
-      'line-opacity': ['case', selected, 1, s.strokeOpacity],
+      'line-color': ['case', selected, sel, strokeColor],
+      'line-width': ['case', selected, outlineWidth, strokeWidth],
+      'line-opacity': ['case', selected, 1, times(s.strokeOpacity, opacity)],
       'line-dasharray': dasharray,
     },
     line: {
       'line-color': ['case', selected, sel, lineColor],
       'line-width': ['case', selected, plus(lineOutline, 1), hovered, plus(lineWidth, 1), lineWidth],
-      'line-opacity': ['case', selected, 1, s.strokeOpacity],
+      'line-opacity': ['case', selected, 1, times(s.strokeOpacity, opacity)],
       'line-dasharray': dasharray,
     },
     // Spec 008 US6: polygons raised by the extrusion, in the style's colors.
@@ -344,12 +465,12 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     },
     circle: {
       'circle-color': ['case', selected, sel, fillColor],
-      'circle-opacity': heat ? ['case', selected, 1, DOT, Math.max(s.fillOpacity, 0.05), 0] : ['case', selected, 1, Math.max(s.fillOpacity, 0.05)],
+      'circle-opacity': heat ? ['case', selected, 1, DOT, Math.max(s.fillOpacity, 0.05), 0] : ['case', selected, 1, times(Math.max(s.fillOpacity, 0.05), opacity)],
       // A polygon or line under ~2 px at this zoom is drawn as a small dot (DOT_PROP; spec 010 option C).
       'circle-radius': ['case', selected, plus(radius, 2), DOT, DOT_RADIUS, hovered, plus(radius, 1), radius],
-      'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', s.strokeColor],
-      'circle-stroke-width': ['case', selected, 2, DOT, 0, s.strokeWidth],
-      'circle-stroke-opacity': pointShown(['case', selected, 1, s.strokeOpacity]),
+      'circle-stroke-color': ['case', selected, thematic ? haloColor(sel) : '#ffffff', strokeColor],
+      'circle-stroke-width': ['case', selected, 2, DOT, 0, strokeWidth],
+      'circle-stroke-opacity': pointShown(['case', selected, 1, times(s.strokeOpacity, opacity)]),
     },
     heatmap: heatmapPaint(style, resolved, layerLatitude),
     // Hover and selection of shaped markers: a disc in the selection color behind the icon.
@@ -361,12 +482,13 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
       'circle-stroke-width': ['case', selected, 1.5, 0],
     },
     // The icons carry their own colors and opacities (`markerIconId`).
-    marker: {},
+    marker: opacity === 1 ? {} : { 'icon-opacity': opacity },
   }
 }
 
 /** Hides features of hidden classes (FR-009), in the color or (spec 009) the size channel; null = everything visible. */
 export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): unknown | null {
+  style = legacyView(style)
   const tests: unknown[] = []
   const index = classIndexExpression(style, resolved)
   if (index !== null) {
@@ -381,6 +503,14 @@ export function visibilityFilter(style: LayerStyle, resolved: ResolvedStyle): un
   } else if (size?.mode === 'proportional' && size.classes.some((c) => c.kind === 'noValue' && !c.visible)) {
     // Proportional: only "No value" can be hidden.
     tests.push(['!', noValueTest(size.column)])
+  }
+  // Spec 011: a class hidden in any other channel hides its features too.
+  for (const id of CHANNEL_ORDER) {
+    const rc = genericResolved(style, resolved, id)
+    const index = rc ? genericIndex(style, resolved, id) : null
+    if (!rc || index === null) continue
+    const hidden = rc.classes.flatMap((c, i) => (c.visible ? [] : [i]))
+    if (hidden.length) tests.push(['!', ['in', index, ['literal', hidden]]])
   }
   return tests.length === 0 ? null : tests.length === 1 ? tests[0] : ['all', ...tests]
 }

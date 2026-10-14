@@ -27,6 +27,8 @@ import {
   styleDataColumns,
   type HeatmapRenderer,
   type LayerStyle,
+  rendererOf,
+  sizeOf,
 } from '@spatial-explorer/core'
 
 /** `density`: `heatmap-color` is evaluated as that property (only it may read the density). */
@@ -48,18 +50,18 @@ const places = {
 
 const heat = (patch: Partial<HeatmapRenderer> = {}): LayerStyle => {
   const s = startStyle(DEFAULT_LAYER_STYLE, 'heatmap', places)
-  return { ...s, renderer: { ...(s.renderer as HeatmapRenderer), ...patch } }
+  return { ...s, renderer: { ...(rendererOf(s) as HeatmapRenderer), ...patch } }
 }
 
 describe('model', () => {
   it('starts unweighted with the default radius, intensity and ramp, and leaves the symbol alone', () => {
     const s = startStyle({ ...DEFAULT_LAYER_STYLE, fillColor: '#ff0000' }, 'heatmap', places)
-    expect(s.renderer).toEqual({ kind: 'heatmap', weight: '', radius: 20, intensity: 1, ramp: { id: 'brewer-ylorrd', reversed: false } })
+    expect(rendererOf(s)).toEqual({ kind: 'heatmap', weight: '', radius: 20, intensity: 1, ramp: { id: 'brewer-ylorrd', reversed: false } })
     expect(s.fillColor).toBe('#ff0000')
     expect(s.fillOpacity).toBe(DEFAULT_LAYER_STYLE.fillOpacity)
   })
   it('sanitizes and edits within the ranges', () => {
-    expect(sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'heatmap', radius: 900, intensity: -2, weight: 7 } as never }).renderer).toEqual({
+    expect(rendererOf(sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'heatmap', radius: 900, intensity: -2, weight: 7 } as never }))).toEqual({
       kind: 'heatmap',
       weight: '',
       radius: 100,
@@ -67,7 +69,7 @@ describe('model', () => {
       ramp: { id: 'brewer-ylorrd', reversed: false },
     })
     const s = setHeatmap(heat(), { weight: 'pop', radius: 1, intensity: 9 })
-    expect(s.renderer).toMatchObject({ weight: 'pop', radius: 2, intensity: 5 })
+    expect(rendererOf(s)).toMatchObject({ weight: 'pop', radius: 2, intensity: 5 })
     expect(setHeatmap(DEFAULT_LAYER_STYLE, { radius: 5 })).toBe(DEFAULT_LAYER_STYLE)
   })
   it('the map reads only the weight column', () => {
@@ -97,7 +99,7 @@ describe('resolve', () => {
   })
   it('a size channel is kept but has no effect under a heatmap', () => {
     const s = setSizeChannel(heat(), 'pop', 'point')
-    expect(s.size?.column).toBe('pop')
+    expect(sizeOf(s)?.column).toBe('pop')
     expect(resolveStyle(s, places).size).toBeUndefined()
   })
 })
@@ -157,7 +159,7 @@ describe('style files', () => {
     expect(notes).toEqual(["QGIS heatmaps have no intensity: QGIS draws it at 1 (Spatial Explorer keeps yours)."])
     // Back here: the whole renderer, and the single symbol for a later switch back.
     const back = importStyle('places.qml', text)
-    expect(back.style.renderer).toEqual(style.renderer)
+    expect(rendererOf(back.style)).toEqual(rendererOf(style))
     expect(back.style).toMatchObject({ fillColor: '#123456', pointRadius: 7 })
     expect(back.notes).toEqual([])
   })
@@ -172,14 +174,14 @@ describe('style files', () => {
 <colorramp type="gradient" name="[source]"><Option type="Map"><Option name="color1" type="QString" value="255,255,255,0"/></Option></colorramp>
 </renderer-v2></qgis>`
     const mm = importStyle('a.qml', qml('10', '0', '&quot;pop&quot;'))
-    expect(mm.style.renderer).toMatchObject({ kind: 'heatmap', weight: 'pop', intensity: 1, ramp: { id: 'brewer-ylorrd' } })
-    expect((mm.style.renderer as HeatmapRenderer).radius).toBeCloseTo((10 * 96) / 25.4, 6)
+    expect(rendererOf(mm.style)).toMatchObject({ kind: 'heatmap', weight: 'pop', intensity: 1, ramp: { id: 'brewer-ylorrd' } })
+    expect((rendererOf(mm.style) as HeatmapRenderer).radius).toBeCloseTo((10 * 96) / 25.4, 6)
     expect(mm.notes).toEqual(["The heatmap's own colors were replaced by the Yellow–orange–red ramp."])
     const expr = importStyle('a.qml', qml('15', '2', '&quot;pop&quot; * 2'))
-    expect(expr.style.renderer).toMatchObject({ kind: 'heatmap', weight: '', radius: 15 })
+    expect(rendererOf(expr.style)).toMatchObject({ kind: 'heatmap', weight: '', radius: 15 })
     expect(expr.notes).toContain('The heatmap weight is the QGIS expression "\"pop\" * 2"; each point counts once instead.')
     const mapUnits = importStyle('a.qml', qml('500', '1', ''))
-    expect((mapUnits.style.renderer as HeatmapRenderer).radius).toBe(20)
+    expect((rendererOf(mapUnits.style) as HeatmapRenderer).radius).toBe(20)
     expect(mapUnits.notes).toContain('The heatmap radius is in map units, which have no fixed size on screen: the default radius was used.')
   })
   it('Mapbox GL: a heatmap layer with the viewer’s paint; read back with or without our metadata', () => {
@@ -187,10 +189,10 @@ describe('style files', () => {
     const doc = JSON.parse(text) as { layers: Array<{ type: string; paint: Record<string, unknown> }>; metadata?: unknown }
     expect(doc.layers.map((l) => l.type)).toEqual(['heatmap'])
     expect(doc.layers[0].paint).toEqual(paintFor(style, resolved, '#000').heatmap)
-    expect(importStyle('p.json', text).style.renderer).toEqual(style.renderer)
+    expect(rendererOf(importStyle('p.json', text).style)).toEqual(rendererOf(style))
     delete doc.metadata
     const foreign = importStyle('p.json', JSON.stringify(doc))
-    expect(foreign.style.renderer).toMatchObject({ kind: 'heatmap', weight: 'pop', radius: 24, intensity: 2 })
+    expect(rendererOf(foreign.style)).toMatchObject({ kind: 'heatmap', weight: 'pop', radius: 24, intensity: 2 })
     expect(foreign.notes).toEqual(["The heatmap's own colors were replaced by the Yellow–orange–red ramp."])
   })
   it('SLD has no heatmap: the single symbol, and the notice says so', () => {
@@ -219,10 +221,10 @@ describe('radius in meters (fixed on the map)', () => {
   })
   it('switching units keeps the size on screen at the current view', () => {
     const view = { latitude: 40, zoom: 11 }
-    const m = setHeatmapRadiusUnit(heat({ radius: 20 }), 'm', view).renderer as HeatmapRenderer
+    const m = rendererOf(setHeatmapRadiusUnit(heat({ radius: 20 }), 'm', view)) as HeatmapRenderer
     expect(m).toMatchObject({ radiusUnit: 'm', latitude: 40, radius: 20 })
     expect(m.radiusMeters).toBe(Number((20 * metersPerPixel(40, 11)).toPrecision(2)))
-    const back = setHeatmapRadiusUnit({ ...DEFAULT_LAYER_STYLE, renderer: m }, 'px', { latitude: 40, zoom: 12 }).renderer as HeatmapRenderer
+    const back = rendererOf(setHeatmapRadiusUnit({ ...DEFAULT_LAYER_STYLE, renderer: m }, 'px', { latitude: 40, zoom: 12 })) as HeatmapRenderer
     expect(back.radiusUnit).toBe('px')
     expect(back.radius).toBe(Math.round((m.radiusMeters as number) / metersPerPixel(40, 12)))
   })
@@ -232,12 +234,12 @@ describe('radius in meters (fixed on the map)', () => {
     const qml = exportStyle(s, 'qml', 'Point', 'p.geojson', resolved).text
     expect(qml).toContain('radius="750" radius_unit="7"')
     const foreign = importStyle('p.qml', qml.replace(/<customproperties>[\s\S]*<\/customproperties>\n/, ''))
-    expect(foreign.style.renderer).toMatchObject({ kind: 'heatmap', radiusUnit: 'm', radiusMeters: 750 })
+    expect(rendererOf(foreign.style)).toMatchObject({ kind: 'heatmap', radiusUnit: 'm', radiusMeters: 750 })
     const doc = JSON.parse(exportStyle(s, 'mapbox', 'Point', 'p.geojson', resolved).text) as { metadata?: unknown }
     delete doc.metadata
     const mb = importStyle('p.json', JSON.stringify(doc))
-    expect(mb.style.renderer).toMatchObject({ kind: 'heatmap', radiusUnit: 'm' })
-    expect((mb.style.renderer as HeatmapRenderer).radiusMeters).toBeCloseTo(750, 3)
+    expect(rendererOf(mb.style)).toMatchObject({ kind: 'heatmap', radiusUnit: 'm' })
+    expect((rendererOf(mb.style) as HeatmapRenderer).radiusMeters).toBeCloseTo(750, 3)
     expect(mb.notes).toContain('The heatmap radius is fixed on the map; it was read as meters at the equator.')
   })
 })
@@ -273,9 +275,9 @@ describe('automatic intensity (radius in meters)', () => {
   it('resolves to 1 / peak and the map paints with it; off, the slider’s value', () => {
     const layer = { columns: [{ name: 'pop', type: 'BIGINT' }], features: pts.map(([lon, lat], id) => ({ id, geometry: { type: 'Point' as const, coordinates: [lon, lat] }, attributes: { pop: 1 } })) }
     const on = setHeatmapAutoIntensity(heat({ intensity: 2 }), true, { latitude: 40.7, zoom: 11 })
-    expect(on.renderer).toMatchObject({ radiusUnit: 'm', autoIntensity: true, latitude: 40.7 })
+    expect(rendererOf(on)).toMatchObject({ radiusUnit: 'm', autoIntensity: true, latitude: 40.7 })
     const r = resolveStyle(on, layer)
-    const radius = mercatorRadius((on.renderer as HeatmapRenderer).radiusMeters as number, 40.7)
+    const radius = mercatorRadius((rendererOf(on) as HeatmapRenderer).radiusMeters as number, 40.7)
     expect(r.heat?.intensity).toBeCloseTo(1 / heatmapPeak(pts, radius), 9)
     expect(paintFor(on, r, '#000').heatmap['heatmap-intensity']).toBe(r.heat?.intensity)
     // The engine's peak, when it gave one, wins.
@@ -285,12 +287,12 @@ describe('automatic intensity (radius in meters)', () => {
   })
   it('pixels end it (on screen the densest spot changes with zoom), and files keep it', () => {
     const on = setHeatmapAutoIntensity(heat(), true, { latitude: 0, zoom: 5 })
-    expect((setHeatmapRadiusUnit(on, 'px', { latitude: 0, zoom: 5 }).renderer as HeatmapRenderer).autoIntensity).toBe(false)
-    expect(sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'heatmap', autoIntensity: true } as never }).renderer).not.toHaveProperty('autoIntensity')
+    expect((rendererOf(setHeatmapRadiusUnit(on, 'px', { latitude: 0, zoom: 5 })) as HeatmapRenderer).autoIntensity).toBe(false)
+    expect(rendererOf(sanitizeStyle({ ...DEFAULT_LAYER_STYLE, renderer: { kind: 'heatmap', autoIntensity: true } as never }))).not.toHaveProperty('autoIntensity')
     const resolved = resolveStyle(on, places)
     const qml = exportStyle(on, 'qml', 'Point', 'p.geojson', resolved)
     expect(qml.text).toContain('max_value="0"')
     expect(qml.notes).toEqual([])
-    expect(importStyle('p.qml', qml.text).style.renderer).toEqual(on.renderer)
+    expect(rendererOf(importStyle('p.qml', qml.text).style)).toEqual(rendererOf(on))
   })
 })

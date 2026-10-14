@@ -13,6 +13,7 @@ import {
   styleFileName,
   type LayerStyle,
   type StyleFormat,
+  rendererOf,
 } from '@spatial-explorer/core'
 
 const CUSTOM: LayerStyle = {
@@ -142,7 +143,7 @@ describe('QML written by QGIS', () => {
     expect(style.strokeColor).toBe('#008000')
     expect(style.strokeWidth).toBe(3)
     expect(notes).toEqual([])
-    expect(style.renderer).toMatchObject({ kind: 'categorized', column: 'kind', manual: true, classes: [{ value: 'a', color: '#008000' }] })
+    expect(rendererOf(style)).toMatchObject({ kind: 'categorized', column: 'kind', manual: true, classes: [{ value: 'a', color: '#008000' }] })
   })
 
   it('rejects a QML without symbology', () => {

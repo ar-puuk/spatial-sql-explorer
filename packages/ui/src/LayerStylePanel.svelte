@@ -1,3 +1,11 @@
+<script lang="ts" module>
+  import type { Encoding as SetAsideEncoding } from '@spatial-explorer/core'
+  /** Spec 011 FR-007: properties removed from Vary by attribute, per layer and property, for the session. */
+  // Not reactive on purpose: only read when a property is added again.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const setAside = new Map<string, SetAsideEncoding>()
+</script>
+
 <script lang="ts">
   // Layer style popover (design-plan.md §8.1/§8.5; spec 003
   // contracts/ui-style-panel.md; spec 008 US1, contracts/ui.md "Style panel").
@@ -72,6 +80,24 @@
     type ResolvedStyle,
     type StyleFormat,
     type ValueHistogram as Histogram,
+    extrusionOf,
+    sizeOf,
+    CHANNEL_NAMES,
+    channelsFor,
+    drawOf,
+    isNumericType,
+    setChannelClass,
+    setChannelClasses,
+    setChannelColumn,
+    setChannelRamp,
+    setChannelRange,
+    setEncoding,
+    setLegendHidden,
+    setScaleKind,
+    startEncoding,
+    type ChannelId,
+    type Encoding,
+    type ScaleKind,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import RampPicker from './RampPicker.svelte'
@@ -83,6 +109,10 @@
   import BivariateLegend from './style/BivariateLegend.svelte'
   import RulesEditor from './style/RulesEditor.svelte'
   import StyleTypePicker from './style/StyleTypePicker.svelte'
+  import VaryRow from './style/VaryRow.svelte'
+  import AddVaryMenu from './style/AddVaryMenu.svelte'
+  import ScaleEditor from './style/ScaleEditor.svelte'
+  import ColumnOptions from './style/ColumnOptions.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -150,7 +180,7 @@
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
   const CONSTANT = '__constant'
   const extrusionReason = $derived(extrusionUnavailableReason(geometryType))
-  const ext = $derived(style.extrusion)
+  const ext = $derived(extrusionOf(style))
   const heightColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
   /** A column whose name says height: its values are taken as meters (no automatic scale). */
   const HEIGHT_NAME = /height|elev|floor|storey|stories|levels|hgt/i
@@ -173,7 +203,7 @@
     const first = !ext
     setExtrusion({ enabled: !ext?.enabled })
     // Raw values are rarely meters: the first time, pick a scale that shows them.
-    const src = style.extrusion?.source
+    const src = extrusionOf(style)?.source
     if (first && src?.kind === 'column' && !HEIGHT_NAME.test(src.column)) void autoScale(src.column)
   }
   let scaling = $state(false)
@@ -183,7 +213,7 @@
     scaling = true
     try {
       const scale = await onSuggestScale(column)
-      const now = style.extrusion
+      const now = extrusionOf(style)
       if (now?.source.kind === 'column' && now.source.column === column) setExtrusion({ scale })
     } finally {
       scaling = false
@@ -191,7 +221,7 @@
   }
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
-    { kind: 'single', label: 'Single', hint: 'One symbol for every feature' },
+    { kind: 'single', label: 'Single color', hint: 'One color for every feature' },
     { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
     { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
@@ -294,7 +324,7 @@
 
   // --- Spec 009: the size channel (marker size on points, line width on lines; none on polygons).
   const sizeGeometry = $derived<'point' | 'line'>(geometryType === 'LineString' ? 'line' : 'point')
-  const size = $derived(style.size)
+  const size = $derived(sizeOf(style))
   const sizeOn = $derived(!!size && renderer.kind !== 'bivariate')
   const numericColumns = $derived(eligibleColumns(layer?.columns, 'graduated'))
   const sizeSymbols = $derived(sizeOn && resolved.size?.status === 'ok' ? { symbols: sizeSymbolsOf(style, resolved), kind: sizeGeometry } : null)
@@ -307,6 +337,56 @@
   function chooseSize(side: 'min' | 'max', value: number): void {
     if (!size || !Number.isFinite(value)) return
     apply(setSizeRange(style, side === 'min' ? value : size.sizeMin, side === 'max' ? value : size.sizeMax))
+  }
+
+  // --- Spec 011: Vary by attribute (contracts/ui.md): more properties, each by its own column.
+  /** Properties shown under Vary by attribute, in panel order ("size" stands for marker size or line width). */
+  const varying = $derived.by((): ChannelId[] => {
+    const generic = (['strokeColor', 'strokeWidth', 'shape', 'dash', 'opacity', 'rotation'] as ChannelId[]).filter((id) => !!style.channels?.[id])
+    return sizeOn ? ['size', ...generic] : generic
+  })
+  /** What "Add…" offers: the layer's properties that aren't varying yet (Color is the style type; Height is 3D). */
+  const addable = $derived.by(() => {
+    const ids = channelsFor(geometryType, drawOf(style)).filter((id) => id !== 'color' && id !== 'height' && id !== 'width')
+    if (geometryType === 'LineString') ids.unshift('size')
+    return ids
+      .filter((id) => !varying.includes(id))
+      .map((id) => ({
+        id,
+        label: id === 'size' ? (sizeGeometry === 'line' ? 'Width' : 'Size') : CHANNEL_NAMES[id],
+        unavailable:
+          id === 'size'
+            ? renderer.kind === 'bivariate'
+              ? 'Bivariate maps have no size.'
+              : numericColumns.length
+                ? null
+                : 'Sizing needs a numeric column.'
+            : channelColumns.length
+              ? null
+              : 'This result has no attribute columns.',
+      }))
+  })
+  /** Columns a property can vary by: any attribute column. */
+  const channelColumns = $derived(eligibleColumns(layer?.columns, 'categorized'))
+  /** The scales offered for a property's column: categories, and classes for numbers (shapes and patterns: categories only). */
+  function scalesForColumn(id: ChannelId, enc: Encoding): ScaleKind[] {
+    const column = enc.source.kind === 'column' ? enc.source.column : ''
+    const numeric = isNumericType(layer?.columns.find((c) => c.name === column)?.type ?? '')
+    return (['categories', 'classes'] as ScaleKind[]).filter((k) => (k === 'classes' ? numeric && id !== 'shape' && id !== 'dash' : true))
+  }
+  /** A property added again starts on the column it last had in this session, else on a suitable first one (FR-007). */
+  function addVary(id: ChannelId): void {
+    if (id === 'size') return toggleSize()
+    const kept = setAside.get(`${sidecarName}|${id}`)
+    if (kept) return apply(setEncoding(style, id, kept))
+    const prefersText = id === 'strokeColor' || id === 'shape' || id === 'dash'
+    const pick = (prefersText ? channelColumns.find((c) => !isNumericType(c.type)) : measureColumns(layer?.columns)[0]) ?? channelColumns[0]
+    if (pick) apply(setEncoding(style, id, startEncoding(id, pick.name, layer)))
+  }
+  function removeVary(id: ChannelId): void {
+    const enc = style.channels?.[id]
+    if (enc) setAside.set(`${sidecarName}|${id}`, enc)
+    apply(setEncoding(style, id, null))
   }
 
   // --- Marker shape and line pattern.
@@ -379,8 +459,8 @@
     </div>
 
     <section aria-labelledby="style-sec-type">
-      <h3 id="style-sec-type">Style</h3>
-      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} />
+      <h3 id="style-sec-type">Color</h3>
+      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} label="Color" listLabel="Color styles" />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
@@ -391,13 +471,11 @@
         <h3 id="style-sec-by">Color by</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
-          <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
+          <select id="style-column" class="column-select" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
             {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
               <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
             {/if}
-            {#each columnsFor(renderer.kind) as c (c.name)}
-              <option value={c.name}>{c.name} · {c.type}</option>
-            {/each}
+            <ColumnOptions columns={columnsFor(renderer.kind)} />
             {#if renderer.kind === 'graduated'}
               <option value={EXPRESSION}>Expression…</option>
             {/if}
@@ -521,14 +599,12 @@
         <h3 id="style-sec-heat">Heatmap</h3>
         <div class="row field">
           <label class="label" for="style-heat-weight">Weight</label>
-          <select id="style-heat-weight" value={renderer.weight} onchange={(e) => apply(setHeatmap(style, { weight: e.currentTarget.value }))}>
+          <select id="style-heat-weight" class="column-select" value={renderer.weight} onchange={(e) => apply(setHeatmap(style, { weight: e.currentTarget.value }))}>
             <option value="">None: count each point</option>
             {#if renderer.weight && !numericColumns.some((c) => c.name === renderer.weight)}
               <option value={renderer.weight}>{renderer.weight}</option>
             {/if}
-            {#each numericColumns as c (c.name)}
-              <option value={c.name}>{c.name} · {c.type}</option>
-            {/each}
+            <ColumnOptions columns={numericColumns} />
           </select>
         </div>
         <div class="row field">
@@ -665,129 +741,6 @@
       </section>
     {/if}
 
-    {#if renderer.kind !== 'heatmap'}
-    <section aria-labelledby="style-sec-size">
-      <h3 id="style-sec-size">Size</h3>
-      {#if geometryType === 'Polygon'}
-        <p class="inline-note" role="status"><Icon name="info" size={14} />Polygons have no size: the size channel is for points and lines.</p>
-      {:else if renderer.kind === 'bivariate'}
-        <p class="inline-note" role="status"><Icon name="info" size={14} />Bivariate maps have no size channel.</p>
-      {:else}
-        <div class="row field">
-          <span class="label" id="size-by-label">Size by</span>
-          <button
-            type="button"
-            role="switch"
-            class="switch"
-            aria-label="Size by column"
-            aria-checked={sizeOn}
-            disabled={!sizeOn && numericColumns.length === 0}
-            title={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : undefined}
-            onclick={toggleSize}
-          >
-            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-            <span class="state">{sizeOn ? 'On' : 'Off'}</span>
-          </button>
-        </div>
-        {#if sizeOn && size}
-          <div class="row field">
-            <span class="label" aria-hidden="true">Column</span>
-            <select id="style-size-column" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
-              {#if !numericColumns.some((c) => c.name === size.column)}
-                <option value={size.column}>{size.column || 'Choose…'}</option>
-              {/if}
-              {#each numericColumns as c (c.name)}
-                <option value={c.name}>{c.name} · {c.type}</option>
-              {/each}
-            </select>
-          </div>
-          <div class="row field">
-            <span class="label" id="size-scale-label">Scale</span>
-            <div class="renderers two" role="radiogroup" aria-label="Size scale">
-              {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={size.mode === m.mode}
-                  tabindex={size.mode === m.mode ? 0 : -1}
-                  title={m.hint}
-                  onclick={() => apply(setSizeMode(style, m.mode))}
-                  onkeydown={(e) => {
-                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                      e.preventDefault()
-                      const next = size.mode === 'classed' ? 'proportional' : 'classed'
-                      apply(setSizeMode(style, next))
-                      const group = (e.currentTarget as HTMLElement).parentElement
-                      queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
-                    }
-                  }}>{m.label}</button
-                >
-              {/each}
-            </div>
-          </div>
-          {#if size.mode === 'classed'}
-          <div class="pair">
-            <div class="row field">
-              <span class="label" aria-hidden="true">Method</span>
-              <select id="style-size-method" aria-label="Size method" value={size.method} onchange={(e) => apply(setSizeMethod(style, e.currentTarget.value as Exclude<GraduatedMethod, 'manual'>))}>
-                {#each METHODS as m (m)}
-                  <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
-                {/each}
-                {#if size.method === 'manual'}
-                  <option value="manual">Manual</option>
-                {/if}
-              </select>
-            </div>
-            <div class="row field">
-              <span class="label" aria-hidden="true">Classes</span>
-              <select id="style-size-count" class="narrow" aria-label="Size class count" value={size.classCount} onchange={(e) => apply(setSizeClassCount(style, Number(e.currentTarget.value)))}>
-                {#each CLASS_COUNTS as n (n)}
-                  <option value={n}>{n}</option>
-                {/each}
-              </select>
-            </div>
-          </div>
-          {:else}
-            <p class="hint">Sizes scale smoothly from the smallest to the largest value of {size.column}{sizeGeometry === 'point' ? ', by marker area' : ''}.</p>
-          {/if}
-          <div class="row field">
-            <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
-            <span class="size-range">
-              <input id="style-size-min" class="number" type="number" aria-label="Smallest size" min="0.5" max="100" step="0.5" value={size.sizeMin} onchange={(e) => chooseSize('min', Number(e.currentTarget.value))} />
-              <span aria-hidden="true">to</span>
-              <input class="number" type="number" aria-label="Largest size" min="0.5" max="100" step="0.5" value={size.sizeMax} onchange={(e) => chooseSize('max', Number(e.currentTarget.value))} />
-              <span>px</span>
-            </span>
-          </div>
-          {#if resolved.size?.status === 'fallback'}
-            <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
-          {:else if resolved.size && sizeSymbols && size.mode === 'classed'}
-            <ClassList
-              {resolved}
-              kind="graduated"
-              classes={resolved.size.classes}
-              caption={resolved.size.caption}
-              listLabel="Size classes"
-              canAdd={false}
-              {sizeSymbols}
-              manual={size.method === 'manual'}
-              onColor={() => {}}
-              onLabel={(key, label) => apply(setSizeClassLabel(style, key, label))}
-              onVisible={(key, visible) => apply(setSizeClassVisible(style, key, visible))}
-              onValue={() => {}}
-              onBound={(index, side, value) => apply(setSizeClassBound(style, resolved, index, side, value))}
-              onAdd={() => {}}
-              onDelete={() => {}}
-            />
-            {#each resolved.size.notes as note (note)}
-              <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
-            {/each}
-          {/if}
-        {/if}
-      {/if}
-    </section>
-    {/if}
-
     <!-- A point heatmap draws no symbols; mixed layers keep them for lines and polygons. -->
     {#if renderer.kind !== 'heatmap' || geometryType !== 'Point'}
     <section aria-labelledby="style-sec-look">
@@ -898,6 +851,139 @@
     </section>
     {/if}
 
+    <!-- Spec 011 (contracts/ui.md "Vary by attribute"): more properties, each by its own column. -->
+    {#if renderer.kind !== 'heatmap' || geometryType !== 'Point'}
+      <section aria-labelledby="style-sec-vary">
+        <h3 id="style-sec-vary">Vary by attribute</h3>
+        {#if !varying.length}
+          <p class="hint">Show more columns at once: size, outline, shape, opacity and more, each by its own column.</p>
+        {/if}
+        {#each varying as id (id)}
+          {#if id === 'size'}
+            <VaryRow id="size" name={sizeGeometry === 'line' ? 'Width' : 'Size'} summary={resolved.size?.caption ?? ''} onRemove={() => toggleSize()}>
+              {#if sizeOn && size}
+              <div class="row field">
+                <span class="label" aria-hidden="true">Column</span>
+                <select id="style-size-column" class="column-select" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
+                  {#if !numericColumns.some((c) => c.name === size.column)}
+                    <option value={size.column}>{size.column || 'Choose…'}</option>
+                  {/if}
+                  <ColumnOptions columns={numericColumns} />
+                </select>
+              </div>
+              <div class="row field">
+                <span class="label" id="size-scale-label">Scale</span>
+                <div class="renderers two" role="radiogroup" aria-label="Size scale">
+                  {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={size.mode === m.mode}
+                      tabindex={size.mode === m.mode ? 0 : -1}
+                      title={m.hint}
+                      onclick={() => apply(setSizeMode(style, m.mode))}
+                      onkeydown={(e) => {
+                        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                          e.preventDefault()
+                          const next = size.mode === 'classed' ? 'proportional' : 'classed'
+                          apply(setSizeMode(style, next))
+                          const group = (e.currentTarget as HTMLElement).parentElement
+                          queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+                        }
+                      }}>{m.label}</button
+                    >
+                  {/each}
+                </div>
+              </div>
+              {#if size.mode === 'classed'}
+              <div class="pair">
+                <div class="row field">
+                  <span class="label" aria-hidden="true">Method</span>
+                  <select id="style-size-method" aria-label="Size method" value={size.method} onchange={(e) => apply(setSizeMethod(style, e.currentTarget.value as Exclude<GraduatedMethod, 'manual'>))}>
+                    {#each METHODS as m (m)}
+                      <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
+                    {/each}
+                    {#if size.method === 'manual'}
+                      <option value="manual">Manual</option>
+                    {/if}
+                  </select>
+                </div>
+                <div class="row field">
+                  <span class="label" aria-hidden="true">Classes</span>
+                  <select id="style-size-count" class="narrow" aria-label="Size class count" value={size.classCount} onchange={(e) => apply(setSizeClassCount(style, Number(e.currentTarget.value)))}>
+                    {#each CLASS_COUNTS as n (n)}
+                      <option value={n}>{n}</option>
+                    {/each}
+                  </select>
+                </div>
+              </div>
+              {:else}
+                <p class="hint">Sizes scale smoothly from the smallest to the largest value of {size.column}{sizeGeometry === 'point' ? ', by marker area' : ''}.</p>
+              {/if}
+              <div class="row field">
+                <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
+                <span class="size-range">
+                  <input id="style-size-min" class="number" type="number" aria-label="Smallest size" min="0.5" max="100" step="0.5" value={size.sizeMin} onchange={(e) => chooseSize('min', Number(e.currentTarget.value))} />
+                  <span aria-hidden="true">to</span>
+                  <input class="number" type="number" aria-label="Largest size" min="0.5" max="100" step="0.5" value={size.sizeMax} onchange={(e) => chooseSize('max', Number(e.currentTarget.value))} />
+                  <span>px</span>
+                </span>
+              </div>
+              {#if resolved.size?.status === 'fallback'}
+                <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
+              {:else if resolved.size && sizeSymbols && size.mode === 'classed'}
+                <ClassList
+                  {resolved}
+                  kind="graduated"
+                  classes={resolved.size.classes}
+                  caption={resolved.size.caption}
+                  listLabel="Size classes"
+                  canAdd={false}
+                  {sizeSymbols}
+                  manual={size.method === 'manual'}
+                  onColor={() => {}}
+                  onLabel={(key, label) => apply(setSizeClassLabel(style, key, label))}
+                  onVisible={(key, visible) => apply(setSizeClassVisible(style, key, visible))}
+                  onValue={() => {}}
+                  onBound={(index, side, value) => apply(setSizeClassBound(style, resolved, index, side, value))}
+                  onAdd={() => {}}
+                  onDelete={() => {}}
+                />
+                {#each resolved.size.notes as note (note)}
+                  <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+                {/each}
+              {/if}
+              {/if}
+            </VaryRow>
+          {:else}
+            {@const enc = style.channels?.[id]}
+            <VaryRow {id} name={CHANNEL_NAMES[id]} summary={resolved.channels?.[id]?.caption ?? ''} onRemove={() => removeVary(id)}>
+              {#if enc}
+                <ScaleEditor
+                  channel={id}
+                  {enc}
+                  resolved={resolved.channels?.[id]}
+                  columns={channelColumns}
+                  scales={scalesForColumn(id, enc)}
+                  onColumn={(c) => apply(setChannelColumn(style, id, c, layer))}
+                  onScale={(k) => apply(setScaleKind(style, id, k, layer))}
+                  onClasses={(p) => apply(setChannelClasses(style, id, p))}
+                  onRange={(lo, hi) => apply(setChannelRange(style, id, lo, hi))}
+                  onRamp={(ramp) => apply(setChannelRamp(style, id, ramp))}
+                  onClass={(key, patch) => apply(setChannelClass(style, id, key, patch))}
+                  onLegendHidden={(h) => apply(setLegendHidden(style, id, h))}
+                />
+              {/if}
+            </VaryRow>
+          {/if}
+        {/each}
+        <AddVaryMenu items={addable} onAdd={addVary} />
+        {#if varying.length + (thematic ? 1 : 0) >= 3}
+          <p class="inline-note" role="status"><Icon name="info" size={14} />Maps with many variables are harder to read: consider two.</p>
+        {/if}
+      </section>
+    {/if}
+
     <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height. -->
     <section aria-labelledby="style-sec-3d">
       <h3 id="style-sec-3d">3D</h3>
@@ -921,13 +1007,11 @@
         {#if ext?.enabled}
           <div class="row field">
             <label class="label" for="extrude-height">Height</label>
-            <select id="extrude-height" aria-label="Height from" value={ext.source.kind === 'column' ? ext.source.column : CONSTANT} onchange={(e) => chooseHeight(e.currentTarget.value)}>
+            <select id="extrude-height" class="column-select" aria-label="Height from" value={ext.source.kind === 'column' ? ext.source.column : CONSTANT} onchange={(e) => chooseHeight(e.currentTarget.value)}>
               {#if ext.source.kind === 'column' && !heightColumns.some((c) => ext.source.kind === 'column' && c.name === ext.source.column)}
                 <option value={ext.source.column}>{ext.source.column}</option>
               {/if}
-              {#each heightColumns as c (c.name)}
-                <option value={c.name}>{c.name} · {c.type}</option>
-              {/each}
+              <ColumnOptions columns={heightColumns} />
               <option value={CONSTANT}>Constant height</option>
             </select>
           </div>
@@ -1202,6 +1286,87 @@
   }
   @media (prefers-reduced-motion: reduce) {
     }
+  /*
+   * Column pickers: each option's type as a short, muted symbol before the
+   * name (style/ColumnOptions.svelte). Chromium's customizable select draws
+   * it (VS Code's webview, Chrome, Edge); other browsers show it as plain text.
+   */
+  @supports (appearance: base-select) {
+    :global(select.column-select),
+    :global(select.column-select::picker(select)) {
+      appearance: base-select;
+    }
+    :global(select.column-select) {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    :global(select.column-select::picker-icon) {
+      margin-left: auto;
+      color: var(--se-text-secondary);
+    }
+    :global(select.column-select::picker(select)) {
+      padding: 4px;
+      border: 1px solid var(--se-menu-border);
+      border-radius: var(--se-radius);
+      background: var(--se-menu-bg);
+      color: var(--se-menu-fg);
+      box-shadow: var(--se-shadow-elevated);
+    }
+    :global(select.column-select option) {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      border-radius: var(--se-radius-sm);
+    }
+    :global(select.column-select option:hover),
+    :global(select.column-select option:focus-visible) {
+      background: var(--se-menu-hover-bg);
+      color: var(--se-menu-hover-fg);
+      outline: none;
+    }
+    :global(select.column-select option::checkmark) {
+      display: none;
+    }
+    /*
+     * In the open list only: the closed picker copies the option's content, not
+     * this. 123, 1.2 and Abc as text; dates, times, true/false, geometry and
+     * nested values as icons (Power Query and QGIS show field types this way).
+     */
+    :global(select.column-select option[data-type]::before) {
+      content: attr(data-type);
+      flex: none;
+      width: 2.6em;
+      color: var(--se-text-secondary);
+      font-family: var(--se-font-mono);
+      font-size: 0.85em;
+    }
+    :global(select.column-select option[data-icon]::before) {
+      content: '';
+      flex: none;
+      /* The text symbols' width: 2.6em at their 0.85em font size. */
+      width: 2.21em;
+      height: 12px;
+      background-color: var(--se-text-secondary);
+      mask: var(--type-icon) no-repeat left center / 12px 12px;
+    }
+    :global(select.column-select option[data-icon='date']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='3' width='12' height='11' rx='1.5'/><path d='M2 6.5h12M5 1.5v3M11 1.5v3'/></svg>");
+    }
+    :global(select.column-select option[data-icon='time']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M8 4.5V8l2.5 1.5'/></svg>");
+    }
+    :global(select.column-select option[data-icon='bool']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 8.5l3 3 7-7'/></svg>");
+    }
+    :global(select.column-select option[data-icon='geo']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12'/></svg>");
+    }
+    :global(select.column-select option[data-icon='nested']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2.5c-1.5 0-2 .7-2 2v1.5c0 1-.6 1.5-1.5 1.5.9 0 1.5.5 1.5 1.5v1.5c0 1.3.5 2 2 2M10 2.5c1.5 0 2 .7 2 2v1.5c0 1 .6 1.5 1.5 1.5-.9 0-1.5.5-1.5 1.5v1.5c0 1.3-.5 2-2 2'/></svg>");
+    }
+  }
   select.narrow {
     justify-self: start;
     width: 64px;

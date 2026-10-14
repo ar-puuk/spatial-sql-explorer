@@ -24,6 +24,7 @@ import {
   sanitizeStyle,
   type Extrusion,
   type LayerStyle,
+  extrusionOf,
 } from '@spatial-explorer/core'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -39,11 +40,11 @@ function evaluate(expr: unknown, properties: Record<string, unknown>): unknown {
 
 describe('extrusion model', () => {
   it('sanitizes: unknown shapes dropped, scale defaults to 1, constants not negative', () => {
-    expect(styled(byColumn).extrusion).toEqual(byColumn)
-    expect(styled({ enabled: true, source: { kind: 'column', column: 'h' }, scale: -3 }).extrusion?.scale).toBe(1)
-    expect(styled({ enabled: true, source: { kind: 'constant', meters: -5 }, scale: 1 }).extrusion?.source).toEqual({ kind: 'constant', meters: 0 })
-    expect(styled({ enabled: true, source: { kind: 'nope' } as never, scale: 1 }).extrusion).toBeUndefined()
-    expect(styled(undefined).extrusion).toBeUndefined()
+    expect(extrusionOf(styled(byColumn))).toEqual(byColumn)
+    expect(extrusionOf(styled({ enabled: true, source: { kind: 'column', column: 'h' }, scale: -3 }))?.scale).toBe(1)
+    expect(extrusionOf(styled({ enabled: true, source: { kind: 'constant', meters: -5 }, scale: 1 }))?.source).toEqual({ kind: 'constant', meters: 0 })
+    expect(extrusionOf(styled({ enabled: true, source: { kind: 'nope' } as never, scale: 1 }))).toBeUndefined()
+    expect(extrusionOf(styled(undefined))).toBeUndefined()
   })
 
   it('applies to polygons only, when on', () => {
@@ -80,7 +81,7 @@ describe('extrusion in style files', () => {
     expect(text).toContain('<renderer-3d layer="" type="vector">')
     expect(text).toContain('<symbol material_type="phong" type="polygon">')
     expect(text).toContain('<Option name="expression" type="QString" value="&quot;height_m&quot; * 2"/>')
-    expect(importStyle('b.qml', text).style.extrusion).toEqual(byColumn)
+    expect(extrusionOf(importStyle('b.qml', text).style)).toEqual(byColumn)
     // Not written for points or when off.
     expect(exportStyle(styled(byColumn), 'qml', 'Point', 'p.csv').text).not.toContain('renderer-3d')
     expect(exportStyle(styled({ ...byColumn, enabled: false }), 'qml', 'Polygon', 'b.parquet').text).not.toContain('renderer-3d')
@@ -88,13 +89,13 @@ describe('extrusion in style files', () => {
 
   it('QML: reads QGIS’s own file (the spike), constants, and refuses other expressions with a notice', () => {
     const spike = fs.readFileSync(path.resolve(here, '../../specs/008-ux-parity/spikes/extrude.qml'), 'utf8')
-    expect(importStyle('extrude.qml', spike).style.extrusion).toEqual({ enabled: true, source: { kind: 'column', column: 'pop_est' }, scale: 0.001 })
+    expect(extrusionOf(importStyle('extrude.qml', spike).style)).toEqual({ enabled: true, source: { kind: 'column', column: 'pop_est' }, scale: 0.001 })
     expect(extrusionFromQgis('"a"', 0)).toEqual({ source: { kind: 'column', column: 'a' }, scale: 1 })
     expect(extrusionFromQgis(null, 15)).toEqual({ source: { kind: 'constant', meters: 15 }, scale: 1 })
     expect(extrusionFromQgis('"a" + "b"', 0)).toBeNull()
     const odd = spike.replace('&quot;pop_est&quot; * 0.001', 'log10(&quot;pop_est&quot;)')
     const r = importStyle('odd.qml', odd)
-    expect(r.style.extrusion).toBeUndefined()
+    expect(extrusionOf(r.style)).toBeUndefined()
     expect(r.notes.join(' ')).toMatch(/3D height expression .* is not supported/)
   })
 
@@ -103,10 +104,10 @@ describe('extrusion in style files', () => {
     const doc = JSON.parse(text) as { layers: Array<{ type: string; paint: Record<string, unknown> }> }
     const layer = doc.layers.find((l) => l.type === 'fill-extrusion')
     expect(layer?.paint['fill-extrusion-height']).toEqual(extrusionHeightExpression(byColumn))
-    expect(importStyle('b.style.json', text).style.extrusion).toEqual(byColumn)
+    expect(extrusionOf(importStyle('b.style.json', text).style)).toEqual(byColumn)
     // A foreign style (no embedded metadata) is read from the layer.
     const foreign = JSON.stringify({ version: 8, layers: [{ id: 'x', type: 'fill-extrusion', paint: { 'fill-extrusion-color': '#ff0000', 'fill-extrusion-height': ['*', ['get', 'floors'], 3] } }] })
-    expect(importStyle('f.json', foreign).style.extrusion).toEqual({ enabled: true, source: { kind: 'column', column: 'floors' }, scale: 3 })
+    expect(extrusionOf(importStyle('f.json', foreign).style)).toEqual({ enabled: true, source: { kind: 'column', column: 'floors' }, scale: 3 })
   })
 
   it('SLD: saved without it, and says so', () => {

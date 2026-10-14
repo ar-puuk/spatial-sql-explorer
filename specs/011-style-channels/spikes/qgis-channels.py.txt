@@ -1,0 +1,97 @@
+# SPIKE (spec 011, research §4): every new channel as a QGIS data-defined
+# property, plus labeling, saved to QML, reloaded, evaluated per feature and
+# rendered. Run: C:\OSGeo4W\bin\python-qgis.bat qgis-channels.py <outdir>
+import os, sys
+from qgis.core import *
+from qgis.PyQt.QtCore import QSize
+from qgis.PyQt.QtGui import QColor
+QgsApplication.setPrefixPath(r"C:\OSGeo4W\apps\qgis", True)
+app = QgsApplication([], False); app.initQgis()
+out = sys.argv[1]
+log = open(os.path.join(out, 'qgis-channels.log'), 'w', buffering=1)
+P = QgsSymbolLayer.Property
+
+def layer(kind, rows):
+    lyr = QgsVectorLayer(f'{kind}?crs=EPSG:4326&field=cls:string&field=v:double&field=hex:string&field=deg:double&field=name:string', kind, 'memory')
+    pr = lyr.dataProvider(); feats = []
+    for wkt, cls, v, hx, deg, name in rows:
+        f = QgsFeature(lyr.fields()); f.setGeometry(QgsGeometry.fromWkt(wkt)); f.setAttributes([cls, v, hx, deg, name]); feats.append(f)
+    pr.addFeatures(feats); lyr.updateExtents(); return lyr
+
+pts = layer('Point', [('POINT(0 0)', 'a', 0, '#ff0000', 0, 'Alpha'), ('POINT(1 0)', 'b', 50, '#00ff00', 45, 'Beta'), ('POINT(2 0)', 'c', 100, '#0000ff', 90, 'Gamma')])
+lns = layer('LineString', [('LINESTRING(0 1, 2 1)', 'a', 0, '#ff0000', 0, 'Main St'), ('LINESTRING(0 2, 2 2)', 'b', 50, '#00ff00', 0, 'Oak Ave'), ('LINESTRING(0 3, 2 3)', 'c', 100, '#0000ff', 0, 'Elm Rd')])
+pol = layer('Polygon', [('POLYGON((0 0,1 0,1 1,0 1,0 0))', 'a', 0, '#ff0000', 0, 'North'), ('POLYGON((2 0,3 0,3 1,2 1,2 0))', 'b', 50, '#00ff00', 0, 'South'), ('POLYGON((4 0,5 0,5 1,4 1,4 0))', 'c', 100, '#0000ff', 0, 'East')])
+
+def dd(sl, key, expr):
+    sl.setDataDefinedProperty(key, QgsProperty.fromExpression(expr))
+
+# Markers: fill color (continuous ramp), outline color (categories), outline width (classes),
+# shape (categories), rotation (as is), symbol opacity (continuous).
+ms = QgsMarkerSymbol.createSimple({'name': 'circle', 'size': '20', 'size_unit': 'Pixel', 'outline_width_unit': 'Pixel'})
+sl = ms.symbolLayer(0)
+dd(sl, P.FillColor, "ramp_color(create_ramp(map(0,'#ffffcc',1,'#800026')), scale_linear(\"v\",0,100,0,1))")
+dd(sl, P.StrokeColor, "CASE WHEN \"cls\" = 'a' THEN '#000000' WHEN \"cls\" = 'b' THEN '#555555' ELSE '#aaaaaa' END")
+dd(sl, P.StrokeWidth, "CASE WHEN \"v\" <= 50 THEN 1 ELSE 3 END")
+dd(sl, P.Name, "CASE WHEN \"cls\" = 'a' THEN 'triangle' WHEN \"cls\" = 'b' THEN 'star' ELSE 'square' END")
+dd(sl, P.Angle, '"deg"')
+ms.setDataDefinedProperty(QgsSymbol.Property.Opacity, QgsProperty.fromExpression('scale_linear("v",0,100,30,100)'))
+pts.setRenderer(QgsSingleSymbolRenderer(ms))
+
+# Lines: color (as is: hex column), width (continuous), pattern (categories).
+ls = QgsLineSymbol.createSimple({'line_width': '2', 'line_width_unit': 'Pixel'})
+sl = ls.symbolLayer(0)
+dd(sl, P.StrokeColor, '"hex"')
+dd(sl, P.StrokeWidth, 'scale_linear("v",0,100,1,6)')
+dd(sl, P.StrokeStyle, "CASE WHEN \"cls\" = 'a' THEN 'solid' WHEN \"cls\" = 'b' THEN 'dash' ELSE 'dot' END")
+lns.setRenderer(QgsSingleSymbolRenderer(ls))
+
+# Polygons: fill (categorized renderer = the primary channel), outline color and width data-defined.
+cats = [QgsRendererCategory(c, QgsFillSymbol.createSimple({'color': col, 'outline_width_unit': 'Pixel'}), c) for c, col in (('a', '#1b9e77'), ('b', '#d95f02'), ('c', '#7570b3'))]
+for c in cats:
+    s = c.symbol().symbolLayer(0)
+    dd(s, P.StrokeColor, "CASE WHEN \"v\" < 50 THEN '#000000' ELSE '#ff00ff' END")
+    dd(s, P.StrokeWidth, 'scale_linear("v",0,100,0.5,4)')
+pol.setRenderer(QgsCategorizedSymbolRenderer('cls', cats))
+
+# Labels on every layer.
+def labels(lyr, expr, placement, is_expr=True):
+    s = QgsPalLayerSettings(); s.fieldName = expr; s.isExpression = is_expr; s.placement = placement
+    fmt = QgsTextFormat(); fmt.setSize(11); fmt.setSizeUnit(Qgis.RenderUnit.Points); fmt.setColor(QColor('#202020'))
+    b = QgsTextBufferSettings(); b.setEnabled(True); b.setSize(1.2); b.setSizeUnit(Qgis.RenderUnit.Pixels); b.setColor(QColor('#ffffff')); fmt.setBuffer(b)
+    s.setFormat(fmt)
+    lyr.setLabeling(QgsVectorLayerSimpleLabeling(s)); lyr.setLabelsEnabled(True)
+labels(pts, 'name', Qgis.LabelPlacement.AroundPoint, False)
+labels(lns, "\"name\" || ' (' || \"cls\" || ')'", Qgis.LabelPlacement.Curved)
+labels(pol, 'name', Qgis.LabelPlacement.OverPoint, False)
+
+for name, lyr in (('points', pts), ('lines', lns), ('polygons', pol)):
+    path = os.path.join(out, f'qgis-channels-{name}.qml')
+    lyr.saveNamedStyle(path)
+    chk = layer({'points': 'Point', 'lines': 'LineString', 'polygons': 'Polygon'}[name], [])
+    chk.dataProvider().addFeatures(list(lyr.getFeatures())); chk.updateExtents()
+    msg, ok = chk.loadNamedStyle(path)
+    log.write(f'== {name}: reload ok={ok} renderer={chk.renderer().type()} labels={chk.labelsEnabled()}\n')
+    if chk.labelsEnabled():
+        st = chk.labeling().settings()
+        log.write(f'   label field={st.fieldName} expr={st.isExpression} placement={st.placement} size={st.format().size()} color={st.format().color().name()} buffer={st.format().buffer().enabled()},{st.format().buffer().size()}\n')
+    ctx = QgsRenderContext(); ctx.setExpressionContext(QgsExpressionContext(QgsExpressionContextUtils.globalProjectLayerScopes(chk)))
+    r = chk.renderer().clone(); r.startRender(ctx, chk.fields())
+    for f in chk.getFeatures():
+        ctx.expressionContext().setFeature(f)
+        sym = r.symbolForFeature(f, ctx)
+        sl = sym.symbolLayer(0); props = sl.dataDefinedProperties()
+        vals = {}
+        for key, nm in ((P.FillColor, 'fill'), (P.StrokeColor, 'stroke'), (P.StrokeWidth, 'width'), (P.Name, 'shape'), (P.Angle, 'angle'), (P.StrokeStyle, 'style')):
+            pp = props.property(key)
+            if pp.isActive(): vals[nm] = str(pp.value(ctx.expressionContext())[0])
+        op = sym.dataDefinedProperties().property(QgsSymbol.Property.Opacity)
+        if op.isActive(): vals['opacity'] = str(op.value(ctx.expressionContext())[0])
+        log.write(f'   feature {f["cls"]}: symbol color={sym.color().name()} {vals}\n')
+    r.stopRender(ctx)
+    # Render the reloaded layer.
+    ms_ = QgsMapSettings(); ms_.setLayers([chk]); ms_.setOutputSize(QSize(500, 300)); ms_.setBackgroundColor(QColor('#ffffff'))
+    e = chk.extent(); e.grow(0.6); ms_.setExtent(e); ms_.setDestinationCrs(chk.crs())
+    job = QgsMapRendererSequentialJob(ms_); job.start(); job.waitForFinished()
+    job.renderedImage().save(os.path.join(out, f'qgis-channels-{name}.png'))
+
+log.close(); os._exit(0)

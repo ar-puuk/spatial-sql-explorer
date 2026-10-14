@@ -13,12 +13,13 @@ test('sections in a fixed order, and only those that apply', async ({ page }) =>
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   const headings = () => panel(page).locator('section h3').allTextContents()
-  expect(await headings()).toEqual(['Style', 'Size', 'Appearance', '3D'])
+  // Spec 011: Vary by attribute takes the old Size section's place, under Appearance.
+  expect(await headings()).toEqual(['Color', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Categorized')
-  expect(await headings()).toEqual(['Style', 'Color by', 'Colors', 'Size', 'Appearance', '3D'])
+  expect(await headings()).toEqual(['Color', 'Color by', 'Colors', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Graduated')
-  expect(await headings()).toEqual(['Style', 'Color by', 'Classification', 'Colors', 'Size', 'Appearance', '3D'])
-  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toContainText('Colors by ranges of a number or an expression')
+  expect(await headings()).toEqual(['Color', 'Color by', 'Classification', 'Colors', 'Appearance', 'Vary by attribute', '3D'])
+  await expect(page.getByRole('button', { name: 'Color: Graduated' })).toContainText('Colors by ranges of a number or an expression')
   // No Apply step anywhere (FR-002).
   await expect(panel(page).getByRole('button', { name: /^Apply/ })).toHaveCount(0)
 })

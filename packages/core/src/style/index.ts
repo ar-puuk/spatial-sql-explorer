@@ -1,4 +1,8 @@
 export * from './model.js'
+export * from './channels.js'
+export * from './labels.js'
+export * from './legacy.js'
+export * from './legend.js'
 export * from './ramps.js'
 export * from './classify.js'
 export * from './edit.js'
@@ -15,6 +19,7 @@ export { styleToQml, qmlToStyle, type StyleExport } from './qml.js'
 export { styleToSld, sldToStyle } from './sld.js'
 export { styleToMapbox, mapboxToStyle } from './mapbox.js'
 
+import { rendererOf } from './legacy.js'
 import { withLayerOpacity, type LayerStyle, type ResolvedStyle, type StyleFormat, type StyleGeometry, type StyleImportResult } from './model.js'
 import { qmlToStyle, styleToQml, type StyleExport } from './qml.js'
 import { sldToStyle, styleToSld } from './sld.js'
@@ -60,7 +65,7 @@ export function exportStyle(
   const layerName = baseName(dataFileName)
   switch (format) {
     case 'qml': {
-      const r = style.renderer
+      const r = rendererOf(style)
       const column = r && (r.kind === 'categorized' || r.kind === 'graduated') ? r.column : ''
       return styleToQml(style, geometry, resolved, columns?.find((c) => c.name === column)?.type)
     }

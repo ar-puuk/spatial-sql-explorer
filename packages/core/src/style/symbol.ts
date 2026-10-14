@@ -154,6 +154,10 @@ export interface SymbolSpec {
   shape: MarkerShape
   /** Lines and polygon outlines. */
   dash: LineDash
+  /** Spec 011: marker rotation, degrees clockwise. */
+  rotation: number
+  /** Spec 011: per-feature opacity, on top of the fill and outline opacities. */
+  opacity: number
 }
 
 /** The single symbol (no classes, or a fallback). */
@@ -166,10 +170,13 @@ export function baseSymbol(style: LayerStyle): SymbolSpec {
     strokeOpacity: s.strokeOpacity,
     strokeWidth: s.strokeWidth,
     lineColor: s.strokeColor,
-    lineWidth: s.strokeWidth,
+    // Spec 011: a line's fixed Width, when set apart from the outline width.
+    lineWidth: style.lineWidth ?? s.strokeWidth,
     radius: s.pointRadius,
     shape: style.markerShape ?? 'circle',
     dash: style.lineDash ?? 'solid',
+    rotation: style.rotation ?? 0,
+    opacity: style.opacity ?? 1,
   }
 }
 

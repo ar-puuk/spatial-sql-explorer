@@ -34,11 +34,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     scale), and as a heatmap layer in Mapbox GL styles; both read back.
     Checked in QGIS 4.2.3. SLD has no heatmap, and the save menu says so.
 
+- **Vary by attribute** (spec 011): under the style type, more properties
+  can each follow their own column, so one map can show several variables at
+  once: roads colored by level of service and widened by traffic, or crashes
+  colored by severity, shaped by type and turned by heading.
+  - Add… offers, for points: outline color, outline width, size, shape,
+    opacity and rotation; for lines: width, pattern and opacity; for
+    polygons: outline color, outline width and opacity.
+  - Outline color and width, shape, pattern, opacity and rotation are new,
+    by categories or by classes. Shapes give six values their own shape and
+    the rest share "Other"; patterns give four.
+  - Each property has its own legend group. Its swatches show what the map
+    draws, and a class can be hidden from there.
+  - A property removed and added again in the same session comes back with
+    its column.
+  - Properties that read the same column with the same classes share one
+    legend group: graduated color and size by `pop` in the same quantiles
+    show one list, each entry in its color and at its size. Hiding an entry
+    hides that class in all of them. Different breaks keep separate groups.
+
 ### Changed
 
-- The style type is a dropdown instead of a row of buttons. Each type has a
-  one-line description of what it does, and a type that can't be used for
-  the layer says why.
+- The style type's heading is **Color**, and "Single" is **Single color**: it
+  sets only the color; Vary by attribute sets the rest.
+- The Size section moved into Vary by attribute ("Add… → Size", or Width on
+  lines); it works as before.
+- Styles are saved in a new form that holds every property, and still load
+  from 0.3.0 sidecars and saved states exactly as before. QML files also carry
+  the whole style in a `spatialExplorer/style` property.
 
 ## [0.3.0] - 2026-10-13
 

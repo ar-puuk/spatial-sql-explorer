@@ -27,6 +27,7 @@ import {
   visibilityFilter,
   type LayerStyle,
   type ResolvedStyle,
+  sizeOf,
 } from '@spatial-explorer/core'
 
 function evaluate(expr: unknown, properties: Record<string, unknown>, key: string, type = 'Polygon'): unknown {
@@ -153,7 +154,7 @@ describe('bivariate classes (US4)', () => {
     expect(r.classes.find((c) => c.key === 'cell:2-2')?.color).toBe(green.cells[8])
     expect(r.size).toBeUndefined()
     // The size channel is kept, inactive: back to graduated, it applies again.
-    expect(style.size?.column).toBe('flag')
+    expect(sizeOf(style)?.column).toBe('flag')
   })
 
   it('points and lines color the same way', () => {
@@ -235,12 +236,13 @@ describe('bivariate style files (US5)', () => {
     expect(rules[9]).toContain('filter="&quot;poverty&quot; IS NULL OR &quot;obesity&quot; IS NULL"')
     expect(qml).toContain('name="spatialExplorer/bivariate"')
     const back = importStyle('x.qml', qml)
-    expect(back.style.renderer).toEqual(style.renderer)
+    expect(rendererOf(back.style)).toEqual(rendererOf(style))
     expect(back.notes).toEqual([])
   })
 
   it('a QGIS rule-based style this product did not write imports as rules (spec 010)', () => {
-    const qml = exportAs(bivariate(), 'qml').text.replace(/\s*<Option name="spatialExplorer\/bivariate"[^>]*\/>/, '')
+    // Without our own properties (spec 009's bivariate, spec 011's whole style), as QGIS would save it.
+    const qml = exportAs(bivariate(), 'qml').text.replace(/\s*<Option name="spatialExplorer\/(bivariate|style)"[^>]*\/>/g, '')
     const back = importStyle('x.qml', qml)
     const r = rendererOf(back.style)
     expect(r.kind).toBe('rules')
@@ -273,6 +275,6 @@ describe('bivariate style files (US5)', () => {
       expect(evaluate(fill.paint['fill-color'], f.attributes, 'layers[0].paint.fill-color')).toBe(evaluate(viewer, f.attributes, 'layers[0].paint.fill-color'))
       expect(evaluate(fill.filter, f.attributes, 'layers[0].filter')).toBe(evaluate(['all', ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false], filter], f.attributes, 'layers[0].filter'))
     }
-    expect(importStyle('x.json', JSON.stringify(doc)).style.renderer).toEqual(style.renderer)
+    expect(rendererOf(importStyle('x.json', JSON.stringify(doc)).style)).toEqual(rendererOf(style))
   })
 })

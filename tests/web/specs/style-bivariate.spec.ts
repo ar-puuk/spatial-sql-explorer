@@ -70,7 +70,7 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
 test('Bivariate needs two numeric columns, and says why', async ({ page }) => {
   await openFile(page, writeSquares())
   await openStyle(page)
-  await page.getByRole('button', { name: /^Style type:/ }).click()
+  await page.getByRole('button', { name: /^Color: / }).click()
   const option = page.getByRole('option', { name: 'Bivariate', exact: true })
   await expect(option).toHaveAttribute('aria-disabled', 'true')
   await expect(option).toContainText('Bivariate maps need two numeric columns.')

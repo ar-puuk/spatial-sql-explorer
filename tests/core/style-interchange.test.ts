@@ -16,6 +16,7 @@ import {
   styleFileName,
   type LayerStyle,
   type StyleFormat,
+  sizeOf,
 } from '@spatial-explorer/core'
 
 // import.meta.dirname, not new URL(..., import.meta.url): under happy-dom the latter resolves against the page.
@@ -187,7 +188,7 @@ describe('foreign files import with notices for what is left out', () => {
     // Spec 009: size classes are a size channel on a single color.
     const { style } = importStyle('x.qml', qml)
     expect(rendererOf(style).kind).toBe('single')
-    expect(style.size?.column).toBe('value')
+    expect(sizeOf(style)?.column).toBe('value')
   })
 
   it('a GeoLibre-shaped SLD: the "< first value" guard rule is skipped', () => {

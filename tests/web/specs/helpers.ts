@@ -183,9 +183,19 @@ export async function openStyle(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Zoom to layer' }).click()
 }
 
+/** Spec 011: adds a property under Vary by attribute ("Size", "Width", "Outline color", …; the panel must be open). */
+export async function varyBy(page: Page, property: string): Promise<void> {
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  await panel.getByRole('button', { name: 'Add…' }).click()
+  await page.getByRole('menu', { name: 'Vary by attribute' }).getByRole('menuitem', { name: property, exact: true }).click()
+  await expect(panel.getByRole('group', { name: `${property} by` })).toBeVisible()
+}
+
 /** Chooses a style type from the Style panel's dropdown (the panel must be open). */
 export async function chooseStyleType(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: /^Style type:/ }).click()
-  await page.getByRole('listbox', { name: 'Style types' }).getByRole('option', { name, exact: true }).click()
-  await expect(page.getByRole('button', { name: `Style type: ${name}` })).toBeVisible()
+  // Spec 011: the style type sets the color; "Single" is "Single color".
+  if (name === 'Single') name = 'Single color'
+  await page.getByRole('button', { name: /^Color: / }).click()
+  await page.getByRole('listbox', { name: 'Color styles' }).getByRole('option', { name, exact: true }).click()
+  await expect(page.getByRole('button', { name: `Color: ${name}` })).toBeVisible()
 }

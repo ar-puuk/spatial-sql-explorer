@@ -8,12 +8,12 @@
 // Sizes are written in `Pixel` units so they mean exactly what MapLibre
 // renders; on import, QGIS's default millimetre and point units are
 // converted at 96 DPI.
+import { legacyView } from './legacy.js'
 import { extrusionFromQgis, extrusionToQgis } from './extrusion.js'
 import {
   DEFAULT_LAYER_STYLE,
   escapeXml,
   parseColor,
-  rendererOf,
   rgbToHex,
   round,
   ruleLabel,
@@ -28,6 +28,7 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
+import { rendererOf } from './legacy.js'
 import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
 import { checkExpression } from './sqlExpression.js'
@@ -491,7 +492,7 @@ function readRenderer3d(doc: Document, notes: string[]): LayerStyle['extrusion']
 }
 
 export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?: ResolvedStyle, columnType?: string): StyleExport {
-  const style = sanitizeStyle(input)
+  const style = legacyView(sanitizeStyle(input))
   const notes: string[] = []
   // A QGIS vector layer has exactly one geometry type, so a single-symbol
   // renderer holds one symbol. Mixed layers get the polygon (fill) symbol,
@@ -541,6 +542,9 @@ ${symbolXml(kind, style, '0', sizeDd)}
   }
   // Our own size channel, kept whole for a lossless reload here.
   if (style.size) props['spatialExplorer/size'] = JSON.stringify(style.size)
+  // Spec 011: the whole channel model (preferred on import; the entries above stay for 0.3.0).
+  const own = ownStyle(style)
+  if (own) props['spatialExplorer/style'] = own
   // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
   const renderer3d = style.extrusion?.enabled && geom === 'Polygon' ? renderer3dXml(style) : ''
   // Spec 008: QGIS loads only the categories listed: layer opacity is in
@@ -722,7 +726,7 @@ export function qmlToStyle(text: string): StyleImportResult {
     const style = heatmapFromQgis(renderer, readCustomProperties(doc), notes)
     const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
     if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
-    return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }
+    return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...withOwnStyle(style, readCustomProperties(doc), notes) }), format: 'qml', notes }
   }
   if (rendererType !== 'singleSymbol' && !thematicType && rendererType !== 'RuleRenderer') {
     notes.push(`This QML uses a "${rendererType}" renderer, which isn't supported; its first symbol was imported as a single symbol.`)
@@ -905,5 +909,30 @@ export function qmlToStyle(text: string): StyleImportResult {
   if (extrusion) style.extrusion = extrusion
   const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
   if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
-  return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'qml', notes }
+  return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...withOwnStyle(style, custom, notes) }), format: 'qml', notes }
+}
+
+/** Spec 011: the channel model fields, as JSON for `spatialExplorer/style` (null: a single style, nothing to add). */
+function ownStyle(style: LayerStyle): string | null {
+  const keys = ['draw', 'channels', 'heatmap', 'height', 'labels', 'lineWidth', 'rotation', 'opacity'] as const
+  const out: Partial<LayerStyle> = {}
+  for (const k of keys) if (style[k] !== undefined) (out as Record<string, unknown>)[k] = style[k]
+  return Object.keys(out).length ? JSON.stringify(out) : null
+}
+
+/** Spec 011: a style read from the file, with our saved channel model (when present) in place of the legacy fields. */
+function withOwnStyle(style: Partial<LayerStyle>, custom: Map<string, string>, notes: string[]): Partial<LayerStyle> {
+  const own = custom.get('spatialExplorer/style')
+  if (!own) return style
+  try {
+    const saved = JSON.parse(own) as Partial<LayerStyle>
+    const { renderer: _r, size: _s, extrusion: _e, ...rest } = style
+    void _r
+    void _s
+    void _e
+    return { ...rest, ...saved }
+  } catch {
+    notes.push('The saved Spatial Explorer style could not be read; the QGIS symbology was imported instead.')
+    return style
+  }
 }

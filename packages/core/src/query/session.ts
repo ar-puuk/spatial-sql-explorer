@@ -37,7 +37,10 @@ import {
   topCategoriesSql,
 } from '../view/stats.js'
 import { isNumericType, measureColumns, resolveStyle as resolveStyleFrom, sizeDataKey, type ColumnData, type ResolveInput } from '../style/resolve.js'
-import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, rendererOf, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, type HeatmapRenderer, type BivariateRenderer, type GraduatedMethod, type LayerStyle, type ResolvedStyle, type RulesRenderer, type SizeChannel } from '../style/model.js'
+import { legacyView, rendererOf, sizeOf } from '../style/legacy.js'
+import { CHANNEL_ORDER } from '../style/channels.js'
+import { isGenericChannel } from '../style/resolve.js'
 import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, withComputedSql, type ComputedColumn, type ExpressionPurpose } from '../style/sqlExpression.js'
 import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
@@ -631,6 +634,112 @@ export class QuerySession {
    * connection like any user work.
    */
   async resolveStyle(style: LayerStyle): Promise<ResolvedStyle> {
+    const out = await this.resolveColorAndSize(style)
+    return this.withGenericChannels(style, out)
+  }
+
+  /** Spec 011: the engine's data for properties set by a column other than color and size, cached by what they read. */
+  private genericCache: { key: string; data: Record<string, ColumnData> } | null = null
+
+  /**
+   * Spec 011: properties with categories or classes other than color and
+   * size (outline, shape, pattern, opacity, rotation…): their columns'
+   * values (small results) or statistics (big ones, with exact class counts),
+   * then those channels resolved on top of the color and size result.
+   */
+  private async withGenericChannels(style: LayerStyle, out: ResolvedStyle): Promise<ResolvedStyle> {
+    const facts = this.facts
+    const enc = style.channels
+    if (!facts || !enc || this.utilityRows) return out
+    const columns = facts.columns
+    const wanted = CHANNEL_ORDER.flatMap((id) => {
+      const e = enc[id]
+      if (!e || !isGenericChannel(id, e) || e.source.kind !== 'column') return []
+      const column = e.source.column
+      if (!columns.some((c) => c.name === column)) return []
+      return [{ id, column, scale: e.scale }]
+    })
+    if (!wanted.length) return out
+    const relation = this.statsRelation()
+    const shape = wanted.map((w) =>
+      w.scale.kind === 'classes' ? [w.column, 'classes', w.scale.method, w.scale.classCount, w.scale.method === 'manual' ? w.scale.classes : []] : [w.column, w.scale.kind, w.scale.kind === 'categories' && w.scale.manual ? w.scale.categories.map((c) => c.value) : []]
+    )
+    const key = `${this.dataVersion}\u0000${relation}\u0000${JSON.stringify(shape)}`
+    let data = this.genericCache?.key === key ? this.genericCache.data : null
+    if (!data) {
+      data = await this.exclusive(async (isCancelled) => {
+        const got: Record<string, ColumnData> = {}
+        const n = this.restriction() ? Number((await singleRow<{ n: bigint | number }>(this.conn, `SELECT count(*) AS n FROM ${relation}`, isCancelled)).n) : facts.totalRows
+        const cap = jenksSample()
+        const unique = [...new Set(wanted.map((w) => w.column))]
+        if (n <= cap) {
+          const values = unique.map(() => [] as Array<Feature['attributes'][string]>)
+          await streamRows(this.conn, columnsValuesSql(relation, unique), isCancelled, (batch) => {
+            for (const row of batch) unique.forEach((_, k) => values[k].push(sanitizeAttributes({ v: row[`v${k}`] }).v))
+          })
+          unique.forEach((column, k) => (got[column] = { kind: 'values', column, values: values[k] }))
+          return got
+        }
+        for (const w of wanted) {
+          if (got[w.column]) continue
+          if (w.scale.kind === 'categories') {
+            const top: Array<{ value: string; count: number }> = []
+            await streamRows(this.conn, topCategoriesSql(relation, w.column, w.scale.manual ? w.scale.categories.map((c) => c.value) : []), isCancelled, (batch) => {
+              for (const row of batch) top.push({ value: String(row.cat), count: Number(row.n) })
+            })
+            const totals = await singleRow<{ distinct_n: bigint | number; non_null: bigint | number; nulls: bigint | number }>(this.conn, categoryTotalsSql(relation, w.column), isCancelled)
+            got[w.column] = { kind: 'categories', column: w.column, top, distinct: Number(totals.distinct_n), nonNull: Number(totals.non_null), nulls: Number(totals.nulls) }
+          } else if (w.scale.kind === 'classes') {
+            const totals = await singleRow<Record<string, bigint | number | null>>(this.conn, multiTotalsSql(relation, [w.column]), isCancelled)
+            const count = Number(totals.n_0)
+            const nulls = Number(totals.nulls_0)
+            const even = evenPositions(count, cap)
+            const around = w.scale.method === 'quantile' ? quantilePositions(count, w.scale.classCount) : []
+            const atPos = new Map<number, number>()
+            if (count > 0) {
+              await streamRows(this.conn, orderStatisticsSql(relation, w.column, [...even, ...around]), isCancelled, (batch) => {
+                for (const row of batch) atPos.set(Number(row.pos), Number(row.v))
+              })
+            }
+            const sample = even.map((pos) => atPos.get(pos)).filter((v): v is number => v !== undefined)
+            got[w.column] = { kind: 'numbers', column: w.column, sample, n: count, nulls, quantileStats: Object.fromEntries(around.map((pos) => [pos, atPos.get(pos) ?? 0])) }
+          }
+        }
+        return got
+      }, 'background')
+      this.genericCache = { key, data }
+    }
+    const input: ResolveInput = { ...(this.styleInput ?? { columns, rowCount: facts.totalRows }), dataByColumn: { ...(this.styleInput?.dataByColumn ?? {}), ...data } }
+    const again = resolveStyleFrom(style, input)
+    const channels = { ...out.channels }
+    for (const w of wanted) {
+      const rc = again.channels?.[w.id]
+      if (!rc) continue
+      // Big results: exact counts per class (the classification above used a sample).
+      if (rc.status === 'ok' && w.scale.kind === 'classes' && data[w.column]?.kind === 'numbers') {
+        const ranges = rc.classes.filter((c) => c.kind === 'range').map((c) => ({ lower: c.lower ?? 0, upper: c.upper ?? 0 }))
+        const byClass = new Map<number, number>()
+        await this.exclusive(
+          (isCancelled) =>
+            streamRows(this.conn, classCountsSql(relation, w.column, ranges), isCancelled, (batch) => {
+              for (const row of batch) byClass.set(Number(row.cls), Number(row.n))
+            }),
+          'background'
+        )
+        let k = 0
+        channels[w.id] = {
+          ...rc,
+          classes: rc.classes
+            .map((c) => (c.kind === 'range' ? { ...c, count: byClass.get(k++) ?? 0 } : c.kind === 'other' ? { ...c, count: byClass.get(-1) ?? 0 } : c.kind === 'noValue' ? { ...c, count: byClass.get(-2) ?? 0 } : c))
+            .filter((c) => c.kind !== 'other' || c.count > 0),
+        }
+      } else channels[w.id] = rc
+    }
+    return { ...out, channels }
+  }
+
+  /** The color and size channels resolved against the whole displayed result (spec 007–010). */
+  private async resolveColorAndSize(style: LayerStyle): Promise<ResolvedStyle> {
     const facts = this.facts
     const base: ResolveInput = { columns: facts?.columns ?? [], rowCount: facts?.totalRows ?? 0 }
     const r = rendererOf(style)
@@ -642,7 +751,8 @@ export class QuerySession {
     // Spec 009: every channel column the style classifies.
     // A heatmap's weight column is read for its largest value only.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : r.kind === 'heatmap' && has(r.weight) ? r.weight : null
-    const size = style.size && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(style.size.column) ? style.size : null
+    const sizeChannel = sizeOf(style)
+    const size = sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(sizeChannel.column) ? sizeChannel : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
     if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
@@ -679,7 +789,8 @@ export class QuerySession {
       const derived = `(SELECT *, ${expressionValueSql(r.expression)} AS ${EXPRESSION_VALUE_COLUMN} FROM ${relation})`
       const withValue: ResolveInput = { ...base, columns: [...base.columns, { name: EXPRESSION_VALUE_COLUMN, type: 'DOUBLE' }] }
       const has = (c: string | undefined): c is string => !!c && withValue.columns.some((x) => x.name === c)
-      const size = style.size && has(style.size.column) ? style.size : null
+      const sizeChannel = sizeOf(style)
+      const size = sizeChannel && has(sizeChannel.column) ? sizeChannel : null
       out = await this.resolveClassified(style, r, withValue, derived, EXPRESSION_VALUE_COLUMN, size)
     } else return resolveStyleFrom(style, base)
     if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
@@ -1438,7 +1549,12 @@ const PRESENTATION_KEYS = new Set([
 
 /** The style without its presentation: two styles with the same key classify the same data the same way. */
 export function styleDataKey(style: LayerStyle): string {
-  return JSON.stringify(style, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
+  // Spec 011 slice 1: keyed on the pre-011 shape. A channel map has keys named
+  // like presentation fields (`color`), so it can't go through the filter as is.
+  const { channels: _c, labels: _l, ...legacy } = legacyView(style)
+  void _c
+  void _l
+  return JSON.stringify(legacy, (k, v) => (PRESENTATION_KEYS.has(k) ? undefined : v))
 }
 
 /** A fresh classification's classes, with the exact counts the engine found for the same classes. */
