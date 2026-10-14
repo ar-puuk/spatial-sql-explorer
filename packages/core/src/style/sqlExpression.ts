@@ -5,8 +5,10 @@
 import { tokenize } from '../sql/scanner.js'
 import { EXPRESSION_VALUE_COLUMN, RULE_CLASS_COLUMN, type LayerStyle, type ResolvedStyle, type RuleDef } from './model.js'
 import { rendererOf } from './legacy.js'
+import { LABEL_COLUMN } from './channels.js'
 
-export type ExpressionPurpose = 'condition' | 'value'
+/** Spec 011 US6: `text`, a label: any type, shown as text. */
+export type ExpressionPurpose = 'condition' | 'value' | 'text'
 
 /** Words that make a statement, not an expression: refused outside strings. */
 const STATEMENT_WORDS = new Set(['select', 'from', 'attach', 'detach', 'copy', 'install', 'load', 'pragma', 'create', 'drop', 'insert', 'update', 'delete', 'alter', 'set', 'call', 'export', 'import', 'use', 'checkpoint', 'vacuum'])
@@ -14,6 +16,7 @@ const STATEMENT_WORDS = new Set(['select', 'from', 'attach', 'detach', 'copy', '
 const HINT: Record<ExpressionPurpose, string> = {
   condition: "Use a condition on this layer's columns, like pop > 1000.",
   value: "Use an expression over this layer's columns, like gdp_md * 1e6 / pop_est.",
+  text: "Use an expression over this layer's columns, like name || ' (' || lanes || ')'.",
 }
 
 /**
@@ -74,13 +77,22 @@ export interface ComputedColumn {
  */
 export function computedColumns(style: LayerStyle, resolved: ResolvedStyle | null): ComputedColumn[] {
   const r = rendererOf(style)
-  if (!resolved || resolved.status !== 'ok') return []
-  if (r.kind === 'rules') {
+  if (!resolved) return []
+  const out: ComputedColumn[] = []
+  if (resolved.status === 'ok' && r.kind === 'rules') {
     const usable = new Set(resolved.classes.flatMap((c) => (c.kind === 'rule' && c.ruleId && !c.error ? [c.ruleId] : [])))
-    return [{ name: RULE_CLASS_COLUMN, sql: ruleCaseSql(r.rules, usable), type: 'INTEGER' }]
+    out.push({ name: RULE_CLASS_COLUMN, sql: ruleCaseSql(r.rules, usable), type: 'INTEGER' })
   }
-  if (r.kind === 'graduated' && r.expression) return [{ name: EXPRESSION_VALUE_COLUMN, sql: expressionValueSql(r.expression), type: 'DOUBLE' }]
-  return []
+  if (resolved.status === 'ok' && r.kind === 'graduated' && r.expression) out.push({ name: EXPRESSION_VALUE_COLUMN, sql: expressionValueSql(r.expression), type: 'DOUBLE' })
+  // Spec 011 US6: an expression label's text, once the engine accepted it (whatever the color does).
+  const l = style.labels
+  if (l?.enabled && l.source.kind === 'expression' && !resolved.labelError) out.push({ name: LABEL_COLUMN, sql: labelTextSql(l.source.expression), type: 'VARCHAR' })
+  return out
+}
+
+/** Spec 011 US6: a label expression's text per feature (anything is shown as text; failures are no label). */
+export function labelTextSql(expression: string): string {
+  return `TRY_CAST((${expression}) AS VARCHAR)`
 }
 
 /** `relation` with the computed columns added (the hidden row id and bbox columns are kept). */

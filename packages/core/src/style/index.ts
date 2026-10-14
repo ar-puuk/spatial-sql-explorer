@@ -1,6 +1,7 @@
 export * from './model.js'
 export * from './channels.js'
 export * from './labels.js'
+export * from './labelLayer.js'
 export * from './legacy.js'
 export * from './legend.js'
 export * from './ramps.js'

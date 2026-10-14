@@ -9,7 +9,7 @@ import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './sy
 import type { ChannelId, Channels, DrawAs, Output, ScaleKind } from './channels.js'
 import { sanitizeLabels, type LabelSettings } from './labels.js'
 import { rendererOf, sizeOf, withExtrusion, withRenderer, withSize } from './legacy.js'
-import { channelDataColumns, sanitizeChannels, sanitizeDraw } from './channels.js'
+import { LABEL_COLUMN, channelDataColumns, sanitizeChannels, sanitizeDraw } from './channels.js'
 
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
@@ -291,6 +291,8 @@ export interface ResolvedStyle {
   /** 'fallback' (FR-012): the styled column is missing or no longer fits; the single symbol is drawn. */
   status: 'ok' | 'fallback'
   reason?: string
+  /** Spec 011 US6: why the label expression can't be used (the labels are not drawn). */
+  labelError?: string
   /** Legend header, e.g. 'value · Quantile, 5 classes'. Empty for single. */
   caption: string
   /** Legend order: value or range classes, then "Other", then "No value". */
@@ -431,6 +433,12 @@ export function styleDataColumns(style: LayerStyle): string[] {
   for (const [id, enc] of Object.entries(style.channels ?? {}) as Array<[ChannelId, NonNullable<Channels[ChannelId]>]>) {
     if (id === 'color' || id === 'height') continue
     for (const c of channelDataColumns(id, enc)) if (!out.includes(c)) out.push(c)
+  }
+  // Spec 011 US6: the label text, while labels are on (a column, or the engine-computed text).
+  const l = style.labels
+  if (l?.enabled) {
+    const c = l.source.kind === 'column' ? l.source.column : LABEL_COLUMN
+    if (!out.includes(c)) out.push(c)
   }
   return out
 }

@@ -634,8 +634,12 @@ export class QuerySession {
    * connection like any user work.
    */
   async resolveStyle(style: LayerStyle): Promise<ResolvedStyle> {
-    const out = await this.resolveColorAndSize(style)
-    return this.withGenericChannels(style, out)
+    const out = await this.withGenericChannels(style, await this.resolveColorAndSize(style))
+    // Spec 011 US6: an expression label is checked by the engine (any type is shown as text).
+    const l = style.labels
+    if (!l?.enabled || l.source.kind !== 'expression' || !this.facts || this.utilityRows) return out
+    const why = await this.expressionError(this.statsRelation(), l.source.expression, 'text')
+    return why ? { ...out, labelError: why } : out
   }
 
   /** Spec 011: the engine's data for properties set by a column other than color and size, cached by what they read. */
@@ -804,7 +808,7 @@ export class QuerySession {
    */
   private async resolveHeatmapAuto(style: LayerStyle, r: HeatmapRenderer, base: ResolveInput): Promise<ResolvedStyle> {
     const relation = this.statsRelation()
-    const key = `${this.dataVersion} ${relation} ${styleDataKey(style)}`
+    const key = `${this.dataVersion}\u0000${relation}\u0000${styleDataKey(style)}`
     const hit = this.styleCache
     if (hit?.key === key) return withCounts(resolveStyleFrom(style, hit.input), hit.resolved)
     this.styleInput = null

@@ -36,6 +36,7 @@ import { toCategory } from './classify.js'
 import { defaultRamp, rampColors } from './ramps.js'
 import { DEFAULT_SIZE_RANGE, type LineDash, type MarkerShape } from './symbol.js'
 import { eligibleColumns, isNumericType, measureColumns, valuesOf, type ResolveInput } from './resolve.js'
+import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import {
   OUTPUT_KIND,
   categoryCapFor,
@@ -821,4 +822,33 @@ export function setLegendHidden(style: LayerStyle, channel: ChannelId, hidden: b
     if (!Object.keys(legend).length) delete out.legend
     return out
   })
+}
+
+// --- Spec 011 US6: labels -----------------------------------------------------
+
+/** A change to the label settings; halo and placement merge with the current ones. */
+export type LabelPatch = Partial<Omit<LabelSettings, 'halo' | 'placement'>> & {
+  halo?: Partial<LabelSettings['halo']>
+  placement?: { anchor?: LabelAnchor; offset?: number }
+}
+
+/** The column labels start with: a name-like text column, else the first text column, else the first column. */
+export function defaultLabelColumn(columns: ReadonlyArray<{ name: string; type: string }>): string | null {
+  const usable = columns.filter((c) => !c.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(c.type))
+  const text = usable.filter((c) => /^(VARCHAR|TEXT|STRING)/i.test(c.type))
+  return (text.find((c) => /^(name|label|title)$/i.test(c.name)) ?? text.find((c) => /name|label|title/i.test(c.name)) ?? text[0] ?? usable[0])?.name ?? null
+}
+
+/**
+ * Spec 011 US6: the style with its labels changed. Turning labels on with no
+ * text yet starts from `defaultLabelColumn` (nothing to label: unchanged).
+ */
+export function setLabels(style: LayerStyle, patch: LabelPatch, columns: ReadonlyArray<{ name: string; type: string }> = []): LayerStyle {
+  const current = style.labels
+  const fallback = defaultLabelColumn(columns)
+  const source = patch.source ?? current?.source ?? (fallback ? { kind: 'column' as const, column: fallback } : null)
+  if (!source) return style
+  const placement = { kind: 'point', ...(current?.placement.kind === 'point' ? current.placement : {}), ...patch.placement }
+  const labels = sanitizeLabels({ ...current, ...patch, source, halo: { ...current?.halo, ...patch.halo }, placement })
+  return { ...style, labels }
 }
