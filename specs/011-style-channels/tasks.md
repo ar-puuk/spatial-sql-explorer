@@ -133,7 +133,7 @@ any style code changes.
 **Purpose**: the channel types and helpers every story needs. There is no
 behavior change yet.
 
-- [ ] T005 [P] Write the tests in `tests/core/style-channel-model.test.ts`:
+- [X] T005 [P] Write the tests in `tests/core/style-channel-model.test.ts`:
   - `CHANNEL_ORDER`;
   - `channelsFor` for every geometry × draw (the data-model table, including
     Mixed);
@@ -142,24 +142,24 @@ behavior change yet.
     `strokeColor`, and line width = `lineWidth ?? strokeWidth`;
   - output validation per channel type (color hex, px range 0.5–100, shapes,
     dashes, opacity 0..1, finite rotation, height ≥ 0).
-- [ ] T006 Create `packages/core/src/style/channels.ts`:
+- [X] T006 Create `packages/core/src/style/channels.ts`:
   - the types from data-model.md: `ChannelId`, `Channels`, `Encoding`,
     `Source`, `Output`, `ClassDef`, and the six `Scale` kinds;
   - `CHANNEL_ORDER`, `channelsFor`, `scalesFor`, `fixedValue`;
   - `isOutputFor(channel, v)`, `channelDataColumn(channel, enc)`
     (`column` | `__se_val_<ch>` | `__se_cls_<ch>`), and `LABEL_COLUMN = '__se_lbl'`.
   Export it from `packages/core/src/style/index.ts`. T005 passes.
-- [ ] T007 Extend `LayerStyle` in `packages/core/src/style/model.ts` with the
+- [X] T007 Extend `LayerStyle` in `packages/core/src/style/model.ts` with the
   optional fields:
   - `draw`, `channels`, `heatmap`, `height`, `labels`;
   - `lineWidth`, `rotation`, `opacity`.
   Keep `renderer`, `size` and `extrusion` as legacy fields. Add the
   `HeatmapSettings` type (`HeatmapRenderer` minus `kind`). Add `drawOf(style)`.
   No behavior change: the whole `tests/core` suite stays green.
-- [ ] T008 [P] Add `rotation` and `opacity` to `SymbolSpec` in
+- [X] T008 [P] Add `rotation` and `opacity` to `SymbolSpec` in
   `packages/core/src/style/symbol.ts`, with defaults 0 and 1 in `baseSymbol`.
   Existing symbol tests stay green, with outputs unchanged.
-- [ ] T009 Generalize the `ResolveInput` fields in
+- [X] T009 Generalize the `ResolveInput` fields in
   `packages/core/src/style/resolve.ts`. Add:
   - `ruleCountsByChannel`, `ruleErrorsByChannel`;
   - `expressionErrors: Partial<Record<ChannelId, string>>`;

@@ -6,6 +6,8 @@
 //
 import { sanitizeExtrusion, type Extrusion } from './extrusion.js'
 import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './symbol.js'
+import type { ChannelId, Channels, DrawAs, Output, ScaleKind } from './channels.js'
+import type { LabelSettings } from './labels.js'
 
 // Units are screen pixels throughout (MapLibre's native unit). Formats whose
 // default unit is millimetres (QML) or that size markers by diameter (QML,
@@ -47,6 +49,22 @@ export interface LayerStyle {
    * bivariate color channel (kept, inactive).
    */
   size?: SizeChannel
+  /** Spec 011: line Width, fixed, when it differs from `strokeWidth` (absent: `strokeWidth`). */
+  lineWidth?: number
+  /** Spec 011: Rotation, fixed, degrees clockwise (absent: 0). */
+  rotation?: number
+  /** Spec 011: Opacity, fixed, per feature on top of the fill and outline opacities (absent: 1). */
+  opacity?: number
+  /** Spec 011: how points and polygons are drawn (absent: markers, fills). */
+  draw?: DrawAs
+  /** Spec 011: the properties that vary by data; absent ones use the fixed values above. */
+  channels?: Channels
+  /** Spec 011: the heatmap's settings, used while points are drawn as a heatmap. */
+  heatmap?: HeatmapSettings
+  /** Spec 011: the fixed 3D height, when no height channel varies. */
+  height?: { meters: number }
+  /** Spec 011 US6: labels. */
+  labels?: LabelSettings
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
@@ -232,6 +250,9 @@ export interface HeatmapRenderer {
   autoIntensity?: boolean
 }
 
+/** Spec 011: the heatmap's settings (`draw.points = 'heatmap'`). */
+export type HeatmapSettings = Omit<HeatmapRenderer, 'kind'>
+
 export const HEATMAP_RADIUS = { min: 2, max: 100, default: 20 } as const
 /** Dense data needs far less than 1 (MapLibre adds the points up, and nothing scales to the densest spot). */
 export const HEATMAP_INTENSITY = { min: 0.01, max: 5, default: 1 } as const
@@ -280,6 +301,8 @@ export interface ResolvedStyle {
   size?: ResolvedSizeChannel
   /** Heatmap: the density ramp (low to high) and, when weighted, the weight column's largest value. */
   heat?: { colors: string[]; weight?: { column: string; max: number }; intensity?: number }
+  /** Spec 011: every channel that varies by data, as resolved. */
+  channels?: Partial<Record<ChannelId, ResolvedChannel>>
 }
 
 /** A bivariate axis as resolved. */
@@ -334,6 +357,39 @@ export interface ResolvedClass {
   /** Spec 010, kind 'rule': the rule's id, and why its condition can't be used (it then matches nothing). */
   ruleId?: string
   error?: string
+  /** Spec 011: what this class draws in its channel (color channels also keep `color`, size classes `size`). */
+  output?: Output
+}
+
+/** Spec 011: one channel as resolved. Recomputed with the style; never saved. */
+export interface ResolvedChannel {
+  channel: ChannelId
+  /** 'fallback': drawn with the fixed value; `reason` says why. */
+  status: 'ok' | 'fallback'
+  reason?: string
+  scale: ScaleKind
+  /** Legend group header, e.g. 'los · Categories'. */
+  caption: string
+  /** Categories, classes, conditions and bivariate cells, then Other and No value; each with its `output`. */
+  classes: ResolvedClass[]
+  /** Continuous: the domain drawn. */
+  domain?: { min: number; max: number }
+  /** Continuous: legend samples, smallest first. */
+  samples?: Array<{ value: number; output: Output; label: string }>
+  /** The feature property the map reads (a column, or an engine-computed one). */
+  dataColumn: string
+  /** Bivariate: both axes. */
+  grid?: { x: AxisInfo; y: AxisInfo }
+  notes: string[]
+}
+
+/** Spec 011: one legend group: one channel, or several merged (same source, scale and classes). */
+export interface LegendGroupModel {
+  key: string
+  channels: ChannelId[]
+  title: string
+  kind: 'classes' | 'gradient' | 'samples' | 'bivariate'
+  hidden: boolean
 }
 
 /** Items not exported, not imported, or not applied (FR-015). */

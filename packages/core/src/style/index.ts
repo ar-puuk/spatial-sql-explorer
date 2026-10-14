@@ -1,4 +1,6 @@
 export * from './model.js'
+export * from './channels.js'
+export * from './labels.js'
 export * from './ramps.js'
 export * from './classify.js'
 export * from './edit.js'

@@ -10,6 +10,7 @@ import { classSizes, proportionalSize } from './symbol.js'
 import { bivariateColor, bivariatePalette } from './bivariate.js'
 import { checkExpression } from './sqlExpression.js'
 import { heatmapPeak, mercatorRadius } from '../view/heat.js'
+import type { ChannelId } from './channels.js'
 
 /**
  * The styled column's data (spec 007 research §11). `values`: every row's
@@ -48,6 +49,13 @@ export interface ResolveInput {
   expressionError?: string
   /** Heatmap, automatic intensity: the peak density at intensity 1 (from the engine, view/heat.ts). */
   heatPeak?: number
+  /** Spec 011: rule counts and errors of each conditions channel (`ruleCounts`/`ruleErrors` are the color channel's). */
+  ruleCountsByChannel?: Partial<Record<ChannelId, ReadonlyMap<number, number>>>
+  ruleErrorsByChannel?: Partial<Record<ChannelId, Readonly<Record<string, string>>>>
+  /** Spec 011: why a channel's expression source can't be used (`expressionError` is the color channel's). */
+  expressionErrors?: Partial<Record<ChannelId, string>>
+  /** Spec 011 US6: why the label expression can't be used. */
+  labelError?: string
 }
 
 /** Rows in the result. */
