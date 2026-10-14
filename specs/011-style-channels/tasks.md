@@ -533,7 +533,7 @@ green.
 
 ### Slice 2 clean-up (no story)
 
-- [ ] T038 **(Moved after Phase 6, 2026-10-13.** Color still resolves through
+- [x] ~~T038~~ **Withdrawn (user decision, 2026-10-14).** **(Moved after Phase 6, 2026-10-13.** Color still resolves through
   the bridge until US4 gives it Continuous and As-is scales; removing the
   aliases before that would mean rewriting color resolution twice.**)** Drop
   the alias fields:
@@ -544,7 +544,7 @@ green.
     migration).
   Move the callers to `resolved.channels`. Update the tests that read the
   aliases to read `channels.color` and `channels.size`. Keep their intent.
-  **Not done; withdrawal proposed (2026-10-14), awaiting the user's decision.**
+  **Withdrawn (user decision, 2026-10-14).**
   Since the panel revision, the Color type is the renderer: `rendererOf`,
   `sizeOf` and the top-level `ResolvedStyle` fields are the color and size
   channels' own view, not leftover aliases. Removing them means 73 call sites
