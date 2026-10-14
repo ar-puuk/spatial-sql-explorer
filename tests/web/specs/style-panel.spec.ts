@@ -12,18 +12,14 @@ const swatch = (page: Page, i: number) => legendRows(page).nth(i).locator('.swat
 test('sections in a fixed order, and only those that apply', async ({ page }) => {
   await openFile(page, writeSquares())
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  // Spec 011: the properties of the layer's points, each Fixed or By column, in a fixed order.
   const headings = () => panel(page).locator('section h3').allTextContents()
-  const rows = () => panel(page).locator('.channel h4').allTextContents()
-  const colorParts = () => panel(page).locator('[data-channel="color"] h5').allTextContents()
-  expect(await headings()).toEqual(['Style', 'Properties'])
-  expect(await rows()).toEqual(['Color', 'Outline color', 'Outline width', 'Size', 'Shape', 'Opacity', 'Rotation'])
+  // Spec 011: Vary by attribute takes the old Size section's place, under Appearance.
+  expect(await headings()).toEqual(['Style', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Categorized')
-  expect(await colorParts()).toEqual(['Color by', 'Colors'])
+  expect(await headings()).toEqual(['Style', 'Color by', 'Colors', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Graduated')
-  expect(await colorParts()).toEqual(['Color by', 'Classification', 'Colors'])
-  // A recipe is an action: the button keeps showing the drawing.
-  await expect(page.getByRole('button', { name: 'Draw as: Markers' })).toContainText('One symbol per point')
+  expect(await headings()).toEqual(['Style', 'Color by', 'Classification', 'Colors', 'Appearance', 'Vary by attribute', '3D'])
+  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toContainText('Colors by ranges of a number or an expression')
   // No Apply step anywhere (FR-002).
   await expect(panel(page).getByRole('button', { name: /^Apply/ })).toHaveCount(0)
 })

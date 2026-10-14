@@ -183,24 +183,17 @@ export async function openStyle(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Zoom to layer' }).click()
 }
 
-const DRAWINGS = ['Markers', 'Heatmap', 'Lines', 'Fills', '3D']
-
-/** Spec 011: opens the Style panel's dropdown and picks a drawing (Draw as) or a recipe (the panel must be open). */
-export async function chooseDrawAs(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: /^Draw as:/ }).click()
-  const group = DRAWINGS.includes(name) ? 'Draw as' : 'Recipes'
-  await page.getByRole('listbox', { name: 'Draw as and recipes' }).getByRole('group', { name: group }).getByRole('option', { name, exact: true }).click()
-  if (group === 'Draw as') await expect(page.getByRole('button', { name: `Draw as: ${name}` })).toBeVisible()
+/** Spec 011: adds a property under Vary by attribute ("Size", "Width", "Outline color", …; the panel must be open). */
+export async function varyBy(page: Page, property: string): Promise<void> {
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  await panel.getByRole('button', { name: 'Add…' }).click()
+  await page.getByRole('menu', { name: 'Vary by attribute' }).getByRole('menuitem', { name: property, exact: true }).click()
+  await expect(panel.getByRole('group', { name: `${property} by` })).toBeVisible()
 }
 
-/**
- * The style types of 0.3.0, in spec 011's terms: Heatmap is a drawing, the
- * thematic types are recipes, and Single is the Color property set to Fixed
- * (with points drawn as markers again).
- */
+/** Chooses a style type from the Style panel's dropdown (the panel must be open). */
 export async function chooseStyleType(page: Page, name: string): Promise<void> {
-  if (name !== 'Single') return chooseDrawAs(page, name)
-  const panel = page.getByRole('region', { name: 'Layer style' })
-  if (await page.getByRole('button', { name: 'Draw as: Heatmap' }).count()) await chooseDrawAs(page, 'Markers')
-  await panel.getByRole('radio', { name: 'Color: Fixed', exact: true }).click()
+  await page.getByRole('button', { name: /^Style type:/ }).click()
+  await page.getByRole('listbox', { name: 'Style types' }).getByRole('option', { name, exact: true }).click()
+  await expect(page.getByRole('button', { name: `Style type: ${name}` })).toBeVisible()
 }

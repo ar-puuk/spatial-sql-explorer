@@ -3,66 +3,49 @@
 Chrome uses the existing `--se-*` tokens; data colors are fixed (Constitution
 III). Every control has an accessible name, role and state (Constitution VII).
 
-## Style panel (`LayerStylePanel.svelte`, split)
+## Style panel (`LayerStylePanel.svelte`)
+
+Revised 2026-10-13 (spec Clarifications): the style type, the color editors,
+the Appearance section and the 3D section stay as they were before this spec.
+The old Size section becomes a row of the new section below.
 
 ```
 ┌ Style ──────────────────────────────────────────┐
-│ [Draw as ▾  Markers                           ] │  StyleTypePicker: group "Draw as" + group "Recipes"
-│   One symbol per point, varied by the rows below│
-│                                                 │
-│ Color          [Fixed|By column]  ■ #3b82f6 75% │  ChannelRow (collapsed when Fixed)
-│ Outline color  [Fixed|By column]  ■ #4b5563     │
-│ Outline width  [Fixed|By column]  ── 1 px       │
-│ Size           [Fixed|By column]  ── 5 px       │
-│ Shape          [Fixed|By column]  ▲ Triangle    │
-│ Opacity        [Fixed|By column]  ── 100%       │
-│ Rotation       [Fixed|By column]  ── 0°         │
-│ ▾ Width        [Fixed|By column]                │  expanded when By column:
-│     Column [volume ▾]  Scale [Classes ▾]        │    ScaleEditor
-│     Method [Quantile ▾]  Classes [5]            │
-│     Range 1 px – 6 px                           │
-│     ClassList (outputs: widths)                 │
-│     ☐ Hide from legend                          │
-│ ─────────────────────────────────────────────── │
-│ Layer opacity ── 100%       3D/Heatmap settings │
-│ Import / Export style …                         │
+│ Opacity ───────────────── 100%                  │
+│ STYLE  [Categorized ▾  A color for each value…] │  StyleTypePicker (unchanged)
+│ COLOR BY / CLASSIFICATION / COLORS              │  (unchanged)
+│ APPEARANCE  Line ■ 80%  Width ─ 0.75  Pattern ▾ │  (unchanged: the fixed settings)
+│ VARY BY ATTRIBUTE                               │
+│ ▾ Width by                                  ✕   │  VaryRow: the spec 009 size editor
+│     Column [volume ▾] Scale (Classed|Prop.)…    │
+│ ▾ Shape by                                  ✕   │  VaryRow + ScaleEditor
+│     Column [crash_type ▾] Scale [Categories ▾]  │
+│     class list: output, label, count            │
+│ [+ Add…]                                        │  AddVaryMenu
+│ 3D …                                            │  (unchanged)
 └─────────────────────────────────────────────────┘
 ```
 
-**Draw as and recipes (`style/StyleTypePicker.svelte`, extended).** The listbox
-has two labelled groups, `role="group"` with `aria-label` "Draw as" and
-"Recipes". Recipes are actions: choosing one applies it, and the button keeps
-showing the current Draw as. An unavailable recipe is `aria-disabled` and
-described by its reason, as unavailable types are today.
+**Vary by attribute (`style/VaryRow.svelte`, `style/AddVaryMenu.svelte`, NEW).**
+- Section heading "Vary by attribute"; with nothing varying, a one-line hint.
+- Each varying property is a group named "<Property> by" (`role="group"`),
+  with a disclosure button (`aria-expanded`) in its heading, a one-line
+  summary when collapsed, and a Remove button named "Stop varying <property>".
+- "Add…" is a menu button (`aria-haspopup="menu"`). Its menu, named "Vary by
+  attribute", lists the properties that can still vary (spec FR-002) as
+  `menuitem`s; one that can't be added is `aria-disabled` with its reason.
+  Arrows, Home and End move; Enter adds; Esc closes back to the button.
+- Size (points) or Width (lines) uses spec 009's size editor (column, Classed
+  or Proportional, method, classes, sizes). The others use the scale editor.
 
-**Property rows (`style/ChannelRow.svelte`, NEW).** One per channel from
-`channelsFor`:
-- **Name**: an `h4`, or the label of the row's group.
-- **Fixed / By column switch**: a two-button `radiogroup`, "Color: Fixed" and
-  "Color: By column".
-- **Fixed editor**, by channel type: color swatch and opacity, number slider,
-  shape select, pattern select, or rotation slider.
-- **By column**:
-  - a column select (and "SQL expression…", as graduated has today);
-  - a scale select listing `scalesFor(channel)` only;
-  - the `ScaleEditor`.
-- A row varying by data shows a summary when collapsed, e.g. "volume ·
-  Quantile, 5 classes". Rows are `<details>`-like disclosure buttons with
-  `aria-expanded`.
+**Scale editor (`style/ScaleEditor.svelte`, NEW).** Column ("<Property>
+column"), scale ("<Property> scale"), method and class count for classes, a
+ramp (colors) or a min–max range (numbers), the class list ("<Property>
+classes": per class, its output "<class> <property>", label and count, and a
+hide toggle), and "Hide from legend".
 
-**Scale editor (`style/ScaleEditor.svelte`, NEW).** Dispatches to the existing
-editors, parameterized by output type:
-- `ClassList` gains an output column (color swatch, number, shape or pattern);
-- `RampPicker` for colors, and a min–max pair for numbers;
-- the rules editor for conditions;
-- `BivariatePicker` for color only.
-
-**Notes.** A third varying channel, more than 7 shapes, quantized marker colors,
-and per-channel fallbacks each show as a one-line note in their row.
-
-**Removed.** The style type section and the separate Size, Appearance and 3D
-sections. Their settings are now rows. The heatmap keeps its own section while
-Draw as is Heatmap.
+**Notes.** Three or more variables (the style type's color counted), more than
+6 shapes, and per-property fallbacks each show as a one-line note.
 
 ## Labels panel (`LabelsPanel.svelte`, NEW; side tab `labels`)
 

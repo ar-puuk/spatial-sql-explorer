@@ -34,34 +34,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     scale), and as a heatmap layer in Mapbox GL styles; both read back.
     Checked in QGIS 4.2.3. SLD has no heatmap, and the save menu says so.
 
-- **Style by property** (spec 011). Every property of the drawing is either
-  fixed or set by its own column, so one map can show several variables at
+- **Vary by attribute** (spec 011): under the style type, more properties
+  can each follow their own column, so one map can show several variables at
   once: roads colored by level of service and widened by traffic, or crashes
   colored by severity, shaped by type and turned by heading.
-  - Points: color, outline color, outline width, size, shape, opacity and
-    rotation. Lines: color, width, pattern and opacity. Polygons: color,
-    outline color, outline width and opacity.
-  - Outline color and width, shape, pattern, opacity and rotation are new as
-    properties set by a column, by categories or by classes. Shapes give six
-    values their own shape and the rest share "Other"; patterns give four.
+  - Add… offers, for points: outline color, outline width, size, shape,
+    opacity and rotation; for lines: width, pattern and opacity; for
+    polygons: outline color, outline width and opacity.
+  - Outline color and width, shape, pattern, opacity and rotation are new,
+    by categories or by classes. Shapes give six values their own shape and
+    the rest share "Other"; patterns give four.
   - Each property has its own legend group. Its swatches show what the map
     draws, and a class can be hidden from there.
-  - A property switched back to Fixed remembers its column for the session.
-- **Recipes**: Categorized, Graduated, Proportional symbols, Bivariate, Rules,
-  Heatmap and Flow / network (lines colored by a category and widened by a
-  number) set up a common map in one step. A recipe that doesn't fit the
-  layer says why.
+  - A property removed and added again in the same session comes back with
+    its column.
 
 ### Changed
 
-- The style panel lists the layer's properties, each Fixed or By column,
-  instead of a style type, a size section and an appearance section.
-- **Draw as** replaces the style type dropdown: points as markers or a
-  heatmap, polygons as fills or in 3D. Each choice has a one-line description.
-  The 3D section appears while polygons are drawn in 3D.
-- Styles are saved in the new form, and still load from 0.3.0 sidecars and
-  saved states exactly as before. QML files also carry the whole style in a
-  `spatialExplorer/style` property.
+- The Size section moved into Vary by attribute ("Add… → Size", or Width on
+  lines); it works as before.
+- Styles are saved in a new form that holds every property, and still load
+  from 0.3.0 sidecars and saved states exactly as before. QML files also carry
+  the whole style in a `spatialExplorer/style` property.
 
 ## [0.3.0] - 2026-10-13
 

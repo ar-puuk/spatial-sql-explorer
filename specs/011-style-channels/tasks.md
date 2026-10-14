@@ -300,6 +300,11 @@ SC-002 is proven.
 
 ## Phase 4: User Story 1 — Each property by its own column (P1) · slice 2 🎯 MVP
 
+> **Panel revised (2026-10-13, user decision; spec Clarifications).** The core
+> tasks below (T022, T025–T027, T031) stand as built. The panel tasks (T028–T030)
+> were built as property rows, then replaced by the "Vary by attribute"
+> section: see "Phase 5R" below. T023 and T024 were redone for that panel.
+
 **Goal**:
 - the panel lists property rows (Fixed or By column), with the
   Categories and Classes scales for every channel;
@@ -450,6 +455,10 @@ green.
 
 ## Phase 5: User Story 3 — Draw as, and one-click recipes (P1) · slice 2
 
+> **Withdrawn (2026-10-13, user decision).** T033–T037 and T039 were built,
+> then removed with the revised panel; recipes are not part of spec 011. Their
+> boxes stay ticked as a record. The work that replaced them is Phase 5R.
+
 **Goal**:
 - the dropdown offers Draw as for each geometry, plus recipes;
 - recipes set channels and are not stored.
@@ -503,6 +512,24 @@ green.
 
 **Checkpoint**: slice 2 is done. Run the full web suite and the extension
 `style.test.ts`, then go to T038.
+
+## Phase 5R: the revised panel (US1) · slice 2
+
+- [X] R001 [US1] Restore `LayerStylePanel.svelte`, `StyleTypePicker.svelte` and
+  the web specs to the slice 1 versions (style type, Appearance, 3D as before);
+  remove `ChannelRow.svelte`, `recipes.ts` and their tests.
+- [X] R002 [US1] Write `packages/ui/src/style/VaryRow.svelte` (a varying
+  property: heading with disclosure, summary, "Stop varying <property>") and
+  `packages/ui/src/style/AddVaryMenu.svelte` (the "Add…" menu, contracts/ui.md).
+- [X] R003 [US1] Add "Vary by attribute" to `LayerStylePanel.svelte`: the spec 009
+  size editor as the Size or Width row, `ScaleEditor` for the other properties,
+  Add… by geometry (FR-002), remove and add again (FR-007), the readability note
+  (FR-005). The old Size section and its switch are removed.
+- [X] R004 [US1] Web specs: `varyBy(page, property)` in `helpers.ts`; the Size
+  switch becomes Add… → Size or Width in `style-channels`, `style-symbols` and
+  `style-panel`; `style-channels-011.spec.ts` rewritten for the revised panel.
+- [X] R005 Spec, contracts/ui.md, plan, README and CHANGELOG updated to the
+  revised panel.
 
 ### Slice 2 clean-up (no story)
 

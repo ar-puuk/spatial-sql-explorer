@@ -3,7 +3,7 @@
 // drawn and clickable), the legend, and the saved QML.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
-import { openFile, writeParcels, writeSquares, openStyle } from './helpers'
+import { openFile, writeParcels, writeSquares, openStyle, varyBy } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legendRows = (page: Page) => page.getByRole('region', { name: 'Legend' }).locator('li')
@@ -53,7 +53,7 @@ test('a line pattern dashes polygon outlines and the legend, and is saved', asyn
 test('size classes on points: markers grow class by class, in the legend to scale', async ({ page }) => {
   await openFile(page, writeSquares())
   await openStyle(page)
-  await panel(page).getByRole('radio', { name: 'Size: By column' }).click()
+  await varyBy(page, 'Size')
   await expect(panel(page).getByLabel('Size column')).toHaveValue('value')
   await expect(panel(page).getByLabel('Smallest size')).toHaveValue('2')
   await expect(panel(page).getByLabel('Largest size')).toHaveValue('10')

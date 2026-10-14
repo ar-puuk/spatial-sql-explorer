@@ -7,6 +7,12 @@
 
 ## Summary
 
+> **Revised 2026-10-13 (user decision, spec Clarifications):** the panel keeps
+> the style type, Appearance and 3D sections, and adds **Vary by attribute**
+> (`VaryRow`, `AddVaryMenu`, `ScaleEditor`) instead of property rows, Draw as
+> and recipes. The model, migration, resolution, paint, legend and files below
+> are unchanged by that decision.
+
 A layer style becomes:
 - **fixed values**: today's flat symbol fields, kept as they are;
 - an optional **Draw as**: markers or heatmap, fills or 3D;

@@ -21,7 +21,11 @@ labels on and adjust them." Research and design: [proposal.md](./proposal.md).
 ### Session 2026-10-13
 
 - Q: Do channels replace the style type, or sit under it as "vary by attribute"?
-  → A: Channels replace it (proposal §7.1). The dropdown keeps "Draw as" and recipes.
+  → A: First answer: channels replace it (proposal §7.1). **Revised by the user
+  after seeing it built (2026-10-13): keep the style type and the Appearance
+  section, and add a "Vary by attribute" section under them** (the proposal's
+  ArcGIS-like alternative). "Draw as" and recipes are dropped. The storage model
+  (channels) stays as built; only the panel changes.
 - Q: Rules: a scale on any channel, or one rule sets the whole symbol? → A: A scale
   on any channel (proposal §7.2).
 - Q: Which channels? → A: Markers: color, outline color, size, shape, opacity,
@@ -52,47 +56,49 @@ has never had.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Each property by its own column (Priority: P1)
+### User Story 1 - More properties, each by its own column (Priority: P1)
 
 A transportation planner opens a road network. In the style panel:
-- they set **Color** to "By column" `los` (categories);
-- they set **Width** to "By column" `volume` (classes).
+- they choose the style type **Categorized** by `los`;
+- under **Vary by attribute**, they choose **Add… → Width** and pick `volume`.
 
-Each road's color follows its level of service and its width follows its traffic.
-Then they open a crash point layer:
-- they set **Color** by `severity`;
-- they set **Shape** by `crash_type`.
+Each road's color follows its level of service and its width follows its
+traffic. Then they open a crash point layer:
+- Categorized by `severity`;
+- Add… → **Shape** by `crash_type`.
 
 Each point gets its severity's color and its type's shape, independently.
 
-**Why this priority**: two or more variables on one map is the central reason for
-the redesign, and it must work the same way for every property.
+**Why this priority**: two or more variables on one map is the central reason
+for this spec, and it must work the same way for every property.
 
-**Independent Test**: on a line layer, set Color by a text column and Width by a
-numeric column. On a point layer, set Color, Shape and Size by three different
-columns. Check that each feature's color, width, shape and size each follow their
-own column.
+**Independent Test**: on a line layer, categorize by a text column and add Width
+by a numeric column. On a point layer, categorize by one column and add Shape
+and Size by two others. Check that each feature's color, width, shape and size
+each follow their own column.
 
 **Acceptance Scenarios**:
 
-1. **Given** a point layer, **When** the user opens the style panel, **Then** it
-   lists Color, Outline color, Outline width, Size, Shape, Opacity and Rotation. Each is set to
-   Fixed with the layer's current value.
-2. **Given** a line layer, **When** the user opens the style panel, **Then** it
-   lists Color, Width, Pattern and Opacity.
-3. **Given** a polygon layer, **When** the user opens the style panel, **Then** it
-   lists Color, Outline color, Outline width and Opacity, plus Height when the
-   layer is drawn in 3D.
-4. **Given** any property, **When** the user switches it from Fixed to By column
-   and picks a column, **Then** the map applies a sensible default scale for that
-   column and property, and the legend shows the property's group. There is no
-   Apply step.
-5. **Given** three properties set by three different columns, **When** the user
-   changes one property's column or scale, **Then** only that property changes on
-   the map; the other two are untouched.
-6. **Given** a property set By column, **When** the user switches it back to
-   Fixed, **Then** every feature returns to that property's fixed value, and the
-   column settings are remembered for the session if the user switches back.
+1. **Given** a point layer, **When** the user opens Add… under Vary by
+   attribute, **Then** it offers Outline color, Outline width, Size, Shape,
+   Opacity and Rotation.
+2. **Given** a line layer, **When** the user opens Add…, **Then** it offers
+   Width, Pattern and Opacity.
+3. **Given** a polygon layer, **When** the user opens Add…, **Then** it offers
+   Outline color, Outline width and Opacity (no size).
+4. **Given** any property, **When** the user adds it, **Then** it starts on a
+   suitable column with a sensible default scale, the map applies it, and the
+   legend shows the property's group. There is no Apply step.
+5. **Given** three properties varying by three different columns, **When** the
+   user changes one property's column or scale, **Then** only that property
+   changes on the map; the other two are untouched.
+6. **Given** a varying property, **When** the user removes it, **Then** every
+   feature returns to its Appearance setting, and adding it again in the same
+   session brings back its column and scale.
+7. **Given** the style type and Appearance section, **When** the panel opens,
+   **Then** they look and work as before (Single, Categorized, Graduated,
+   Bivariate, Rules, Heatmap; fill, outline, width, shape, pattern, point size;
+   3D).
 
 ---
 
@@ -119,55 +125,23 @@ re-saved files against the previous version.
    **Then** every feature has the same color, size or width, shape, pattern,
    opacity and height as before, and the legend shows the same classes and labels.
 2. **Given** a previous Categorized style, **When** the panel opens, **Then**
-   Color shows "By column" with categories, with the same values, colors, Other
-   and No value settings.
+   the style type is Categorized, with the same values, colors, Other and No
+   value settings.
 3. **Given** a previous style with Size by, **When** the panel opens, **Then**
-   Size (points) or Width (lines) shows its column, mode, classes and sizes.
-4. **Given** a previous 3D style, **When** the panel opens, **Then** Draw as shows
-   3D, and Height shows its column and scaling.
+   Vary by attribute shows Size (points) or Width (lines) with its column, mode,
+   classes and sizes.
+4. **Given** a previous 3D style, **When** the panel opens, **Then** the 3D
+   section is on, with its column and scaling.
 5. **Given** a previous style, **When** it is saved again without edits, **Then**
    QGIS reads the new QML file and shows the same map as it did from the old file.
 
 ---
 
-### User Story 3 - Draw as, and one-click recipes (Priority: P1)
+### User Story 3 - (Withdrawn: Draw as and recipes)
 
-A user picks how the layer is drawn from a dropdown, with a one-line
-description for each option:
-- points: Markers or Heatmap;
-- lines: Lines;
-- polygons: Fills or 3D.
-
-The same dropdown offers **recipes**: Categorized, Graduated, Proportional
-symbols, Bivariate, Rules, Heatmap, and Flow / network. Each recipe sets up the
-properties for a common map in one step, then shows them as ordinary properties.
-
-**Why this priority**: a list of properties is powerful but blank. Recipes keep
-the common maps one click away, as the style type does today.
-
-**Independent Test**: apply each recipe to a layer with suitable columns, and check
-which properties it set and to what. Switch Draw as between Markers and Heatmap,
-and between Fills and 3D.
-
-**Acceptance Scenarios**:
-
-1. **Given** a point layer, **When** the user picks Draw as Heatmap, **Then** the
-   heatmap settings replace the marker properties (the heatmap as built:
-   weight, radius, intensity, colors), and the markers' settings are kept for
-   when the user switches back.
-2. **Given** a polygon layer, **When** the user picks Draw as 3D, **Then** Height
-   appears among the properties.
-3. **Given** a layer, **When** the user applies the Graduated recipe, **Then**
-   Color is set by the first suitable numeric column with classes, and other
-   properties are left as they were.
-4. **Given** a line layer with a text column and a numeric column, **When** the
-   user applies the Flow / network recipe, **Then** Color is set by categories of
-   the text column and Width by classes of the numeric column.
-5. **Given** a recipe that needs a kind of column the layer doesn't have (for
-   example Bivariate without two numeric columns), **When** the dropdown opens,
-   **Then** that recipe is unavailable, with a one-line reason.
-6. **Given** the dropdown, **When** the user works it by keyboard alone, **Then**
-   options are announced with their descriptions, and unavailable ones are skipped.
+Withdrawn by the user's revision of 2026-10-13 (Clarifications). The style
+type keeps choosing the color style and the heatmap, and the 3D section keeps
+choosing 3D, as before this spec.
 
 ---
 
@@ -407,36 +381,31 @@ and labels on. Check its legend groups and labels against the live map.
 
 **Model and panel**
 
-- **FR-001**: The style panel MUST offer a **Draw as** choice by geometry:
-  - points: Markers or Heatmap;
-  - lines: Lines;
-  - polygons: Fills or 3D;
-  - Mixed: each part with its own choice.
-- **FR-002**: For each drawing, the panel MUST list its properties:
-  - Markers: Color, Outline color, Outline width, Size, Shape, Opacity, Rotation;
-  - Lines: Color, Width, Pattern, Opacity;
-  - Fills: Color, Outline color, Outline width, Opacity;
-  - 3D: Color, Height, Opacity;
-  - Heatmap: its existing settings (weight, radius, intensity, automatic
-    intensity, colors).
-- **FR-003**: Each property MUST be either **Fixed** (one value) or **By column**
-  (a column or SQL expression, through a scale). The fixed values replace the
-  separate Appearance section.
+- **FR-001**: The style panel MUST keep the style type (Single, Categorized,
+  Graduated, Bivariate, Rules, Heatmap), the Appearance section and the 3D
+  section as they were before this spec.
+- **FR-002**: Under them, a **Vary by attribute** section MUST list the
+  properties that vary by a column, and an **Add…** menu MUST offer the
+  layer's other properties:
+  - points: Outline color, Outline width, Size, Shape, Opacity, Rotation;
+  - lines: Width, Pattern, Opacity;
+  - polygons: Outline color, Outline width, Opacity;
+  - Mixed: every part's.
+  Color is the style type's; Height is the 3D section's. A property that can't
+  be added says why (for example, Size with a bivariate style).
+- **FR-003**: A varying property MUST read from a column (or a SQL expression)
+  through a scale. Removing it MUST return every feature to its Appearance
+  setting.
 - **FR-004**: Changing one property MUST NOT change any other property. Every
   change MUST show on the map and legend without an Apply step.
-- **FR-005**: The single "style type" choice MUST be removed. "Single symbol" is
-  the state in which every property is Fixed.
-- **FR-006**: The Draw as dropdown MUST also offer recipes: Categorized,
-  Graduated, Proportional symbols, Bivariate, Rules, Heatmap, Flow / network.
-  - Each recipe has a one-line description.
-  - A recipe sets only the properties it is about, and leaves the rest alone.
-  - A recipe the layer can't use is shown as unavailable, with a reason.
-- **FR-007**: Switching Draw as, or a property between Fixed and By column, MUST
-  keep the settings that were set aside for the rest of the session, so switching
-  back restores them.
-- **FR-008**: A property set by a column MUST start with a default scale suited to
-  the column's type and the property: categories for text, classes for numbers,
-  As is for rotation.
+- **FR-005**: With three or more variables on the map (the style type's color
+  counted), the section MUST show a one-line note that such maps are harder to
+  read. Advice only.
+- **FR-006**: (Withdrawn: recipes.)
+- **FR-007**: A property removed and added again in the same session MUST come
+  back with its column and scale.
+- **FR-008**: A property added MUST start with a default scale suited to the
+  column's type and the property: categories for text, classes for numbers.
 
 **Scales**
 
@@ -548,16 +517,14 @@ and labels on. Check its legend groups and labels against the live map.
 
 ### Key Entities
 
-- **Drawing ("Draw as")**: how a layer's features are drawn: markers, heatmap,
-  lines, fills or 3D. Each geometry part has one.
+- **Drawing**: how points and polygons are drawn: markers or a heatmap (the
+  style type Heatmap), fills or 3D (the 3D section). Stored with the style.
 - **Property (channel)**: one visual property of a drawing, such as color, size
   or shape. Either a fixed value or an encoding.
 - **Encoding**: a source (column, SQL expression, or two columns for bivariate),
   plus a scale, plus legend options (title, hidden).
 - **Scale**: how values become outputs: categories, classes, continuous,
   conditions, as is, or bivariate. Each has its own settings and outputs.
-- **Recipe**: a named starting point that sets some properties. It isn't stored;
-  the style only stores properties.
 - **Label settings**: on or off; text source (column or expression); font size;
   color; halo (on, color, width); placement and offset.
 - **Legend group**: what a reader sees for one property, or several merged ones:
@@ -568,8 +535,8 @@ and labels on. Check its legend groups and labels against the live map.
 ### Measurable Outcomes
 
 - **SC-001**: A user can make the level-of-service and traffic map (color by one
-  column, width by another) from a freshly opened layer in under 1 minute, or in
-  4 choices with the Flow / network recipe.
+  column, width by another) from a freshly opened layer in under 1 minute: style
+  type, its column, Add… → Width, its column.
 - **SC-002**: 100% of the styles saved by the previous version in the test suite
   draw identically after the change: per-feature color, size, shape, pattern,
   opacity and height, and the same legend classes and labels.
@@ -592,7 +559,7 @@ and labels on. Check its legend groups and labels against the live map.
 
 - **Order of work** follows the proposal's slices (proposal §6):
   1. the property model, with migration and no visible change;
-  2. the new panel with Draw as and recipes;
+  2. the panel's Vary by attribute section (revised from Draw as and recipes);
   3. the new scales and properties, and the legend;
   4. files;
   5. labels.

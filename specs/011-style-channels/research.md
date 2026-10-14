@@ -458,3 +458,19 @@ No slider step re-queries the engine: the cache key leaves presentation out.
 - Earlier runs had 3 timing failures under parallel load (map image 8.5 s
   against 5 s; layers 8.0 s against 6 s; the export dialog's Cancel button
   detached because the export finished first). Each passed in a rerun.
+
+## Panel revision (2026-10-13)
+
+The user saw the property-row panel with Draw as and recipes built and chose
+the proposal's other design instead: keep the style type, Appearance and 3D,
+and add "Vary by attribute" under them. What changed:
+- **UI only.** The channel model, migration (SC-002), per-property resolution
+  and paint, engine data, legend groups and the store fix all stay.
+- **Restored from the slice 1 commit:** the panel, the style type dropdown and
+  the migrated web specs.
+- **Removed:** `ChannelRow`, `recipes.ts` and their tests.
+- **New:** `VaryRow` and `AddVaryMenu`. The spec 009 size editor became the Size
+  or Width row.
+- **Fix found while reviewing the screenshots:** the Add menu floated and was
+  cut off at the bottom of the panel's scroll area. It now opens in the flow
+  of the panel.

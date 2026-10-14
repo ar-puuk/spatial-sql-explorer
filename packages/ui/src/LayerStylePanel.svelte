@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import type { Encoding as SetAsideEncoding } from '@spatial-explorer/core'
-  /** Spec 011 FR-007: encodings set aside by switching a property to Fixed, per layer and property, for the session. */
-  // Not reactive on purpose: only read when a property is switched back to By column.
+  /** Spec 011 FR-007: properties removed from Vary by attribute, per layer and property, for the session. */
+  // Not reactive on purpose: only read when a property is added again.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const setAside = new Map<string, SetAsideEncoding>()
 </script>
@@ -85,7 +85,6 @@
     CHANNEL_NAMES,
     channelsFor,
     drawOf,
-    fixedValue,
     isNumericType,
     setChannelClass,
     setChannelClasses,
@@ -93,15 +92,9 @@
     setChannelRamp,
     setChannelRange,
     setEncoding,
-    setFixed,
     setLegendHidden,
     setScaleKind,
     startEncoding,
-    RECIPES,
-    applyRecipe,
-    recipeUnavailable,
-    setDraw,
-    type RecipeId,
     type ChannelId,
     type Encoding,
     type ScaleKind,
@@ -116,7 +109,8 @@
   import BivariateLegend from './style/BivariateLegend.svelte'
   import RulesEditor from './style/RulesEditor.svelte'
   import StyleTypePicker from './style/StyleTypePicker.svelte'
-  import ChannelRow from './style/ChannelRow.svelte'
+  import VaryRow from './style/VaryRow.svelte'
+  import AddVaryMenu from './style/AddVaryMenu.svelte'
   import ScaleEditor from './style/ScaleEditor.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
@@ -225,46 +219,17 @@
     }
   }
 
-  // --- Spec 011 US3: Draw as (by geometry) and recipes, in one dropdown (contracts/ui.md).
-  type DrawKind = 'draw:markers' | 'draw:heatmap' | 'draw:lines' | 'draw:fills' | 'draw:3d' | `recipe:${RecipeId}`
-  const DRAW_POINTS = [
-    { kind: 'draw:markers', label: 'Markers', hint: 'One symbol per point, varied by the properties below' },
-    { kind: 'draw:heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
-  ] as const
-  const DRAW_LINES = [{ kind: 'draw:lines', label: 'Lines', hint: 'Lines, varied by the properties below' }] as const
-  const DRAW_POLYGONS = [
-    { kind: 'draw:fills', label: 'Fills', hint: 'Filled polygons, varied by the properties below' },
-    { kind: 'draw:3d', label: '3D', hint: 'Polygons raised by a height; tilt the map to see them' },
-  ] as const
-  const drawOptions = $derived.by(() => {
-    const draws: ReadonlyArray<{ kind: DrawKind; label: string; hint: string }> =
-      geometryType === 'Point' ? DRAW_POINTS : geometryType === 'LineString' ? DRAW_LINES : geometryType === 'Polygon' ? DRAW_POLYGONS : [...DRAW_POINTS, ...DRAW_POLYGONS]
-    return [
-      ...draws.map((d) => ({ ...d, unavailable: null, group: 'Draw as' })),
-      ...RECIPES.map((r) => ({ kind: `recipe:${r.id}` as DrawKind, label: r.label, hint: r.hint, unavailable: recipeUnavailable(r.id, geometryType, layer), group: 'Recipes', action: true })),
-    ]
-  })
-  const drawValue = $derived.by((): DrawKind => {
-    const d = drawOf(style)
-    if (geometryType === 'LineString') return 'draw:lines'
-    if (geometryType === 'Polygon') return d.polygons === '3d' ? 'draw:3d' : 'draw:fills'
-    if (d.points === 'heatmap') return 'draw:heatmap'
-    return geometryType === 'Mixed' && d.polygons === '3d' ? 'draw:3d' : 'draw:markers'
-  })
-  function chooseDraw(kind: DrawKind): void {
-    if (kind.startsWith('recipe:')) {
-      const id = kind.slice('recipe:'.length) as RecipeId
-      apply(applyRecipe(style, id, geometryType, layer))
-      if (id === 'rules') void suggestRules()
-      return
-    }
-    // 3D keeps spec 008's behavior: the first time, a height column and a scale that shows it.
-    if ((kind === 'draw:3d') !== (ext?.enabled === true) && (kind === 'draw:3d' || kind === 'draw:fills')) return toggleExtrusion()
-    if (kind === 'draw:heatmap') return apply(setDraw(style, { points: 'heatmap' }))
-    if (kind === 'draw:markers') apply(setDraw(style, { points: 'markers' }))
-  }
-
+  const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
+    { kind: 'single', label: 'Single', hint: 'One symbol for every feature' },
+    { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
+    { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
+    { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
+    { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
+    { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
+  ]
+  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
+  const thematic = $derived(renderer.kind !== 'single')
   const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
   /** Why a renderer can't be chosen, or null. */
   function unavailable(kind: Renderer['kind']): string | null {
@@ -351,6 +316,8 @@
     onChange({ renderer: startStyle(style, renderer.kind, layer, column).renderer })
   }
 
+  let hasFill = $derived(geometryType !== 'LineString')
+  let hasPoints = $derived(geometryType === 'Point' || geometryType === 'Mixed')
   let hasLines = $derived(geometryType !== 'Point')
   let strokeLabel = $derived(geometryType === 'LineString' ? 'Line' : 'Outline')
 
@@ -371,40 +338,55 @@
     apply(setSizeRange(style, side === 'min' ? value : size.sizeMin, side === 'max' ? value : size.sizeMax))
   }
 
-  // --- Spec 011: properties, each Fixed or By column (contracts/ui.md "Property rows").
-  // Height stays in the 3D section until Draw as replaces the style type (T037).
-  const rows = $derived(channelsFor(geometryType, drawOf(style)).filter((id) => id !== 'height'))
-  const colorMode = $derived<'fixed' | 'column'>(renderer.kind === 'single' || renderer.kind === 'heatmap' ? 'fixed' : 'column')
-  /** Color By column starts categorized on a text column, else graduated (spec FR-008). */
-  function setColorMode(mode: 'fixed' | 'column'): void {
-    if (mode === 'fixed') return chooseRenderer('single')
-    const text = (layer?.columns ?? []).find((c) => !isNumericType(c.type) && columnsFor('categorized').some((x) => x.name === c.name))
-    chooseRenderer(text || !columnsFor('graduated').length ? 'categorized' : 'graduated')
-  }
-  /** Columns a property can be set by: any attribute column. */
+  // --- Spec 011: Vary by attribute (contracts/ui.md): more properties, each by its own column.
+  /** Properties shown under Vary by attribute, in panel order ("size" stands for marker size or line width). */
+  const varying = $derived.by((): ChannelId[] => {
+    const generic = (['strokeColor', 'strokeWidth', 'shape', 'dash', 'opacity', 'rotation'] as ChannelId[]).filter((id) => !!style.channels?.[id])
+    return sizeOn ? ['size', ...generic] : generic
+  })
+  /** What "Add…" offers: the layer's properties that aren't varying yet (Color is the style type; Height is 3D). */
+  const addable = $derived.by(() => {
+    const ids = channelsFor(geometryType, drawOf(style)).filter((id) => id !== 'color' && id !== 'height' && id !== 'width')
+    if (geometryType === 'LineString') ids.unshift('size')
+    return ids
+      .filter((id) => !varying.includes(id))
+      .map((id) => ({
+        id,
+        label: id === 'size' ? (sizeGeometry === 'line' ? 'Width' : 'Size') : CHANNEL_NAMES[id],
+        unavailable:
+          id === 'size'
+            ? renderer.kind === 'bivariate'
+              ? 'Bivariate maps have no size.'
+              : numericColumns.length
+                ? null
+                : 'Sizing needs a numeric column.'
+            : channelColumns.length
+              ? null
+              : 'This result has no attribute columns.',
+      }))
+  })
+  /** Columns a property can vary by: any attribute column. */
   const channelColumns = $derived(eligibleColumns(layer?.columns, 'categorized'))
-  /** The scales this phase offers for a property's column: categories, and classes for numbers (shapes and patterns: categories only). */
+  /** The scales offered for a property's column: categories, and classes for numbers (shapes and patterns: categories only). */
   function scalesForColumn(id: ChannelId, enc: Encoding): ScaleKind[] {
     const column = enc.source.kind === 'column' ? enc.source.column : ''
     const numeric = isNumericType(layer?.columns.find((c) => c.name === column)?.type ?? '')
     return (['categories', 'classes'] as ScaleKind[]).filter((k) => (k === 'classes' ? numeric && id !== 'shape' && id !== 'dash' : true))
   }
-  /** A property switched to By column starts on the column it last had in this session, else on the first suitable one (FR-007). */
-  function setGenericMode(id: ChannelId, mode: 'fixed' | 'column'): void {
-    const key = `${sidecarName}|${id}`
-    const enc = style.channels?.[id]
-    if (mode === 'fixed') {
-      if (enc) setAside.set(key, enc)
-      return apply(setEncoding(style, id, null))
-    }
-    const kept = setAside.get(key)
+  /** A property added again starts on the column it last had in this session, else on a suitable first one (FR-007). */
+  function addVary(id: ChannelId): void {
+    if (id === 'size') return toggleSize()
+    const kept = setAside.get(`${sidecarName}|${id}`)
     if (kept) return apply(setEncoding(style, id, kept))
     const prefersText = id === 'strokeColor' || id === 'shape' || id === 'dash'
     const pick = (prefersText ? channelColumns.find((c) => !isNumericType(c.type)) : measureColumns(layer?.columns)[0]) ?? channelColumns[0]
     if (pick) apply(setEncoding(style, id, startEncoding(id, pick.name, layer)))
   }
-  /** Properties that vary by data (the third gets a one-line readability note). */
-  const varyingCount = $derived(rows.filter((id) => (id === 'color' ? colorMode === 'column' : id === 'size' || id === 'width' ? sizeOn : !!style.channels?.[id])).length)
+  function removeVary(id: ChannelId): void {
+    const enc = style.channels?.[id]
+    if (enc) setAside.set(`${sidecarName}|${id}`, enc)
+    apply(setEncoding(style, id, null))
+  }
 
   // --- Marker shape and line pattern.
   const shape = $derived<MarkerShape>(style.markerShape ?? 'circle')
@@ -477,11 +459,140 @@
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Style</h3>
-      <StyleTypePicker options={drawOptions} value={drawValue} onChange={chooseDraw} label="Draw as" listLabel="Draw as and recipes" />
+      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
     </section>
+
+    {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
+      <section aria-labelledby="style-sec-by">
+        <h3 id="style-sec-by">Color by</h3>
+        <div class="row field">
+          <label class="label" for="style-column">Column</label>
+          <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
+            {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
+              <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
+            {/if}
+            {#each columnsFor(renderer.kind) as c (c.name)}
+              <option value={c.name}>{c.name} · {c.type}</option>
+            {/each}
+            {#if renderer.kind === 'graduated'}
+              <option value={EXPRESSION}>Expression…</option>
+            {/if}
+          </select>
+        </div>
+        {#if renderer.kind === 'graduated' && usingExpression}
+          <div class="expression">
+            <input
+              type="text"
+              class="mono"
+              aria-label="Expression"
+              aria-describedby="style-expression-hint"
+              placeholder="gdp_md * 1e6 / pop_est"
+              spellcheck="false"
+              autocomplete="off"
+              value={renderer.expression ?? ''}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              onchange={(e) => commitExpression(e.currentTarget.value)}
+            />
+            <p class="hint" id="style-expression-hint">A SQL expression over this layer's columns, e.g. gdp_md * 1e6 / pop_est</p>
+          </div>
+        {/if}
+      </section>
+
+      {#if renderer.kind === 'graduated'}
+        <section aria-labelledby="style-sec-classes">
+          <h3 id="style-sec-classes">Classification</h3>
+          <div class="pair">
+            <div class="row field">
+              <label class="label" for="style-method">Method</label>
+              <select id="style-method" value={renderer.method} onchange={(e) => chooseMethod(e.currentTarget.value as GraduatedMethod)}>
+                {#each METHODS as m (m)}
+                  <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
+                {/each}
+                {#if renderer.method === 'manual'}
+                  <option value="manual">Manual</option>
+                {/if}
+              </select>
+            </div>
+            <div class="row field">
+              <label class="label" for="style-classes">Classes</label>
+              <select id="style-classes" class="narrow" value={renderer.classCount} onchange={(e) => chooseClassCount(Number(e.currentTarget.value))}>
+                {#each CLASS_COUNTS as n (n)}
+                  <option value={n}>{n}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          {#if resolved.status !== 'fallback'}
+            <ValueHistogram {histogram} breaks={histogramBreaks} format={fmt} />
+          {/if}
+        </section>
+      {/if}
+
+      <section aria-labelledby="style-sec-colors">
+        <h3 id="style-sec-colors">Colors</h3>
+        {#if resolved.status === 'fallback'}
+          <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
+        {:else}
+          <RampPicker
+            value={renderer.ramp}
+            renderer={renderer.kind}
+            classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
+            onChange={(ramp) => apply(setRamp(style, ramp))}
+            onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
+          />
+          <ClassList
+            {resolved}
+            kind={renderer.kind}
+            manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
+            onColor={(key, color) => apply(setClassColor(style, key, color))}
+            onLabel={(key, label) => apply(setClassLabel(style, key, label))}
+            onVisible={(key, visible) => apply(setClassVisible(style, key, visible))}
+            onValue={(key, value) => apply(setCategoryValue(style, resolved, key, value))}
+            onBound={(index, side, value) => apply(setClassBound(style, resolved, index, side, value))}
+            onAdd={() => apply(addClass(style, resolved))}
+            onDelete={(key) => apply(deleteClass(style, resolved, key))}
+          />
+          {#if editError}
+            <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+          {/if}
+          {#if renderer.kind === 'categorized' && renderer.manual}
+            <p class="inline-note">
+              <Icon name="info" size={14} /><span>Fixed classes (Manual). <button type="button" class="link" onclick={() => apply(setCategorizedAuto(style))}>Back to automatic</button></span>
+            </p>
+          {:else if renderer.kind === 'graduated' && renderer.method === 'manual'}
+            <p class="inline-note"><Icon name="info" size={14} />Fixed classes (Manual): choose a method to recompute them.</p>
+          {/if}
+          {#each resolved.notes as note (note)}
+            <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+          {/each}
+        {/if}
+      </section>
+    {/if}
+
+    <!-- Spec 010: rules (the first matching condition colors a feature). -->
+    {#if renderer.kind === 'rules'}
+      <section aria-labelledby="style-sec-rules">
+        <h3 id="style-sec-rules">Rules</h3>
+        <p class="hint">SQL conditions on this layer's columns. The first rule a feature matches colors it.</p>
+        <RulesEditor
+          {renderer}
+          {resolved}
+          onUpdate={(id, patch) => apply(updateRule(style, id, patch))}
+          onAdd={() => apply(addRule(style))}
+          onRemove={(id) => apply(removeRule(style, id))}
+          onMove={(id, by) => apply(moveRule(style, id, by))}
+          onElse={(patch) => apply(setRulesElse(style, patch))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+        {/if}
+      </section>
+    {/if}
 
     <!-- A heatmap: the points' density, optionally weighted by a numeric column. -->
     {#if renderer.kind === 'heatmap'}
@@ -604,441 +715,300 @@
       </section>
     {/if}
 
-    <!-- Spec 011 (contracts/ui.md "Property rows"): each property Fixed or By column. -->
-    {#if rows.length}
-      <section aria-labelledby="style-sec-props">
-        <h3 id="style-sec-props">Properties</h3>
-        {#each rows as id (id)}
-          {#if id === 'color'}
-            <ChannelRow
-              id="color"
-              name="Color"
-              mode={colorMode}
-              onMode={setColorMode}
-              columnUnavailable={layer?.columns.length ? null : 'This result has no attribute columns.'}
-              summary={resolved.caption}
-            >
-              {#snippet fixed()}
-                {#if geometryType === 'LineString'}
-                  <div class="row">
-                    <input type="color" aria-label="Line color" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
-                    <input type="range" aria-label="Line opacity" aria-valuetext={pct(style.strokeOpacity)} min="0" max="1" step="0.05" value={style.strokeOpacity} oninput={(e) => onChange({ strokeOpacity: Number(e.currentTarget.value) })} />
-                    <span class="value">{pct(style.strokeOpacity)}</span>
-                  </div>
-                {:else}
-                  <div class="row">
-                    <input type="color" aria-label="Fill color" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
-                    <input type="range" aria-label="Fill opacity" aria-valuetext={pct(style.fillOpacity)} min="0" max="1" step="0.05" value={style.fillOpacity} oninput={(e) => onChange({ fillOpacity: Number(e.currentTarget.value) })} />
-                    <span class="value">{pct(style.fillOpacity)}</span>
-                  </div>
-                {/if}
-              {/snippet}
-              {#snippet byColumn()}
-          {#if renderer.kind === 'categorized' || renderer.kind === 'graduated'}
-            <div class="sub" role="group" aria-labelledby="style-sec-by">
-              <h5 id="style-sec-by">Color by</h5>
+    <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
+    <!-- Spec 009 US4: bivariate (contracts/ui.md "Style panel"). -->
+    {#if renderer.kind === 'bivariate'}
+      <section aria-labelledby="style-sec-axes">
+        <h3 id="style-sec-axes">Columns</h3>
+        <BivariatePicker
+          {renderer}
+          columns={columnsFor('graduated')}
+          onAxis={(axis, patch) => apply(setBivariateAxis(style, axis, patch))}
+          onSwap={() => apply(swapBivariateAxes(style))}
+          onPalette={(id) => apply(setBivariatePalette(style, id))}
+        />
+        {#if editError}
+          <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
+        {/if}
+      </section>
+      <section aria-labelledby="style-sec-cells">
+        <h3 id="style-sec-cells">Cells</h3>
+        {#if resolved.status === 'fallback'}
+          <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
+        {:else}
+          <BivariateLegend {resolved} cell={28} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
+          {#each resolved.notes as note (note)}
+            <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+          {/each}
+        {/if}
+      </section>
+    {/if}
+
+    <!-- A point heatmap draws no symbols; mixed layers keep them for lines and polygons. -->
+    {#if renderer.kind !== 'heatmap' || geometryType !== 'Point'}
+    <section aria-labelledby="style-sec-look">
+      <h3 id="style-sec-look">Appearance</h3>
+      {#if hasFill}
+        <div class="row">
+          <span class="label" id="fill-label">Fill</span>
+          {#if thematic}
+            <span class="by-class" title="Class colors come from the classes above">·</span>
+          {:else}
+            <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+          {/if}
+          <input
+            type="range"
+            aria-label="Fill opacity"
+            aria-valuetext={pct(style.fillOpacity)}
+            min="0"
+            max="1"
+            step="0.05"
+            value={style.fillOpacity}
+            oninput={(e) => onChange({ fillOpacity: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{pct(style.fillOpacity)}</span>
+        </div>
+      {/if}
+
+      <div class="row">
+        <span class="label" id="stroke-label">{strokeLabel}</span>
+        <input type="color" aria-labelledby="stroke-label" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
+        <input
+          type="range"
+          aria-label="{strokeLabel} opacity"
+          aria-valuetext={pct(style.strokeOpacity)}
+          min="0"
+          max="1"
+          step="0.05"
+          value={style.strokeOpacity}
+          oninput={(e) => onChange({ strokeOpacity: Number(e.currentTarget.value) })}
+        />
+        <span class="value">{pct(style.strokeOpacity)}</span>
+      </div>
+
+      <div class="row">
+        <span class="label" id="width-label">Width</span>
+        <input
+          type="range"
+          class="wide"
+          aria-labelledby="width-label"
+          aria-valuetext="{style.strokeWidth} pixels"
+          min="0"
+          max="10"
+          step="0.5"
+          value={style.strokeWidth}
+          oninput={(e) => onChange({ strokeWidth: Number(e.currentTarget.value) })}
+        />
+        <span class="value">{style.strokeWidth} px</span>
+      </div>
+
+      {#if hasLines}
+        <div class="row">
+          <label class="label" for="style-dash">Pattern</label>
+          <span class="preview" aria-hidden="true"><SymbolSwatch symbol={{ ...preview, lineWidth: Math.min(Math.max(preview.lineWidth, 1.5), 3) }} kind="line" size={26} /></span>
+          <select id="style-dash" class="span" value={dash} onchange={(e) => onChange({ lineDash: e.currentTarget.value as LineDash })}>
+            {#each LINE_DASHES as d (d)}
+              <option value={d}>{LINE_DASH_NAMES[d]}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
+      {#if hasPoints}
+        <div class="row">
+          <span class="label" id="shape-label">Shape</span>
+          <div class="shapes" role="radiogroup" aria-labelledby="shape-label">
+            {#each MARKER_SHAPES as m (m)}
+              <button
+                type="button"
+                role="radio"
+                data-shape={m}
+                aria-checked={shape === m}
+                aria-label={MARKER_SHAPE_NAMES[m]}
+                title={MARKER_SHAPE_NAMES[m]}
+                tabindex={shape === m ? 0 : -1}
+                onclick={() => onChange({ markerShape: m })}
+                onkeydown={shapeKeydown}
+              >
+                <SymbolSwatch symbol={{ ...preview, shape: m, radius: 6, strokeWidth: Math.min(preview.strokeWidth, 1.5), fillOpacity: Math.max(preview.fillOpacity, 0.6) }} kind="point" size={18} />
+              </button>
+            {/each}
+          </div>
+        </div>
+        <div class="row">
+          <span class="label" id="radius-label">Point size</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="radius-label"
+            aria-valuetext="{style.pointRadius} pixels"
+            min="1"
+            max="20"
+            step="0.5"
+            value={style.pointRadius}
+            oninput={(e) => onChange({ pointRadius: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{style.pointRadius} px</span>
+        </div>
+      {/if}
+    </section>
+    {/if}
+
+    <!-- Spec 011 (contracts/ui.md "Vary by attribute"): more properties, each by its own column. -->
+    {#if renderer.kind !== 'heatmap' || geometryType !== 'Point'}
+      <section aria-labelledby="style-sec-vary">
+        <h3 id="style-sec-vary">Vary by attribute</h3>
+        {#if !varying.length}
+          <p class="hint">Show more columns at once: size, outline, shape, opacity and more, each by its own column.</p>
+        {/if}
+        {#each varying as id (id)}
+          {#if id === 'size'}
+            <VaryRow id="size" name={sizeGeometry === 'line' ? 'Width' : 'Size'} summary={resolved.size?.caption ?? ''} onRemove={() => toggleSize()}>
+              {#if sizeOn && size}
               <div class="row field">
-                <label class="label" for="style-column">Column</label>
-                <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
-                  {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
-                    <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
+                <span class="label" aria-hidden="true">Column</span>
+                <select id="style-size-column" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
+                  {#if !numericColumns.some((c) => c.name === size.column)}
+                    <option value={size.column}>{size.column || 'Choose…'}</option>
                   {/if}
-                  {#each columnsFor(renderer.kind) as c (c.name)}
+                  {#each numericColumns as c (c.name)}
                     <option value={c.name}>{c.name} · {c.type}</option>
                   {/each}
-                  {#if renderer.kind === 'graduated'}
-                    <option value={EXPRESSION}>Expression…</option>
-                  {/if}
                 </select>
               </div>
-              {#if renderer.kind === 'graduated' && usingExpression}
-                <div class="expression">
-                  <input
-                    type="text"
-                    class="mono"
-                    aria-label="Expression"
-                    aria-describedby="style-expression-hint"
-                    placeholder="gdp_md * 1e6 / pop_est"
-                    spellcheck="false"
-                    autocomplete="off"
-                    value={renderer.expression ?? ''}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') e.currentTarget.blur()
-                    }}
-                    onchange={(e) => commitExpression(e.currentTarget.value)}
-                  />
-                  <p class="hint" id="style-expression-hint">A SQL expression over this layer's columns, e.g. gdp_md * 1e6 / pop_est</p>
+              <div class="row field">
+                <span class="label" id="size-scale-label">Scale</span>
+                <div class="renderers two" role="radiogroup" aria-label="Size scale">
+                  {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={size.mode === m.mode}
+                      tabindex={size.mode === m.mode ? 0 : -1}
+                      title={m.hint}
+                      onclick={() => apply(setSizeMode(style, m.mode))}
+                      onkeydown={(e) => {
+                        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                          e.preventDefault()
+                          const next = size.mode === 'classed' ? 'proportional' : 'classed'
+                          apply(setSizeMode(style, next))
+                          const group = (e.currentTarget as HTMLElement).parentElement
+                          queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+                        }
+                      }}>{m.label}</button
+                    >
+                  {/each}
                 </div>
-              {/if}
-            </div>
-
-            {#if renderer.kind === 'graduated'}
-              <div class="sub" role="group" aria-labelledby="style-sec-classes">
-                <h5 id="style-sec-classes">Classification</h5>
-                <div class="pair">
-                  <div class="row field">
-                    <label class="label" for="style-method">Method</label>
-                    <select id="style-method" value={renderer.method} onchange={(e) => chooseMethod(e.currentTarget.value as GraduatedMethod)}>
-                      {#each METHODS as m (m)}
-                        <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
-                      {/each}
-                      {#if renderer.method === 'manual'}
-                        <option value="manual">Manual</option>
-                      {/if}
-                    </select>
-                  </div>
-                  <div class="row field">
-                    <label class="label" for="style-classes">Classes</label>
-                    <select id="style-classes" class="narrow" value={renderer.classCount} onchange={(e) => chooseClassCount(Number(e.currentTarget.value))}>
-                      {#each CLASS_COUNTS as n (n)}
-                        <option value={n}>{n}</option>
-                      {/each}
-                    </select>
-                  </div>
-                </div>
-                {#if resolved.status !== 'fallback'}
-                  <ValueHistogram {histogram} breaks={histogramBreaks} format={fmt} />
-                {/if}
               </div>
-            {/if}
-
-            <div class="sub" role="group" aria-labelledby="style-sec-colors">
-              <h5 id="style-sec-colors">Colors</h5>
-              {#if resolved.status === 'fallback'}
-                <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
-              {:else}
-                <RampPicker
-                  value={renderer.ramp}
-                  renderer={renderer.kind}
-                  classCount={resolved.classes.filter((c) => c.kind === 'value' || c.kind === 'range').length}
-                  onChange={(ramp) => apply(setRamp(style, ramp))}
-                  onPreview={(ramp) => onPreview(ramp ? setRamp(style, ramp) : null)}
-                />
-                <ClassList
-                  {resolved}
-                  kind={renderer.kind}
-                  manual={renderer.kind === 'graduated' ? renderer.method === 'manual' : renderer.manual}
-                  onColor={(key, color) => apply(setClassColor(style, key, color))}
-                  onLabel={(key, label) => apply(setClassLabel(style, key, label))}
-                  onVisible={(key, visible) => apply(setClassVisible(style, key, visible))}
-                  onValue={(key, value) => apply(setCategoryValue(style, resolved, key, value))}
-                  onBound={(index, side, value) => apply(setClassBound(style, resolved, index, side, value))}
-                  onAdd={() => apply(addClass(style, resolved))}
-                  onDelete={(key) => apply(deleteClass(style, resolved, key))}
-                />
-                {#if editError}
-                  <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
-                {/if}
-                {#if renderer.kind === 'categorized' && renderer.manual}
-                  <p class="inline-note">
-                    <Icon name="info" size={14} /><span>Fixed classes (Manual). <button type="button" class="link" onclick={() => apply(setCategorizedAuto(style))}>Back to automatic</button></span>
-                  </p>
-                {:else if renderer.kind === 'graduated' && renderer.method === 'manual'}
-                  <p class="inline-note"><Icon name="info" size={14} />Fixed classes (Manual): choose a method to recompute them.</p>
-                {/if}
-                {#each resolved.notes as note (note)}
-                  <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
-                {/each}
-              {/if}
-            </div>
-          {/if}
-
-          <!-- Spec 010: rules (the first matching condition colors a feature). -->
-          {#if renderer.kind === 'rules'}
-            <div class="sub" role="group" aria-labelledby="style-sec-rules">
-              <h5 id="style-sec-rules">Rules</h5>
-              <p class="hint">SQL conditions on this layer's columns. The first rule a feature matches colors it.</p>
-              <RulesEditor
-                {renderer}
-                {resolved}
-                onUpdate={(id, patch) => apply(updateRule(style, id, patch))}
-                onAdd={() => apply(addRule(style))}
-                onRemove={(id) => apply(removeRule(style, id))}
-                onMove={(id, by) => apply(moveRule(style, id, by))}
-                onElse={(patch) => apply(setRulesElse(style, patch))}
-              />
-              {#if editError}
-                <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
-              {/if}
-            </div>
-          {/if}
-
-          <!-- Spec 009 US1/US2: an independent size channel (contracts/ui.md "Size"). -->
-          <!-- Spec 009 US4: bivariate (contracts/ui.md "Style panel"). -->
-          {#if renderer.kind === 'bivariate'}
-            <div class="sub" role="group" aria-labelledby="style-sec-axes">
-              <h5 id="style-sec-axes">Columns</h5>
-              <BivariatePicker
-                {renderer}
-                columns={columnsFor('graduated')}
-                onAxis={(axis, patch) => apply(setBivariateAxis(style, axis, patch))}
-                onSwap={() => apply(swapBivariateAxes(style))}
-                onPalette={(id) => apply(setBivariatePalette(style, id))}
-              />
-              {#if editError}
-                <p class="inline-note warning" role="alert"><Icon name="warning" size={14} />{editError}</p>
-              {/if}
-            </div>
-            <div class="sub" role="group" aria-labelledby="style-sec-cells">
-              <h5 id="style-sec-cells">Cells</h5>
-              {#if resolved.status === 'fallback'}
-                <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
-              {:else}
-                <BivariateLegend {resolved} cell={28} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
-                {#each resolved.notes as note (note)}
-                  <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
-                {/each}
-              {/if}
-            </div>
-          {/if}
-
-              {/snippet}
-            </ChannelRow>
-          {:else if id === 'size' || (id === 'width' && geometryType === 'LineString')}
-            <ChannelRow
-              {id}
-              name={id === 'size' ? 'Size' : 'Width'}
-              mode={sizeOn ? 'column' : 'fixed'}
-              onMode={() => toggleSize()}
-              columnUnavailable={renderer.kind === 'bivariate' ? 'Bivariate maps have no size channel.' : numericColumns.length === 0 ? 'Sizing needs a numeric column.' : null}
-              summary={resolved.size?.caption ?? ''}
-            >
-              {#snippet fixed()}
-                {#if id === 'size'}
-                  <div class="row">
-                    <input type="range" class="wide" aria-label="Point size" aria-valuetext="{style.pointRadius} pixels" min="1" max="20" step="0.5" value={style.pointRadius} oninput={(e) => onChange({ pointRadius: Number(e.currentTarget.value) })} />
-                    <span class="value">{style.pointRadius} px</span>
-                  </div>
-                {:else}
-                  {@const w = Number(fixedValue(style, 'width', 'line'))}
-                  <div class="row">
-                    <input type="range" class="wide" aria-label="Line width" aria-valuetext="{w} pixels" min="0" max="20" step="0.5" value={w} oninput={(e) => apply(setFixed(style, 'width', Number(e.currentTarget.value), 'line'))} />
-                    <span class="value">{w} px</span>
-                  </div>
-                {/if}
-              {/snippet}
-              {#snippet byColumn()}
-                {#if sizeOn && size}
+              {#if size.mode === 'classed'}
+              <div class="pair">
                 <div class="row field">
-                  <span class="label" aria-hidden="true">Column</span>
-                  <select id="style-size-column" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
-                    {#if !numericColumns.some((c) => c.name === size.column)}
-                      <option value={size.column}>{size.column || 'Choose…'}</option>
-                    {/if}
-                    {#each numericColumns as c (c.name)}
-                      <option value={c.name}>{c.name} · {c.type}</option>
+                  <span class="label" aria-hidden="true">Method</span>
+                  <select id="style-size-method" aria-label="Size method" value={size.method} onchange={(e) => apply(setSizeMethod(style, e.currentTarget.value as Exclude<GraduatedMethod, 'manual'>))}>
+                    {#each METHODS as m (m)}
+                      <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
                     {/each}
+                    {#if size.method === 'manual'}
+                      <option value="manual">Manual</option>
+                    {/if}
                   </select>
                 </div>
                 <div class="row field">
-                  <span class="label" id="size-scale-label">Scale</span>
-                  <div class="renderers two" role="radiogroup" aria-label="Size scale">
-                    {#each [{ mode: 'classed', label: 'Classed', hint: 'Sizes in steps, by classes of the column' }, { mode: 'proportional', label: 'Proportional', hint: 'Sizes that follow the values smoothly' }] as const as m (m.mode)}
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={size.mode === m.mode}
-                        tabindex={size.mode === m.mode ? 0 : -1}
-                        title={m.hint}
-                        onclick={() => apply(setSizeMode(style, m.mode))}
-                        onkeydown={(e) => {
-                          if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                            e.preventDefault()
-                            const next = size.mode === 'classed' ? 'proportional' : 'classed'
-                            apply(setSizeMode(style, next))
-                            const group = (e.currentTarget as HTMLElement).parentElement
-                            queueMicrotask(() => group?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
-                          }
-                        }}>{m.label}</button
-                      >
+                  <span class="label" aria-hidden="true">Classes</span>
+                  <select id="style-size-count" class="narrow" aria-label="Size class count" value={size.classCount} onchange={(e) => apply(setSizeClassCount(style, Number(e.currentTarget.value)))}>
+                    {#each CLASS_COUNTS as n (n)}
+                      <option value={n}>{n}</option>
                     {/each}
-                  </div>
+                  </select>
                 </div>
-                {#if size.mode === 'classed'}
-                <div class="pair">
-                  <div class="row field">
-                    <span class="label" aria-hidden="true">Method</span>
-                    <select id="style-size-method" aria-label="Size method" value={size.method} onchange={(e) => apply(setSizeMethod(style, e.currentTarget.value as Exclude<GraduatedMethod, 'manual'>))}>
-                      {#each METHODS as m (m)}
-                        <option value={m}>{m === 'jenks' ? 'Natural breaks (Jenks)' : METHOD_NAMES[m]}</option>
-                      {/each}
-                      {#if size.method === 'manual'}
-                        <option value="manual">Manual</option>
-                      {/if}
-                    </select>
-                  </div>
-                  <div class="row field">
-                    <span class="label" aria-hidden="true">Classes</span>
-                    <select id="style-size-count" class="narrow" aria-label="Size class count" value={size.classCount} onchange={(e) => apply(setSizeClassCount(style, Number(e.currentTarget.value)))}>
-                      {#each CLASS_COUNTS as n (n)}
-                        <option value={n}>{n}</option>
-                      {/each}
-                    </select>
-                  </div>
-                </div>
-                {:else}
-                  <p class="hint">Sizes scale smoothly from the smallest to the largest value of {size.column}{sizeGeometry === 'point' ? ', by marker area' : ''}.</p>
-                {/if}
-                <div class="row field">
-                  <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
-                  <span class="size-range">
-                    <input id="style-size-min" class="number" type="number" aria-label="Smallest size" min="0.5" max="100" step="0.5" value={size.sizeMin} onchange={(e) => chooseSize('min', Number(e.currentTarget.value))} />
-                    <span aria-hidden="true">to</span>
-                    <input class="number" type="number" aria-label="Largest size" min="0.5" max="100" step="0.5" value={size.sizeMax} onchange={(e) => chooseSize('max', Number(e.currentTarget.value))} />
-                    <span>px</span>
-                  </span>
-                </div>
-                {#if resolved.size?.status === 'fallback'}
-                  <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
-                {:else if resolved.size && sizeSymbols && size.mode === 'classed'}
-                  <ClassList
-                    {resolved}
-                    kind="graduated"
-                    classes={resolved.size.classes}
-                    caption={resolved.size.caption}
-                    listLabel="Size classes"
-                    canAdd={false}
-                    {sizeSymbols}
-                    manual={size.method === 'manual'}
-                    onColor={() => {}}
-                    onLabel={(key, label) => apply(setSizeClassLabel(style, key, label))}
-                    onVisible={(key, visible) => apply(setSizeClassVisible(style, key, visible))}
-                    onValue={() => {}}
-                    onBound={(index, side, value) => apply(setSizeClassBound(style, resolved, index, side, value))}
-                    onAdd={() => {}}
-                    onDelete={() => {}}
-                  />
-                  {#each resolved.size.notes as note (note)}
-                    <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
-                  {/each}
-                {/if}
-                {/if}
-              {/snippet}
-            </ChannelRow>
-          {:else if id === 'width'}
-            <!-- Mixed layers: lines follow the Size setting until slice 3 resolves width on its own. -->
-            <ChannelRow id="width" name="Width" mode={sizeOn ? 'column' : 'fixed'} onMode={() => toggleSize()} columnUnavailable={numericColumns.length === 0 ? 'Sizing needs a numeric column.' : null}>
-              {#snippet fixed()}
-                {@const w = Number(fixedValue(style, 'width', 'line'))}
-                <div class="row">
-                  <input type="range" class="wide" aria-label="Line width" aria-valuetext="{w} pixels" min="0" max="20" step="0.5" value={w} oninput={(e) => apply(setFixed(style, 'width', Number(e.currentTarget.value), 'line'))} />
-                  <span class="value">{w} px</span>
-                </div>
-              {/snippet}
-              {#snippet byColumn()}
-                <p class="hint">Lines are sized by the Size setting above.</p>
-              {/snippet}
-            </ChannelRow>
+              </div>
+              {:else}
+                <p class="hint">Sizes scale smoothly from the smallest to the largest value of {size.column}{sizeGeometry === 'point' ? ', by marker area' : ''}.</p>
+              {/if}
+              <div class="row field">
+                <span class="label" aria-hidden="true">{sizeGeometry === 'line' ? 'Widths' : 'Sizes'}</span>
+                <span class="size-range">
+                  <input id="style-size-min" class="number" type="number" aria-label="Smallest size" min="0.5" max="100" step="0.5" value={size.sizeMin} onchange={(e) => chooseSize('min', Number(e.currentTarget.value))} />
+                  <span aria-hidden="true">to</span>
+                  <input class="number" type="number" aria-label="Largest size" min="0.5" max="100" step="0.5" value={size.sizeMax} onchange={(e) => chooseSize('max', Number(e.currentTarget.value))} />
+                  <span>px</span>
+                </span>
+              </div>
+              {#if resolved.size?.status === 'fallback'}
+                <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.size.reason}</p>
+              {:else if resolved.size && sizeSymbols && size.mode === 'classed'}
+                <ClassList
+                  {resolved}
+                  kind="graduated"
+                  classes={resolved.size.classes}
+                  caption={resolved.size.caption}
+                  listLabel="Size classes"
+                  canAdd={false}
+                  {sizeSymbols}
+                  manual={size.method === 'manual'}
+                  onColor={() => {}}
+                  onLabel={(key, label) => apply(setSizeClassLabel(style, key, label))}
+                  onVisible={(key, visible) => apply(setSizeClassVisible(style, key, visible))}
+                  onValue={() => {}}
+                  onBound={(index, side, value) => apply(setSizeClassBound(style, resolved, index, side, value))}
+                  onAdd={() => {}}
+                  onDelete={() => {}}
+                />
+                {#each resolved.size.notes as note (note)}
+                  <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
+                {/each}
+              {/if}
+              {/if}
+            </VaryRow>
           {:else}
             {@const enc = style.channels?.[id]}
-            <ChannelRow
-              {id}
-              name={CHANNEL_NAMES[id]}
-              mode={enc ? 'column' : 'fixed'}
-              onMode={(m) => setGenericMode(id, m)}
-              columnUnavailable={channelColumns.length ? null : 'This result has no attribute columns.'}
-              summary={resolved.channels?.[id]?.caption ?? ''}
-            >
-              {#snippet fixed()}
-                {#if id === 'strokeColor'}
-                  <div class="row">
-                    <input type="color" aria-label="{strokeLabel} color" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
-                    <input type="range" aria-label="{strokeLabel} opacity" aria-valuetext={pct(style.strokeOpacity)} min="0" max="1" step="0.05" value={style.strokeOpacity} oninput={(e) => onChange({ strokeOpacity: Number(e.currentTarget.value) })} />
-                    <span class="value">{pct(style.strokeOpacity)}</span>
-                  </div>
-                {:else if id === 'strokeWidth'}
-                  <div class="row">
-                    <input type="range" class="wide" aria-label="{strokeLabel} width" aria-valuetext="{style.strokeWidth} pixels" min="0" max="10" step="0.5" value={style.strokeWidth} oninput={(e) => onChange({ strokeWidth: Number(e.currentTarget.value) })} />
-                    <span class="value">{style.strokeWidth} px</span>
-                  </div>
-                  {#if !rows.includes('dash') && hasLines}
-                    <div class="row">
-                      <label class="label" for="style-dash">Pattern</label>
-                      <span class="preview" aria-hidden="true"><SymbolSwatch symbol={{ ...preview, lineWidth: Math.min(Math.max(preview.lineWidth, 1.5), 3) }} kind="line" size={26} /></span>
-                      <select id="style-dash" class="span" value={dash} onchange={(e) => onChange({ lineDash: e.currentTarget.value as LineDash })}>
-                        {#each LINE_DASHES as d (d)}
-                          <option value={d}>{LINE_DASH_NAMES[d]}</option>
-                        {/each}
-                      </select>
-                    </div>
-                  {/if}
-                {:else if id === 'dash'}
-                  <div class="row">
-                    <span class="preview" aria-hidden="true"><SymbolSwatch symbol={{ ...preview, lineWidth: Math.min(Math.max(preview.lineWidth, 1.5), 3) }} kind="line" size={26} /></span>
-                    <select id="style-dash" class="span" aria-label="Pattern" value={dash} onchange={(e) => onChange({ lineDash: e.currentTarget.value as LineDash })}>
-                      {#each LINE_DASHES as d (d)}
-                        <option value={d}>{LINE_DASH_NAMES[d]}</option>
-                      {/each}
-                    </select>
-                  </div>
-                {:else if id === 'shape'}
-                  <div class="row">
-                    <div class="shapes" role="radiogroup" aria-label="Shape">
-                      {#each MARKER_SHAPES as m (m)}
-                        <button
-                          type="button"
-                          role="radio"
-                          data-shape={m}
-                          aria-checked={shape === m}
-                          aria-label={MARKER_SHAPE_NAMES[m]}
-                          title={MARKER_SHAPE_NAMES[m]}
-                          tabindex={shape === m ? 0 : -1}
-                          onclick={() => onChange({ markerShape: m })}
-                          onkeydown={shapeKeydown}
-                        >
-                          <SymbolSwatch symbol={{ ...preview, shape: m, radius: 6, strokeWidth: Math.min(preview.strokeWidth, 1.5), fillOpacity: Math.max(preview.fillOpacity, 0.6) }} kind="point" size={18} />
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                {:else if id === 'opacity'}
-                  {@const o = style.opacity ?? 1}
-                  <div class="row">
-                    <input type="range" class="wide" aria-label="Opacity" aria-valuetext={pct(o)} min="0" max="1" step="0.05" value={o} oninput={(e) => apply(setFixed(style, 'opacity', Number(e.currentTarget.value)))} />
-                    <span class="value">{pct(o)}</span>
-                  </div>
-                {:else if id === 'rotation'}
-                  {@const r = style.rotation ?? 0}
-                  <div class="row">
-                    <input type="range" class="wide" aria-label="Rotation" aria-valuetext="{r} degrees" min="0" max="359" step="1" value={r} oninput={(e) => apply(setFixed(style, 'rotation', Number(e.currentTarget.value)))} />
-                    <span class="value">{r}°</span>
-                  </div>
-                  {#if shape === 'circle' && !style.channels?.shape}
-                    <p class="hint">A circle looks the same turned: choose another shape to see the rotation.</p>
-                  {/if}
-                {/if}
-              {/snippet}
-              {#snippet byColumn()}
-                {#if enc}
-                  <ScaleEditor
-                    channel={id}
-                    {enc}
-                    resolved={resolved.channels?.[id]}
-                    columns={channelColumns}
-                    scales={scalesForColumn(id, enc)}
-                    onColumn={(c) => apply(setChannelColumn(style, id, c, layer))}
-                    onScale={(k) => apply(setScaleKind(style, id, k, layer))}
-                    onClasses={(p) => apply(setChannelClasses(style, id, p))}
-                    onRange={(lo, hi) => apply(setChannelRange(style, id, lo, hi))}
-                    onRamp={(ramp) => apply(setChannelRamp(style, id, ramp))}
-                    onClass={(key, patch) => apply(setChannelClass(style, id, key, patch))}
-                    onLegendHidden={(h) => apply(setLegendHidden(style, id, h))}
-                  />
-                {/if}
-              {/snippet}
-            </ChannelRow>
+            <VaryRow {id} name={CHANNEL_NAMES[id]} summary={resolved.channels?.[id]?.caption ?? ''} onRemove={() => removeVary(id)}>
+              {#if enc}
+                <ScaleEditor
+                  channel={id}
+                  {enc}
+                  resolved={resolved.channels?.[id]}
+                  columns={channelColumns}
+                  scales={scalesForColumn(id, enc)}
+                  onColumn={(c) => apply(setChannelColumn(style, id, c, layer))}
+                  onScale={(k) => apply(setScaleKind(style, id, k, layer))}
+                  onClasses={(p) => apply(setChannelClasses(style, id, p))}
+                  onRange={(lo, hi) => apply(setChannelRange(style, id, lo, hi))}
+                  onRamp={(ramp) => apply(setChannelRamp(style, id, ramp))}
+                  onClass={(key, patch) => apply(setChannelClass(style, id, key, patch))}
+                  onLegendHidden={(h) => apply(setLegendHidden(style, id, h))}
+                />
+              {/if}
+            </VaryRow>
           {/if}
         {/each}
-        {#if varyingCount >= 3}
+        <AddVaryMenu items={addable} onAdd={addVary} />
+        {#if varying.length + (thematic ? 1 : 0) >= 3}
           <p class="inline-note" role="status"><Icon name="info" size={14} />Maps with many variables are harder to read: consider two.</p>
         {/if}
       </section>
     {/if}
 
-    <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height; spec 011: shown while Draw as is 3D. -->
-    {#if !extrusionReason && ext?.enabled}
+    <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height. -->
     <section aria-labelledby="style-sec-3d">
-      <h3 id="style-sec-3d">Height</h3>
+      <h3 id="style-sec-3d">3D</h3>
+      {#if extrusionReason}
+        <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionReason}</p>
+      {:else}
+        <div class="row field">
+          <span class="label" id="extrude-label">Extrude</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            aria-label="Extrude polygons"
+            aria-checked={ext?.enabled === true}
+            onclick={toggleExtrusion}
+          >
+            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+            <span class="state">{ext?.enabled ? 'On' : 'Off'}</span>
+          </button>
+        </div>
         {#if ext?.enabled}
           <div class="row field">
             <label class="label" for="extrude-height">Height</label>
@@ -1096,8 +1066,8 @@
             <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionFlat.toLocaleString('en-US')} {extrusionFlat === 1 ? 'polygon' : 'polygons'} drawn flat (no height, zero or negative).</p>
           {/if}
         {/if}
+      {/if}
     </section>
-    {/if}
   </div>
 
   {#if notice}
@@ -1529,5 +1499,76 @@
   .icon-button:hover {
     background: var(--se-control-hover);
     color: var(--se-text-primary);
+  }
+  /* A VS Code-style toggle: a clear off state in every theme, the accent when on. */
+  .switch {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    padding: 0 4px 0 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+    font-weight: normal;
+    cursor: pointer;
+  }
+  .switch:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .switch .track {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--se-input-border);
+    background: color-mix(in srgb, var(--se-text-secondary) 22%, var(--se-input-bg));
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .switch .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--se-text-primary);
+    opacity: 0.75;
+    transition:
+      transform 0.15s,
+      opacity 0.15s;
+  }
+  .switch:not(:disabled):hover .track {
+    border-color: var(--se-text-secondary);
+  }
+  .switch[aria-checked='true'] .track {
+    background: var(--se-button-bg);
+    border-color: var(--se-button-bg);
+  }
+  .switch[aria-checked='true'] .thumb {
+    transform: translateX(14px);
+    background: var(--se-button-fg);
+    opacity: 1;
+  }
+  .switch .state {
+    color: var(--se-text-secondary);
+  }
+  .switch:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch .track,
+    .switch .thumb {
+      transition: none;
+    }
   }
 </style>

@@ -2,7 +2,7 @@
 // channel. Lines keep their class colors and step through width classes; the
 // legend shows one group per channel.
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, writeParcels, openStyle, chooseStyleType } from './helpers'
+import { fixture, openFile, writeParcels, openStyle, chooseStyleType, varyBy } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -27,11 +27,9 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   const drawn = (await rendered(page)) as string
   expect(Number(drawn)).toBeGreaterThan(0)
 
-  // Spec 011: the Width row's Fixed / By column replaces the Size by switch (lines are sized by width).
-  const toggle = panel(page).getByRole('radio', { name: 'Width: By column' })
-  await expect(toggle).toHaveAttribute('aria-checked', 'false')
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  // Spec 011: Vary by attribute, Add… → Width (lines are sized by width).
+  await expect(panel(page).getByRole('group', { name: 'Width by' })).toHaveCount(0)
+  await varyBy(page, 'Width')
   // SC-001: one click sizes by the first measure (the id column goes last).
   await expect(panel(page).getByLabel('Size column')).toHaveValue('aadt')
   await panel(page).getByLabel('Size column').selectOption('aadt')
@@ -54,7 +52,7 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
   await sizeGroup(page).locator('li').first().getByRole('button').click()
   await expect.poll(async () => Number(await rendered(page))).toBeLessThan(Number(drawn))
 
-  await panel(page).getByRole('radio', { name: 'Width: Fixed' }).click()
+  await panel(page).getByRole('button', { name: 'Stop varying width' }).click()
   await expect(sizeGroup(page)).toHaveCount(0)
   await expect.poll(() => rendered(page)).toBe(drawn)
 })
@@ -62,16 +60,18 @@ test('color by class, width by traffic: two legend groups, live edits, and off a
 test('polygons have no size channel, and the old Graduated "Vary" switch is gone', async ({ page }) => {
   await openFile(page, writeParcels(50))
   await openStyle(page)
-  // Spec 011: polygons list no Size property at all.
-  await expect(panel(page).getByRole('radiogroup', { name: 'Size: Fixed or By column' })).toHaveCount(0)
-  await expect(panel(page).getByRole('radiogroup', { name: 'Outline width: Fixed or By column' })).toHaveCount(1)
+  // Spec 011: polygons can't vary by size; Add… doesn't offer it.
+  await panel(page).getByRole('button', { name: 'Add…' }).click()
+  const items = page.getByRole('menu', { name: 'Vary by attribute' }).getByRole('menuitem')
+  await expect(items).toHaveText(['Outline color', 'Outline width', 'Opacity'])
+  await page.keyboard.press('Escape')
   await chooseStyleType(page, 'Graduated')
   await expect(panel(page).getByRole('radiogroup', { name: 'Vary' })).toHaveCount(0)
 })
 
 test('proportional sizes: smooth widths with reference sizes in the legend, and back to classes (US2)', async ({ page }) => {
   await openRoads(page)
-  await panel(page).getByRole('radio', { name: 'Width: By column' }).click()
+  await varyBy(page, 'Width')
   await panel(page).getByLabel('Size column').selectOption('aadt')
   const mode = panel(page).getByRole('radiogroup', { name: 'Size scale' })
   await expect(mode.getByRole('radio', { name: 'Classed' })).toHaveAttribute('aria-checked', 'true')
