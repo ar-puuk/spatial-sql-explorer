@@ -64,9 +64,18 @@ test('a map click selects that feature; Ctrl-click adds another', async ({ page 
   test.setTimeout(120000)
   await openFile(page, writeParcels(200), '?e2e=1')
   const drawn = await hook<number[]>(page, 'drawnIds')
+  const idles = async () => Number((await page.locator('.canvas-host').getAttribute('data-idles')) ?? 0)
+  // Zoom to the feature and wait for the map to settle (an idle after the zoom
+  // began), not a fixed time: under load the camera or tiles lag, and the
+  // click lands on nothing. The count is read in the same evaluate that zooms,
+  // so an idle from before can't pass for it.
   const center = async (id: number) => {
-    await page.evaluate((i) => (window as unknown as { __spatialExplorerE2E: { zoomToFeature(id: number): void } }).__spatialExplorerE2E.zoomToFeature(i), id)
-    await page.waitForTimeout(900)
+    const before = await page.evaluate((i) => {
+      const n = Number(document.querySelector<HTMLElement>('.canvas-host')?.dataset.idles ?? 0)
+      ;(window as unknown as { __spatialExplorerE2E: { zoomToFeature(id: number): void } }).__spatialExplorerE2E.zoomToFeature(i)
+      return n
+    }, id)
+    await expect.poll(idles, { timeout: 15000, intervals: [50] }).toBeGreaterThan(before)
     const box = (await page.locator('.canvas-host').boundingBox())!
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   }
