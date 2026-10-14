@@ -43,10 +43,9 @@ interface DrawAs {
 interface HeightFixed { meters: number }  // ≥ 0; default 0 (flat until a channel or value is set)
 ```
 
-`lineColor` is not a separate fixed field: the line Color channel shares
-`color`, as today (the renderer colored lines). The fixed line color stays
-`strokeColor`, as today: an unclassed line is drawn in the stroke color. This
-preserves spec 001's single-symbol look.
+There is no separate `lineColor` field. Lines use the `color` channel, as the
+renderer colored lines before. A line's **fixed** color stays `strokeColor`,
+so a line layer with no varying color looks exactly as in spec 001.
 
 ## Channels
 
@@ -66,22 +65,20 @@ type ChannelId =
 type Channels = Partial<Record<ChannelId, Encoding>>
 
 /** The order properties appear in the panel and the legend. */
-const CHANNEL_ORDER: ChannelId[] = ['color', 'strokeColor', 'size', 'width', 'strokeWidth', 'shape', 'dash', 'opacity', 'rotation', 'height']
+const CHANNEL_ORDER: ChannelId[] = ['color', 'strokeColor', 'strokeWidth', 'size', 'width', 'shape', 'dash', 'opacity', 'rotation', 'height']
 ```
 
 Which channels a geometry lists (panel, legend, map):
 
 | Part | Channels |
 |---|---|
-| Markers | color, strokeColor, size, shape, opacity, rotation, plus strokeWidth (Outline width, shown inside the Outline color row's fixed editor; it can also vary) |
+| Markers | color, strokeColor, strokeWidth (Outline width), size, shape, opacity, rotation |
 | Lines | color (label "Color"), width, dash, opacity |
 | Fills | color, strokeColor, strokeWidth, opacity (and dash for outlines, shown in the Outline row as today) |
 | 3D | color, height, opacity |
 | Heatmap | none (its settings) |
 
-The spec lists Markers without Outline width. It is in the model because QGIS
-and the map both treat a marker's outline width separately. The panel shows it
-in the Outline row, as today's Appearance section does.
+Outline width is its own row for markers and polygons, as in QGIS.
 
 ### Encoding
 

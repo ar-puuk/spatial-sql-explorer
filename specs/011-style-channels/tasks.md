@@ -336,7 +336,8 @@ SC-002 is proven.
     `age_days` (classes). Check the pixel shapes and colors of known
     features, and the Other note for the 9 types.
   - **Back to Fixed:** switch Width to Fixed; every line returns to the fixed
-    width, and Color is unchanged.
+    width, and Color is unchanged. Switch Width back to By column: the same
+    column, scale and classes come back (FR-007).
   - **Polygons:** the rows are Color, Outline color, Outline width and
     Opacity, with no Size.
   - **Keyboard:** each row's switch and controls are reachable and named per
@@ -346,10 +347,12 @@ SC-002 is proven.
   - `setChannel(page, property, { column, scale })`;
   - `setFixed(page, property)`;
   - `expandRow(page, property)`.
-  Re-express `chooseStyleType` in terms of recipes (T036). Migrate the 15
-  specs that use it (`style-*.spec.ts`, `accessibility.spec.ts`,
-  `extrusion.spec.ts`, `map-image.spec.ts`), keeping each test's intent. List
-  every changed assertion in the commit message.
+  `chooseStyleType` keeps working in this phase: T030 leaves the style type
+  dropdown in place, and T037 replaces it. Migrate the specs that use the
+  removed Size, Appearance and 3D sections (`style-*.spec.ts`,
+  `accessibility.spec.ts`, `extrusion.spec.ts`, `map-image.spec.ts`) to the
+  rows, keeping each test's intent. List every changed assertion in the commit
+  message.
 
 ### Implementation for User Story 1
 
@@ -395,6 +398,10 @@ SC-002 is proven.
   - **Categories:** `ClassList` in value mode with an output column;
   - **Classes:** method, count, manual bounds (as the graduated section
     today), plus a ramp (`RampPicker`) or a min–max range;
+  - **Conditions and Bivariate, for Color only in this phase:** today's rules
+    editor and `BivariatePicker`, moved in unchanged, so migrated rules and
+    bivariate styles stay editable (US2). T044 extends Conditions to every
+    channel;
   - **Hide from legend** checkbox.
   Make `ClassList.svelte` take an `outputKind`
   (`'color' | 'px' | 'shape' | 'dash' | 'opacity' | 'degrees' | 'meters'`)
@@ -403,7 +410,13 @@ SC-002 is proven.
 - [ ] T030 [US1] Rebuild `packages/ui/src/LayerStylePanel.svelte`:
   - rows from `channelsFor(geometry, draw)` in `CHANNEL_ORDER`, using
     `ChannelRow`;
-  - remove the style type section and the Size, Appearance and 3D sections;
+  - remove the Size, Appearance and 3D sections;
+  - **interim, until T037:** keep the style type dropdown
+    (`StyleTypePicker`). Each type now starts its channel through the existing
+    `startStyle` wrapper: Single clears `color`, Categorized and Graduated
+    start the Color row, Rules and Bivariate start Color with that scale,
+    Heatmap sets `draw.points`. So no capability disappears between the two
+    phases;
   - keep the heatmap section (shown while Draw as is Heatmap), layer opacity,
     and import and export;
   - the panel's set-aside encodings live in
@@ -472,17 +485,21 @@ green.
   - recipe options are actions;
   - the button shows the current Draw as and its hint.
   Arrow keys still skip disabled options across groups.
-- [ ] T037 [US3] Wire Draw as and recipes into `LayerStylePanel.svelte`:
+- [ ] T037 [US3] Wire Draw as and recipes into `LayerStylePanel.svelte`,
+  replacing T030's interim dropdown:
   - `setDraw` with the camera for the heatmap's meters;
   - the 3D pitch ease (`EXTRUSION_PITCH`) when switching to 3D, as the 3D
     toggle does today;
   - Height row only in 3D.
-  T034 passes.
+  Re-express `chooseStyleType` in `tests/web/specs/helpers.ts` as
+  `chooseDrawAs` / `applyRecipe`, and update its callers. T034 passes.
 
 **Checkpoint**: slice 2 is done. Run the full web suite and the extension
 `style.test.ts`, then go to T038.
 
-- [ ] T038 [US3] Drop the alias fields:
+### Slice 2 clean-up (no story)
+
+- [ ] T038 Drop the alias fields:
   - from `ResolvedStyle`: `caption`, `classes`, `grid` and `size` at top
     level;
   - from the old edit wrappers in `packages/core/src/style/edit.ts`;
@@ -490,7 +507,7 @@ green.
     migration).
   Move the callers to `resolved.channels`. Update the tests that read the
   aliases to read `channels.color` and `channels.size`. Keep their intent.
-- [ ] T039 [US3] Update `README.md`'s styling section and the `CHANGELOG.md`
+- [ ] T039 Update `README.md`'s styling section and the `CHANGELOG.md`
   [Unreleased] entries: Changed (style panel by property, Draw as, recipes),
   and Added (Outline color, Outline width, Shape, Pattern, Opacity and
   Rotation by column).
@@ -534,6 +551,13 @@ combination's map output matches independently computed values.
   - Color by `hex_color` As is, with the bad-value note count;
   - Width by Conditions with two rules;
   - Shape triangle plus continuous color: the 32-step note shows.
+  - **SC-006**: the four example maps from the spec's Context, each built from
+    a freshly opened fixture through the panel alone:
+    - roads: LOS color and volume width;
+    - crashes: severity color and type shape;
+    - stations (`crashes.geojson` as a stand-in): size by `age_days`, faded
+      by opacity;
+    - arrows: triangles rotated by `heading`.
 
 ### Implementation for User Story 4
 
@@ -683,7 +707,8 @@ and re-import into the app.
   Fix mismatches. Record the outcome (cases, mismatches 0) in `research.md`
   "SC-003", and in `tests/qgis/README.md` "Last run".
 - [ ] T058 [US7] Extend `tests/vscode-ext/src/suite/style.test.ts`: save a
-  sidecar with three varying channels; reopen; the same channels and legend.
+  sidecar with three varying channels and labels on (an expression source);
+  reopen; the same channels, legend and labels (FR-024).
 
 ---
 
@@ -729,6 +754,8 @@ and re-import into the app.
     shows its error and the previous labels stay.
   - **Legend:** hiding a class hides its labels.
   - **Basemap:** switching to Blank keeps the labels drawn.
+  - **3D:** on `counties-011.geojson` drawn as 3D, labels are drawn at ground
+    level at each polygon's label point (research §3).
   - **Tiles** (large-data fixture): turning labels on issues no new
     `CREATE VIEW` (query log), so the layer is not reloaded.
 
@@ -811,10 +838,11 @@ and re-import into the app.
 - [ ] T073 [P] Check themes: run the new panel and Labels panel in light,
   dark and high contrast (`theme.spec.ts` pattern), plus the
   `accessibility.spec.ts` keyboard pass over the new controls (SC-007).
-- [ ] T074 Update the documentation:
-  - `README.md`: styling section, and a labels section;
+- [ ] T074 Update the documentation for slices 3–5. T039 already covered
+  slice 2.
+  - `README.md`: a labels section, and the new scales in the styling section;
   - `CHANGELOG.md` [Unreleased]: Added (labels; continuous, conditions and
-    as-is scales; legend merging) and Changed;
+    as-is scales; legend merging);
   - CLAUDE.md's "Styling and export" bullet, to describe channels and labels;
   - `THIRD-PARTY-NOTICES.md`: no change expected; confirm.
 - [ ] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and

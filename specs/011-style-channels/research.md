@@ -125,6 +125,11 @@ the system's fonts.
 - Works offline and on every basemap, including Blank.
 - The spec's assumption about fonts being downloaded is withdrawn (spec updated).
 
+**3D**: MapLibre doesn't place symbol layers on top of `fill-extrusion`.
+Labels on 3D polygons stay on the ground at each feature's label point, which
+is the map's default. The spec's edge case is settled this way. Labels may be
+hidden behind tall extrusions when the map is tilted.
+
 **Tracked checks (implementation)**:
 - In the spike, a faint mark sometimes appeared at word gaps in labels along
   lines (`Route•dash`), in every case. Check it in VS Code's webview with a real

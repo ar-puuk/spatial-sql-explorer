@@ -25,7 +25,8 @@ labels on and adjust them." Research and design: [proposal.md](./proposal.md).
 - Q: Rules: a scale on any channel, or one rule sets the whole symbol? → A: A scale
   on any channel (proposal §7.2).
 - Q: Which channels? → A: Markers: color, outline color, size, shape, opacity,
-  rotation. Lines: color, width, pattern, opacity. Polygons: color, outline color,
+  rotation (plus outline width, added in analysis to match QGIS and the fixed
+  settings). Lines: color, width, pattern, opacity. Polygons: color, outline color,
   outline width, opacity, plus height when drawn in 3D.
 - Q: Labels? → A: In scope. Labels get their own button on the side panel's rail,
   where the user turns them on and adjusts them.
@@ -75,7 +76,7 @@ own column.
 **Acceptance Scenarios**:
 
 1. **Given** a point layer, **When** the user opens the style panel, **Then** it
-   lists Color, Outline color, Size, Shape, Opacity and Rotation. Each is set to
+   lists Color, Outline color, Outline width, Size, Shape, Opacity and Rotation. Each is set to
    Fixed with the layer's current value.
 2. **Given** a line layer, **When** the user opens the style panel, **Then** it
    lists Color, Width, Pattern and Opacity.
@@ -376,9 +377,12 @@ and labels on. Check its legend groups and labels against the live map.
   - Bivariate is offered for Color only.
 - **No values or bad values**: null or empty values use the property's No value
   setting. A value an As-is scale can't read (not a color, not a number) uses the
-  fixed value, and a count is noted.
+  fixed value, and a count is noted. On markers of a shape other than circle,
+  at most 256 distinct As-is colors are drawn; further colors use the fixed
+  color, with a note.
 - **Too many values for Categories**: values past the limit for each property
-  fall into Other (shapes: 7, patterns: 5, other properties: as today for colors).
+  fall into Other (shapes: 6 values plus Other; patterns: 4 values plus Other;
+  other properties: as today for colors).
 - **Three or more properties by column**: allowed, with a one-line note that maps
   with many variables are harder to read. This is advice only.
 - **Same column, different breaks** (Color in 5 quantiles, Size in 3 equal
@@ -388,7 +392,8 @@ and labels on. Check its legend groups and labels against the live map.
 - **Labels with empty text**: features whose label text is null or empty get
   no label.
 - **Labels on the globe and in 3D**: labels stay upright and readable. In 3D
-  they are drawn at the top of each extrusion or on the ground, as settled in the plan.
+  they are drawn on the ground at each feature's label point, not on top of the
+  extrusion (research §3).
 - **Opacity**: a feature's opacity is its property value multiplied by the layer's
   overall opacity, never above 1.
 - **Conditions referring to missing columns or invalid SQL**: the error shows
@@ -408,7 +413,7 @@ and labels on. Check its legend groups and labels against the live map.
   - polygons: Fills or 3D;
   - Mixed: each part with its own choice.
 - **FR-002**: For each drawing, the panel MUST list its properties:
-  - Markers: Color, Outline color, Size, Shape, Opacity, Rotation;
+  - Markers: Color, Outline color, Outline width, Size, Shape, Opacity, Rotation;
   - Lines: Color, Width, Pattern, Opacity;
   - Fills: Color, Outline color, Outline width, Opacity;
   - 3D: Color, Height, Opacity;
@@ -461,9 +466,10 @@ and labels on. Check its legend groups and labels against the live map.
 - **FR-012**: Categories and classes MUST be computed over the whole
   result, not just the features in view. Results MUST be reused while the column,
   the method and the data don't change.
-- **FR-013**: Shape by categories MUST support at least the 7 existing marker
-  shapes, and Pattern the 5 existing line patterns. Values beyond that fall into
-  Other, with a note.
+- **FR-013**: Shape by categories MUST use the 7 existing marker shapes: 6 values
+  get their own shape and Other takes the seventh. Pattern uses the 5 existing
+  line patterns: 4 values plus Other. Further values fall into Other, with a
+  note.
 
 **Legend**
 

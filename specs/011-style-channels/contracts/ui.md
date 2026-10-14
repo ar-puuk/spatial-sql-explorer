@@ -11,7 +11,8 @@ III). Every control has an accessible name, role and state (Constitution VII).
 │   One symbol per point, varied by the rows below│
 │                                                 │
 │ Color          [Fixed|By column]  ■ #3b82f6 75% │  ChannelRow (collapsed when Fixed)
-│ Outline color  [Fixed|By column]  ■ #4b5563 1px │
+│ Outline color  [Fixed|By column]  ■ #4b5563     │
+│ Outline width  [Fixed|By column]  ── 1 px       │
 │ Size           [Fixed|By column]  ── 5 px       │
 │ Shape          [Fixed|By column]  ▲ Triangle    │
 │ Opacity        [Fixed|By column]  ── 100%       │
