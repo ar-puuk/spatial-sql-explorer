@@ -101,8 +101,10 @@
       {@const kind = kindOf(g)}
       {@const list = shown(g)}
       {@const sc = Math.min(1, (SWATCH / 2 - 1) / reachOf(list))}
-      {@const label = gi === 0 && g.channels[0] === 'color' ? heading : g.title}
-      {#if !(gi === 0 && g.channels[0] === 'color')}
+      <!-- The color's classes are the layer's own (the heading names them); a continuous or as-is color has its own title. -->
+      {@const ownTitle = !(gi === 0 && g.channels[0] === 'color') || !!g.gradient || !!g.note}
+      {@const label = ownTitle ? g.title : heading}
+      {#if ownTitle}
         <h4 class="group-title" title={g.title}>{g.title}</h4>
       {/if}
       <div role="group" aria-label={label} class="group" data-channels={g.channels.join(' ')}>

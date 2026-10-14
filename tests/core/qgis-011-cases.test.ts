@@ -137,7 +137,12 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
         Object.entries(engine).map(([col, f]) => [col.replace('__se_cls_', ''), rows.reduce((m, r) => m.set(f(r), (m.get(f(r)) ?? 0) + 1), new Map<number, number>())])
       ),
     })
+    // Spec 011 US4: Color itself continuous (polygons, the fill opacity kept) and as is (points).
+    const colorContinuous: LayerStyle = setChannelRamp(setScaleKind(setChannelColumn(base, 'color', 'num', layer), 'color', 'continuous', layer), 'color', { id: 'brewer-blues', reversed: false })
+    const colorAsIs: LayerStyle = setScaleKind(setChannelColumn(base, 'color', 'hex', layer), 'color', 'identity', layer)
     const cases: Array<{ name: string; geometry: 'point' | 'line' | 'polygon'; style: LayerStyle; input?: ReturnType<typeof counted> }> = [
+      { name: 'polygons-color-continuous', geometry: 'polygon', style: colorContinuous },
+      { name: 'points-color-as-is', geometry: 'point', style: colorAsIs },
       { name: 'points-conditions', geometry: 'point', style: byRules, input: counted() },
       { name: 'points-continuous', geometry: 'point', style: smooth },
       { name: 'points-as-is', geometry: 'point', style: asIs },
@@ -176,6 +181,8 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
         const props: Record<string, unknown> = { ...row, ...(c.input ? Object.fromEntries(Object.entries(engine).map(([col, f]) => [col, f(row)])) : {}) }
         const visible = filter ? ev(filter, props, 'filter') === true : true
         const out: Record<string, unknown> = { visible }
+        // The fill's alpha: the symbol's fill opacity, which a data-defined fill color must keep.
+        if (c.geometry !== 'line') out.fillAlpha = Math.round(c.style.fillOpacity * 255)
         if (c.geometry === 'point') {
           const parsed = parseMarkerIconId(String(ev(l.marker?.['icon-image'], props, 'layout.icon-image')))
           // Circles are drawn by the circle layer (smooth paint), other shapes from their icons.

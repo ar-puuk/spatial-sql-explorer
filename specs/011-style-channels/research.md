@@ -692,3 +692,29 @@ and add "Vary by attribute" under them. What changed:
 - **Tests:**
   - core `style-scales-011` (11), 740 in all;
   - web `style-scales-011` (4), and the style suites (70).
+
+## US4 slice C: Color by Continuous and As is (2026-10-14)
+
+- **Panel.** Two more Color types, "Continuous" (colors along a ramp, by a
+  number; it starts on the first measure column, ids last) and "As is"
+  (colors read from a text column, name-like columns first). Each shows
+  "Color by" with the same scale editor as Vary by attribute. Neither has a
+  pre-011 renderer: the style keeps the single symbol, plus a color encoding
+  that resolves like the other properties (`isGenericChannel` admits color
+  for these two scales). Map, legend, engine data and files work through
+  the same path.
+- **Legend.** The first color group normally takes the layer's heading.
+  A bar or an as-is note now keeps its own title ("age_days ·
+  Continuous").
+- **Fixed for every data-defined color (also slice 2's outline colors).**
+  A QGIS data-defined color replaces alpha too, so QGIS drew those fills
+  opaque. They are now wrapped in `set_color_part(…, 'alpha', fill or
+  outline opacity)`; the importer unwraps it.
+  - `check_011.py` reads the data-defined fill color and compares the fill's
+    alpha. 12 cases, 0 mismatches (continuous polygon colors, 66 distinct;
+    as-is point colors, 58; alpha 115 for a 45% fill).
+- **Tests:**
+  - core 740;
+  - web `style-scales-011` (5), and the style, export, legend, label and
+    accessibility suites (90; the export dialog's Cancel race failed once and
+    passed on rerun, as before).

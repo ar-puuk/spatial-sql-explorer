@@ -185,6 +185,9 @@ const qgisString = (s: string): string => `'${s.replace(/'/g, "''")}'`
 /** Which QGIS data-defined key a property sets on each kind of symbol layer (null: none). */
 function qgisKey(id: ChannelId, kind: 'fill' | 'line' | 'marker'): string | null {
   switch (id) {
+    // Spec 011 US4: a continuous or as-is color (a line's color is its outline color in QGIS).
+    case 'color':
+      return kind === 'line' ? 'outlineColor' : 'fillColor'
     case 'strokeColor':
       return kind === 'line' ? null : 'outlineColor'
     case 'strokeWidth':
@@ -300,6 +303,12 @@ export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | 
   if (!resolved?.channels || !style.channels) return NO_DD
   const layer: Array<[string, string[]]> = []
   const hidden: string[] = []
+  // A data-defined color replaces the symbol's color, alpha included: keep the fill or outline opacity.
+  const withAlpha = (id: ChannelId, expr: string): string => {
+    if (OUTPUT_KIND[id] !== 'color') return expr
+    const a = id === 'strokeColor' || kind === 'line' ? style.strokeOpacity : style.fillOpacity
+    return a < 1 ? `set_color_part(${expr}, 'alpha', ${Math.round(a * 255)})` : expr
+  }
   let opacity: string | null = null
   let rotation: string | null = null
   let shapeOurs: string | null = null
@@ -325,7 +334,7 @@ export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | 
         if (kind === 'marker') rotation = expr
       } else {
         const key = qgisKey(id, kind)
-        if (key) layer.push([key, expressionEntries(expr)])
+        if (key) layer.push([key, expressionEntries(withAlpha(id, expr))])
       }
       continue
     }
@@ -361,7 +370,7 @@ export function channelDataDefined(style: LayerStyle, resolved: ResolvedStyle | 
       continue
     }
     const key = qgisKey(id, kind)
-    if (key) layer.push([key, expressionEntries(expr)])
+    if (key) layer.push([key, expressionEntries(withAlpha(id, expr))])
   }
   // Our "x" is QGIS's filled cross turned 45°: a shape by data turns those features too.
   if (kind === 'marker' && (rotation || shapeOurs)) {
@@ -1100,7 +1109,10 @@ const clampNumber = (n: number, lo: number, hi: number): number => Math.min(hi, 
  * A property by a column from a QGIS `CASE` (categories, or classes with
  * fixed bounds), or null with a note. Opacity 0 means the class is hidden.
  */
-function encodingFromQgisCase(id: ChannelId, expression: string, toPxValue: (n: number) => number, notes: string[]): Encoding | null {
+function encodingFromQgisCase(id: ChannelId, raw: string, toPxValue: (n: number) => number, notes: string[]): Encoding | null {
+  // Ours keep the symbol's opacity around a data-defined color: the colors are inside.
+  const wrapped = /^\s*set_color_part\(\s*([\s\S]*)\s*,\s*'alpha'\s*,\s*\d+\s*\)\s*$/i.exec(raw)
+  const expression = wrapped ? wrapped[1] : raw
   // Spec 011 US4: scale_linear / scale_exp(…, 0.5) over one field is continuous.
   const scaled = /^\s*scale_(linear|exp)\(\s*(?:to_real\(\s*)?"((?:[^"]|"")+)"\s*\)?\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$/i.exec(expression)
   if (scaled && OUTPUT_KIND[id] !== 'color' && OUTPUT_KIND[id] !== 'shape' && OUTPUT_KIND[id] !== 'dash') {

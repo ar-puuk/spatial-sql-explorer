@@ -148,7 +148,7 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
   if (!enc) return undefined
   const out: NonNullable<ResolvedStyle['channels']> = {}
   const color = enc.color
-  if (color && style.draw?.points !== 'heatmap') {
+  if (color && style.draw?.points !== 'heatmap' && !isGenericChannel('color', color)) {
     out.color = {
       channel: 'color',
       status: r.status,
@@ -202,8 +202,10 @@ const layerOf = new WeakMap<ResolvedStyle, ResolveInput | null>()
  * classes or continuous (spec 009's size channel).
  */
 export function isGenericChannel(id: ChannelId, enc: Encoding): boolean {
-  if (id === 'color' || id === 'height') return false
+  if (id === 'height') return false
   const k = enc.scale.kind
+  // Spec 011 US4: color is the style type's, except continuous and as is, which resolve here too.
+  if (id === 'color') return k === 'continuous' || k === 'identity'
   if (k !== 'categories' && k !== 'classes' && k !== 'continuous' && k !== 'identity' && k !== 'conditions') return false
   // Spec 009's size channel draws size and width by classes or continuously (proportional).
   if ((id === 'size' || id === 'width') && sizeChannelFromEncoding(enc)) return false

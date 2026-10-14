@@ -1,6 +1,6 @@
 // Spec 011 US4: Continuous and As is on the properties that vary by attribute.
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, openStyle, varyBy } from './helpers'
+import { chooseStyleType, fixture, openFile, openStyle, varyBy } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -102,4 +102,25 @@ test('size row: line width by conditions, then back to classed', async ({ page }
   await expect(legend(page).getByRole('group', { name: /^(Size|Width) · 1 condition$/ })).toHaveCount(1)
   await scale.getByRole('radio', { name: 'Classed' }).click()
   await expect(panel(page).getByLabel('Size method')).toBeVisible()
+})
+
+test('color types: Continuous colors along a ramp (a bar in the legend); As is reads the colors', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBeNull()
+  await openStyle(page)
+  await chooseStyleType(page, 'Continuous')
+  await expect(panel(page).getByLabel('Color column')).toHaveValue('heading')
+  await panel(page).getByLabel('Color column').selectOption('age_days')
+  await expect(legend(page).getByRole('img', { name: /^age_days · Continuous: colors from 0 to 3,648$/ })).toBeVisible()
+  // No fixed fill to pick: the colors come from the ramp.
+  await expect(panel(page).getByRole('region', { name: 'Layer style' }).locator('input[aria-labelledby="fill-label"]')).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  await page.screenshot({ path: info.outputPath('color-continuous.png') })
+
+  await chooseStyleType(page, 'As is')
+  await expect(panel(page).getByLabel('Color column')).toHaveValue('hex_color')
+  await expect(legend(page).getByText('Colors read from the column')).toBeVisible()
+  await expect.poll(async () => Number(await rendered(page))).toBe(3000)
 })

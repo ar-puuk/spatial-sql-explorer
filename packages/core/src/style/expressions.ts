@@ -355,9 +355,11 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
   const widthBy = varies(style, resolved, 'width') ? (channelValue(style, resolved, 'width', 'line') as unknown[]) : lineWidth
   const iconRadius = largestRadius(style, resolved)
   const icon = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
-  const fillColor = perClass(index, symbols, (x) => x.fillColor, base.fillColor)
+  // Spec 011 US4: a continuous or as-is color (the style type's own) per feature.
+  const colorBy = varies(style, resolved, 'color')
+  const fillColor = colorBy ? channelValue(style, resolved, 'color') : perClass(index, symbols, (x) => x.fillColor, base.fillColor)
   // Spec 011: shape, outline color or outline width by data: the icon id is built per feature (research §2).
-  const perFeatureIcon = varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')
+  const perFeatureIcon = colorBy || varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')
   const num = (n: number) => String(Math.round(n * 100) / 100)
   const iconExpr = perFeatureIcon
     ? [
@@ -365,7 +367,7 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
         'se-marker|',
         channelValue(style, resolved, 'shape'),
         '|',
-        fillColor,
+        colorBy ? channelValue(style, resolved, 'color', 'marker', true) : fillColor,
         '|',
         num(base.fillOpacity),
         '|',
@@ -381,7 +383,7 @@ export function symbolExpressions(style: LayerStyle, resolved: ResolvedStyle) {
   return {
     index,
     fillColor,
-    lineColor: perClass(index, symbols, (x) => x.lineColor, base.lineColor),
+    lineColor: colorBy ? channelValue(style, resolved, 'color', 'line') : perClass(index, symbols, (x) => x.lineColor, base.lineColor),
     radius: sizeBy as number | unknown[],
     lineWidth: widthBy as number | unknown[],
     /** Marker icon per feature (shapes other than the circle). */
@@ -422,7 +424,7 @@ export function drawsMarkerIcons(style: LayerStyle, resolved: ResolvedStyle): bo
 export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): string[] {
   style = legacyView(style)
   // Spec 011: icons built per feature are made when the map asks for them; nothing to list.
-  if (varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')) return []
+  if (varies(style, resolved, 'color') || varies(style, resolved, 'shape') || varies(style, resolved, 'strokeColor') || varies(style, resolved, 'strokeWidth')) return []
   const iconRadius = largestRadius(style, resolved)
   const id = (x: SymbolSpec) => markerIconId(iconRadius === null ? x : { ...x, radius: iconRadius })
   return [...new Set([id(baseSymbol(style)), ...classSymbols(style, resolved).map(id)])]

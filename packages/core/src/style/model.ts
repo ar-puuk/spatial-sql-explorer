@@ -431,7 +431,8 @@ export function styleDataColumns(style: LayerStyle): string[] {
   const out = size && !cols.includes(size) ? [...cols, size] : [...cols]
   // Spec 011: every other property set by a column (height is the extrusion's, listed by the viewer).
   for (const [id, enc] of Object.entries(style.channels ?? {}) as Array<[ChannelId, NonNullable<Channels[ChannelId]>]>) {
-    if (id === 'color' || id === 'height') continue
+    // Spec 011 US4: a continuous or as-is color has no pre-011 renderer, so its column is listed here.
+    if (id === 'height' || (id === 'color' && enc.scale.kind !== 'continuous' && enc.scale.kind !== 'identity')) continue
     for (const c of channelDataColumns(id, enc)) if (!out.includes(c)) out.push(c)
   }
   // Spec 011 US6: the label text, while labels are on (a column, or the engine-computed text).

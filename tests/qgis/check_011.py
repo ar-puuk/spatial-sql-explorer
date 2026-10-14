@@ -53,7 +53,10 @@ def look(symbol, ctx, geometry):
     if sym_props.isActive(QgsSymbol.Property.Opacity):
         value, ok = sym_props.valueAsDouble(QgsSymbol.Property.Opacity, ctx.expressionContext(), opacity)
         opacity = value if ok else opacity
-    got = {'visible': opacity > 0, 'color': symbol.color().name(), 'opacity': round(opacity, 2)}
+    fill = dd(props, P.FillColor, ctx, 'color', layer.fillColor() if geometry != 'line' else symbol.color()) if geometry != 'line' else symbol.color()
+    got = {'visible': opacity > 0, 'color': fill.name(), 'opacity': round(opacity, 2)}
+    if geometry != 'line':
+        got['fillAlpha'] = fill.alpha()
     if geometry == 'point':
         got['strokeColor'] = dd(props, P.StrokeColor, ctx, 'color', layer.strokeColor()).name()
         got['strokeWidth'] = round(dd(props, P.StrokeWidth, ctx, 'number', layer.strokeWidth()), 4)

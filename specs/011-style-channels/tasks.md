@@ -561,7 +561,7 @@ combination's map output matches independently computed values.
 
 ### Tests for User Story 4
 
-- [ ] T040 [P] [US4] Extend `tests/core/style-channels-011.test.ts` with
+- [x] T040 [P] [US4] Extend `tests/core/style-channels-011.test.ts` with
   Continuous, Conditions and As-is scales:
   - **Continuous:**
     - color interpolates exactly between ramp stops (the midpoint of
@@ -579,7 +579,7 @@ combination's map output matches independently computed values.
     a 32-step `step` expression, and circles stay smooth. Check the note text.
   - **Bivariate:** offered on `color` only. `sanitizeEncoding` rejects it
     elsewhere.
-- [ ] T041 [P] [US4] Write `tests/web/specs/style-scales-011.spec.ts`:
+- [x] T041 [P] [US4] Write `tests/web/specs/style-scales-011.spec.ts`:
   - Color by `density` Continuous: a gradient legend with min and max, and a
     pixel color at a known feature matches the expected interpolation;
   - Opacity Continuous 0.3–1;
@@ -598,7 +598,7 @@ combination's map output matches independently computed values.
 
 ### Implementation for User Story 4
 
-- [ ] T042 [US4] Implement in `packages/core/src/style/resolve.ts`:
+- [x] T042 [US4] Implement in `packages/core/src/style/resolve.ts`:
   - Continuous: domain from the column's statistics, `samples` for legends;
   - As is: invalid-value counts from the engine for colors, or features
     when in memory;
@@ -606,13 +606,13 @@ combination's map output matches independently computed values.
   - the shaped-marker bounds for continuous and As-is colors (research §2).
   Add `continuousExpression`, `identityExpression` and the 32-step quantized
   form in `packages/core/src/style/expressions.ts`. T040 passes.
-- [ ] T043 [US4] Add the per-channel engine work in
+- [x] T043 [US4] Add the per-channel engine work in
   `packages/core/src/query/session.ts`:
   - `__se_cls_<ch>` rule counts and errors per channel;
   - distinct-color counts and invalid counts for As-is colors (one query,
     cached with the other statistics).
   Extend `tests/core/stats-sql.test.ts`.
-- [ ] T044 [US4] Extend `packages/ui/src/style/ScaleEditor.svelte` with the
+- [x] T044 [US4] Extend `packages/ui/src/style/ScaleEditor.svelte` with the
   new scales:
   - **Continuous:** ramp or min–max, curve (numeric), domain override;
   - **Conditions:** the rules editor (`RuleList` from spec 010) with an
@@ -620,6 +620,18 @@ combination's map output matches independently computed values.
   - **As is:** the multiply field for height, and the note;
   - **Bivariate:** `BivariatePicker`, color only.
   The scale select lists `scalesFor(channel)`. T041 passes.
+  Done in three slices (research "US4 slice A/B/C"). Deviations from the
+  plan:
+  - tests live in `style-scales-011` (core and web), not
+    `style-channels-011`;
+  - Color's Continuous and As is are two more Color types (the panel
+    revision kept the style type), not a scale select;
+  - Bivariate stays a Color type;
+  - SLD writes conditions and as is fixed, with a note (spec 010's portable
+    rules weren't extended to other properties);
+  - SC-006's four example maps are covered by the existing suites (roads LOS
+    plus width, crashes severity plus shape), the new size, opacity and
+    rotation tests, and not as one test.
 
 ---
 

@@ -234,6 +234,9 @@ export const SLD_RULE_CAP = 100
 function applyOutput(id: ChannelId, look: LayerStyle, output: Output | undefined, geom: Exclude<StyleGeometry, 'Mixed'>): LayerStyle {
   if (output === undefined) return look
   switch (id) {
+    // Spec 011 US4: a continuous color (a line's color is its stroke).
+    case 'color':
+      return geom === 'LineString' ? { ...look, strokeColor: String(output) } : { ...look, fillColor: String(output) }
     case 'strokeColor':
       return geom === 'LineString' ? look : { ...look, strokeColor: String(output) }
     case 'strokeWidth':
