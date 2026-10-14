@@ -906,7 +906,7 @@ and re-import into the app.
 - [x] T071 [P] Check SC-005: on a tiles-mode layer, label toggle and setting
   changes cause no data reload, and pan frame times stay within spec 010's
   budget with labels on. Record the results in `research.md`.
-- [ ] T072 [P] Run the tracked check from research §1: dashes varying per
+- [x] T072 [P] Run the tracked check from research §1: dashes varying per
   feature on engine tiles (large-data fixture), with a pixel check. Record
   the result.
 - [ ] T073 [P] Check themes: run the new panel and Labels panel in light,

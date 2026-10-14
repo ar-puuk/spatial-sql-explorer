@@ -262,7 +262,8 @@ function drawSymbol(ctx: CanvasRenderingContext2D, s: SymbolSpec, shape: LegendS
     ctx.strokeStyle = s.lineColor
     ctx.globalAlpha = Math.max(0.2, s.strokeOpacity * o)
     ctx.lineWidth = lw
-    ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * lw) ?? [])
+    // At most 2 px per unit, as the on-map legend: a swatch shows a gap even for thick lines.
+    ctx.setLineDash(dashPattern(s.dash)?.map((n) => n * Math.min(lw, 2)) ?? [])
     ctx.beginPath()
     ctx.moveTo(x, cy)
     ctx.lineTo(x + w, cy)

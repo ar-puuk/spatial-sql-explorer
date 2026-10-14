@@ -21,7 +21,8 @@
   const c = $derived(size / 2)
   // Lines: thick enough to see, thin enough to fit; the dash follows the shown width.
   const lineWidth = $derived(Math.min(Math.max(symbol.lineWidth, 1), size / 2))
-  const lineDash = $derived(dashPattern(symbol.dash)?.map((n) => n * lineWidth).join(' '))
+  // At most 2 px per unit, so a swatch shows a gap even for thick lines (a 4 px dash pattern is 16 px long).
+  const lineDash = $derived(dashPattern(symbol.dash)?.map((n) => n * Math.min(lineWidth, 2)).join(' '))
   const outline = $derived(Math.min(symbol.strokeWidth, 3))
   const outlineDash = $derived(dashPattern(symbol.dash)?.map((n) => n * Math.max(outline, 1)).join(' '))
   const radius = $derived(Math.max(1.5, Math.min(symbol.radius * scale, (size / 2 - outline / 2) / markerExtent(symbol.shape))))

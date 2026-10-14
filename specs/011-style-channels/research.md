@@ -774,3 +774,15 @@ each idle was itself the 1–2 s long task, as spec 010 had found.
     and the layer is not opened again.
   - Panning at 6×: longest task 57 ms with labels, 0–64 ms without (spec
     010's budget: 200 ms).
+
+## Polish: patterns per feature on engine tiles (T072, research §1) (2026-10-14)
+
+- **Seen working.** `dash-tiles-011.spec.ts` checks two horizontal 4 px
+  lines in tiles mode (`tileRows=1`), the pattern by their category. Along
+  the solid line the line color is one unbroken run; along the dashed one it
+  breaks more than 10 times. The `match` on `line-dasharray` evaluates on
+  vector tiles as on GeoJSON.
+- **Fixed, seen in the same screenshot.** The legend drew both lines solid.
+  Swatches scaled the dash by the shown line width, so a 4 px dash pattern
+  was 16 px long in an 18 px swatch. The dash unit is now at most 2 px, in
+  the live legend and the map image.
