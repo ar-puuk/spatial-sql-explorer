@@ -91,7 +91,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Feature details are a card on the map again, under the search box: a map
   click, a table row or a search result shows it, whatever side panel is open
   (so you can style and inspect at once). It closes with × or Escape. The
-  side rail is Style, Labels and Basemap.
+  side rail is Style, Labels and Basemap. The search box is as wide as its
+  placeholder, and the card matches it.
 - SQL names the opened file by its own name: `us-counties.parquet` is
   `us_counties` (lower case, other characters as `_`; quoted when it starts
   with a digit or is a reserved word, as in `"2020_tracts"`). The default query

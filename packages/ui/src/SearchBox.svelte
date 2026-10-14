@@ -183,6 +183,7 @@
     activeKey = flat[next].key
     void tick().then(() => document.getElementById(optionId(flat[next]))?.scrollIntoView({ block: 'nearest' }))
   }
+  const placeholderText = $derived(store.placeSearchEnabled ? 'Search layer, coordinates or places' : 'Search layer or coordinates')
 </script>
 
 <div class="search-box">
@@ -193,6 +194,8 @@
       }}
     >
       <Icon name="search" size={14} />
+      <!-- The box is as wide as its placeholder: a hidden copy of it sizes the field. -->
+      <span class="field" data-placeholder={placeholderText}>
       <input
         bind:this={input}
         bind:value={text}
@@ -203,7 +206,7 @@
         aria-expanded={listShown}
         aria-controls="search-results"
         aria-activedescendant={listShown && active ? optionId(active) : undefined}
-        placeholder={store.placeSearchEnabled ? 'Search layer, coordinates or places' : 'Search layer or coordinates'}
+        placeholder={placeholderText}
         autocomplete="off"
         spellcheck="false"
         oninput={onInput}
@@ -213,9 +216,13 @@
         }}
         onblur={() => (open = false)}
       />
+      </span>
       {#if searchingPlaces}<span class="busy" aria-hidden="true">…</span>{/if}
       {#if text}
         <button type="button" class="clear" aria-label="Clear search" title="Clear (Esc)" onpointerdown={(e) => e.preventDefault()} onclick={clear}><Icon name="close" size={12} /></button>
+      {:else}
+        <!-- The clear button's place, kept so the box doesn't change width as you type. -->
+        <span class="clear-space" aria-hidden="true"></span>
       {/if}
     </form>
   </div>
@@ -293,7 +300,7 @@
   .search-box {
     pointer-events: auto;
     position: relative;
-    width: 300px;
+    width: fit-content;
     max-width: 100%;
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
@@ -314,8 +321,26 @@
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }
-  input {
+  .field {
+    display: grid;
     flex: 1;
+    min-width: 0;
+  }
+  .field::after {
+    content: attr(data-placeholder);
+    grid-area: 1 / 1;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    white-space: pre;
+  }
+  .clear-space {
+    flex: none;
+    width: 20px;
+  }
+  input {
+    grid-area: 1 / 1;
+    width: 100%;
     min-width: 0;
     height: 28px;
     padding: 0;
@@ -345,6 +370,8 @@
     background: var(--se-bg-hover);
   }
   .drop {
+    /* As wide as the box: the results never widen it. */
+    contain: inline-size;
     display: grid;
     gap: 6px;
     margin-top: 4px;

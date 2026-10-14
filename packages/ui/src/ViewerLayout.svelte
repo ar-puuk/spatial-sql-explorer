@@ -168,6 +168,8 @@
   let galleryOpen = $state(false)
   /** The feature card was closed (× or Escape); the next selection opens it again. */
   let inspectorClosed = $state(false)
+  /** The search box's width (it fits its placeholder); the feature card under it matches. */
+  let searchWidth = $state(0)
 
   const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX)
   const bottomHeight = $derived(
@@ -359,14 +361,16 @@
         />
         <div class="map-ov tl">
           <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. -->
-          <SearchBox
-            {store}
-            layerName={fileName ?? 'layer'}
-            onChooseFeature={(id) => {
-              handleMapSelect(id)
-              store.zoomToFeature(id)
-            }}
-          />
+          <div class="search-slot" bind:offsetWidth={searchWidth}>
+            <SearchBox
+              {store}
+              layerName={fileName ?? 'layer'}
+              onChooseFeature={(id) => {
+                handleMapSelect(id)
+                store.zoomToFeature(id)
+              }}
+            />
+          </div>
           {#if store.fileLayers.length > 1}
             <!-- Spec 008 US3: the file's layers. -->
             <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
@@ -374,7 +378,7 @@
         </div>
         {#if inspected && !inspectorClosed}
           <!-- The selected feature's attributes, under the search box, beside whatever panel is open. -->
-          <div class="map-ov inspector-slot">
+          <div class="map-ov inspector-slot" style:--se-card-width={searchWidth ? `${searchWidth}px` : null}>
             <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
           </div>
         {/if}
@@ -722,6 +726,9 @@
   }
   .map-ov.inspector-slot > :global(*) {
     pointer-events: auto;
+  }
+  .search-slot {
+    min-width: 0;
   }
   .map-ov.tl {
     position: absolute;

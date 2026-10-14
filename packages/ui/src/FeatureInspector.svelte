@@ -84,8 +84,8 @@
   .inspector {
     display: flex;
     flex-direction: column;
-    /* The search box's width: the card sits right under it. */
-    width: 300px;
+    /* The search box's width (ViewerLayout sets it): the card sits right under it. */
+    width: var(--se-card-width, 300px);
     max-width: 100%;
     max-height: min(480px, 100%);
     /* Borders inside that height, so the card ends where its slot does. */
