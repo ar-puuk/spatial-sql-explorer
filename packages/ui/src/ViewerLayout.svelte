@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -26,6 +26,7 @@
   import ColumnChooser from './ColumnChooser.svelte'
   import SelectionBar from './SelectionBar.svelte'
   import ActivityRail from './ActivityRail.svelte'
+  import LabelsPanel from './LabelsPanel.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -220,7 +221,13 @@
   })
 
   // --- Side panel ----------------------------------------------------------------
-  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', details: 'Feature details', basemap: 'Basemap' }
+  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', details: 'Feature details', basemap: 'Basemap' }
+  /** Spec 011 US6: what labels show, for the rail button's tooltip (null: off). */
+  const labelsOn = $derived.by(() => {
+    const l = store.style.labels
+    if (!l?.enabled) return null
+    return l.source.kind === 'column' ? l.source.column : 'expression'
+  })
   const sideActive = $derived<SideTab | null>(layout.sideOpen ? layout.sideTab : null)
 
   function selectSide(panel: SideTab | null): void {
@@ -579,6 +586,20 @@
               onSuggestRules={() => store.ruleSuggestions()}
             />
           {/if}
+        {:else if layout.sideTab === 'labels'}
+          {#if !layer}
+            <p class="empty">Open a file to label it.</p>
+          {:else if store.tilesOnlyReason}
+            <UnavailableNotice text={store.tilesOnlyReason} />
+          {:else}
+            <LabelsPanel
+              labels={store.style.labels}
+              columns={store.styleInput?.columns ?? []}
+              geometryType={layer.geometryType}
+              error={store.resolvedStyle.labelError}
+              onChange={(patch) => store.setStyle({ labels: setLabels(store.style, patch, store.styleInput?.columns ?? []).labels })}
+            />
+          {/if}
         {:else if layout.sideTab === 'details'}
           {#if inspected}
             <FeatureInspector embedded feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={closeSide} />
@@ -605,7 +626,8 @@
     <ActivityRail
       active={sideActive}
       badge={{ details: detailsBadge }}
-      disabled={{ style: store.tilesOnlyReason }}
+      disabled={{ style: store.tilesOnlyReason, labels: store.tilesOnlyReason }}
+      {labelsOn}
       basemapName={store.basemap.name}
       onSelect={selectSide}
     />

@@ -779,7 +779,7 @@ and re-import into the app.
 
 ### Tests for User Story 6
 
-- [ ] T059 [P] [US6] Write `tests/core/style-labels.test.ts`:
+- [x] T059 [P] [US6] Write `tests/core/style-labels.test.ts`:
   - `sanitizeLabels`: clamps, defaults per geometry, and off without a source;
   - `labelLayer` layout and paint:
     - `text-field` from the column or `__se_lbl`;
@@ -812,29 +812,29 @@ and re-import into the app.
 
 ### Implementation for User Story 6
 
-- [ ] T061 [US6] Implement `packages/core/src/style/labels.ts`:
+- [x] T061 [US6] Implement `packages/core/src/style/labels.ts`:
   `sanitizeLabels`, defaults, and `labelLayer(style, resolved)` per
   geometry. Add the `label` map layer id and its filter to `expressions.ts`.
   Add `setLabels` to `edit.ts`.
-- [ ] T062 [US6] Add the engine label column in
+- [x] T062 [US6] Add the engine label column in
   `packages/core/src/query/session.ts`:
   - `__se_lbl` for expression sources, in the view and tile SELECTs;
   - `labelError` returned to resolve;
   - a column source just adds the column to `styleDataColumns`.
-- [ ] T063 [US6] Add the label layers in `packages/ui/src/MapView.svelte`:
+- [x] T063 [US6] Add the label layers in `packages/ui/src/MapView.svelte`:
   - a `label` symbol layer after `marker` and `extrusion`, for each source
     instance (GeoJSON, engine tiles, PMTiles layers);
   - visibility follows `labels.enabled`;
   - not interactive (excluded from `INTERACTIVE_DEFS`);
   - on the globe, with the default `text-pitch-alignment`.
-- [ ] T064 [P] [US6] Add the `tag` icon path to `packages/ui/src/Icon.svelte`,
+- [x] T064 [P] [US6] Add the `tag` icon path to `packages/ui/src/Icon.svelte`,
   and the `labels` side tab:
   - `SideTab` in `viewerStore.svelte.ts`;
   - the `ActivityRail.svelte` button between Style and Details, with the title
     "Labels" / "Labels: on (<source>)";
   - `SidePanel.svelte` routing;
   - layout state persistence accepts `labels`.
-- [ ] T065 [US6] Write `packages/ui/src/LabelsPanel.svelte` (contracts/ui.md):
+- [x] T065 [US6] Write `packages/ui/src/LabelsPanel.svelte` (contracts/ui.md):
   - Show labels;
   - Text: a column select, or "SQL expression…" with completion and an error
     `aria-describedby`;
@@ -844,6 +844,8 @@ and re-import into the app.
   - Placement: point anchors and offset when points are present, plus text
     for lines and polygons.
   Edits go through `setLabels`. T060 passes.
+  Done; the expression is a plain input with its error, as the graduated
+  expression (no completion yet). Halo on/off, color and width share a row.
 - [ ] T066 [US6] Add label export and import to `qml.ts`
   (`<labeling type="simple">`), `sld.ts` (`TextSymbolizer`) and `mapbox.ts`
   (an `<id>-labels` symbol layer), with notes. Add label cases to

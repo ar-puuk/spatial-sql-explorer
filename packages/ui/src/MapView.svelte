@@ -21,6 +21,7 @@
     markerIconIds,
     drawsMarkerIcons,
     layerFilters,
+    labelLayers,
     visibilityFilter,
     type BasemapCatalogEntry,
     type BasemapStyle,
@@ -179,7 +180,16 @@
     },
     // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
     { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
+    // Spec 011 US6: labels, above everything (on the ground in 3D: research §3); not interactive.
+    { id: 'label', type: 'symbol', filter: ['any', POINT, POLYGON] },
+    { id: 'label-line', type: 'symbol', filter: LINE },
   ]
+  const LABEL_DEFS = new Set(['label', 'label-line'])
+
+  /** Spec 011 US6: a label layer's filter, layout and paint now (null: labels off). */
+  function labelSpec(id: string) {
+    return labelLayers(style, resolved)?.[id as 'label' | 'label-line'] ?? null
+  }
 
   /**
    * Spec 008 US6 (research §4): while extruded, the fill-extrusion layer
@@ -189,11 +199,13 @@
    * at ground level, so they hide.
    */
   function layerPaint(id: string, p: ReturnType<typeof paintFor>): Record<string, unknown> {
+    if (LABEL_DEFS.has(id)) return labelSpec(id)?.paint ?? {}
     const paint = p[id as keyof typeof p] ?? {}
     if (extruded && id === 'fill') return { ...paint, 'fill-opacity': 0 }
     return paint
   }
   function layerVisibility(id: string): 'visible' | 'none' {
+    if (LABEL_DEFS.has(id)) return labelSpec(id) ? 'visible' : 'none'
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
     const heat = drawsHeatmap(style, resolved)
     if (id === 'heatmap') return heat ? 'visible' : 'none'
@@ -228,6 +240,8 @@
    * (spec 011) the circle layer also keeps the points whose shape is a circle.
    */
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
+    // Dots standing in for features too small to see (option C) get no label.
+    if (LABEL_DEFS.has(def.id)) return ['all', labelSpec(def.id)?.filter ?? def.filter, ['!', DOT]]
     const hidden = visibilityFilter(style, resolved)
     const extra = layerFilters(style, resolved)
     const heat = drawsHeatmap(style, resolved)
@@ -243,6 +257,7 @@
   function layerLayout(def: (typeof LAYER_DEFS)[number], layouts: ReturnType<typeof layoutFor>): Record<string, unknown> {
     // Spec 009: `icon-size` follows the size channel; without one it is back to 1 (layoutFor leaves it out).
     const defaults = def.id === 'marker' ? { 'icon-size': 1 } : {}
+    if (LABEL_DEFS.has(def.id)) return { ...(labelSpec(def.id)?.layout ?? {}), visibility: layerVisibility(def.id) }
     return { ...(def.layout ?? {}), ...defaults, ...(layouts[def.id as keyof typeof layouts] ?? {}), visibility: layerVisibility(def.id) }
   }
 
@@ -554,6 +569,13 @@
         // Spec 010 (style tests): the drawn features' ids and properties, on demand (e.g. the engine's rule index).
         ;(container as HTMLElement & { seRendered?: () => Array<{ id: unknown; properties: unknown }> }).seRendered = () =>
           m.queryRenderedFeatures({ layers: interactiveLayers() }).map((f) => ({ id: f.id, properties: f.properties }))
+        // Spec 011 US6: the labels placed (after collisions), and their features' ids, layer and screen points.
+        const labelIds = layerInstances()
+          .filter((l) => LABEL_DEFS.has(l.def.id) && m.getLayer(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none')
+          .map((l) => l.id)
+        container.dataset.renderedLabels = String(labelIds.length ? m.queryRenderedFeatures({ layers: labelIds }).length : 0)
+        ;(container as HTMLElement & { seLabels?: () => Array<{ id: unknown; layer: string }> }).seLabels = () =>
+          labelIds.length ? m.queryRenderedFeatures({ layers: labelIds }).map((f) => ({ id: f.id, layer: f.layer.id })) : []
       }
       if (paintPending) {
         paintPending = false
@@ -840,6 +862,7 @@
       dataLoaded = true
       paintPending = true
       delete container.dataset.renderedFeatures
+    delete container.dataset.renderedLabels
     }
   })
 
@@ -855,6 +878,7 @@
     paintPending = true
     // Marks the rendered-feature count stale until the next idle (above).
     delete container.dataset.renderedFeatures
+    delete container.dataset.renderedLabels
   })
 
   // Tiles mode: the selected feature's shape, fetched by id (FR-008).

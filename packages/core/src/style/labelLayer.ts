@@ -94,7 +94,8 @@ export function labelLayers(style: LayerStyle, resolved: ResolvedStyle): Record<
     },
     'label-line': {
       filter: filterOf(LINES),
-      layout: { ...shared, 'symbol-placement': 'line', 'text-keep-upright': true, 'text-rotation-alignment': 'map', 'text-max-angle': 45 },
+      // Just above the line (QGIS's default, "Above line"): on it, the line shows through each word gap, where no glyph has a halo.
+      layout: { ...shared, 'symbol-placement': 'line', 'text-keep-upright': true, 'text-rotation-alignment': 'map', 'text-max-angle': 45, 'text-anchor': 'bottom', 'text-offset': ['literal', [0, -0.2]] },
       paint,
     },
   }
