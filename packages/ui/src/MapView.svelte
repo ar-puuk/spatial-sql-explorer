@@ -3,6 +3,8 @@
     AttributionControl,
     Map as MapLibreMap,
     ScaleControl,
+    getWorkerCount,
+    setWorkerCount,
     type GeoJSONSource,
     type MapGeoJSONFeature,
     type MapMouseEvent,
@@ -130,6 +132,15 @@
 
   // Spec 010: our sources and layers are `se-`; everything else in the style is the basemap.
   const SOURCE_ID = 'se-data'
+  /**
+   * GeoJSON mode: the dots (option C) in a source of their own. MapLibre gives
+   * each source its own worker, so the dots are tiled alongside the features
+   * instead of after them in one source (77k parcels: 2.3 s to 1.3 s).
+   */
+  const DOT_SOURCE = 'se-dots'
+  const DOT_LAYER = 'se-circle-dots'
+  /** MapLibre's workers (its default is one outside Safari). */
+  const MAP_WORKERS = 2
   /** Tiles mode: the selected feature's geometry, fetched by id (a tile may clip it, or not hold it). */
   const SELECTION_SOURCE = 'se-selection'
   const SELECTION_HALO = 'se-selection-halo'
@@ -222,10 +233,11 @@
   let styledTiles: TilesArchive | null = null
   /** The engine tile URL the data source was built for (null: GeoJSON or PMTiles). */
   let styledTileUrl: string | null = null
-  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string }> {
+  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string; source?: string }> {
     if (styledTiles) return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.map((def) => ({ id: `se-${def.id}::${sourceLayer}`, def, sourceLayer })))
     if (styledTileUrl) return LAYER_DEFS.map((def) => ({ id: `se-${def.id}`, def, sourceLayer: 'data' }))
-    return LAYER_DEFS.map((def) => ({ id: `se-${def.id}`, def }))
+    // GeoJSON mode: the circle layer once more, over the dots' own source.
+    return LAYER_DEFS.flatMap((def) => (def.id === 'circle' ? [{ id: 'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }] : [{ id: `se-${def.id}`, def }]))
   }
   function interactiveLayers(): string[] {
     return layerInstances()
@@ -336,16 +348,23 @@
   }
 
   /** A feature-state target on our data source (engine tiles need their source layer). */
-  function stateTarget(id: string | number): { source: string; id: string | number; sourceLayer?: string } {
-    return styledTileUrl ? { source: SOURCE_ID, sourceLayer: 'data', id } : { source: SOURCE_ID, id }
+  /** Hover, selection and ticks as feature-state: on the feature, and in GeoJSON mode on its dot too (same id). */
+  function setState(id: string | number, state: Record<string, boolean>): void {
+    if (!map) return
+    if (styledTileUrl) {
+      map.setFeatureState({ source: SOURCE_ID, sourceLayer: 'data', id }, state)
+      return
+    }
+    map.setFeatureState({ source: SOURCE_ID, id }, state)
+    if (map.getSource(DOT_SOURCE)) map.setFeatureState({ source: DOT_SOURCE, id }, state)
   }
 
   let hoveredId: string | number | null = null
   function setHover(id: string | number | null): void {
     if (!map || id === hoveredId || styledTiles) return
-    if (hoveredId !== null) map.setFeatureState(stateTarget(hoveredId), { hover: false })
+    if (hoveredId !== null) setState(hoveredId, { hover: false })
     hoveredId = id
-    if (id !== null) map.setFeatureState(stateTarget(id), { hover: true })
+    if (id !== null) setState(id, { hover: true })
     map.getCanvas().style.cursor = id !== null ? 'pointer' : ''
   }
 
@@ -359,9 +378,23 @@
   let currentData: GeoJSON.FeatureCollection = EMPTY
 
   /** What the GeoJSON source holds: the features, then their dots (option C), which draw above them. */
-  function sourceData(d: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
-    const dots = (d as Partial<MapData>).dots
-    return dots?.length ? { type: 'FeatureCollection', features: d.features.concat(dots) } : d
+  function dotData(d: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+    return { type: 'FeatureCollection', features: (d as Partial<MapData>).dots ?? [] }
+  }
+
+  /** GeoJSON mode: new data for the features and their dots. */
+  function setSourceData(m: MapLibreMap, d: GeoJSON.FeatureCollection): void {
+    ;(m.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(d)
+    ;(m.getSource(DOT_SOURCE) as GeoJSONSource | undefined)?.setData(dotData(d))
+  }
+
+  /** Our sources: the data (and in GeoJSON mode its dots), and the tiles-mode selection overlay. */
+  function dataSources(): Record<string, unknown> {
+    return {
+      [SOURCE_ID]: dataSource(),
+      ...(styledTiles || styledTileUrl ? {} : { [DOT_SOURCE]: { type: 'geojson', data: dotData(currentData), promoteId: ID_PROP } }),
+      [SELECTION_SOURCE]: { type: 'geojson', data: selectionData() },
+    }
   }
 
   /** Our data source for the current mode: PMTiles, the engine's tiles (spec 010), or GeoJSON. */
@@ -369,7 +402,7 @@
     if (styledTiles) return { type: 'vector', url: styledTiles.url }
     if (styledTileUrl) return { type: 'vector', tiles: [styledTileUrl], minzoom: 0, maxzoom: 14, promoteId: { data: ID_PROP } }
     // geojson-vt drops features under its tolerance at low zoom; their dots (option C) keep them visible.
-    return { type: 'geojson', data: sourceData(currentData), promoteId: ID_PROP }
+    return { type: 'geojson', data: currentData, promoteId: ID_PROP }
   }
 
   /** Our map layers (data, then the tiles-mode selection overlay), with the current paint, layout and filters. */
@@ -379,7 +412,7 @@
     const layers: Array<Record<string, unknown>> = layerInstances().map((l) => ({
       id: l.id,
       type: l.def.type,
-      source: SOURCE_ID,
+      source: l.source ?? SOURCE_ID,
       ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
       filter: layerFilter(l.def),
       layout: layerLayout(l.def, layouts),
@@ -403,9 +436,8 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
-    m.addSource(SOURCE_ID, dataSource() as never)
-    m.addSource(SELECTION_SOURCE, { type: 'geojson', data: selectionData() })
+    for (const id of [SOURCE_ID, DOT_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
+    for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
     previousSelected = null
@@ -452,7 +484,7 @@
       // Spec 008: the projection belongs to the viewer; the globe's atmosphere glow (space is drawn behind the map, globeSky.ts).
       projection: { type: untrack(() => projection) },
       ...(untrack(() => projection) === 'globe' ? { sky: GLOBE_SKY } : {}),
-      sources: { [SOURCE_ID]: dataSource(), [SELECTION_SOURCE]: { type: 'geojson', data: selectionData() } },
+      sources: dataSources(),
       layers: [...base.layers, ...dataLayers()],
     } as unknown as StyleSpecification
   }
@@ -784,6 +816,10 @@
 
   onMount(() => {
     ensureEngineTilesProtocol()
+    // MapLibre 6 runs one worker outside Safari, so our features, their dots
+    // and the basemap's tiles all queued on it. Two let the features and the
+    // dots tile side by side. Takes effect only before the first map.
+    if (getWorkerCount() < MAP_WORKERS) setWorkerCount(MAP_WORKERS)
     map = new MapLibreMap({
       container,
       // Data only at first (on a blank background); the basemap effect swaps
@@ -841,7 +877,7 @@
     if (!current) {
       dataLoaded = false
       currentData = EMPTY
-      ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(sourceData(currentData))
+      setSourceData(map, currentData)
       return
     }
     untrack(() => fitExtent(false))
@@ -872,7 +908,7 @@
     if (!mapReady || !map || data === null || tiles || tileUrl) return
     if (data === currentData) return
     currentData = data
-    ;(map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(sourceData(currentData))
+    setSourceData(map, currentData)
     hoveredId = null
     dataLoaded = true
     paintPending = true
@@ -917,8 +953,8 @@
     const id = selectedFeatureId
     void layer
     if (!map || !mapReady || styledTiles) return
-    if (previousSelected !== null) map.setFeatureState(stateTarget(previousSelected), { selected: false })
-    if (id !== null && id !== undefined) map.setFeatureState(stateTarget(id), { selected: true })
+    if (previousSelected !== null) setState(previousSelected, { selected: false })
+    if (id !== null && id !== undefined) setState(id, { selected: true })
     previousSelected = id ?? null
   })
 
@@ -936,8 +972,8 @@
       const drawn = (mapData?.features ?? []).map((f) => f.id as string | number)
       next = new Set(ids === 'all' ? drawn : drawn.filter((id) => typeof id === 'number' && ids.has(id)))
     }
-    for (const id of tickedApplied) if (!next.has(id)) map.setFeatureState(stateTarget(id), { ticked: false })
-    for (const id of next) if (!tickedApplied.has(id)) map.setFeatureState(stateTarget(id), { ticked: true })
+    for (const id of tickedApplied) if (!next.has(id)) setState(id, { ticked: false })
+    for (const id of next) if (!tickedApplied.has(id)) setState(id, { ticked: true })
     tickedApplied = next
   }
   $effect(() => {

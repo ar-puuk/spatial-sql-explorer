@@ -101,9 +101,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   them after the dot. `layer` still works for the open file or layer.
 - Legend groups are headings (`h2`) and name their property when two would
   share a title; dashed lines show their gaps in swatches.
+- Opening a file draws the map sooner: the geometry is read before the SQL
+  editor's catalog, and the dots that keep tiny features visible are a source
+  of their own, tiled alongside the features on a second map worker (77k
+  parcels: everything drawn 0.9 s sooner, the first polygons 1.1 s sooner).
 
 ### Fixed
 
+- After the engine ran out of memory, opening the next file could freeze the
+  page while it recovered.
 - With "Show selected only" on, a click on empty map cleared the selection
   but left the rows narrowed, with no way back to every row. Now the filter
   follows the selection: clearing it shows every row again.

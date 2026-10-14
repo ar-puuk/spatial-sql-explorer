@@ -1345,7 +1345,6 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void refreshWorkspaceFiles()
       resetQueryState()
       catalog = null
-      void refreshCatalog()
       const layer = opened.layer
       initialLayer = layer
       initialLayerState = layer
@@ -1355,7 +1354,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (activeLayer && historyStateKey) loadColumnView(`${historyStateKey}#${activeLayer}`)
       setLayer(layer)
       session.loadState = 'ready'
-      void refreshDraw()
+      // The map first: the SQL editor's catalog (only autocomplete reads it) waits for the drawing.
+      void refreshDraw().finally(() => void refreshCatalog())
       if (keptStyle) {
         // Switching layer keeps that layer's style.
         style = keptStyle.style
