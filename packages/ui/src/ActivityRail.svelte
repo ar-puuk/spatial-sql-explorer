@@ -22,7 +22,7 @@
     { id: 'style', label: 'Style', icon: 'paint' },
     { id: 'labels', label: 'Labels', icon: 'tag' },
     { id: 'details', label: 'Details', icon: 'info' },
-    { id: 'basemap', label: 'Basemap', icon: 'layers' },
+    { id: 'basemap', label: 'Basemap', icon: 'map' },
   ]
 
   let rail = $state<HTMLDivElement>()

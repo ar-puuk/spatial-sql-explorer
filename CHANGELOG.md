@@ -86,6 +86,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Styles are saved in a new form that holds every property, and still load
   from 0.3.0 sidecars and saved states exactly as before. QML files also carry
   the whole style in a `spatialExplorer/style` property.
+- The Basemap button on the side rail shows a folded map (it showed a layer stack, which suggested a layer list).
 - Legend groups are headings (`h2`) and name their property when two would
   share a title; dashed lines show their gaps in swatches.
 
