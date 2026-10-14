@@ -2,7 +2,7 @@
 // property, titled with its column; US5 merges groups that share a column and
 // classes). Each class's swatch is the layer's symbol with that property's
 // output, so the legend shows what the map draws.
-import { CHANNEL_ORDER, channelDataColumns, isColorChannel, type ChannelId, type ContinuousScale, type Output } from './channels.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, channelDataColumns, isColorChannel, type ChannelId, type ContinuousScale, type Output } from './channels.js'
 import { legacyView, rendererOf } from './legacy.js'
 import { EXPRESSION_VALUE_COLUMN, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 import { CONTINUOUS_STOPS, continuousOutput, isGenericChannel } from './resolve.js'
@@ -182,10 +182,15 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
       if (sig !== null) bySignature.set(sig, g)
     }
   }
+  // Two groups with the same title (two properties on one column, by different scales): each names its properties.
+  const titles = new Map<string, number>()
+  for (const g of groups) titles.set(g.first.title, (titles.get(g.first.title) ?? 0) + 1)
+  const titleOf = (first: Member, rest: Member[]): string =>
+    (titles.get(first.title) ?? 0) > 1 ? `${[first, ...rest].map((m) => CHANNEL_NAMES[m.channel]).join(', ')} · ${first.title}` : first.title
   return groups.map(({ first, rest }) => ({
     key: [first, ...rest].map((m) => m.channel).join('+'),
     channels: [first, ...rest].map((m) => m.channel),
-    title: first.title,
+    title: titleOf(first, rest),
     ...(first.gradient ? { gradient: first.gradient } : {}),
     ...(first.note ? { note: first.note } : {}),
     entries: first.classes.map((c, i) => ({

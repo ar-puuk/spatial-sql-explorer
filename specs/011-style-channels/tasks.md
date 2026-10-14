@@ -679,7 +679,7 @@ entries and merging.
   - gradient groups: `role="img"`, named "<title>: colors from <min> to <max>";
   - sample groups: three rows.
   Replace the T031 interim groups. T046 passes.
-- [ ] T049 (**Drawing done 2026-10-13**: the map image takes the merged groups from
+- [x] T049 (**Drawing done 2026-10-13**: the map image takes the merged groups from
   `ViewerLayout.svelte`. The map-image spec extension is still to do.) [US5] Draw the same groups in `packages/ui/src/mapImage.ts`, and
   feed them from `ViewerLayout.svelte`. The groups are merged swatches,
   gradient bars (the heatmap bar code reused) and sample rows. Extend
@@ -881,13 +881,17 @@ and re-import into the app.
 
 **Goal**: the saved image includes labels and every legend group.
 
-- [ ] T068 [P] [US8] Extend `tests/web/specs/map-image.spec.ts` and
+- [x] T068 [P] [US8] Extend `tests/web/specs/map-image.spec.ts` and
   `tests/vscode-ext/src/suite/map-image.test.ts`. A map with labels on and
   three legend groups (one merged, one gradient) saves an image whose map
   area has label text pixels, and whose legend lists the three groups.
-- [ ] T069 [US8] Fix whatever T068 shows in `packages/ui/src/mapImage.ts` or
+- [x] T069 [US8] Fix whatever T068 shows in `packages/ui/src/mapImage.ts` or
   `MapView.svelte`. Research §3 expects labels to be in the captured frame
   already.
+  Done: labels were in the frame. Fixed in the image's legend: continuous
+  bars (with their ends) and as-is notes, no "-1" count on samples, and
+  swatches with the property opacity and rotation. Groups that would share a
+  title name their properties, in the live legend too.
 
 ---
 

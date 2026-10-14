@@ -95,9 +95,11 @@
             : base
     const rowsOf = (g: LegendGroup) => {
       const readable = sizing && !(g.channels.includes('size') || g.channels.includes('width'))
-      return g.entries.flatMap((e) => (e.visible ? [{ color: e.symbol.fillColor, label: e.label, count: e.count, symbol: readable ? { ...e.symbol, lineWidth: Math.max(e.symbol.lineWidth, 3), radius: Math.max(e.symbol.radius, 5) } : e.symbol }] : []))
+      // Samples of a continuous property (no toggles) have no count.
+      return g.entries.flatMap((e) => (e.visible ? [{ color: e.symbol.fillColor, label: e.label, ...(e.toggles.length ? { count: e.count } : {}), symbol: readable ? { ...e.symbol, lineWidth: Math.max(e.symbol.lineWidth, 3), radius: Math.max(e.symbol.radius, 5) } : e.symbol }] : []))
     }
-    const colorGroup = legend[0]?.channels[0] === 'color' ? legend[0] : null
+    // A continuous or as-is color is a group of its own (its bar or note), not the layer's classes.
+    const colorGroup = legend[0]?.channels[0] === 'color' && !legend[0].gradient && !legend[0].note ? legend[0] : null
     const others = colorGroup ? legend.slice(1) : legend
     return {
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
@@ -119,7 +121,14 @@
         : undefined,
       // Spec 011: the other groups (merged where they share classes), then proportional sizes.
       groups: [
-        ...others.map((g) => ({ title: g.title, shape: shapeOf(g), alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1), rows: rowsOf(g) })),
+        ...others.map((g) => ({
+          title: g.title,
+          shape: shapeOf(g),
+          alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
+          rows: rowsOf(g),
+          ...(g.gradient ? { ramp: { colors: g.gradient.stops, min: g.gradient.min, max: g.gradient.max } } : {}),
+          ...(g.note ? { note: g.note } : {}),
+        })),
         ...(legendProportional
           ? [
               {

@@ -718,3 +718,21 @@ and add "Vary by attribute" under them. What changed:
   - web `style-scales-011` (5), and the style, export, legend, label and
     accessibility suites (90; the export dialog's Cancel race failed once and
     passed on rerun, as before).
+
+## US8 outcomes: map image (2026-10-14)
+
+- **Labels** are in the captured frame, as research §3 expected.
+  - Web: the saved PNG has 200+ more label-text pixels in the map's upper
+    half than without labels.
+  - VS Code: the PNG with every country's name is over 5% bigger than
+    without.
+- **Legend groups in the image** (`mapImage.ts`): the merged severity group
+  (colors and shapes together), a continuous outline color's bar with "0 →
+  3,648" (viridis ends found in the legend box), and opacity samples.
+- **Fixes:**
+  - samples had printed their internal count (-1);
+  - image swatches ignored the property opacity and rotation (the on-map
+    legend applied them);
+  - two groups on one column by the same scale had the same title ("age_days
+    · Continuous" twice). Such groups now name their properties ("Outline
+    color · age_days · Continuous"), in the live legend and the image.
