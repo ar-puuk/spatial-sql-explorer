@@ -531,3 +531,37 @@ and add "Vary by attribute" under them. What changed:
   A No value class in another property is tested (outline width by `num`).
 - T052 asks for a PNG per case as well. It was not written: the per-feature
   property values are the comparison.
+
+## US7 outcomes: files (2026-10-14)
+
+- **QML import (T054).** QGIS's own `CASE` forms are read back on outline
+  color and width, shape, angle, pattern and the symbol's opacity:
+  - categories by value;
+  - classes with both bounds, or upper bounds after the first;
+  - opacity 0 hides the class.
+
+  A fixed marker angle is the style's rotation. A plain field and
+  `scale_linear` keep the fixed value, with a note naming the property, until
+  Continuous and As is (US4). Our own files come back whole from
+  `spatialExplorer/style`.
+- **SLD (T055).**
+  - One rule per combination of the visible classes of at most two
+    properties, capped at 100 rules. Beyond that, the first property alone,
+    with a note naming the rest.
+  - **Fixed in review:** properties on the same column with the same classes
+    (color and shape by `cls`) were crossed into impossible combinations
+    ("A · B"). They now share one rule per class, as the legend merges them.
+  - Fixed rotation, opacity and line width are written.
+  - Import reads per-class outline, shape, pattern and rotation on one column,
+    and a mark's rotation. A square at 75° is read as a square at 75°, the
+    same drawing as a diamond at 30°.
+- **Mapbox GL (T056).** Paint uses `symbolExpressions`, the map's own, and
+  hidden classes share the map's filter. Exports pass MapLibre's
+  `validateStyleMin`. Import reads `match`/`step` over one `get` on outline
+  color and width, line width and opacity. Shapes by attribute get a sprite
+  note.
+- **Tests:**
+  - core 711;
+  - the web style, export and legend suites, 61 of 61;
+  - the VS Code style suite, 25, with the new sidecar test (T058, channels
+    part).
