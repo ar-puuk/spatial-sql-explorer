@@ -5,7 +5,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { fixture, openFile } from './helpers'
 
 const side = (page: Page) => page.locator('aside.side-panel')
-const rail = (page: Page, name: 'Style' | 'Details' | 'Basemap') => page.getByRole('toolbar', { name: 'Panels' }).getByRole('button', { name, exact: true })
+const rail = (page: Page, name: 'Style' | 'Labels' | 'Basemap') => page.getByRole('toolbar', { name: 'Panels' }).getByRole('button', { name, exact: true })
 const mapWidth = async (page: Page): Promise<number> => (await page.locator('.canvas-host').boundingBox())!.width
 
 test('the rail opens the side panel, the active button closes it, and Escape returns to the rail', async ({ page }) => {
@@ -24,29 +24,36 @@ test('the rail opens the side panel, the active button closes it, and Escape ret
   await rail(page, 'Basemap').click()
   await expect(side(page)).toHaveCount(0)
 
-  await rail(page, 'Details').click()
-  await expect(side(page)).toContainText('Click a feature on the map or a row in the table to see its attributes.')
+  await rail(page, 'Labels').click()
+  await expect(side(page)).toHaveAttribute('aria-label', 'Labels')
   await side(page).getByRole('button', { name: 'Close panel' }).focus()
   await page.keyboard.press('Escape')
   await expect(side(page)).toHaveCount(0)
-  await expect(rail(page, 'Details')).toBeFocused()
+  await expect(rail(page, 'Labels')).toBeFocused()
 })
 
-test('a selection opens Details, but while styling it marks Details with a dot instead', async ({ page }) => {
+test('a selection shows its attributes in a card on the map, with Style still open', async ({ page }) => {
   await openFile(page, fixture('world-boundaries.geojson'))
   const rows = page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr')
+  const card = page.getByRole('region', { name: 'Feature attributes' })
+  await expect(page.getByRole('toolbar', { name: 'Panels' }).getByRole('button')).toHaveText(['', '', ''])
 
   await rows.nth(2).click()
-  await expect(side(page)).toHaveAttribute('aria-label', 'Feature details')
-  await expect(page.getByRole('region', { name: 'Feature attributes' })).toContainText('Albania')
+  await expect(card).toContainText('Albania')
+  await expect(side(page)).toHaveCount(0)
 
+  // While styling, a new selection shows in the card and Style stays open.
   await rail(page, 'Style').click()
   await rows.nth(3).click()
+  await expect(card).toContainText('United Arab Emirates')
   await expect(side(page)).toHaveAttribute('aria-label', 'Style')
-  await expect(rail(page, 'Details').locator('.badge')).toHaveCount(1)
-  await rail(page, 'Details').click()
-  await expect(page.getByRole('region', { name: 'Feature attributes' })).toContainText('United Arab Emirates')
-  await expect(rail(page, 'Details').locator('.badge')).toHaveCount(0)
+
+  // Closed with Escape; the next selection opens it again.
+  await card.getByRole('button', { name: 'Close' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(card).toHaveCount(0)
+  await rows.nth(4).click()
+  await expect(card).toBeVisible()
 })
 
 test('bottom panel: arrow keys switch tabs, maximize and restore, hide and show', async ({ page }) => {
@@ -104,10 +111,9 @@ test('no axe violations with the side panel and each bottom tab', async ({ page 
     const results = await new AxeBuilder({ page }).exclude('.maplibregl-canvas').analyze()
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`), state).toEqual([])
   }
-  await rail(page, 'Details').click()
-  await audit('details, empty')
+  await rail(page, 'Style').click()
   await page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr').nth(1).click()
-  await audit('details, a feature')
+  await audit('style, and a feature card')
   await rail(page, 'Basemap').click()
   await page.getByRole('tab', { name: 'SQL' }).click()
   await audit('basemap and SQL')

@@ -1,8 +1,8 @@
 <script lang="ts">
   // Spec 010 layout Option A (implementation-plan.md phase 8): the map with
-  // its floating widgets, a bottom panel with Table and SQL tabs, a side
-  // panel (Style, Feature details, Basemap) opened from an activity rail on
-  // the right, as VS Code arranges its views. The arrangement is the store's
+  // its floating widgets (search, the feature card, the legend), a bottom
+  // panel with Table and SQL tabs, a side panel (Style, Labels, Basemap)
+  // opened from an activity rail on the right, as VS Code arranges its views. The arrangement is the store's
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
@@ -166,8 +166,8 @@
   let exportButton = $state<HTMLButtonElement>()
   let columnsOpen = $state(false)
   let galleryOpen = $state(false)
-  /** A selection arrived while Style was open (spec 010 T051). */
-  let detailsBadge = $state(false)
+  /** The feature card was closed (× or Escape); the next selection opens it again. */
+  let inspectorClosed = $state(false)
 
   const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX)
   const bottomHeight = $derived(
@@ -230,7 +230,7 @@
   })
 
   // --- Side panel ----------------------------------------------------------------
-  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', details: 'Feature details', basemap: 'Basemap' }
+  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', basemap: 'Basemap' }
   /** Spec 011 US6: what labels show, for the rail button's tooltip (null: off). */
   const labelsOn = $derived.by(() => {
     const l = store.style.labels
@@ -242,7 +242,6 @@
   function selectSide(panel: SideTab | null): void {
     if (panel === null) store.setLayout({ sideOpen: false })
     else store.setLayout({ sideOpen: true, sideTab: panel })
-    if (panel === 'details') detailsBadge = false
   }
 
   /** Closes the side panel and returns focus to its rail button (Escape or the close button). */
@@ -253,16 +252,11 @@
   }
 
   /**
-   * Spec 010 T051: a selection shows its details, unless the user is styling:
-   * then Style stays and the Details button gets a dot.
+   * A selection shows its attributes in the card on the map, whatever the side
+   * panel shows (user decision 2026-10-14: it replaced spec 010's Details panel).
    */
   function revealDetails(): void {
-    if (layout.sideOpen && layout.sideTab === 'style') {
-      detailsBadge = true
-      return
-    }
-    store.setLayout({ sideOpen: true, sideTab: 'details' })
-    detailsBadge = false
+    inspectorClosed = false
   }
 
   // The inspector shows the selected feature from wherever it is: its full
@@ -378,6 +372,12 @@
             <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
           {/if}
         </div>
+        {#if inspected && !inspectorClosed}
+          <!-- The selected feature's attributes, under the search box, beside whatever panel is open. -->
+          <div class="map-ov inspector-slot">
+            <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+          </div>
+        {/if}
         {#if store.mapDimmed}
           <div class="map-notice no-geometry" role="status">
             <Icon name="info" size={14} />
@@ -609,12 +609,6 @@
               onChange={(patch) => store.setStyle({ labels: setLabels(store.style, patch, store.styleInput?.columns ?? []).labels })}
             />
           {/if}
-        {:else if layout.sideTab === 'details'}
-          {#if inspected}
-            <FeatureInspector embedded feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={closeSide} />
-          {:else}
-            <p class="empty">Click a feature on the map or a row in the table to see its attributes.</p>
-          {/if}
         {:else}
           <BasemapPicker
             embedded
@@ -634,7 +628,6 @@
     {/if}
     <ActivityRail
       active={sideActive}
-      badge={{ details: detailsBadge }}
       disabled={{ style: store.tilesOnlyReason, labels: store.tilesOnlyReason }}
       {labelsOn}
       basemapName={store.basemap.name}
@@ -713,11 +706,28 @@
     flex: 0 0 0;
     overflow: hidden;
   }
+  /* Below the search box (10 px + 30 px + 8 px), down to the bottom controls. */
+  .map-ov.inspector-slot {
+    position: absolute;
+    top: 48px;
+    left: 10px;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 34px);
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: calc(100% - 64px);
+    pointer-events: none;
+  }
+  .map-ov.inspector-slot > :global(*) {
+    pointer-events: auto;
+  }
   .map-ov.tl {
     position: absolute;
     top: 10px;
     left: 10px;
-    z-index: 6;
+    /* Above the feature card: search results drop down over it. */
+    z-index: 7;
     display: flex;
     align-items: flex-start;
     gap: 8px;

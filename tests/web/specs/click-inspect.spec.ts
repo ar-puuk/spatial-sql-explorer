@@ -35,8 +35,8 @@ test('clicking a map feature selects its row and shows its attributes', async ({
   await expect(page.locator('.attribute-table tbody tr.selected')).toHaveCount(1)
   await expect(page.locator('.attribute-table tbody tr.selected')).toContainText('United States')
 
-  // Closing the details panel keeps the selection (spec 010: the inspector is the side panel's Details).
-  await page.getByRole('button', { name: 'Close panel' }).click()
+  // Closing the card keeps the selection.
+  await inspector.getByRole('button', { name: 'Close' }).click()
   await expect(page.locator('.inspector')).toHaveCount(0)
   await expect(page.locator('.attribute-table tbody tr.selected')).toHaveCount(1)
 })

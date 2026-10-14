@@ -7,10 +7,9 @@ type MapState = { center?: [number, number]; zoom?: number }
 const mapState = (page: Page) => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): MapState } }).__spatialExplorerE2E.mapState())
 const box = (page: Page) => page.getByRole('combobox', { name: 'Search' })
 const group = (page: Page, name: string | RegExp) => page.getByRole('group', { name })
-const side = (page: Page) => page.locator('.side-panel')
 
 for (const mode of ['GeoJSON', 'tiles'] as const) {
-  test(`a layer value is found, and choosing it selects the row, opens Details and zooms (${mode})`, async ({ page }) => {
+  test(`a layer value is found, and choosing it selects the row, shows its attributes and zooms (${mode})`, async ({ page }) => {
     await page.route('https://nominatim.openstreetmap.org/**', (r) => r.abort())
     await openFile(page, fixture('world-boundaries.geojson'), mode === 'tiles' ? '?e2e=1&tileRows=10' : '?e2e=1')
     const before = (await mapState(page)).zoom ?? 0
@@ -26,7 +25,6 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
 
     await expect(box(page)).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByRole('region', { name: 'Feature attributes' })).toContainText('Namibia')
-    await expect(side(page)).toHaveAttribute('aria-label', 'Feature details')
     await expect.poll(async () => (await mapState(page)).zoom ?? 0, { timeout: 10000 }).toBeGreaterThan(before + 1)
     const c = (await mapState(page)).center!
     expect(c[0]).toBeGreaterThan(11)

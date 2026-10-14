@@ -1,13 +1,12 @@
 <script lang="ts">
   // Spec 010 layout Option A (T050): the icon rail on the right edge that
-  // opens the side panel on Style, Labels (spec 011), Details or Basemap, as VS Code's activity
-  // bar does. Clicking the active button closes the panel.
+  // opens the side panel on Style, Labels (spec 011) or Basemap, as VS Code's activity
+  // bar does. Feature details are a card on the map (user decision 2026-10-14). Clicking the active button closes the panel.
   import Icon, { type IconName } from './Icon.svelte'
   import type { SideTab } from './viewerStore.svelte.js'
 
   interface Props {
     active: SideTab | null
-    badge?: { details?: boolean }
     /** A reason a panel can't open (shown as its tooltip); PMTiles disables Style and Labels. */
     disabled?: { style?: string | null; labels?: string | null }
     /** The Basemap button's tooltip names the basemap shown. */
@@ -16,12 +15,11 @@
     labelsOn?: string | null
     onSelect: (panel: SideTab | null) => void
   }
-  let { active, badge = {}, disabled = {}, basemapName = '', labelsOn = null, onSelect }: Props = $props()
+  let { active, disabled = {}, basemapName = '', labelsOn = null, onSelect }: Props = $props()
 
   const BUTTONS: Array<{ id: SideTab; label: string; icon: IconName }> = [
     { id: 'style', label: 'Style', icon: 'paint' },
     { id: 'labels', label: 'Labels', icon: 'tag' },
-    { id: 'details', label: 'Details', icon: 'info' },
     { id: 'basemap', label: 'Basemap', icon: 'map' },
   ]
 
@@ -31,7 +29,6 @@
     if (b.id === 'style' && disabled.style) return disabled.style
     if (b.id === 'labels') return disabled.labels ? disabled.labels : labelsOn ? `Labels: on (${labelsOn})` : 'Labels'
     if (b.id === 'basemap' && basemapName) return `Basemap: ${basemapName}`
-    if (b.id === 'details') return badge.details ? 'Feature details (new selection)' : 'Feature details'
     return 'Layer style'
   }
 
@@ -60,7 +57,6 @@
       onclick={() => onSelect(active === b.id ? null : b.id)}
     >
       <Icon name={b.icon} size={20} />
-      {#if b.id === 'details' && badge.details && active !== 'details'}<span class="badge" aria-hidden="true"></span>{/if}
     </button>
   {/each}
 </div>
@@ -108,15 +104,5 @@
   button:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: -2px;
-  }
-  .badge {
-    position: absolute;
-    top: 10px;
-    right: 9px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--se-activity-badge, var(--se-button-bg));
-    box-shadow: 0 0 0 1.5px var(--se-activity-bg, var(--se-bg-panel));
   }
 </style>

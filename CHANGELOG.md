@@ -88,6 +88,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   from 0.3.0 sidecars and saved states exactly as before. QML files also carry
   the whole style in a `spatialExplorer/style` property.
 - The Basemap button on the side rail shows a folded map (it showed a layer stack, which suggested a layer list).
+- Feature details are a card on the map again, under the search box: a map
+  click, a table row or a search result shows it, whatever side panel is open
+  (so you can style and inspect at once). It closes with × or Escape. The
+  side rail is Style, Labels and Basemap.
 - SQL names the opened file by its own name: `us-counties.parquet` is
   `us_counties` (lower case, other characters as `_`; quoted when it starts
   with a digit or is a reserved word, as in `"2020_tracts"`). The default query

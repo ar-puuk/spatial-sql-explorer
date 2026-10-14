@@ -65,7 +65,6 @@ test('extrude by a column: tilts, counts flat polygons, scales, resets, and clic
   await expect.poll(async () => (await mapState(page)).projection).toBe('globe')
   await jumpTo(page, -111.918, 40.74015, 18)
   await page.waitForTimeout(1500)
-  // Spec 010: the Details panel opened by the first click narrowed the map.
   const box2 = (await page.locator('.canvas-host').boundingBox())!
   await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2)
   await expect(inspector).toContainText('#4')

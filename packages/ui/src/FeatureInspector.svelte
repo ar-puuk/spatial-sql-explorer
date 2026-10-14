@@ -12,10 +12,8 @@
     feature: Feature
     onZoom: () => void
     onClose: () => void
-    /** Spec 010: inside the side panel (its title and close button are the panel's). */
-    embedded?: boolean
   }
-  let { feature, onZoom, onClose, embedded = false }: Props = $props()
+  let { feature, onZoom, onClose }: Props = $props()
 
   let entries = $derived(Object.entries(feature.attributes))
   // Spec 008 (user request): wide data scrolls, and many attributes get a filter.
@@ -37,7 +35,6 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="inspector"
-  class:embedded
   aria-label="Feature attributes"
   tabindex="-1"
   onkeydown={(e) => {
@@ -48,7 +45,7 @@
   }}
 >
   <header>
-    {#if !embedded}<h2>Feature</h2>{/if}
+    <h2>Feature</h2>
     {#if feature.sourceLayer !== undefined}
       <!-- PMTiles (spec 007 US5): the archive layer, not a row number. -->
       <span class="id" title="Archive layer">{feature.sourceLayer}</span>
@@ -59,7 +56,7 @@
     {#if feature.sourceLayer === undefined}
       <button type="button" class="icon-button" title="Zoom to feature" aria-label="Zoom to feature" onclick={onZoom}><Icon name="zoom" /></button>
     {/if}
-    {#if !embedded}<button type="button" class="icon-button" title="Close" aria-label="Close" onclick={onClose}><Icon name="close" /></button>{/if}
+    <button type="button" class="icon-button" title="Close" aria-label="Close" onclick={onClose}><Icon name="close" /></button>
   </header>
   {#if entries.length === 0}
     <p class="empty">This feature has no attributes.</p>
@@ -87,9 +84,10 @@
   .inspector {
     display: flex;
     flex-direction: column;
-    width: 320px;
-    max-width: calc(100% - 20px);
-    max-height: min(480px, calc(100% - 20px));
+    /* The search box's width: the card sits right under it. */
+    width: 300px;
+    max-width: 100%;
+    max-height: min(480px, 100%);
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -99,20 +97,6 @@
     font-size: var(--se-font-size);
     outline: none;
     user-select: text;
-  }
-  .inspector.embedded {
-    flex: 1;
-    width: auto;
-    max-width: none;
-    min-height: 0;
-    max-height: none;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-  .inspector.embedded header {
-    padding-left: 12px;
   }
   header {
     display: flex;
