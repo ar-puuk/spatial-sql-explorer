@@ -20,9 +20,11 @@ import {
 } from './model.js'
 import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
-import { categorizedFrom, classLayerStyle, graduatedFrom, portableRules, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange, type PortableRule } from './interchange.js'
+import { categorizedFrom, classLayerStyle, graduatedFrom, portableRules, previewExportNotice, thematicForExport, type ExportClass, type ImportedCategory, type ImportedRange, type PortableRule, type Thematic } from './interchange.js'
 import type { SimpleWhere } from './simpleWhere.js'
-import { dashFromPattern, dashPattern, proportionalSize, type MarkerShape } from './symbol.js'
+import { dashFromPattern, dashPattern, proportionalSize, type LineDash, type MarkerShape } from './symbol.js'
+import { CHANNEL_NAMES, CHANNEL_ORDER, type ChannelId, type Channels, type ClassDef, type Output } from './channels.js'
+import { isGenericChannel } from './resolve.js'
 
 function param(name: string, value: string | number): string {
   return `<CssParameter name="${name}">${escapeXml(String(value))}</CssParameter>`
@@ -50,10 +52,15 @@ function mark(shape: MarkerShape, radius: number): { name: string; size: number;
 }
 
 function symbolizer(geom: Exclude<StyleGeometry, 'Mixed'>, style: LayerStyle): string {
+  // Spec 011: the fixed (or class) opacity multiplies the fill and outline opacities.
+  const o = style.opacity ?? 1
+  if (o !== 1) style = { ...style, fillOpacity: style.fillOpacity * o, strokeOpacity: style.strokeOpacity * o }
+  if (geom === 'LineString' && style.lineWidth !== undefined) style = { ...style, strokeWidth: style.lineWidth }
   if (geom === 'Polygon') return `<PolygonSymbolizer>${fill(style)}${stroke(style, true)}</PolygonSymbolizer>`
   if (geom === 'LineString') return `<LineSymbolizer>${stroke(style, true)}</LineSymbolizer>`
   const m = mark(style.markerShape ?? 'circle', style.pointRadius)
-  const rotation = m.rotation ? `<Rotation>${m.rotation}</Rotation>` : ''
+  const turn = round((((m.rotation + (style.rotation ?? 0)) % 360) + 360) % 360, 4)
+  const rotation = turn ? `<Rotation>${turn}</Rotation>` : ''
   return `<PointSymbolizer><Graphic><Mark><WellKnownName>${m.name}</WellKnownName>${fill(style)}${stroke(style)}</Mark><Size>${round(m.size)}</Size>${rotation}</Graphic></PointSymbolizer>`
 }
 
@@ -183,6 +190,164 @@ function otherFilter(column: string, classes: ExportClass[]): string {
   return `<ogc:And>${listed.join('')}${notNull}</ogc:And>`
 }
 
+// --- Spec 011: properties by a column, as one rule per combination of classes ---
+
+type AxisClass = ExportClass & { output?: Output }
+
+/** One property's classes (`output`: what the class draws), and how a class sets it on a symbol. */
+interface Axis {
+  id: ChannelId | 'size'
+  /** Other properties written with this one's rules (same column, same classes). */
+  merged?: ChannelId[]
+  column: string
+  classes: AxisClass[]
+  apply: (look: LayerStyle, c: AxisClass, geom: Exclude<StyleGeometry, 'Mixed'>) => LayerStyle
+}
+
+/** SLD rules beyond this many fall back to the first property alone (contracts/interchange-mapping.md). */
+export const SLD_RULE_CAP = 100
+
+/** How one property's class output sets the symbol. */
+function applyOutput(id: ChannelId, look: LayerStyle, output: Output | undefined, geom: Exclude<StyleGeometry, 'Mixed'>): LayerStyle {
+  if (output === undefined) return look
+  switch (id) {
+    case 'strokeColor':
+      return geom === 'LineString' ? look : { ...look, strokeColor: String(output) }
+    case 'strokeWidth':
+      return geom === 'LineString' ? look : { ...look, strokeWidth: Number(output) }
+    case 'width':
+      return geom === 'LineString' ? { ...look, lineWidth: Number(output) } : look
+    case 'size':
+      return geom === 'Point' ? { ...look, pointRadius: Number(output) } : look
+    case 'shape':
+      return { ...look, markerShape: output as MarkerShape }
+    case 'dash':
+      return { ...look, lineDash: output as LineDash }
+    case 'opacity':
+      return { ...look, opacity: Number(output) }
+    case 'rotation':
+      return { ...look, rotation: Number(output) }
+    default:
+      return look
+  }
+}
+
+/** The other properties varying by a column (categories and classes), as SLD writes them. */
+function genericAxes(style: LayerStyle, resolved: ResolvedStyle | undefined): Axis[] {
+  const out: Axis[] = []
+  for (const id of CHANNEL_ORDER) {
+    const enc = style.channels?.[id]
+    const rc = resolved?.channels?.[id]
+    if (!enc || !rc || rc.status !== 'ok' || !isGenericChannel(id, enc) || enc.source.kind !== 'column') continue
+    const classes: AxisClass[] = rc.classes.flatMap((c) =>
+      c.kind === 'value' || c.kind === 'range' || c.kind === 'other' || c.kind === 'noValue'
+        ? [{ kind: c.kind, value: c.value, lower: c.lower, upper: c.upper, color: c.color, label: c.label, visible: c.visible, output: c.output }]
+        : []
+    )
+    out.push({ id, column: enc.source.column, classes, apply: (look, c, geom) => applyOutput(id, look, c.output, geom) })
+  }
+  return out
+}
+
+/** Every property's axis, in order: color, spec 009's size, then the others (null: SLD writes the renderer its own way). */
+function exportAxes(style: LayerStyle, resolved: ResolvedStyle | undefined, thematic: Thematic | null, sizeClasses: ExportClass[] | null): { axes: Axis[]; generic: Axis[] } | null {
+  const generic = genericAxes(style, resolved)
+  const r = rendererOf(style)
+  if (!generic.length) return null
+  if (r.kind === 'rules' || r.kind === 'bivariate' || r.kind === 'heatmap') return { axes: [], generic }
+  const axes: Axis[] = []
+  if (thematic) axes.push({ id: 'color', column: thematic.renderer.column, classes: thematic.classes, apply: (look, c, geom) => (geom === 'LineString' ? { ...look, strokeColor: c.color } : { ...look, fillColor: c.color }) })
+  if (sizeClasses && style.size)
+    axes.push({ id: 'size', column: style.size.column, classes: sizeClasses, apply: (look, c, geom) => (c.size === undefined ? look : geom === 'LineString' ? { ...look, lineWidth: c.size } : geom === 'Point' ? { ...look, pointRadius: c.size } : look) })
+  // Properties on the same column with the same classes are one set of rules (as the legend merges them).
+  for (const g of generic) {
+    const same = axes.find((a) => a.column === g.column && classSignature(a.classes) === classSignature(g.classes))
+    if (!same) {
+      axes.push(g)
+      continue
+    }
+    const own = new Map(g.classes.map((c) => [classKey(c), c]))
+    const index = axes.indexOf(same)
+    axes[index] = {
+      ...same,
+      merged: [...(same.merged ?? []), g.id],
+      classes: same.classes.map((c) => ({ ...c, visible: c.visible && own.get(classKey(c))?.visible !== false })),
+      apply: (look, c, geom) => {
+        const mine = own.get(classKey(c))
+        return mine ? g.apply(same.apply(look, c, geom), mine, geom) : same.apply(look, c, geom)
+      },
+    }
+  }
+  return { axes, generic }
+}
+
+/** A class's identity across properties: its kind and value or bounds. */
+const classKey = (c: ExportClass): string => (c.kind === 'value' ? `v:${c.value}` : c.kind === 'range' ? `r:${c.lower}:${c.upper}` : c.kind)
+const classSignature = (classes: ExportClass[]): string => classes.map(classKey).join('|')
+
+const ruleCount = (axes: Axis[]): number => axes.reduce((n, a) => n * Math.max(a.classes.filter((c) => c.visible).length, 1), 1)
+
+/** The axes SLD writes: all of them when two or fewer make at most SLD_RULE_CAP rules, else the first alone. */
+function writtenAxes(axes: Axis[]): Axis[] {
+  return axes.length <= 2 && ruleCount(axes) <= SLD_RULE_CAP ? axes : axes.slice(0, 1)
+}
+
+/** The note for properties SLD leaves at their fixed value, or null. */
+function sldChannelNote(style: LayerStyle, resolved: ResolvedStyle | undefined): string | null {
+  style = legacyView(style)
+  const { thematic } = thematicForExport(style, resolved, 'sld')
+  const plan = exportAxes(style, resolved, thematic, sizeExportClasses(style, resolved))
+  if (!plan) return null
+  const written = new Set(writtenAxes(plan.axes).flatMap((a) => [a.id, ...(a.merged ?? [])]))
+  const dropped = plan.generic.filter((a) => !written.has(a.id)).map((a) => CHANNEL_NAMES[a.id as ChannelId])
+  if (!dropped.length) return null
+  const list = dropped.join(', ')
+  if (!plan.axes.length) return `SLD can't combine ${rendererOf(style).kind === 'rules' ? 'rules' : rendererOf(style).kind} with properties by attribute: ${list} keep the fixed value there.`
+  return `SLD writes one rule per combination of classes, for two properties and up to ${SLD_RULE_CAP} rules (this style needs ${ruleCount(plan.axes)}): ${list} keep the fixed value there. QML and Mapbox GL keep every property.`
+}
+
+/** Features in none of a property's listed classes ("Other"). */
+function othersFilter(column: string, classes: ExportClass[]): string {
+  if (classes.some((c) => c.kind === 'value')) return otherFilter(column, classes)
+  const firstRange = classes.findIndex((c) => c.kind === 'range')
+  const ranges = classes.flatMap((c, i) => (c.kind === 'range' ? [classFilter(column, c, i === firstRange)] : []))
+  const notNull = `<ogc:Not><ogc:PropertyIsNull>${prop(column)}</ogc:PropertyIsNull></ogc:Not>`
+  return ranges.length ? `<ogc:And><ogc:Not>${ranges.length === 1 ? ranges[0] : `<ogc:Or>${ranges.join('')}</ogc:Or>`}</ogc:Not>${notNull}</ogc:And>` : notNull
+}
+
+/**
+ * Spec 011: one rule per combination of the properties' visible classes (the
+ * filter ANDs each property's test), per geometry family. Hidden classes have
+ * no rule, so their features aren't drawn, as on the map.
+ */
+function crossRules(style: LayerStyle, geometry: StyleGeometry, axes: Axis[]): string {
+  const families = geometry === 'Mixed' ? MIXED_RULES : [{ geom: geometry, types: [] as string[] }]
+  let combos: Array<Array<{ axis: Axis; c: AxisClass; test: string }>> = [[]]
+  for (const axis of axes) {
+    const firstRange = axis.classes.findIndex((c) => c.kind === 'range')
+    const tests = axis.classes.flatMap((c, i) => (c.visible ? [{ axis, c, test: c.kind === 'other' ? othersFilter(axis.column, axis.classes) : classFilter(axis.column, c, i === firstRange) }] : []))
+    combos = combos.flatMap((combo) => tests.map((t) => [...combo, t]))
+  }
+  const rules: string[] = []
+  for (const f of families) {
+    const geom = f.geom as Exclude<StyleGeometry, 'Mixed'>
+    const geomTest = f.types.length ? geometryTypeFilter(f.types).replace(/^<ogc:Filter>|<\/ogc:Filter>$/g, '') : ''
+    for (const combo of combos) {
+      const tests = [...combo.map((t) => t.test), geomTest].filter(Boolean)
+      const filter = tests.length === 0 ? '' : `<ogc:Filter>${tests.length === 1 ? tests[0] : `<ogc:And>${tests.join('')}</ogc:And>`}</ogc:Filter>`
+      const label = combo.map((t) => t.c.label).filter(Boolean).join(' · ')
+      const look = combo.reduce((l, t) => t.axis.apply(l, t.c, geom), style)
+      rules.push(`          <Rule>
+            <Name>${escapeXml(label)}</Name>
+            <Title>${escapeXml(label)}</Title>
+            ${filter}
+            ${symbolizer(geom, look)}
+          </Rule>`)
+    }
+  }
+  return rules.join('\n')
+}
+
 /** Spec 009: one rule per visible bivariate cell (both axes' tests ANDed), plus "No value". Hidden cells are left out. */
 function bivariateRules(style: LayerStyle, geometry: StyleGeometry, resolved: ResolvedStyle): string {
   const g = resolved.grid as NonNullable<ResolvedStyle['grid']>
@@ -269,10 +434,16 @@ export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName
   // Spec 010: rules, when every condition is simple (else the single symbol, with a notice).
   const rr = rendererOf(style)
   const portable = rr.kind === 'rules' && resolved?.status === 'ok' ? portableRules(style, resolved, 'sld') : null
+  // Spec 011: properties by a column, crossed with the color and size classes.
+  const plan = exportAxes(style, resolved, thematic, sizeClasses)
+  const channelNote = sldChannelNote(style, resolved)
+  if (channelNote) notes.push(channelNote)
   const rules = isBivariate && resolved
     ? bivariateRules(style, geometry, resolved)
     : rr.kind === 'rules' && portable
     ? rulesRules(style, geometry, rr, portable)
+    : plan && plan.axes.length
+    ? crossRules(style, geometry, writtenAxes(plan.axes))
     : sizeClasses && style.size
     ? channelRules(style, geometry, thematic ? { column: thematic.renderer.column, classes: thematic.classes } : null, { column: style.size.column, classes: sizeClasses })
     : thematic
@@ -395,23 +566,22 @@ function ruleColor(rule: Element): string | undefined {
 }
 
 /** A point mark's shape and radius, px (a square turned 45 degrees is a diamond). */
-function readMark(point: Element, notes: string[]): { shape: MarkerShape; radius?: number } {
+function readMark(point: Element, notes: string[]): { shape: MarkerShape; radius?: number; rotation: number } {
   const wkn = (byLocal(point, 'WellKnownName')[0]?.textContent?.trim() ?? 'circle').toLowerCase()
   const size = Number(byLocal(point, 'Size')[0]?.textContent?.trim())
   const rotation = Number(byLocal(point, 'Rotation')[0]?.textContent?.trim() ?? '0') || 0
   const turned = Math.abs(((rotation % 90) + 90) % 90) === 45
   const radius = Number.isFinite(size) ? size / 2 : undefined
+  // Spec 011: what remains of the rotation after the shape's own turn is the style's rotation.
+  const rest = (turn: number, period = 360) => round((((rotation - turn) % period) + period) % period, 4)
   if (byLocal(point, 'ExternalGraphic').length > 0) notes.push('External graphic markers are not supported; a circle was used.')
-  if (wkn === 'square' && turned) return { shape: 'diamond', radius: radius !== undefined ? radius * Math.SQRT2 : undefined }
+  if (wkn === 'square' && turned) return { shape: 'diamond', radius: radius !== undefined ? radius * Math.SQRT2 : undefined, rotation: rest(45, 90) }
   // QGIS writes its own names (cross_fill, cross2) into SLD.
-  if (wkn === 'cross' || wkn === 'cross_fill') return { shape: turned ? 'x' : 'cross', radius }
-  if (wkn === 'x' || wkn === 'cross2') return { shape: turned ? 'cross' : 'x', radius }
-  if (wkn === 'circle' || wkn === 'square' || wkn === 'triangle' || wkn === 'diamond' || wkn === 'star') {
-    if (rotation % 360 !== 0) notes.push(`The marker's ${rotation}° rotation was not imported.`)
-    return { shape: wkn, radius }
-  }
+  if (wkn === 'cross' || wkn === 'cross_fill') return { shape: turned ? 'x' : 'cross', radius, rotation: rest(turned ? 45 : 0, 90) }
+  if (wkn === 'x' || wkn === 'cross2') return { shape: turned ? 'cross' : 'x', radius, rotation: rest(turned ? 45 : 0, 90) }
+  if (wkn === 'circle' || wkn === 'square' || wkn === 'triangle' || wkn === 'diamond' || wkn === 'star') return { shape: wkn, radius, rotation: rest(0) }
   notes.push(`The "${wkn}" marker shape was imported as a circle.`)
-  return { shape: 'circle', radius }
+  return { shape: 'circle', radius, rotation: rest(0) }
 }
 
 /** A rule's symbol size: the marker radius, or the line width; undefined for polygons. */
@@ -427,8 +597,55 @@ function ruleLabel(rule: Element): string | undefined {
   return (byLocal(rule, 'Title')[0] ?? byLocal(rule, 'Name')[0])?.textContent?.trim() || undefined
 }
 
-/** Thematic classes from the rules, or null when the rules aren't a thematic style. */
-function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['renderer'] | null {
+/** Spec 011: what a rule's symbol draws besides its color (null: the symbol doesn't have it). */
+function ruleLook(rule: Element): Partial<Record<ChannelId, Output | null>> {
+  const polygon = byLocal(rule, 'PolygonSymbolizer')[0]
+  const point = byLocal(rule, 'PointSymbolizer')[0]
+  const line = byLocal(rule, 'LineSymbolizer')[0]
+  const mark = point ? byLocal(point, 'Mark')[0] : undefined
+  const outline = (polygon && directChild(polygon, 'Stroke')) || (mark && directChild(mark, 'Stroke')) || undefined
+  const p = readParams(outline)
+  const dashed = readParams((polygon && directChild(polygon, 'Stroke')) || (line && directChild(line, 'Stroke')) || undefined).get('stroke-dasharray')
+  const color = parseColor(p.get('stroke'))
+  const width = Number(p.get('stroke-width'))
+  const m = point ? readMark(point, []) : null
+  const lineOnly = !!line && !polygon && !point
+  return {
+    strokeColor: lineOnly ? null : color ? rgbToHex(color) : null,
+    strokeWidth: lineOnly ? null : outline ? (Number.isFinite(width) ? width : 1) : 0,
+    shape: m ? m.shape : null,
+    rotation: m ? m.rotation : null,
+    dash: polygon || line ? (dashed ? (dashFromPattern(dashed.split(/[\s,]+/).filter(Boolean).map(Number)) ?? 'solid') : 'solid') : null,
+  }
+}
+
+/** Spec 011: the properties whose output differs between the classes, as properties by the column (same classes). */
+function channelsFromRules(column: string, read: Array<{ cls: RuleClass; look: Partial<Record<ChannelId, Output | null>> }>): Channels {
+  const out: Channels = {}
+  const ranges = read.filter((r) => r.cls.kind === 'range')
+  for (const id of ['strokeColor', 'strokeWidth', 'shape', 'dash', 'rotation'] as const) {
+    const outputs = read.map((r) => r.look[id])
+    if (outputs.some((o) => o === null || o === undefined) || new Set(outputs).size < 2) continue
+    const def = (o: Output | null | undefined): ClassDef => (o === null || o === undefined ? {} : { output: o })
+    const noValue = read.find((r) => r.cls.kind === 'noValue')
+    const source = { kind: 'column' as const, column }
+    if (ranges.length) {
+      const bounds = (r: (typeof read)[number]) => r.cls as { lower: number; upper: number }
+      const sorted = [...ranges].sort((a, b) => bounds(a).lower - bounds(b).lower)
+      const classes = sorted.map((r, index) => ({ index, lower: bounds(r).lower, upper: bounds(r).upper, ...def(r.look[id]) }))
+      if (classes.length < 2 || classes.length > 10 || classes.some((c) => c.upper === Number.MAX_VALUE)) continue
+      out[id] = { source, scale: { kind: 'classes', method: 'manual', classCount: classes.length, classes, noValue: def(noValue?.look[id]) } }
+    } else {
+      const categories = read.flatMap((r) => (r.cls.kind === 'value' ? [{ value: r.cls.value, ...def(r.look[id]) }] : []))
+      const other = read.find((r) => r.cls.kind === 'other')
+      out[id] = { source, scale: { kind: 'categories', manual: true, categories, other: def(other?.look[id]), noValue: def(noValue?.look[id]), cap: Math.max(categories.length, 1) } }
+    }
+  }
+  return out
+}
+
+/** Thematic classes from the rules (and, spec 011, the other properties they vary), or null when the rules aren't a thematic style. */
+function thematicFromRules(rules: Element[], notes: string[]): { renderer: LayerStyle['renderer'] | null; channels: Channels } | null {
   const read = rules.map((r) => ({ rule: r, cls: ruleClass(r) }))
   const thematic = read.filter((r) => r.cls !== null)
   if (thematic.length < 2 || thematic.length !== read.length) {
@@ -444,6 +661,7 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
   const ranges: ImportedRange[] = []
   const rangeSizes: number[] = []
   const categories: ImportedCategory[] = []
+  const looks: Array<{ cls: RuleClass; look: Partial<Record<ChannelId, Output | null>>; color?: string }> = []
   for (const { rule, cls } of thematic) {
     if (!cls || cls.kind === 'guard') continue
     const key = cls.kind === 'value' ? `v:${cls.value}` : cls.kind === 'range' ? `r:${cls.lower}:${cls.upper}` : cls.kind
@@ -451,6 +669,7 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
     seen.add(key)
     const color = ruleColor(rule)
     const label = ruleLabel(rule)
+    looks.push({ cls, look: ruleLook(rule), color })
     if (cls.kind === 'range') {
       ranges.push({ lower: cls.lower, upper: cls.upper, color, label })
       const size = ruleSize(rule)
@@ -469,9 +688,16 @@ function thematicFromRules(rules: Element[], notes: string[]): LayerStyle['rende
     const sizes = rangeSizes.length === ranges.length ? rangeSizes : []
     const size = new Set(sizes).size > 1 ? { min: Math.min(...sizes), max: Math.max(...sizes) } : undefined
     if (size && new Set(ranges.map((r) => r.color)).size > 1) notes.push('The classes vary both color and size; the sizes were imported and the colors left out.')
-    return graduatedFrom(column, ranges, { noValue, size })
+    return withChannels(graduatedFrom(column, ranges, { noValue, size }))
   }
-  return categorizedFrom(column, categories)
+  return withChannels(categorizedFrom(column, categories))
+
+  // Spec 011: other properties by the same column; one color for every class is no color classes at all.
+  function withChannels(renderer: LayerStyle['renderer']): { renderer: LayerStyle['renderer'] | null; channels: Channels } {
+    const channels = channelsFromRules(column, looks)
+    const oneColor = new Set(looks.map((l) => l.color)).size === 1
+    return { renderer: Object.keys(channels).length && oneColor ? null : renderer, channels }
+  }
 }
 
 export function sldToStyle(text: string): StyleImportResult {
@@ -480,7 +706,9 @@ export function sldToStyle(text: string): StyleImportResult {
   const notes: string[] = []
   const rules = byLocal(doc, 'Rule')
   if (rules.length === 0) throw new Error('This SLD file has no <Rule> elements.')
-  const renderer = thematicFromRules(rules, notes)
+  const fromRules = thematicFromRules(rules, notes)
+  const renderer = fromRules?.renderer ?? null
+  const channels = fromRules?.channels ?? {}
 
   const polygon = byLocal(doc, 'PolygonSymbolizer')[0]
   const line = byLocal(doc, 'LineSymbolizer')[0]
@@ -489,10 +717,10 @@ export function sldToStyle(text: string): StyleImportResult {
 
   const distinctFamilies = [polygon, line, point].filter(Boolean).length
   // Spec 009: rules that test two columns (color and size classes, or bivariate cells).
-  const twoColumns = rules.some((r) => new Set(byLocal(r, 'PropertyName').map((p) => p.textContent?.trim()).filter((n) => n && n !== 'geometry')).size > 1)
+  const twoColumns = !fromRules && rules.some((r) => new Set(byLocal(r, 'PropertyName').map((p) => p.textContent?.trim()).filter((n) => n && n !== 'geometry')).size > 1)
   if (!renderer && twoColumns) {
     notes.push("Classes on two columns can't be read from SLD; use QML or Mapbox GL to keep them. The single symbol was imported.")
-  } else if (!renderer && rules.length > distinctFamilies) {
+  } else if (!fromRules && rules.length > distinctFamilies) {
     notes.push(`This SLD has ${rules.length} rules; only the first symbolizer of each geometry type was imported (rule-based styles are not supported yet).`)
   }
 
@@ -524,12 +752,18 @@ export function sldToStyle(text: string): StyleImportResult {
     const m = readMark(point, notes)
     if (m.radius !== undefined) style.pointRadius = m.radius
     style.markerShape = m.shape
+    if (m.rotation !== 0) style.rotation = m.rotation
   }
 
   if (renderer) {
     style.renderer = renderer
     // The symbol color of the first rule is a class color, not the single symbol's.
     delete style.fillColor
+  }
+  // Spec 011: the first rule's outline, shape, pattern and rotation are a class's when they vary by class.
+  if (Object.keys(channels).length) {
+    style.channels = channels
+    if (channels.rotation) delete style.rotation
   }
   return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...style }), format: 'sld', notes }
 }

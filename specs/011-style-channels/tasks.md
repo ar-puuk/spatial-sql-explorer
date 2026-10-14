@@ -736,13 +736,17 @@ and re-import into the app.
   upper bounds after the first) and a fixed marker angle (as the rotation).
   A plain field and `scale_linear` need Continuous and As is: they keep the
   fixed value with a note until US4 (T040–T044), which reads them.
-- [ ] T055 [P] [US7] Implement the SLD export and import in
+- [x] T055 [P] [US7] Implement the SLD export and import in
   `packages/core/src/style/sld.ts`:
   - the cross product of two channels;
   - the cap;
   - continuous as 10 classes;
   - per-rule shape, dash and rotation;
   - notes in `interchange.ts`.
+  Done: properties on the same column with the same classes share one rule
+  per class (no impossible combinations); the note is written by `sld.ts`
+  on export. Import reads per-class outline, shape, pattern and rotation on
+  one column, and a mark's rotation. Continuous as 10 classes waits for US4.
 - [ ] T056 [P] [US7] Implement the Mapbox export and import in
   `packages/core/src/style/mapbox.ts`, reusing `channelExpression`.
 - [x] T057 [US7] Run `check_011.py` against the T051 cases in QGIS 4.2.3.
