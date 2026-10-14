@@ -730,8 +730,12 @@ and re-import into the app.
   - `spatialExplorer/style`.
   Generalize spec 009's size code (`sizeDataDefined`) rather than adding a
   parallel path.
-- [ ] T054 [US7] Implement the QML import of simple data-defined forms, and
+- [x] T054 [US7] Implement the QML import of simple data-defined forms, and
   notes for the rest, in `packages/core/src/style/qml.ts`.
+  Done for the `CASE` forms (categories, and classes with both bounds or
+  upper bounds after the first) and a fixed marker angle (as the rotation).
+  A plain field and `scale_linear` need Continuous and As is: they keep the
+  fixed value with a note until US4 (T040–T044), which reads them.
 - [ ] T055 [P] [US7] Implement the SLD export and import in
   `packages/core/src/style/sld.ts`:
   - the cross product of two channels;
