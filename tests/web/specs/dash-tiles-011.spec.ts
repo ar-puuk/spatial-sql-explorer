@@ -32,8 +32,9 @@ test('patterns by category draw from engine tiles: one line solid, the other das
   await panel.getByLabel('Width', { exact: true }).fill('4')
   await varyBy(page, 'Pattern')
   await panel.getByLabel('Pattern column').selectOption('kind')
-  const outputs = await panel.getByRole('list', { name: 'Pattern classes' }).locator('select').evaluateAll((els) => els.map((e) => (e as HTMLSelectElement).value))
-  expect(outputs.slice(0, 2)).toEqual(['solid', 'dash'])
+  // The classes come from the engine: wait for them, not just for the column.
+  const outputs = () => panel.getByRole('list', { name: 'Pattern classes' }).locator('select').evaluateAll((els) => els.map((e) => (e as HTMLSelectElement).value))
+  await expect.poll(async () => (await outputs()).slice(0, 2), { timeout: 15000 }).toEqual(['solid', 'dash'])
   await page.getByRole('button', { name: 'Zoom to layer' }).click()
   await page.waitForTimeout(2500)
 
