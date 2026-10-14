@@ -105,6 +105,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Styles are saved in a new form that holds every property, and still load
   from 0.3.0 sidecars and saved states exactly as before. QML files also carry
   the whole style in a `spatialExplorer/style` property.
+- The side rail's icons are slightly smaller (18 px), still a touch larger than the map's controls.
 - The Basemap button on the side rail shows a folded map (it showed a layer stack, which suggested a layer list).
 - Feature details are a card on the map again, under the search box: a map
   click, a table row or a search result shows it, whatever side panel is open

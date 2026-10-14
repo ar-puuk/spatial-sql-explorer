@@ -56,7 +56,7 @@
       disabled={(b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
       onclick={() => onSelect(active === b.id ? null : b.id)}
     >
-      <Icon name={b.icon} size={20} />
+      <Icon name={b.icon} size={18} />
     </button>
   {/each}
 </div>
