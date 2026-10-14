@@ -79,3 +79,18 @@ test('a map click selects that feature; Ctrl-click adds another', async ({ page 
   await page.keyboard.up('Control')
   await expect.poll(async () => ((await selectionState(page)).ids ?? []).sort()).toEqual([drawn[0], drawn[1]].sort())
 })
+
+test('show selected only ends when a map click clears the selection (user report)', async ({ page }) => {
+  test.setTimeout(120000)
+  await openFile(page, writeParcels(200), '?e2e=1')
+  await page.getByRole('checkbox', { name: 'Select row 4', exact: true }).check()
+  await expect(bar(page)).toContainText('1 selected')
+  await bar(page).getByRole('button', { name: 'Show selected only' }).click()
+  await expect.poll(() => rowCount(page)).toBe(1)
+  // A click on empty map: nothing is selected, so every row comes back.
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.click(box.x + box.width - 80, box.y + box.height - 60)
+  await expect.poll(async () => (await selectionState(page)).count).toBe(0)
+  await expect.poll(() => rowCount(page)).toBe(200)
+  await expect(page.locator('.drawer-header > .count')).not.toContainText(' of ')
+})

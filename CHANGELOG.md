@@ -104,6 +104,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- With "Show selected only" on, a click on empty map cleared the selection
+  but left the rows narrowed, with no way back to every row. Now the filter
+  follows the selection: clearing it shows every row again.
 - QML: colors that vary by data keep the fill or outline opacity in QGIS
   (they were drawn opaque).
 - Categorized styles on columns with many distinct values (an id column) are

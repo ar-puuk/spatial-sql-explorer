@@ -695,6 +695,18 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let projection = $state<'mercator' | 'globe'>('mercator')
   let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
 
+  /**
+   * "Show selected only" follows the selection: a new selection is what's shown,
+   * and an empty one (a click on empty map) shows every row again. Otherwise
+   * the rows stay narrowed with no selection bar left to turn it off.
+   */
+  function followSelection(): void {
+    if (!showSelectedOnly) return
+    const qs = querySession
+    if (isEmptySelection(selection)) showSelectedOnly = false
+    void qs?.setShowSelectedOnly(showSelectedOnly ? selection : null).then(() => narrowed())
+  }
+
   /** After the rows were narrowed: new pages, a new view, the style and the count. */
   async function narrowed(): Promise<void> {
     const qs = querySession
@@ -1586,6 +1598,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
           // eslint-disable-next-line svelte/prefer-svelte-reactivity
           selection = { kind: 'ids', ids: new Set(page.rows.map((r) => r.id).filter((r) => r !== id)) }
+          followSelection()
         })
         return
       }
@@ -1596,24 +1609,32 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (on) ids.add(id)
       else ids.delete(id)
       selection = { kind: 'ids', ids }
-      if (showSelectedOnly) void querySession?.setShowSelectedOnly(selection).then(() => narrowed())
+      followSelection()
     },
     selectOnMap(id, add) {
       if (id === null) {
-        if (!add) selection = EMPTY_SELECTION
+        if (!add) {
+          selection = EMPTY_SELECTION
+          followSelection()
+        }
         return
       }
-      if (add) this.toggleSelected(id)
+      if (add) {
+        this.toggleSelected(id)
+        return
+      }
       // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
-      else selection = { kind: 'ids', ids: new Set([id]) }
+      selection = { kind: 'ids', ids: new Set([id]) }
+      followSelection()
     },
     selectAllMatching() {
       selection = { kind: 'all-matching' }
+      followSelection()
     },
     clearSelection() {
       selection = EMPTY_SELECTION
-      if (showSelectedOnly) this.setShowSelectedOnly(false)
+      followSelection()
     },
     get showSelectedOnly() {
       return showSelectedOnly
