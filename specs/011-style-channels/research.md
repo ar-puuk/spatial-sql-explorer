@@ -815,3 +815,23 @@ each idle was itself the 1–2 s long task, as spec 010 had found.
     fails every time (the empty state doesn't return within 3 s after
     Cancel). It passed on the downloaded Chromium earlier today, and this
     branch doesn't touch opening. Left as is.
+
+## Polish: screenshots (T075) (2026-10-14)
+
+- **What ran.** `scripts/screenshots.mjs --only vscode`, in Dark Modern,
+  Light Modern and High Contrast, on `sample.fgb`. The web half launches
+  Playwright's downloaded Chromium, which the machine's policy now blocks;
+  the web suites' screenshots (style panel, legend, labels, map image)
+  stand in for it.
+- **Script fix.** The style scenes still clicked the pre-011 "Categorized"
+  radio. They now use the Color picker. Two scenes are new: `-style-vary`
+  (outline color continuous by area, with its legend bar) and `-labels`.
+- **Reviewed.** Panel, legend and Labels panel read correctly in all three
+  themes. Labels stay legible with the default dark text on a white halo,
+  on dark and light basemaps.
+- **Seen, not fixed (flagged):** a country with several polygons (Canada,
+  Russia, Indonesia) gets a label on each part. MapLibre labels every part of
+  a multipolygon, while QGIS labels the largest part by default. Fixing it
+  needs one label point per feature from the engine (`ST_PointOnSurface` of
+  the largest part, as a point source or a tile layer), in both drawing
+  modes. That is a follow-up, not a tweak.

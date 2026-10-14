@@ -920,7 +920,7 @@ and re-import into the app.
   - CLAUDE.md's "Styling and export" bullet, to describe channels and labels;
   - `THIRD-PARTY-NOTICES.md`: no change expected; confirm.
   Done. No new dependency: THIRD-PARTY-NOTICES unchanged.
-- [ ] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
+- [x] T075 Run `scripts/screenshots.mjs` for the style panel, Labels panel and
   legend in light and dark. Review every screenshot and fix what looks wrong.
 - [ ] T076 Run the whole of `quickstart.md`:
   - all suites: core, web, extension and lint;
