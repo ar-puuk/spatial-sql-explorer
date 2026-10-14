@@ -2,11 +2,11 @@
 // property, titled with its column; US5 merges groups that share a column and
 // classes). Each class's swatch is the layer's symbol with that property's
 // output, so the legend shows what the map draws.
-import { CHANNEL_ORDER, type ChannelId, type Output } from './channels.js'
-import { legacyView } from './legacy.js'
-import type { LayerStyle, ResolvedClass, ResolvedStyle } from './model.js'
+import { CHANNEL_ORDER, channelDataColumns, type ChannelId, type Output } from './channels.js'
+import { legacyView, rendererOf } from './legacy.js'
+import { EXPRESSION_VALUE_COLUMN, type LayerStyle, type ResolvedClass, type ResolvedStyle } from './model.js'
 import { isGenericChannel } from './resolve.js'
-import { baseSymbol, type LineDash, type MarkerShape, type SymbolSpec } from './symbol.js'
+import { baseSymbol, classSymbols, sizeSymbols, type LineDash, type MarkerShape, type SymbolSpec } from './symbol.js'
 
 export interface ChannelLegendGroup {
   channel: ChannelId
@@ -60,4 +60,108 @@ export function channelLegendGroups(style: LayerStyle, resolved: ResolvedStyle):
     const shown = id === 'rotation' && base.shape === 'circle' ? { ...base, shape: 'triangle' as MarkerShape } : base
     return [{ channel: id, title: enc.legend?.title ? `${enc.legend.title} · ${rc.caption.split(' · ').slice(1).join(' · ')}` : rc.caption, classes: rc.classes, symbols: rc.classes.map((c) => withOutput(shown, id, c.output)) }]
   })
+}
+
+// --- Spec 011 US5: legend groups, merged when they read the same classes -------
+
+/** A class in a legend group, with the classes it stands for in every merged property. */
+export interface LegendEntry {
+  key: string
+  kind: ResolvedClass['kind']
+  label: string
+  count: number
+  visible: boolean
+  /** Drawn with every merged property's output (color, size, shape…). */
+  symbol: SymbolSpec
+  /** What hiding this entry toggles: one class per merged property (`size` is spec 009's size channel). */
+  toggles: Array<{ channel: ChannelId; key: string }>
+}
+
+export interface LegendGroup {
+  key: string
+  /** The properties drawn in this group, color first; one unless merged. */
+  channels: ChannelId[]
+  title: string
+  entries: LegendEntry[]
+}
+
+interface Member {
+  channel: ChannelId
+  title: string
+  column: string
+  scale: 'categories' | 'classes' | 'other'
+  classes: ResolvedClass[]
+  symbols: SymbolSpec[]
+  /** Spec 009's size channel (sizes from `ResolvedClass.size`; markers and lines alike). */
+  bridgedSize?: boolean
+}
+
+/** What makes two properties' classes the same: column, kind of scale, the classes in order, and which are hidden. */
+function signature(m: Member): string | null {
+  if (m.scale === 'other' || !m.column) return null
+  const classes = m.classes.map((c) => (c.kind === 'value' ? `v:${c.value}` : c.kind === 'range' ? `r:${c.lower}:${c.upper}` : c.kind) + (c.visible ? '' : '!'))
+  return `${m.scale}\u0000${m.column}\u0000${classes.join('\u0001')}`
+}
+
+/** A class's output in a member, applied to a symbol. */
+function apply(symbol: SymbolSpec, m: Member, c: ResolvedClass): SymbolSpec {
+  if (m.bridgedSize) return c.size === undefined ? symbol : { ...symbol, radius: c.size, lineWidth: c.size }
+  return withOutput(symbol, m.channel, c.output)
+}
+
+/**
+ * Every legend group with classes, in panel order: the color (unless
+ * bivariate, a heatmap or the single symbol), spec 009's classed size, and
+ * the other properties that vary. Groups that read the same column with the
+ * same classes (the same values or bounds, the same ones hidden) merge into
+ * one, each entry drawn with all of their outputs (research §10).
+ * Proportional sizes, bivariate squares and heatmap ramps aren't classes:
+ * the legend draws them on their own.
+ */
+export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): LegendGroup[] {
+  const s = legacyView(style)
+  const members: Member[] = []
+  const r = rendererOf(s)
+  if (resolved.status === 'ok' && !resolved.grid && !resolved.heat && (r.kind === 'categorized' || r.kind === 'graduated' || r.kind === 'rules')) {
+    const column = r.kind === 'categorized' ? r.column : r.kind === 'graduated' ? (r.expression ? EXPRESSION_VALUE_COLUMN : r.column) : ''
+    members.push({ channel: 'color', title: resolved.caption, column, scale: r.kind === 'categorized' ? 'categories' : r.kind === 'graduated' ? 'classes' : 'other', classes: resolved.classes, symbols: classSymbols(s, resolved) })
+  }
+  const size = resolved.size
+  const sizeChannel = s.size
+  if (size?.status === 'ok' && size.mode === 'classed' && sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap') {
+    const symbols = sizeSymbols(s, resolved).slice(size.samples?.length ?? 0)
+    members.push({ channel: 'size', title: size.caption, column: size.column, scale: 'classes', classes: size.classes, symbols, bridgedSize: true })
+  }
+  for (const g of channelLegendGroups(s, resolved)) {
+    const enc = s.channels?.[g.channel]
+    const column = enc ? (channelDataColumns(g.channel, enc)[0] ?? '') : ''
+    members.push({ channel: g.channel, title: g.title, column, scale: enc?.scale.kind === 'categories' ? 'categories' : enc?.scale.kind === 'classes' ? 'classes' : 'other', classes: g.classes, symbols: g.symbols })
+  }
+
+  const groups: Array<{ first: Member; rest: Member[] }> = []
+  const bySignature = new Map<string, { first: Member; rest: Member[] }>()
+  for (const m of members) {
+    const sig = signature(m)
+    const into = sig === null ? undefined : bySignature.get(sig)
+    if (into) into.rest.push(m)
+    else {
+      const g = { first: m, rest: [] as Member[] }
+      groups.push(g)
+      if (sig !== null) bySignature.set(sig, g)
+    }
+  }
+  return groups.map(({ first, rest }) => ({
+    key: [first, ...rest].map((m) => m.channel).join('+'),
+    channels: [first, ...rest].map((m) => m.channel),
+    title: first.title,
+    entries: first.classes.map((c, i) => ({
+      key: c.key,
+      kind: c.kind,
+      label: c.label,
+      count: c.count,
+      visible: c.visible,
+      symbol: rest.reduce((sym, m) => apply(sym, m, m.classes[i]), first.symbols[i]),
+      toggles: [first, ...rest].map((m) => ({ channel: m.channel, key: m.classes[i].key })),
+    })),
+  }))
 }

@@ -18,8 +18,12 @@
     options: Option[]
     value: K
     onChange: (kind: K) => void
+    /** The button's accessible name prefix: "<label>: <current>". */
+    label?: string
+    /** The listbox's accessible name. */
+    listLabel?: string
   }
-  let { options, value, onChange }: Props = $props()
+  let { options, value, onChange, label = 'Style type', listLabel = 'Style types' }: Props = $props()
 
   const current = $derived(options.find((o) => o.kind === value) ?? options[0])
   let open = $state(false)
@@ -100,7 +104,7 @@
     bind:this={button}
     aria-haspopup="listbox"
     aria-expanded={open}
-    aria-label={`Style type: ${current?.label ?? ''}`}
+    aria-label={`${label}: ${current?.label ?? ''}`}
     aria-describedby={`${id}-hint`}
     onclick={() => (open ? close() : openList())}
     onkeydown={onButtonKeydown}
@@ -113,7 +117,7 @@
   </button>
 
   {#if open}
-    <ul bind:this={list} class="list" role="listbox" aria-label="Style types" tabindex="0" aria-activedescendant={`${id}-${active}`} onkeydown={onKeydown}>
+    <ul bind:this={list} class="list" role="listbox" aria-label={listLabel} tabindex="0" aria-activedescendant={`${id}-${active}`} onkeydown={onKeydown}>
       {#each options as o, i (o.kind)}
         <!-- Keys are handled on the listbox (aria-activedescendant pattern). -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->

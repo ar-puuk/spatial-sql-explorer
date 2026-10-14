@@ -636,7 +636,7 @@ entries and merging.
 
 ### Tests for User Story 5
 
-- [ ] T045 [P] [US5] Write `tests/core/style-legend-011.test.ts`:
+- [X] T045 [P] [US5] Write `tests/core/style-legend-011.test.ts`:
   - `legendGroups` follows the merge rule (research §10): same source, same
     scale kind and same classes or bounds merge; different breaks don't;
   - a merged entry's `SymbolSpec` carries every merged output;
@@ -646,7 +646,7 @@ entries and merging.
   - group order follows `CHANNEL_ORDER`;
   - migrated size+width on a points-only layer gives one group (the width is
     not listed for points).
-- [ ] T046 [P] [US5] Write `tests/web/specs/legend-011.spec.ts`:
+- [X] T046 [P] [US5] Write `tests/web/specs/legend-011.spec.ts`:
   - **two groups:** Color by `los` and Width by `volume`;
   - **one group:** Color and Size by `pop` with the same quantile 5, whose
     swatches are sized and colored;
@@ -657,17 +657,18 @@ entries and merging.
 
 ### Implementation for User Story 5
 
-- [ ] T047 [US5] Create `packages/core/src/style/legend.ts`. `legendGroups`
+- [X] T047 [US5] Create `packages/core/src/style/legend.ts`. `legendGroups`
   builds `LegendGroupModel[]` from `ResolvedStyle.channels`. Export it from
   index. T045 passes.
-- [ ] T048 [US5] Render `LegendGroupModel` in
+- [X] T048 [US5] Render `LegendGroupModel` in
   `packages/ui/src/MapLegend.svelte`:
   - class groups: merged swatches drawn from `SymbolSpec` (color, size,
     shape, dash, rotation, opacity);
   - gradient groups: `role="img"`, named "<title>: colors from <min> to <max>";
   - sample groups: three rows.
   Replace the T031 interim groups. T046 passes.
-- [ ] T049 [US5] Draw the same groups in `packages/ui/src/mapImage.ts`, and
+- [ ] T049 (**Drawing done 2026-10-13**: the map image takes the merged groups from
+  `ViewerLayout.svelte`. The map-image spec extension is still to do.) [US5] Draw the same groups in `packages/ui/src/mapImage.ts`, and
   feed them from `ViewerLayout.svelte`. The groups are merged swatches,
   gradient bars (the heatmap bar code reused) and sample rows. Extend
   `tests/web/specs/map-image.spec.ts` with a three-group image.

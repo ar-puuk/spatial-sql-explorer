@@ -26,6 +26,10 @@ labels on and adjust them." Research and design: [proposal.md](./proposal.md).
   section, and add a "Vary by attribute" section under them** (the proposal's
   ArcGIS-like alternative). "Draw as" and recipes are dropped. The storage model
   (channels) stays as built; only the panel changes.
+- Q: Why does Single have Vary by attribute? → A: The style type sets only the
+  color; Vary by attribute sets the other properties. To say so, the style type's
+  heading is **Color** and "Single" is **Single color** (user decision,
+  2026-10-13). Merged legend groups (US5) stay in scope.
 - Q: Rules: a scale on any channel, or one rule sets the whole symbol? → A: A scale
   on any channel (proposal §7.2).
 - Q: Which channels? → A: Markers: color, outline color, size, shape, opacity,

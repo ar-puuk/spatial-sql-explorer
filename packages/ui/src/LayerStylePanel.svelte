@@ -220,7 +220,7 @@
   }
 
   const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
-    { kind: 'single', label: 'Single', hint: 'One symbol for every feature' },
+    { kind: 'single', label: 'Single color', hint: 'One color for every feature' },
     { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
     { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
@@ -458,8 +458,8 @@
     </div>
 
     <section aria-labelledby="style-sec-type">
-      <h3 id="style-sec-type">Style</h3>
-      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} />
+      <h3 id="style-sec-type">Color</h3>
+      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} label="Color" listLabel="Color styles" />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}

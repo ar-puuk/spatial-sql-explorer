@@ -474,3 +474,25 @@ and add "Vary by attribute" under them. What changed:
 - **Fix found while reviewing the screenshots:** the Add menu floated and was
   cut off at the bottom of the panel's scroll area. It now opens in the flow
   of the panel.
+
+## Merged legend and wording (2026-10-13)
+
+- **`legendGroups`** (`packages/core/src/style/legend.ts`) collects the color's
+  classes (categorized, graduated, rules), spec 009's classed size, and the
+  generic properties' classes. Groups whose column, kind of scale, classes
+  (values, or bounds) and hidden classes all match merge into one.
+  - Each entry carries one toggle per merged property, so hiding it hides
+    the class everywhere and the group stays merged.
+  - Bivariate squares, heatmap ramps and proportional sizes stay apart.
+- **The on-map legend and the map image** both draw the merged groups. Groups
+  without a size are drawn at a readable size while another group shows sizes,
+  as spec 009 did.
+- **Wording (user decision).** The style type's heading is **Color**, the
+  dropdown is named "Color: <type>", and "Single" is **Single color**,
+  because it sets only the color.
+- **Tests:**
+  - core `style-legend-011` (6), covering merged, different breaks, a hidden
+    class in one property only, color with shape by the same categories,
+    groups in panel order, and hidden from the legend;
+  - web `legend-011` (1);
+  - the web style suites, 70 of 70.

@@ -4,8 +4,9 @@
   // class on the map (FR-009). Collapsible; the state is remembered by the
   // store. Bottom-left, above the scale bar (research §8, amended): the style
   // panel opens on the right and must not cover it, and the feature
-  // inspector (top-left) is transient.
-  import { CHANNEL_NAMES, markerExtent, type ChannelId, type ChannelLegendGroup, type GeometryType, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
+  // inspector (top-left) is transient. Spec 011: one group per property that
+  // varies, merged when properties read the same classes (core `legendGroups`).
+  import { CHANNEL_NAMES, markerExtent, type ChannelId, type GeometryType, type LegendEntry, type LegendGroup, type ResolvedSizeChannel, type ResolvedStyle, type SymbolSpec } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import SymbolSwatch from './style/SymbolSwatch.svelte'
   import BivariateLegend from './style/BivariateLegend.svelte'
@@ -17,35 +18,48 @@
     geometryType: GeometryType
     collapsed: boolean
     onToggleCollapsed: () => void
+    /** Bivariate cells and the single symbol's row. */
     onToggleClass: (key: string, visible: boolean) => void
-    /** Each class's symbol (core `classSymbols`), so swatches look like the map: color, opacity, shape, size, pattern. */
+    /** The single symbol (core `classSymbols`), shown when nothing varies. */
     symbols: SymbolSpec[]
-    /** Spec 009: the size channel's group: its classes and their symbols (core `sizeSymbols`), drawn to scale. */
-    size?: { channel: ResolvedSizeChannel; symbols: SymbolSpec[] } | null
-    /** Spec 011: one group per other property set by a column (core `channelLegendGroups`). */
-    channels?: ChannelLegendGroup[]
-    onToggleChannelClass?: (channel: ChannelId, key: string, visible: boolean) => void
+    /** Spec 011: every group with classes, merged where properties share them (core `legendGroups`). */
+    groups?: LegendGroup[]
+    /** Hides or shows an entry: its class in every merged property. */
+    onToggleEntry?: (toggles: LegendEntry['toggles'], visible: boolean) => void
+    /** Spec 009 US2: proportional sizes (reference sizes, then No value), drawn to scale. */
+    proportional?: { channel: ResolvedSizeChannel; symbols: SymbolSpec[] } | null
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, size = null, channels = [], onToggleChannelClass = () => {} }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
   const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
   // Markers keep their relative sizes; big ones shrink together to fit a row.
   const SWATCH = 22
-  // Each group has its own scale: color swatches stay one readable size, size swatches keep their proportions.
   const reachOf = (list: SymbolSpec[]) => Math.max(1, ...list.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2))
-  const reach = $derived(reachOf(symbols))
-  const sizeReach = $derived(reachOf(size?.symbols ?? []))
-  const sizeScale = $derived(Math.min(1, (SWATCH / 2 - 1) / sizeReach))
-  const scale = $derived(Math.min(1, (SWATCH / 2 - 1) / reach))
-  const swatchSize = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reach * scale + 2))) : 18)
-  // Size rows: markers to scale on point layers, line widths on line and mixed layers.
-  const sizeKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
-  const sizeSwatch = $derived(sizeKind === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * sizeReach * sizeScale + 2))) : SWATCH)
+  const sizes = (g: LegendGroup) => g.channels.includes('size') || g.channels.includes('width')
+  /** Some group draws sizes: groups that don't draw their swatches at one readable size (spec 009). */
+  const sizing = $derived(groups.some(sizes) || !!proportional)
+  /** How a group's swatches are drawn: markers for shapes, rotation and point sizes, lines for widths and patterns. */
+  function kindOf(g: LegendGroup): 'point' | 'line' | 'area' {
+    if (g.channels.some((c) => c === 'shape' || c === 'rotation')) return 'point'
+    if (g.channels.some((c) => c === 'width' || c === 'dash')) return 'line'
+    if (g.channels.includes('size')) return geometryType === 'Point' ? 'point' : 'line'
+    return shape
+  }
+  function shown(g: LegendGroup): SymbolSpec[] {
+    const list = g.entries.map((e) => e.symbol)
+    return sizing && !sizes(g) ? list.map((s) => ({ ...s, lineWidth: Math.max(s.lineWidth, 3), radius: Math.max(s.radius, 5) })) : list
+  }
+  /** "class", "size class", "shape class": what the toggle names, after the group's first property. */
+  const noun = (c: ChannelId) => (c === 'color' ? 'class' : `${CHANNEL_NAMES[c].toLowerCase()} class`)
+  const single = $derived(!resolved.grid && !resolved.heat && !groups.length && !proportional && resolved.classes.length === 1 && resolved.classes[0].kind === 'single')
+  const singleSwatch = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reachOf(symbols) * Math.min(1, (SWATCH / 2 - 1) / reachOf(symbols)) + 2))) : 18)
+  const propReach = $derived(reachOf(proportional?.symbols ?? []))
+  const propKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
 </script>
 
-<section class="legend" aria-label="Legend" style:--swatch-size="{swatchSize}px">
+<section class="legend" aria-label="Legend" style:--swatch-size="{SWATCH}px">
   <button type="button" class="head" aria-expanded={!collapsed} onclick={onToggleCollapsed} title={heading}>
     <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={12} />
     <span class="caption">{heading}</span>
@@ -54,7 +68,6 @@
     {#if resolved.status === 'fallback'}
       <p class="reason">{resolved.reason} Showing the single symbol.</p>
     {/if}
-    <!-- Spec 009: one group per channel (contracts/ui.md "Legend"). -->
     {#if resolved.grid && resolved.status === 'ok'}
       <!-- Spec 009 US4: the bivariate square. -->
       <div role="group" aria-label={heading} class="group">
@@ -71,83 +84,73 @@
           <span>Dense</span>
         </div>
       </div>
-    {:else if !(resolved.classes.length === 1 && resolved.classes[0].kind === 'single' && (size || channels.length))}
-    <!-- The single symbol's row says nothing more once other properties have their own groups. -->
-    <div role="group" aria-label={heading} class="group">
-    <ul>
-      {#each resolved.classes as c, i (c.key)}
-        <li class:hidden={!c.visible}>
-          {#if c.kind === 'single'}
-            <span class="swatch" style:--swatch={c.color}><SymbolSwatch symbol={symbols[i]} kind={shape} {scale} size={swatchSize} /></span>
-          {:else}
-            <button
-              type="button"
-              class="swatch"
-              style:--swatch={c.color}
-              aria-pressed={!c.visible}
-              aria-label={`${c.visible ? 'Hide' : 'Show'} class ${c.label}`}
-              title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
-              onclick={() => onToggleClass(c.key, !c.visible)}
-            >
-              <SymbolSwatch symbol={symbols[i]} kind={shape} {scale} size={swatchSize} hollow={!c.visible} />
-            </button>
-          {/if}
-          <span class="label" title={c.label}>{c.label}</span>
-          <span class="count">{nf.format(c.count)}</span>
-        </li>
-      {/each}
-    </ul>
-    </div>
-    {/if}
-    {#if size}
-      <h4 class="group-title" title={size.channel.caption}>{size.channel.caption}</h4>
-      <div role="group" aria-label={size.channel.caption} class="group">
-      <ul>
-        <!-- Spec 009 US2: proportional reference sizes, smallest first; not classes, so not toggles. -->
-        {#each size.channel.samples ?? [] as sample, i (sample.value)}
+    {:else if single}
+      <!-- Nothing varies: the single symbol's row. -->
+      <div role="group" aria-label={heading} class="group">
+        <ul>
           <li>
-            <span class="swatch"><SymbolSwatch symbol={size.symbols[i]} kind={sizeKind} scale={sizeScale} size={sizeSwatch} /></span>
-            <span class="label">{sample.label}</span>
-            <span class="count"></span>
+            <span class="swatch" style:--swatch={resolved.classes[0].color}><SymbolSwatch symbol={symbols[0]} kind={shape} scale={Math.min(1, (SWATCH / 2 - 1) / reachOf(symbols))} size={singleSwatch} /></span>
+            <span class="label" title={resolved.classes[0].label}>{resolved.classes[0].label}</span>
+            <span class="count">{nf.format(resolved.classes[0].count)}</span>
           </li>
-        {/each}
-        {#each size.channel.classes as c, i (c.key)}
-          <li class:hidden={!c.visible}>
-            <button
-              type="button"
-              class="swatch"
-              style:--swatch={c.color}
-              aria-pressed={!c.visible}
-              aria-label={`${c.visible ? 'Hide' : 'Show'} size class ${c.label}`}
-              title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
-              onclick={() => onToggleClass(c.key, !c.visible)}
-            >
-              <SymbolSwatch symbol={size.symbols[(size.channel.samples?.length ?? 0) + i]} kind={sizeKind} scale={sizeScale} size={sizeSwatch} hollow={!c.visible} />
-            </button>
-            <span class="label" title={c.label}>{c.label}</span>
-            <span class="count">{nf.format(c.count)}</span>
-          </li>
-        {/each}
-      </ul>
+        </ul>
       </div>
     {/if}
-    <!-- Spec 011: one group per other property set by a column, its swatches drawn with each class's output. -->
-    {#each channels as g (g.channel)}
-      {@const kind = g.channel === 'width' || g.channel === 'dash' ? 'line' : g.channel === 'size' || g.channel === 'shape' || g.channel === 'rotation' ? 'point' : shape}
-      <h4 class="group-title" title={g.title}>{g.title}</h4>
-      <div role="group" aria-label={g.title} class="group">
+    <!-- Spec 009/011: one group per property, merged where they read the same classes (contracts/ui.md "Legend"). -->
+    {#each groups as g, gi (g.key)}
+      {@const kind = kindOf(g)}
+      {@const list = shown(g)}
+      {@const sc = Math.min(1, (SWATCH / 2 - 1) / reachOf(list))}
+      {@const label = gi === 0 && g.channels[0] === 'color' ? heading : g.title}
+      {#if !(gi === 0 && g.channels[0] === 'color')}
+        <h4 class="group-title" title={g.title}>{g.title}</h4>
+      {/if}
+      <div role="group" aria-label={label} class="group" data-channels={g.channels.join(' ')}>
         <ul>
-          {#each g.classes as c, i (c.key)}
+          {#each g.entries as e, i (e.key)}
+            <li class:hidden={!e.visible}>
+              <button
+                type="button"
+                class="swatch"
+                style:--swatch={g.channels[0] === 'color' ? e.symbol.fillColor : undefined}
+                aria-pressed={!e.visible}
+                aria-label={`${e.visible ? 'Hide' : 'Show'} ${noun(g.channels[0])} ${e.label}`}
+                title={e.visible ? 'Hide this class on the map' : 'Show this class on the map'}
+                onclick={() => onToggleEntry(e.toggles, !e.visible)}
+              >
+                <SymbolSwatch symbol={list[i]} {kind} scale={sc} size={kind === 'point' ? SWATCH : 18} hollow={!e.visible} />
+              </button>
+              <span class="label" title={e.label}>{e.label}</span>
+              <span class="count">{nf.format(e.count)}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
+    {#if proportional}
+      {@const sc = Math.min(1, (SWATCH / 2 - 1) / propReach)}
+      <h4 class="group-title" title={proportional.channel.caption}>{proportional.channel.caption}</h4>
+      <div role="group" aria-label={proportional.channel.caption} class="group">
+        <ul>
+          <!-- Spec 009 US2: proportional reference sizes, smallest first; not classes, so not toggles. -->
+          {#each proportional.channel.samples ?? [] as sample, i (sample.value)}
+            <li>
+              <span class="swatch"><SymbolSwatch symbol={proportional.symbols[i]} kind={propKind} scale={sc} size={propKind === 'point' ? SWATCH : SWATCH} /></span>
+              <span class="label">{sample.label}</span>
+              <span class="count"></span>
+            </li>
+          {/each}
+          {#each proportional.channel.classes as c, i (c.key)}
             <li class:hidden={!c.visible}>
               <button
                 type="button"
                 class="swatch"
                 aria-pressed={!c.visible}
-                aria-label={`${c.visible ? 'Hide' : 'Show'} ${CHANNEL_NAMES[g.channel].toLowerCase()} class ${c.label}`}
+                aria-label={`${c.visible ? 'Hide' : 'Show'} size class ${c.label}`}
                 title={c.visible ? 'Hide this class on the map' : 'Show this class on the map'}
-                onclick={() => onToggleChannelClass(g.channel, c.key, !c.visible)}
+                onclick={() => onToggleClass(c.key, !c.visible)}
               >
-                <SymbolSwatch symbol={g.symbols[i]} {kind} scale={Math.min(1, (SWATCH / 2 - 1) / reachOf(g.symbols))} size={kind === 'point' ? SWATCH : 18} hollow={!c.visible} />
+                <SymbolSwatch symbol={proportional.symbols[(proportional.channel.samples?.length ?? 0) + i]} kind={propKind} scale={sc} size={SWATCH} hollow={!c.visible} />
               </button>
               <span class="label" title={c.label}>{c.label}</span>
               <span class="count">{nf.format(c.count)}</span>
@@ -155,7 +158,7 @@
           {/each}
         </ul>
       </div>
-    {/each}
+    {/if}
   {/if}
 </section>
 

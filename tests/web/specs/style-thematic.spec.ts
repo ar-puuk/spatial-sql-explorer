@@ -121,12 +121,12 @@ test.describe('graduated (US2)', () => {
   test('is unavailable without a numeric column, and says why', async ({ page }) => {
     await openFile(page, fixture('world-boundaries.geojson'))
     await openStylePanel(page)
-    await page.getByRole('button', { name: /^Style type:/ }).click()
+    await page.getByRole('button', { name: /^Color: / }).click()
     const graduated = page.getByRole('option', { name: 'Graduated', exact: true })
     await expect(graduated).toHaveAttribute('aria-disabled', 'true')
     await expect(graduated).toContainText('Graduated styling needs a numeric column.')
     await graduated.click({ force: true }) // aria-disabled: Playwright would wait for it to enable
-    await expect(page.getByRole('option', { name: 'Single', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('option', { name: 'Single color', exact: true })).toHaveAttribute('aria-selected', 'true')
   })
 })
 

@@ -52,12 +52,12 @@ const drawnCount = (page: Page) => page.locator('.canvas-host').evaluate((el) =>
 test('the style type dropdown: each type with what it does; Heatmap only for points', async ({ page }) => {
   await openFile(page, writePoints())
   await openStyle(page)
-  const button = page.getByRole('button', { name: 'Style type: Single' })
-  await expect(button).toContainText('One symbol for every feature')
+  const button = page.getByRole('button', { name: 'Color: Single color' })
+  await expect(button).toContainText('One color for every feature')
   await button.click()
-  const options = page.getByRole('listbox', { name: 'Style types' }).getByRole('option')
+  const options = page.getByRole('listbox', { name: 'Color styles' }).getByRole('option')
   await expect(options).toHaveText([
-    /^Single\s*One symbol for every feature/,
+    /^Single color\s*One color for every feature/,
     /^Categorized\s*A color for each value of a column/,
     // One numeric column: no bivariate, and the option says why.
     /^Graduated\s*Colors by ranges of a number or an expression/,
@@ -66,13 +66,13 @@ test('the style type dropdown: each type with what it does; Heatmap only for poi
     /^Heatmap\s*Where points cluster, as a smooth density surface/,
   ])
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('listbox', { name: 'Style types' })).toBeHidden()
+  await expect(page.getByRole('listbox', { name: 'Color styles' })).toBeHidden()
   await expect(button).toBeFocused()
 
   // Polygons: no heatmap, with the reason.
   await openFile(page, fixture('world-boundaries.geojson'))
   await openStyle(page)
-  await page.getByRole('button', { name: /^Style type:/ }).click()
+  await page.getByRole('button', { name: /^Color: / }).click()
   const heat = page.getByRole('option', { name: 'Heatmap', exact: true })
   await expect(heat).toHaveAttribute('aria-disabled', 'true')
   await expect(heat).toContainText('Heatmaps need points; this layer has none.')
@@ -115,7 +115,7 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
 
     // Size and the point symbol don't apply to a point heatmap.
     const headings = await page.getByRole('region', { name: 'Layer style' }).locator('section h3').allTextContents()
-    expect(headings).toEqual(['Style', 'Heatmap', '3D'])
+    expect(headings).toEqual(['Color', 'Heatmap', '3D'])
 
     await chooseStyleType(page, 'Single')
     await expect.poll(async () => (await pixelsNear(page, [DENSEST]))[0], { timeout: 20000, intervals: [100] }).toBe(0)

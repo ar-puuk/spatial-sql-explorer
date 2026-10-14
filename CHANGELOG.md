@@ -48,9 +48,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     draws, and a class can be hidden from there.
   - A property removed and added again in the same session comes back with
     its column.
+  - Properties that read the same column with the same classes share one
+    legend group: graduated color and size by `pop` in the same quantiles
+    show one list, each entry in its color and at its size. Hiding an entry
+    hides that class in all of them. Different breaks keep separate groups.
 
 ### Changed
 
+- The style type's heading is **Color**, and "Single" is **Single color**: it
+  sets only the color; Vary by attribute sets the rest.
 - The Size section moved into Vary by attribute ("Add… → Size", or Width on
   lines); it works as before.
 - Styles are saved in a new form that holds every property, and still load
