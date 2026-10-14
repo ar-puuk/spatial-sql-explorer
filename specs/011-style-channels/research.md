@@ -565,3 +565,52 @@ and add "Vary by attribute" under them. What changed:
   - the web style, export and legend suites, 61 of 61;
   - the VS Code style suite, 25, with the new sidecar test (T058, channels
     part).
+
+## US6 outcomes: labels (2026-10-14)
+
+- **Placement.**
+  - **The rail:** Labels has its own button on the right rail, between Style
+    and Details (user decision), and its own panel (`LabelsPanel`).
+  - **The map:** two symbol layers, `label` and `label-line`. A symbol
+    layer places all its labels one way, so points and polygons share one
+    layer (`text-anchor` and `text-offset` chosen per geometry) and lines get
+    the other.
+  - **Skipped:** dots that stand in for small features, features hidden
+    through the legend, and empty text.
+  - **Expressions:** an expression label is checked by the engine (any type,
+    shown as text) and computed as `__se_lbl`, in both drawing modes.
+- **The word-gap mark (T067, research §3), explained.** Enlarged screenshots
+  show it is not a glyph artifact. It is the line itself, seen through each
+  word gap: every glyph has a halo, and a space has no glyph. So letter
+  spacing or a font file wouldn't change it.
+  - **Fix:** line labels sit just above the line (`text-anchor: bottom`,
+    0.2 em up), which is QGIS's default for lines ("Above line"). Checked in
+    the web build's screenshots.
+  - The VS Code GPU check is no longer needed for this: the cause is
+    geometry, not rendering.
+- **Short or sharply bent lines get no label.** MapLibre places one label at
+  the middle of a line shorter than the label spacing, and needs room and a
+  bend under 45° there. `roads-los.geojson` (two-segment zigzags, bent in
+  the middle) has none at any zoom; real roads are fine. The browser test
+  uses straight lines.
+- **Files (T066).**
+  - **QML:** QGIS's simple labeling with the `Labeling` category and
+    `labelsEnabled`. Points use OverPoint with a quadrant and distance,
+    lines are curved above the line (flags 10), and polygons use OverPoint
+    centered.
+  - **QGIS 4.2.3 reads the three label cases back exactly:** field or
+    expression, 16 px, color, buffer, placement 1/3, quadrant 7, distance 6.
+  - **SLD:** a TextSymbolizer in every rule, so hidden classes stay
+    unlabeled.
+  - **Mapbox GL:** the map's own label layers, reading a column. A style file
+    can't run SQL, so an expression label shows its first column, with a note.
+  - **Glyphs:** other tools need a glyph server, so the file names
+    OpenFreeMap's `Noto Sans Regular`, with a note. This departs from the
+    contract's `sans-serif`, which only MapLibre's local fallback draws.
+    Exports pass `validateStyleMin`.
+  - **Import:** all three formats read labels back (QGIS's rule-based labels
+    use their first rule).
+- **Tests:**
+  - core: `style-labels` (8) and `style-labels-interchange` (7), 727 in all;
+  - web: `labels.spec.ts` (3), and layout and accessibility (29 together);
+  - QGIS: `check_011.py`, 7 cases, 0 mismatches.

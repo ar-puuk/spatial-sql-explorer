@@ -89,7 +89,9 @@ width, marker shape (QGIS's name) and angle (our "x" is QGIS's filled cross
 turned 45°), line pattern, opacity in percent, drawn or hidden.
 `check_011.py` loads each case into QGIS, takes each feature's symbol from the
 renderer in a render context, and evaluates the symbol layer's data-defined
-properties and the symbol's opacity (0: hidden). It exits 1 on any mismatch.
+properties and the symbol's opacity (0: hidden). For the label cases it also
+reads the layer's labeling back (text field or expression, size in pixels,
+color, buffer, placement, quadrant, distance). It exits 1 on any mismatch.
 
 ```
 SE_QGIS_011=C:\tmp\qgis011 npx vitest run qgis-011-cases   (in tests/core)

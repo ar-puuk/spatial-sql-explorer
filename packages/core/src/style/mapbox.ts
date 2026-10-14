@@ -25,8 +25,15 @@ import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NO
 import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
 import { OUTPUT_KIND, type ChannelId, type Channels, type ClassDef, type Encoding } from './channels.js'
+import { labelLayers, labelTextField } from './labelLayer.js'
+import { labelColumnOf, sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 
 const METADATA_KEY = 'spatial-explorer:layer-style'
+
+/** Spec 011 US6: label glyphs for other tools (Spatial Explorer draws labels with the system's sans-serif). */
+const MAPBOX_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf'
+const MAPBOX_FONT = ['Noto Sans Regular']
+export const MAPBOX_FONT_NOTE = "Labels use OpenFreeMap's Noto Sans glyphs in other tools (Spatial Explorer draws them with the system's sans-serif)."
 
 /** Spec 011: shapes by attribute need icons, which a style file can't carry. */
 export const MAPBOX_SHAPES_NOTE = "Mapbox GL styles draw marker shapes only from a sprite, which a style file can't carry: other tools draw circles (Spatial Explorer keeps the shapes by attribute)."
@@ -163,10 +170,26 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       },
     })
   }
+  // Spec 011 US6: labels, as the map's own label layers, reading a column (a style file can't run SQL).
+  const labels = resolved && style.labels?.enabled ? labelLayers(drawn, resolved) : null
+  const labelColumn = style.labels ? labelColumnOf(style.labels) : null
+  if (labels && style.labels && labelColumn) {
+    if (style.labels.source.kind === 'expression') notes.push(`Mapbox GL labels read one column: the labels show "${labelColumn}", not the expression.`)
+    notes.push(MAPBOX_FONT_NOTE)
+    const text = ['coalesce', ['to-string', ['get', labelColumn]], '']
+    const swap = (e: unknown): unknown => JSON.parse(JSON.stringify(e).split(JSON.stringify(labelTextField(style.labels as LabelSettings))).join(JSON.stringify(text)))
+    for (const [id, suffix] of [['label', 'labels'], ['label-line', 'line-labels']] as const) {
+      const spec = labels[id]
+      if (id === 'label' && !wants('Point') && !wants('Polygon')) continue
+      if (id === 'label-line' && !wants('LineString')) continue
+      layers.push({ id: `${layerName}-${suffix}`, type: 'symbol', source, filter: swap(spec.filter), layout: { ...(swap(spec.layout) as object), 'text-font': MAPBOX_FONT }, paint: spec.paint })
+    }
+  }
   const doc = {
     version: 8,
     name: `${layerName} style`,
     metadata: { [METADATA_KEY]: style },
+    ...(labels && labelColumn ? { glyphs: MAPBOX_GLYPHS } : {}),
     sources: { [source]: { type: 'geojson', data: dataFileName } },
     layers,
   }
@@ -288,6 +311,47 @@ function proportionalFrom(e: unknown, scale: 'linear' | 'area'): LayerStyle['siz
   const [, , , v0, s0, v1, s1] = e as unknown[]
   if (!column || ![v0, s0, v1, s1].every((n) => typeof n === 'number' && Number.isFinite(n))) return null
   return { column, mode: 'proportional', method: 'quantile', classCount: 5, classes: [], noValue: {}, sizeMin: s0 as number, sizeMax: s1 as number, scale }
+}
+
+/** MapLibre's text anchor (the side touching the point) for each of our anchors. */
+const TEXT_ANCHOR: Record<LabelAnchor, string> = { above: 'bottom', below: 'top', left: 'right', right: 'left', center: 'center' }
+
+/** Labels from a symbol layer: text from one property (an expression over `get`, or a `{field}` token), size, colors, anchor and offset. */
+function labelsFromMapbox(layout: Record<string, unknown>, paint: Record<string, unknown>, notes: string[]): LabelSettings | undefined {
+  const field = layout['text-field']
+  const token = typeof field === 'string' ? /^\{([^}]+)\}$/.exec(field.trim())?.[1] : undefined
+  const getIn = (e: unknown): string | null => {
+    if (!Array.isArray(e)) return null
+    if (e[0] === 'get' && typeof e[1] === 'string') return e[1]
+    for (const x of e.slice(1)) {
+      const c = getIn(x)
+      if (c) return c
+    }
+    return null
+  }
+  const column = token ?? getIn(field)
+  if (!column) {
+    notes.push("The label text isn't read from one property; labels were not imported.")
+    return undefined
+  }
+  const size = typeof layout['text-size'] === 'number' ? (layout['text-size'] as number) : 16
+  // Ours choose by geometry (`case`: polygons centered); the last branch is the points'.
+  const pointBranch = (v: unknown): unknown => (Array.isArray(v) && v[0] === 'case' ? v[v.length - 1] : v)
+  const anchorRaw = pointBranch(layout['text-anchor'])
+  const anchor = (Object.keys(TEXT_ANCHOR) as LabelAnchor[]).find((a) => TEXT_ANCHOR[a] === anchorRaw) ?? 'center'
+  const off = pointBranch(layout['text-offset'])
+  const pair = Array.isArray(off) && off[0] === 'literal' ? off[1] : off
+  const em = Array.isArray(pair) && pair.length === 2 && pair.every((n) => typeof n === 'number') ? Math.max(Math.abs(pair[0] as number), Math.abs(pair[1] as number)) : 0
+  const hex = (v: unknown) => (typeof v === 'string' ? hexOf(v) : undefined)
+  const haloWidth = typeof paint['text-halo-width'] === 'number' ? (paint['text-halo-width'] as number) : 0
+  return sanitizeLabels({
+    enabled: (layout.visibility ?? 'visible') !== 'none',
+    source: { kind: 'column', column },
+    size,
+    color: hex(paint['text-color']),
+    halo: { enabled: haloWidth > 0, color: hex(paint['text-halo-color']), width: haloWidth > 0 ? haloWidth : undefined },
+    placement: { kind: 'point', anchor, offset: round(em * size, 1) },
+  })
 }
 
 interface StyleLayerJson {
@@ -445,6 +509,12 @@ export function mapboxToStyle(text: string): StyleImportResult {
     const parsed = extrusionFromMapbox(extrusionLayer.paint['fill-extrusion-height'])
     if (parsed) style.extrusion = { enabled: true, ...parsed }
     else notes.push('The fill-extrusion height is not a column, a column times a number, or a constant: extrusion is off.')
+  }
+  // Spec 011 US6: the first symbol layer with text, as labels.
+  const labelLayer = layers.find((l) => l.type === 'symbol' && (l as { layout?: Record<string, unknown> }).layout?.['text-field'] !== undefined) as (StyleLayerJson & { layout?: Record<string, unknown> }) | undefined
+  if (labelLayer) {
+    const labels = labelsFromMapbox(labelLayer.layout ?? {}, labelLayer.paint ?? {}, notes)
+    if (labels) style.labels = labels
   }
   if (skipped > 0) notes.push('Some paint values are expressions or zoom functions; only literal values were imported.')
   if (layers.filter((l) => ['fill', 'line', 'circle'].includes(l.type ?? '')).length > 3) {

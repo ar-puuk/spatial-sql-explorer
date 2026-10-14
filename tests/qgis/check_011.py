@@ -24,6 +24,7 @@ from qgis.core import (
     QgsSymbol,
     QgsSymbolLayer,
     QgsSymbolLayerUtils,
+    QgsUnitTypes,
     QgsVectorLayer,
 )
 
@@ -105,7 +106,42 @@ def check(qml):
         if not got['visible'] or not same(want, got):
             mismatches.append({'feature': i, 'want': want, 'got': got})
     renderer.stopRender(ctx)
-    return {'case': os.path.basename(base), 'loaded': bool(ok), 'renderer': renderer.type(), 'features': len(expected['features']), 'mismatches': mismatches[:5], 'mismatchCount': len(mismatches)}
+    label_mismatches = check_labels(layer, expected.get('labels'))
+    mismatches.extend(label_mismatches)
+    return {'case': os.path.basename(base), 'loaded': bool(ok), 'renderer': renderer.type(), 'features': len(expected['features']), 'labels': expected.get('labels') is not None, 'mismatches': mismatches[:5], 'mismatchCount': len(mismatches)}
+
+
+def number(v):
+    """A QGIS enum (PyQt6: an object with .value) or int as an int."""
+    return int(getattr(v, 'value', v))
+
+
+def check_labels(layer, want):
+    """Spec 011 US6: the layer's labels as QGIS read them (text, size in px, color, buffer, placement)."""
+    if want is None:
+        return [{'labels': 'unexpected'}] if layer.labelsEnabled() else []
+    if not layer.labelsEnabled() or layer.labeling() is None:
+        return [{'labels': 'not enabled'}]
+    s = layer.labeling().settings()
+    fmt = s.format()
+    buf = fmt.buffer()
+    got = {
+        'fieldName': s.fieldName,
+        'isExpression': bool(s.isExpression),
+        'size': round(fmt.size(), 2),
+        'color': fmt.color().name(),
+        'buffer': bool(buf.enabled()),
+        'placement': number(s.placement),
+    }
+    if 'bufferSize' in want:
+        got['bufferSize'] = round(buf.size(), 2)
+        got['bufferColor'] = buf.color().name()
+    if 'quadOffset' in want:
+        got['quadOffset'] = number(s.pointSettings().quadrant() if hasattr(s, 'pointSettings') else s.quadOffset)
+    if 'dist' in want:
+        got['dist'] = round(s.dist, 2)
+    units = number(fmt.sizeUnit())
+    return [] if got == want and units == number(QgsUnitTypes.RenderPixels if hasattr(QgsUnitTypes, 'RenderPixels') else 1) else [{'labels': {'want': want, 'got': got, 'sizeUnit': units}}]
 
 
 def main():

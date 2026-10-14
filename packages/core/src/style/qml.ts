@@ -35,6 +35,7 @@ import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, 
 import type { ResolvedClass } from './model.js'
 import { isGenericChannel } from './resolve.js'
 import { checkExpression } from './sqlExpression.js'
+import { sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import { rampColors } from './ramps.js'
 import { HEATMAP_STOPS } from './resolve.js'
 
@@ -637,6 +638,80 @@ function readRenderer3d(doc: Document, notes: string[]): LayerStyle['extrusion']
   return { enabled: true, ...parsed }
 }
 
+// --- Spec 011 US6: labels as QGIS's simple labeling (contracts/interchange-mapping.md) ---
+
+/** QGIS's quadrant around a point for each of our anchors (QgsPalLayerSettings::QuadrantPosition). */
+const QGIS_QUADRANT: Record<LabelAnchor, number> = { above: 1, below: 7, left: 3, right: 5, center: 4 }
+
+/** Label size in px from a QGIS size and unit (QGIS's default unit is points). */
+function labelPx(raw: string | null, unit: string | null): number | null {
+  const n = Number(raw)
+  if (raw === null || !Number.isFinite(n)) return null
+  const u = (unit ?? 'Point').toLowerCase()
+  if (u === 'pixel') return n
+  if (u === 'mm' || u === 'millimeter') return n * PX_PER_MM
+  return n * PX_PER_PT
+}
+
+/**
+ * QGIS's simple labeling: the text (a field, or the expression as a QGIS
+ * expression), its size in pixels, color, buffer (our halo), and placement:
+ * points around the point (OverPoint with a quadrant and distance), lines
+ * curved above the line, polygons over their centroid.
+ */
+function labelingXml(labels: LabelSettings, geom: Exclude<StyleGeometry, 'Mixed'>, notes: string[]): string {
+  const expr = labels.source.kind === 'expression'
+  const field = labels.source.kind === 'column' ? labels.source.column : labels.source.expression
+  if (expr && /\(/.test(field)) notes.push('The label expression was written as a QGIS expression; SQL functions may need adjusting in QGIS.')
+  const point = labels.placement.kind === 'point' ? labels.placement : { anchor: 'above' as LabelAnchor, offset: 4 }
+  const placement =
+    geom === 'LineString'
+      ? `placement="3" placementFlags="10" dist="${round(labels.size * 0.2, 2)}" distUnits="Pixel"`
+      : geom === 'Polygon'
+        ? 'placement="1" quadOffset="4" dist="0" distUnits="Pixel"'
+        : `placement="1" quadOffset="${QGIS_QUADRANT[point.anchor]}" dist="${point.anchor === 'center' ? 0 : point.offset}" distUnits="Pixel"`
+  return `  <labeling type="simple">
+    <settings calloutType="simple">
+      <text-style fieldName="${escapeXml(field)}" isExpression="${expr ? 1 : 0}" fontSize="${labels.size}" fontSizeUnit="Pixel" textColor="${qgisColor(labels.color, 1)}" textOpacity="1">
+        <text-buffer bufferDraw="${labels.halo.enabled ? 1 : 0}" bufferSize="${labels.halo.width}" bufferSizeUnits="Pixel" bufferColor="${qgisColor(labels.halo.color, 1)}" bufferOpacity="1" bufferNoFill="1" bufferJoinStyle="128"/>
+      </text-style>
+      <placement ${placement}/>
+      <rendering obstacle="1" displayAll="0" upsidedownLabels="0" scaleVisibility="0"/>
+    </settings>
+  </labeling>
+`
+}
+
+/** Our labels from QGIS labeling (`simple`, or a rule-based one's first rule), or undefined. */
+function labelsFromQgis(doc: Document, notes: string[]): LabelSettings | undefined {
+  const labeling = doc.getElementsByTagName('labeling')[0]
+  if (!labeling) return undefined
+  const settings = labeling.getElementsByTagName('settings')[0]
+  if (!settings) return undefined
+  if (labeling.getAttribute('type') === 'rule-based') notes.push("QGIS's rule-based labels were imported as their first rule's labels.")
+  const text = settings.getElementsByTagName('text-style')[0]
+  const field = text?.getAttribute('fieldName') ?? ''
+  if (!field) return undefined
+  const isExpression = text.getAttribute('isExpression') === '1'
+  if (isExpression) notes.push('The label expression is a QGIS expression; it was imported as SQL (QGIS-only functions show an error).')
+  const color = colorAndAlpha(text.getAttribute('textColor') ?? undefined)
+  const buffer = text.getElementsByTagName('text-buffer')[0]
+  const bufferColor = colorAndAlpha(buffer?.getAttribute('bufferColor') ?? undefined)
+  const p = settings.getElementsByTagName('placement')[0]
+  const quadrant = Number(p?.getAttribute('quadOffset') ?? 1)
+  const anchor = (Object.keys(QGIS_QUADRANT) as LabelAnchor[]).find((a) => QGIS_QUADRANT[a] === quadrant) ?? 'above'
+  const dist = labelPx(p?.getAttribute('dist') ?? '0', p?.getAttribute('distUnits') ?? 'MM') ?? 0
+  const enabled = doc.documentElement.getAttribute('labelsEnabled') !== '0'
+  return sanitizeLabels({
+    enabled,
+    source: isExpression ? { kind: 'expression', expression: field } : { kind: 'column', column: field },
+    size: round(labelPx(text.getAttribute('fontSize'), text.getAttribute('fontSizeUnit')) ?? 12, 2),
+    color: color?.hex,
+    halo: { enabled: buffer?.getAttribute('bufferDraw') === '1', color: bufferColor?.hex, width: round(labelPx(buffer?.getAttribute('bufferSize') ?? null, buffer?.getAttribute('bufferSizeUnits') ?? 'MM') ?? 1.5, 2) },
+    placement: { kind: 'point', anchor, offset: round(dist, 2) },
+  })
+}
+
 export function styleToQml(input: LayerStyle, geometry: StyleGeometry, resolved?: ResolvedStyle, columnType?: string): StyleExport {
   const style = legacyView(sanitizeStyle(input))
   const notes: string[] = []
@@ -695,12 +770,14 @@ ${symbolXml(kind, style, '0', sizeDd)}
   if (own) props['spatialExplorer/style'] = own
   // Spec 008 US6: polygon extrusion, as QGIS's 3D renderer (research §5).
   const renderer3d = style.extrusion?.enabled && geom === 'Polygon' ? renderer3dXml(style) : ''
+  // Spec 011 US6: labels, as QGIS's simple labeling (loaded with the Labeling category).
+  const labeling = style.labels?.enabled ? labelingXml(style.labels, geom, notes) : ''
   // Spec 008: QGIS loads only the categories listed: layer opacity is in
   // Rendering, and polygon extrusion in Symbology3D (checked with QGIS 4.2.3).
   const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|Rendering|CustomProperties">
+<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|${labeling ? 'Labeling|' : ''}Rendering|CustomProperties"${labeling ? ' labelsEnabled="1"' : ''}>
 ${renderer}
-${renderer3d}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
+${renderer3d}${labeling}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
   <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
 </qgis>
 `
@@ -1233,10 +1310,12 @@ export function qmlToStyle(text: string): StyleImportResult {
     if (fromQgis) style.size = fromQgis
   }
 
-  // Spec 011: properties QGIS varies by data (ours come back whole from spatialExplorer/style).
+  // Spec 011: properties QGIS varies by data, and labels (ours come back whole from spatialExplorer/style).
   if (!custom.has('spatialExplorer/style')) {
     const channels = channelsFromQgis(symbol, layerEl, cls, notes)
     if (Object.keys(channels).length) style.channels = channels
+    const labels = labelsFromQgis(doc, notes)
+    if (labels) style.labels = labels
   }
 
   // Spec 008: QGIS's layer opacity.

@@ -846,12 +846,12 @@ and re-import into the app.
   Edits go through `setLabels`. T060 passes.
   Done; the expression is a plain input with its error, as the graduated
   expression (no completion yet). Halo on/off, color and width share a row.
-- [ ] T066 [US6] Add label export and import to `qml.ts`
+- [x] T066 [US6] Add label export and import to `qml.ts`
   (`<labeling type="simple">`), `sld.ts` (`TextSymbolizer`) and `mapbox.ts`
   (an `<id>-labels` symbol layer), with notes. Add label cases to
   `qgis-011-cases.test.ts` and `check_011.py`: read-back of field or
   expression, size, color, buffer and placement code. T059 passes.
-- [ ] T067 [US6] **Tracked check (research §3)**: open `roads-los.geojson` in
+- [x] T067 [US6] **Tracked check (research §3)**: open `roads-los.geojson` in
   the VS Code extension on a real GPU and look for a mark at word gaps in line
   labels.
   - If it is there: try `text-letter-spacing: 0.01`, then a `font-faces`

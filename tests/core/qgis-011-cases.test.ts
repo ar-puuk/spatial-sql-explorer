@@ -23,6 +23,7 @@ import {
   setChannelClasses,
   setChannelColumn,
   setFixed,
+  setLabels,
   startStyle,
   visibilityFilter,
   type LayerStyle,
@@ -82,6 +83,10 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
       { name: 'polygons-outline-color-width', geometry: 'polygon', style: polygons },
       { name: 'lines-pattern-opacity', geometry: 'line', style: lines },
       { name: 'rules-points-fixed-rotation', geometry: 'point', style: rules },
+      // Spec 011 US6: labels (QGIS reads them back: text, size, color, buffer, placement).
+      { name: 'labels-points', geometry: 'point', style: setLabels(base, { enabled: true, source: { kind: 'column', column: 'kind' }, size: 16, color: '#aa3300', halo: { enabled: false }, placement: { anchor: 'below', offset: 6 } }, columns) },
+      { name: 'labels-lines-expression', geometry: 'line', style: setLabels(lines, { enabled: true, source: { kind: 'expression', expression: "cls || ' ' || kind" }, halo: { color: '#000000', width: 2 } }, columns) },
+      { name: 'labels-polygons', geometry: 'polygon', style: setLabels(polygons, { enabled: true, source: { kind: 'column', column: 'cls' } }, columns) },
     ]
     const dir = OUT as string
     fs.mkdirSync(dir, { recursive: true })
@@ -131,7 +136,22 @@ describe.runIf(OUT)('QGIS parity cases for Vary by attribute (SE_QGIS_011)', () 
         }
         return out
       })
-      fs.writeFileSync(path.join(dir, `${c.name}.expected.json`), JSON.stringify({ geometry: c.geometry, features: expected }, null, 1))
+      // Labels as QGIS should read them back (QgsPalLayerSettings): placement 1 OverPoint, 3 Curved.
+      const ls = c.style.labels
+      const labels = ls?.enabled
+        ? {
+            fieldName: ls.source.kind === 'column' ? ls.source.column : ls.source.expression,
+            isExpression: ls.source.kind === 'expression',
+            size: ls.size,
+            color: ls.color,
+            buffer: ls.halo.enabled,
+            ...(ls.halo.enabled ? { bufferSize: ls.halo.width, bufferColor: ls.halo.color } : {}),
+            placement: c.geometry === 'line' ? 3 : 1,
+            ...(c.geometry === 'point' && ls.placement.kind === 'point' ? { quadOffset: { above: 1, below: 7, left: 3, right: 5, center: 4 }[ls.placement.anchor], dist: ls.placement.offset } : {}),
+            ...(c.geometry === 'polygon' ? { quadOffset: 4 } : {}),
+          }
+        : undefined
+      fs.writeFileSync(path.join(dir, `${c.name}.expected.json`), JSON.stringify({ geometry: c.geometry, features: expected, ...(labels ? { labels } : {}) }, null, 1))
     }
   })
 })

@@ -24,6 +24,7 @@ import { categorizedFrom, classLayerStyle, graduatedFrom, portableRules, preview
 import type { SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern, proportionalSize, type LineDash, type MarkerShape } from './symbol.js'
 import { CHANNEL_NAMES, CHANNEL_ORDER, type ChannelId, type Channels, type ClassDef, type Output } from './channels.js'
+import { labelColumnOf, sanitizeLabels, type LabelAnchor, type LabelSettings } from './labels.js'
 import { isGenericChannel } from './resolve.js'
 
 function param(name: string, value: string | number): string {
@@ -52,6 +53,11 @@ function mark(shape: MarkerShape, radius: number): { name: string; size: number;
 }
 
 function symbolizer(geom: Exclude<StyleGeometry, 'Mixed'>, style: LayerStyle): string {
+  // Spec 011 US6: the labels ride in every rule, so hidden classes stay unlabeled.
+  return shapeSymbolizer(geom, style) + textSymbolizer(style.labels, geom)
+}
+
+function shapeSymbolizer(geom: Exclude<StyleGeometry, 'Mixed'>, style: LayerStyle): string {
   // Spec 011: the fixed (or class) opacity multiplies the fill and outline opacities.
   const o = style.opacity ?? 1
   if (o !== 1) style = { ...style, fillOpacity: style.fillOpacity * o, strokeOpacity: style.strokeOpacity * o }
@@ -425,6 +431,67 @@ function rulesRules(style: LayerStyle, geometry: StyleGeometry, r: RulesRenderer
   return out.join('\n')
 }
 
+// --- Spec 011 US6: labels as a TextSymbolizer in every rule (contracts/interchange-mapping.md) ---
+
+/** SLD's anchor point (0..1 of the label box) and displacement (px, y up) for each of our point anchors. */
+const SLD_ANCHOR: Record<LabelAnchor, { ax: number; ay: number; dx: number; dy: number }> = {
+  above: { ax: 0.5, ay: 0, dx: 0, dy: 1 },
+  below: { ax: 0.5, ay: 1, dx: 0, dy: -1 },
+  left: { ax: 1, ay: 0.5, dx: -1, dy: 0 },
+  right: { ax: 0, ay: 0.5, dx: 1, dy: 0 },
+  center: { ax: 0.5, ay: 0.5, dx: 0, dy: 0 },
+}
+
+/** A TextSymbolizer for one geometry family, or '' (labels off, or no column to read). */
+function textSymbolizer(labels: LabelSettings | undefined, geom: Exclude<StyleGeometry, 'Mixed'>): string {
+  if (!labels?.enabled) return ''
+  const column = labelColumnOf(labels)
+  if (!column) return ''
+  const font = `<Font>${param('font-family', 'sans-serif')}${param('font-size', labels.size)}</Font>`
+  const halo = labels.halo.enabled ? `<Halo><Radius>${labels.halo.width}</Radius><Fill>${param('fill', labels.halo.color)}</Fill></Halo>` : ''
+  let placement: string
+  if (geom === 'LineString') placement = `<LabelPlacement><LinePlacement><PerpendicularOffset>${round(labels.size * 0.2 + labels.size / 2)}</PerpendicularOffset></LinePlacement></LabelPlacement>`
+  else {
+    const p = geom === 'Polygon' || labels.placement.kind !== 'point' ? { anchor: 'center' as LabelAnchor, offset: 0 } : labels.placement
+    const a = SLD_ANCHOR[p.anchor]
+    placement = `<LabelPlacement><PointPlacement><AnchorPoint><AnchorPointX>${a.ax}</AnchorPointX><AnchorPointY>${a.ay}</AnchorPointY></AnchorPoint><Displacement><DisplacementX>${a.dx * p.offset}</DisplacementX><DisplacementY>${a.dy * p.offset}</DisplacementY></Displacement></PointPlacement></LabelPlacement>`
+  }
+  return `<TextSymbolizer><Label>${prop(column)}</Label>${font}${placement}${halo}<Fill>${param('fill', labels.color)}</Fill></TextSymbolizer>`
+}
+
+/** Our labels from the first TextSymbolizer, or undefined. */
+function labelsFromSld(doc: Document, notes: string[]): LabelSettings | undefined {
+  const t = byLocal(doc, 'TextSymbolizer')[0]
+  if (!t) return undefined
+  const label = directChild(t, 'Label')
+  const column = label ? byLocal(label, 'PropertyName')[0]?.textContent?.trim() : undefined
+  if (!column) {
+    notes.push('The SLD label is not a single property; labels were not imported.')
+    return undefined
+  }
+  const font = readParams(directChild(t, 'Font'))
+  const fill = parseColor(readParams(directChild(t, 'Fill')).get('fill'))
+  const haloEl = directChild(t, 'Halo')
+  const haloFill = parseColor(readParams(haloEl ? directChild(haloEl, 'Fill') : undefined).get('fill'))
+  const radius = Number(haloEl ? directChild(haloEl, 'Radius')?.textContent : NaN)
+  const pp = byLocal(t, 'PointPlacement')[0]
+  const num = (el: Element | undefined, local: string) => Number(el ? byLocal(el, local)[0]?.textContent?.trim() : NaN)
+  const ax = num(pp, 'AnchorPointX')
+  const ay = num(pp, 'AnchorPointY')
+  const dx = num(pp, 'DisplacementX')
+  const dy = num(pp, 'DisplacementY')
+  const anchor = (Object.keys(SLD_ANCHOR) as LabelAnchor[]).find((k) => SLD_ANCHOR[k].ax === (Number.isFinite(ax) ? ax : 0.5) && SLD_ANCHOR[k].ay === (Number.isFinite(ay) ? ay : 0.5)) ?? 'center'
+  const offset = Math.abs(Number.isFinite(dx) && dx !== 0 ? dx : Number.isFinite(dy) ? dy : 0)
+  return sanitizeLabels({
+    enabled: true,
+    source: { kind: 'column', column },
+    size: Number(font.get('font-size')) || undefined,
+    color: fill ? rgbToHex(fill) : undefined,
+    halo: { enabled: !!haloEl, color: haloFill ? rgbToHex(haloFill) : undefined, width: Number.isFinite(radius) ? radius : undefined },
+    placement: { kind: 'point', anchor, offset },
+  })
+}
+
 export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName: string, resolved?: ResolvedStyle): StyleExport {
   const style = legacyView(sanitizeStyle(input))
   const { thematic } = thematicForExport(style, resolved, 'sld')
@@ -438,6 +505,11 @@ export function styleToSld(input: LayerStyle, geometry: StyleGeometry, layerName
   const plan = exportAxes(style, resolved, thematic, sizeClasses)
   const channelNote = sldChannelNote(style, resolved)
   if (channelNote) notes.push(channelNote)
+  const l = style.labels
+  if (l?.enabled && l.source.kind === 'expression') {
+    const column = labelColumnOf(l)
+    notes.push(column ? `SLD labels read one column: the labels show "${column}", not the expression.` : 'SLD labels read one column, and the label expression names none: labels were left out.')
+  }
   const rules = isBivariate && resolved
     ? bivariateRules(style, geometry, resolved)
     : rr.kind === 'rules' && portable
@@ -760,6 +832,8 @@ export function sldToStyle(text: string): StyleImportResult {
     // The symbol color of the first rule is a class color, not the single symbol's.
     delete style.fillColor
   }
+  const labels = labelsFromSld(doc, notes)
+  if (labels) style.labels = labels
   // Spec 011: the first rule's outline, shape, pattern and rotation are a class's when they vary by class.
   if (Object.keys(channels).length) {
     style.channels = channels
