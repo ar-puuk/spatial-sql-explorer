@@ -112,6 +112,7 @@
   import VaryRow from './style/VaryRow.svelte'
   import AddVaryMenu from './style/AddVaryMenu.svelte'
   import ScaleEditor from './style/ScaleEditor.svelte'
+  import ColumnOptions from './style/ColumnOptions.svelte'
   import type { StyleNotice } from './viewerStore.svelte.js'
 
   interface Props {
@@ -470,13 +471,11 @@
         <h3 id="style-sec-by">Color by</h3>
         <div class="row field">
           <label class="label" for="style-column">Column</label>
-          <select id="style-column" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
+          <select id="style-column" class="column-select" value={usingExpression ? EXPRESSION : renderer.column} onchange={(e) => chooseValue(e.currentTarget.value)}>
             {#if !usingExpression && !columnsFor(renderer.kind).some((c) => c.name === renderer.column)}
               <option value={renderer.column}>{renderer.column || 'Choose…'}</option>
             {/if}
-            {#each columnsFor(renderer.kind) as c (c.name)}
-              <option value={c.name}>{c.name} · {c.type}</option>
-            {/each}
+            <ColumnOptions columns={columnsFor(renderer.kind)} />
             {#if renderer.kind === 'graduated'}
               <option value={EXPRESSION}>Expression…</option>
             {/if}
@@ -600,14 +599,12 @@
         <h3 id="style-sec-heat">Heatmap</h3>
         <div class="row field">
           <label class="label" for="style-heat-weight">Weight</label>
-          <select id="style-heat-weight" value={renderer.weight} onchange={(e) => apply(setHeatmap(style, { weight: e.currentTarget.value }))}>
+          <select id="style-heat-weight" class="column-select" value={renderer.weight} onchange={(e) => apply(setHeatmap(style, { weight: e.currentTarget.value }))}>
             <option value="">None: count each point</option>
             {#if renderer.weight && !numericColumns.some((c) => c.name === renderer.weight)}
               <option value={renderer.weight}>{renderer.weight}</option>
             {/if}
-            {#each numericColumns as c (c.name)}
-              <option value={c.name}>{c.name} · {c.type}</option>
-            {/each}
+            <ColumnOptions columns={numericColumns} />
           </select>
         </div>
         <div class="row field">
@@ -867,13 +864,11 @@
               {#if sizeOn && size}
               <div class="row field">
                 <span class="label" aria-hidden="true">Column</span>
-                <select id="style-size-column" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
+                <select id="style-size-column" class="column-select" aria-label="Size column" value={size.column} onchange={(e) => apply(setSizeChannel(style, e.currentTarget.value, sizeGeometry))}>
                   {#if !numericColumns.some((c) => c.name === size.column)}
                     <option value={size.column}>{size.column || 'Choose…'}</option>
                   {/if}
-                  {#each numericColumns as c (c.name)}
-                    <option value={c.name}>{c.name} · {c.type}</option>
-                  {/each}
+                  <ColumnOptions columns={numericColumns} />
                 </select>
               </div>
               <div class="row field">
@@ -1012,13 +1007,11 @@
         {#if ext?.enabled}
           <div class="row field">
             <label class="label" for="extrude-height">Height</label>
-            <select id="extrude-height" aria-label="Height from" value={ext.source.kind === 'column' ? ext.source.column : CONSTANT} onchange={(e) => chooseHeight(e.currentTarget.value)}>
+            <select id="extrude-height" class="column-select" aria-label="Height from" value={ext.source.kind === 'column' ? ext.source.column : CONSTANT} onchange={(e) => chooseHeight(e.currentTarget.value)}>
               {#if ext.source.kind === 'column' && !heightColumns.some((c) => ext.source.kind === 'column' && c.name === ext.source.column)}
                 <option value={ext.source.column}>{ext.source.column}</option>
               {/if}
-              {#each heightColumns as c (c.name)}
-                <option value={c.name}>{c.name} · {c.type}</option>
-              {/each}
+              <ColumnOptions columns={heightColumns} />
               <option value={CONSTANT}>Constant height</option>
             </select>
           </div>
@@ -1293,6 +1286,87 @@
   }
   @media (prefers-reduced-motion: reduce) {
     }
+  /*
+   * Column pickers: each option's type as a short, muted symbol before the
+   * name (style/ColumnOptions.svelte). Chromium's customizable select draws
+   * it (VS Code's webview, Chrome, Edge); other browsers show it as plain text.
+   */
+  @supports (appearance: base-select) {
+    :global(select.column-select),
+    :global(select.column-select::picker(select)) {
+      appearance: base-select;
+    }
+    :global(select.column-select) {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    :global(select.column-select::picker-icon) {
+      margin-left: auto;
+      color: var(--se-text-secondary);
+    }
+    :global(select.column-select::picker(select)) {
+      padding: 4px;
+      border: 1px solid var(--se-menu-border);
+      border-radius: var(--se-radius);
+      background: var(--se-menu-bg);
+      color: var(--se-menu-fg);
+      box-shadow: var(--se-shadow-elevated);
+    }
+    :global(select.column-select option) {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      border-radius: var(--se-radius-sm);
+    }
+    :global(select.column-select option:hover),
+    :global(select.column-select option:focus-visible) {
+      background: var(--se-menu-hover-bg);
+      color: var(--se-menu-hover-fg);
+      outline: none;
+    }
+    :global(select.column-select option::checkmark) {
+      display: none;
+    }
+    /*
+     * In the open list only: the closed picker copies the option's content, not
+     * this. 123, 1.2 and Abc as text; dates, times, true/false, geometry and
+     * nested values as icons (Power Query and QGIS show field types this way).
+     */
+    :global(select.column-select option[data-type]::before) {
+      content: attr(data-type);
+      flex: none;
+      width: 2.6em;
+      color: var(--se-text-secondary);
+      font-family: var(--se-font-mono);
+      font-size: 0.85em;
+    }
+    :global(select.column-select option[data-icon]::before) {
+      content: '';
+      flex: none;
+      /* The text symbols' width: 2.6em at their 0.85em font size. */
+      width: 2.21em;
+      height: 12px;
+      background-color: var(--se-text-secondary);
+      mask: var(--type-icon) no-repeat left center / 12px 12px;
+    }
+    :global(select.column-select option[data-icon='date']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='3' width='12' height='11' rx='1.5'/><path d='M2 6.5h12M5 1.5v3M11 1.5v3'/></svg>");
+    }
+    :global(select.column-select option[data-icon='time']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M8 4.5V8l2.5 1.5'/></svg>");
+    }
+    :global(select.column-select option[data-icon='bool']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 8.5l3 3 7-7'/></svg>");
+    }
+    :global(select.column-select option[data-icon='geo']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12'/></svg>");
+    }
+    :global(select.column-select option[data-icon='nested']) {
+      --type-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2.5c-1.5 0-2 .7-2 2v1.5c0 1-.6 1.5-1.5 1.5.9 0 1.5.5 1.5 1.5v1.5c0 1.3.5 2 2 2M10 2.5c1.5 0 2 .7 2 2v1.5c0 1 .6 1.5 1.5 1.5-.9 0-1.5.5-1.5 1.5v1.5c0 1.3-.5 2-2 2'/></svg>");
+    }
+  }
   select.narrow {
     justify-self: start;
     width: 64px;

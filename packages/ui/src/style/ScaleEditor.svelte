@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColumnOptions from './ColumnOptions.svelte'
   // Spec 011 (contracts/ui.md "Scale editor"): how one property's column
   // becomes outputs. Categories or classes: the method and class count, the
   // outputs' ramp (colors) or range (numbers), and each class's output,
@@ -67,13 +68,11 @@
 <div class="scale-editor">
   <div class="row field">
     <label class="label" for="{uid}-column">Column</label>
-    <select id="{uid}-column" aria-label="{name} column" value={column} onchange={(e) => onColumn(e.currentTarget.value)}>
+    <select id="{uid}-column" class="column-select" aria-label="{name} column" value={column} onchange={(e) => onColumn(e.currentTarget.value)}>
       {#if !columns.some((c) => c.name === column)}
         <option value={column}>{column || 'Choose…'}</option>
       {/if}
-      {#each columns as c (c.name)}
-        <option value={c.name}>{c.name} · {c.type}</option>
-      {/each}
+      <ColumnOptions columns={columns} />
     </select>
   </div>
   {#if scales.length > 1}

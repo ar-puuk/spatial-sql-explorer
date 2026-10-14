@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColumnOptions from './ColumnOptions.svelte'
   // Spec 009 US4 (contracts/ui.md "Style panel"): the bivariate axes (a
   // numeric column and a method each), swapping them, and the palette, shown
   // as 3x3 previews. Palette colors are fixed data colors.
@@ -37,13 +38,11 @@
   {@const axis = renderer[a.key]}
   <div class="axis">
     <span class="label" title={a.hint}>{a.label}</span>
-    <select aria-label={a.label} title={a.hint} value={axis.column} onchange={(e) => onAxis(a.key, { column: e.currentTarget.value })}>
+    <select class="column-select" aria-label={a.label} title={a.hint} value={axis.column} onchange={(e) => onAxis(a.key, { column: e.currentTarget.value })}>
       {#if !columns.some((c) => c.name === axis.column)}
         <option value={axis.column}>{axis.column || 'Choose…'}</option>
       {/if}
-      {#each columns as c (c.name)}
-        <option value={c.name}>{c.name} · {c.type}</option>
-      {/each}
+      <ColumnOptions columns={columns} />
     </select>
     <select class="method" aria-label="{a.label} method" value={axis.method} onchange={(e) => onAxis(a.key, { method: e.currentTarget.value as BivariateMethod })}>
       {#each METHODS as m (m)}
