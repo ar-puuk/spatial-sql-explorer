@@ -381,3 +381,64 @@ excluded (it stacks overlays). Now:
   Ours are SQL (the plan's choice: users of this tool write SQL, and QGIS reads the same
   `col > 5 AND name = 'x'` text), which needs the engine-computed column; no nesting (not in
   the plan). Its else rule toggle is our "Everything else" show/hide.
+
+## Phase 12: final measurements
+
+Web build, headless Chromium with software WebGL, `tests/web/specs/redesign-performance.spec.ts`
+(3 runs; numbers also in `tests/web/test-results/redesign-perf.json`). Pans: 5 mouse drags
+at 6× CPU throttle, test hooks off (users have none).
+
+| File (mode) | Facts | Drawn | Engine work while panning | Median tile, open / pans 6× | Long tasks during 5 pans at 6× / longest |
+|---|---|---|---|---|---|
+| parcels-10k.geojson (GeoJSON) | 1.03–1.33 s | 2.03–2.34 s | none | – | 0 / 0 ms (limit 200 ms) |
+| parcels-230k.geojson (tiles) | 12.2–12.7 s | 13.3–13.8 s | 2 tiles | 80–83 ms / 54–71 ms | 0–1 / 0–53 ms |
+
+VS Code (Extension Development Host, `performance.test.ts`, 3 back-to-back opens each;
+230k with `SE_LARGE_DATA=1`). Time from Open With to facts, and to the map's first data:
+
+| File | Facts (median) | Drawn (median) |
+|---|---|---|
+| parcels-10k.geojson | 1.72–1.85 s (1.76 s) | 1.88–2.06 s (1.93 s) |
+| parcels-230k.geojson | 10.6–11.1 s (10.9 s) | 10.7–11.1 s (10.95 s) |
+| spec 001's ~10 MB GeoJSON (22,000 polygons; T046, unchanged test) | 1.84–2.29 s (1.86 s) | – |
+
+Compared with before:
+- Spec 007 drew per view: every pan re-queried the engine. Its web SC-004 was a longest task
+  of 143–152 ms over an open, 10 pans, a query and a style (normal CPU). Now panning does
+  no engine work in GeoJSON mode and builds only new tiles in tiles mode.
+- This spec's phase 4 checkpoint (before option C and before the rendered-feature count was
+  limited to test hooks): 10k 9 long tasks / 238 ms, 230k 6 / 209 ms at 6×. Now 0 / 0 ms
+  and 0–1 / ≤ 53 ms.
+- Tiles: S1 measured 16 ms per z10 tile and 275 ms per z8 tile of the 230k file (engine
+  only). The median here (54–83 ms) is the whole provider call, at whatever zooms the map
+  asked for (not recorded), including waits for the engine.
+- A first VS Code open-time harness waited on the whole-read announcement and reported
+  19–184 s for the 230k file; with the announcement skipped as the scale tests do, three
+  back-to-back opens are 10.6–11.1 s (no slowdown across opens).
+
+### Scale (web build, `scale.spec.ts`, performance project)
+
+| Criterion | Spec 007 | Spec 010 |
+|---|---|---|
+| SC-001 GeoParquet 1.1 GB (6M) | facts 2.0 s, overview 4.9 s | facts 2.15–2.26 s, overview 5.09–5.38 s |
+| SC-003 10 city views, z13 (limit 2 s) | max 1.92 s | **0.92–2.46 s, max 2.28–2.46 s: over the limit in 4 of 10 views** |
+| FlatGeobuf 1.45 GB (4M) | in parts: facts 2.0–2.5 s, overview 2.7 s | read whole: open 26.2 s, overview 28.1 s |
+| SC-002 GeoParquet 5 GB (27M) | facts 2.1 s, overview 9.5 s, filter 29 s | facts 2.25 s, overview 5.8 s, filter (135,191 rows) 16.6 s, export 26 MB |
+| SC-005 Cancel | GeoParquet 0.23 s, FlatGeobuf 2.40 s, GeoJSON 2.41 s | 0.08 s, 2.42 s, 2.43 s |
+| SC-006 325 MB GeoJSON | announced, ~34 s | announced, 24.3 s; out of memory: the message, then the next open works |
+| SC-007 filter on 4M | 1,000,166 rows in 11.6 s; export 189 MB in 38.7 s | 1,000,166 rows in 7.6 s; export 189 MB in 19.6 s |
+| Spec 008 table filter on 4M (limit 3 s) | – | 0.86 s |
+| Spec 009 two-column styles on 1M (≤ 2× graduated) | – | graduated 1.86 s, color+size 2.38 s, bivariate 2.40 s |
+
+**SC-003 misses its 2 s limit (not fixed; for the user to decide).** A city view needs ~5 new
+tiles (54 for 10 views); built from the 1.1 GB GeoParquet in parts they take a median 261 ms
+(max 387 ms) each, one at a time (one engine thread), against ~16 ms for a z10 tile of the
+230k in-memory file. Spec 007 drew a city view with one sampled query (max 1.92 s). Options:
+fewer, larger tiles at city zooms (a lower source maxzoom, MapLibre overzooming), or keeping
+the last row groups' bboxes cached between tiles. Measured with 50 ms polling: the test's
+default `expect.poll` intervals grow to 1 s and first reported 1.9–2.9 s.
+
+Test fixes found by running the gated suite: SC-002 still read spec 007's removed per-view
+`viewState` hook (now: settled map frames, as SC-003). Engine memory in SC-002 reads 0 MiB
+from the open through the 5 city views, then 39 MiB from the filter on (spec 007: 5–57 MiB);
+far under the 3.1 GiB limit either way. Why the early samples read 0 was not investigated.

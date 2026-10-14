@@ -72,15 +72,19 @@ test('SC-001/SC-003/SC-004: 1.1 GB GeoParquet opens fast, and every city view is
   // SC-003 (spec 010: engine tiles): 10 city views, each drawn within 2 s of the jump (the map idle with features).
   expect((await hook<{ mode: string }>(page, 'drawState')).mode).toBe('tiles')
   const views: number[] = []
+  const tiles0 = await hook<{ calls: number; buildMs: number[] }>(page, 'tileStats')
   for (const [lon, lat] of CITIES.slice(0, 10)) {
     const before = await idles(page)
     const t0 = Date.now()
     await hook(page, 'jumpTo', lon, lat, 13)
-    await expect.poll(() => idles(page), { timeout: 15000 }).toBeGreaterThan(before)
+    // Polled every 50 ms: the default intervals grow to 1 s and round each view up by as much.
+    await expect.poll(() => idles(page), { timeout: 15000, intervals: [50] }).toBeGreaterThan(before)
     views.push(Date.now() - t0)
     expect(await rendered(page)).toBeGreaterThan(0)
   }
-  results.sc003_cityViewsMs = { each: views, max: Math.max(...views) }
+  const tiles1 = await hook<{ calls: number; buildMs: number[] }>(page, 'tileStats')
+  const built = tiles1.buildMs.slice(tiles0.buildMs.length).sort((x, y) => x - y)
+  results.sc003_cityViewsMs = { each: views, max: Math.max(...views), tilesBuilt: tiles1.calls - tiles0.calls, tileMsMedian: built[Math.floor(built.length / 2)] ?? null, tileMsMax: built[built.length - 1] ?? null }
   expect(Math.max(...views), 'SC-003: every view within 2 s').toBeLessThanOrEqual(2000)
 
   // SC-004 continues: a query and a style on the whole file.
@@ -201,9 +205,9 @@ test('SC-002: a 5 GB session (open, 5 cities, a filter, a style, an export) stay
   const open = await timeOpen(page, file, '27,000,000')
   await sample('open')
   for (const [i, [lon, lat]] of CITIES.slice(0, 5).entries()) {
-    const before = (await viewState(page))?.generation ?? 0
+    const before = await idles(page)
     await hook(page, 'jumpTo', lon, lat, 13)
-    await expect.poll(async () => (await viewState(page))?.generation ?? 0, { timeout: 30000 }).toBeGreaterThan(before)
+    await expect.poll(() => idles(page), { timeout: 30000, intervals: [50] }).toBeGreaterThan(before)
     await sample(`city${i + 1}`)
   }
   await page.keyboard.press('Control+Shift+Q')

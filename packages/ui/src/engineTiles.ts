@@ -17,6 +17,8 @@ let registered = false
 /** The engine is single-threaded: one tile at a time, in request order. */
 let queue: Promise<unknown> = Promise.resolve()
 const stats = { calls: 0, cacheHits: 0 }
+/** The last tile build times, ms (measurements: the median tile time). */
+const buildMs: number[] = []
 
 const abortError = (): DOMException => new DOMException('The tile request was aborted.', 'AbortError')
 const asBuffer = (b: Uint8Array): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
@@ -44,7 +46,11 @@ const handler: AddProtocolAction = async (params, abortController) => {
   const run = queue.then(async () => {
     if (signal.aborted) throw abortError()
     stats.calls++
-    return provider(Number(z), Number(x), Number(y))
+    const t0 = performance.now()
+    const bytes = await provider(Number(z), Number(x), Number(y))
+    buildMs.push(Math.round(performance.now() - t0))
+    if (buildMs.length > 500) buildMs.shift()
+    return bytes
   })
   queue = run.catch(() => {})
   const bytes = await run
@@ -70,7 +76,7 @@ export function registerTileProvider(key: string, provider: TileProvider): () =>
   }
 }
 
-/** Test hook: tiles built by the engine and tiles served from the cache, since the page loaded. */
-export function engineTileStats(): { calls: number; cacheHits: number } {
-  return { ...stats }
+/** Test hook: tiles built by the engine and served from the cache since the page loaded, and the last build times (ms). */
+export function engineTileStats(): { calls: number; cacheHits: number; buildMs: number[] } {
+  return { ...stats, buildMs: [...buildMs] }
 }

@@ -45,7 +45,7 @@
         "spatialExplorer.placeSearch.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the place search on the map. Searches send only the typed text to OpenStreetMap Nominatim."
+          "description": "Offer place results in the map's search box. A place search sends only the typed text to OpenStreetMap Nominatim, and only when you ask for it. Off: the box searches the layer and coordinates only."
         }
       }
     },
