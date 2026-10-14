@@ -139,7 +139,7 @@
     {/if}
     {#if store.queryTable}
       <span class="query-table" title="Query the opened file as this table">
-        <code>{store.queryTable.alias ?? store.queryTable.name}</code>{#if store.queryTable.alias}<span class="alias">{' '}(or <code>{store.queryTable.name}</code>)</span>{/if}
+        <code>{store.queryTable.alias ?? store.queryTable.name}</code>{#if store.queryTable.alias}<span class="alias">&nbsp;(or <code>{store.queryTable.name}</code>)</span>{/if}
         · {store.queryTable.crsLabel} · {nf.format(store.queryTable.rows)} rows
       </span>
     {/if}
