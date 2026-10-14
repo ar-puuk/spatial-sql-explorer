@@ -1260,7 +1260,13 @@ export class QuerySession {
    */
   async whenIdle(): Promise<void> {
     for (;;) {
-      if (this.inFlight) await this.inFlight.catch(() => {})
+      if (this.inFlight) {
+        const held = this.inFlight
+        await held.catch(() => {})
+        // Settled but still holding the engine (recovering from out of memory): wait on a timer.
+        // Looping on the settled promise is microtasks only, and the recovery's engine replies never arrive.
+        if (this.inFlight === held) await new Promise((resolve) => setTimeout(resolve, 10))
+      }
       // User work cancelling what held the engine: wait on a timer, not a microtask, so it can run.
       else if (this.workWaiting > 0) await new Promise((resolve) => setTimeout(resolve, 10))
       else return
