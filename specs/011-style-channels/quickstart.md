@@ -3,13 +3,13 @@
 ## Prerequisites
 
 - `npm install` at the repo root; `npm run build`.
-- **Fixtures**: `node scripts/fixtures-011.mjs` writes these into `tests/fixtures/`:
+- **Fixtures**: `node scripts/fixtures-011.mjs` writes these into `tests/vscode-ext/fixtures/`:
   - `roads-los.geojson`: lines with `los` (A–F), `volume` and `name`;
   - `crashes.geojson`: points with `severity`, `crash_type` (9 types),
     `heading` (degrees), `age_days`, `hex_color` and `name`;
   - `counties-011.geojson`: polygons with `pop`, `density` and `name`.
-- **Baseline for SC-002**: `tests/core/fixtures/011-paint-baseline.json`,
-  recorded from the pre-011 `paintFor` by `scripts/paint-baseline-011.mjs`
+- **Baseline for SC-002**: `tests/core/fixtures/style/pre-011-snapshot.json`,
+  recorded from the pre-011 `paintFor` by `scripts/paint-baseline-011.mjs` (styles in `pre-011-styles.ts`)
   before slice 1 changes the builder.
 - **Optional**: PyQGIS at `C:\OSGeo4W` for the parity checks.
 
@@ -33,13 +33,13 @@
 2. **US1**: open `crashes.geojson`.
    - Steps: Color by `severity`, Shape by `crash_type`, Rotation by `heading`.
    - Expect: shapes differ by type and turn by heading. `crash_type` has 9
-     values, so the 2 rarest fall into Other, with a note.
+     values; 6 get their own shape and the 3 rarest share Other's, with a note.
 3. **US4**:
    - Color by `density` Continuous: a gradient legend, and smooth colors.
    - Switch Shape to triangle: the panel notes 32 color steps.
    - Color by `hex_color` As is: the colors match the column, and bad values
      use the fixed color, with a count.
-4. **US2 / SC-002**: open a sidecar saved by 0.3.0 (`tests/fixtures/*.qml`).
+4. **US2 / SC-002**: open a sidecar saved by 0.3.0 (`tests/core/fixtures/style/pre-011-sidecars/*.qml`).
    - Expect: the same drawing and legend.
    - Re-save, then `check_011.py` passes.
 5. **US6**:

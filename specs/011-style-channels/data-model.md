@@ -133,7 +133,7 @@ interface CategoriesScale {
   categories: Array<ClassDef & { value: string }>
   other: ClassDef
   noValue: ClassDef
-  cap: number                         // DEFAULT_CATEGORY_CAP for color; 7 shape, 5 dash, 12 numbers
+  cap: number                         // values with their own output: DEFAULT_CATEGORY_CAP for color; 6 shape and 4 dash (Other takes the 7th shape / 5th pattern, so every class stays distinct); 12 numbers
   ramp?: RampRef                      // color channels: the palette that fills unset outputs
   range?: { min: number; max: number } // numeric channels: unset outputs spread evenly (classSizes)
 }

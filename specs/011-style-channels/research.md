@@ -298,7 +298,7 @@ more step:
 **Proof of identity (SC-002)**: before the paint builder is replaced, the
 current `paintFor`/`layoutFor` output is recorded as JSON for the existing
 fixture styles, every renderer kind × size × shape × dash × extrusion
-(`tests/core/fixtures/011-paint-baseline.json`). The new builder must produce
+(`tests/core/fixtures/style/pre-011-snapshot.json`, styles as raw JSON in `pre-011-styles.ts`). The new builder must produce
 expressions that evaluate equal, through MapLibre's evaluator, on a feature
 grid. QML files saved by the previous version are re-imported, and the result
 must save to a QML that QGIS draws the same, checked with `check_009.py` and
