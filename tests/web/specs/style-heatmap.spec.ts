@@ -49,31 +49,34 @@ async function pixelsNear(page: Page, colors: string[]): Promise<number[]> {
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const drawnCount = (page: Page) => page.locator('.canvas-host').evaluate((el) => (el as HTMLElement & { seRendered?: () => unknown[] }).seRendered?.().length ?? 0)
 
-test('the style type dropdown: each type with what it does; Heatmap only for points', async ({ page }) => {
+test('the Draw as dropdown: drawings and recipes, each with what it does; Heatmap only for points', async ({ page }) => {
   await openFile(page, writePoints())
   await openStyle(page)
-  const button = page.getByRole('button', { name: 'Style type: Single' })
-  await expect(button).toContainText('One symbol for every feature')
+  const button = page.getByRole('button', { name: 'Draw as: Markers' })
+  await expect(button).toContainText('One symbol per point, varied by the properties below')
   await button.click()
-  const options = page.getByRole('listbox', { name: 'Style types' }).getByRole('option')
-  await expect(options).toHaveText([
-    /^Single\s*One symbol for every feature/,
+  const list = page.getByRole('listbox', { name: 'Draw as and recipes' })
+  await expect(list.getByRole('group', { name: 'Draw as' }).getByRole('option')).toHaveText([/^Markers\s*One symbol per point/, /^Heatmap\s*Where points cluster, as a smooth density surface/])
+  await expect(list.getByRole('group', { name: 'Recipes' }).getByRole('option')).toHaveText([
     /^Categorized\s*A color for each value of a column/,
+    /^Graduated\s*Colors by ranges of a number/,
+    /^Proportional symbols\s*Sizes that follow a number smoothly/,
     // One numeric column: no bivariate, and the option says why.
-    /^Graduated\s*Colors by ranges of a number or an expression/,
     /^Bivariate\s*Bivariate maps need two numeric columns\./,
     /^Rules\s*SQL conditions: the first one a feature meets colors it/,
-    /^Heatmap\s*Where points cluster, as a smooth density surface/,
+    /^Heatmap\s*Where points cluster/,
+    /^Flow \/ network\s*Flow maps are for lines\./,
   ])
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('listbox', { name: 'Style types' })).toBeHidden()
+  await expect(list).toBeHidden()
   await expect(button).toBeFocused()
 
-  // Polygons: no heatmap, with the reason.
+  // Polygons: no heatmap drawing, and the heatmap recipe says why.
   await openFile(page, fixture('world-boundaries.geojson'))
   await openStyle(page)
-  await page.getByRole('button', { name: /^Style type:/ }).click()
-  const heat = page.getByRole('option', { name: 'Heatmap', exact: true })
+  await page.getByRole('button', { name: /^Draw as:/ }).click()
+  await expect(page.getByRole('group', { name: 'Draw as' }).getByRole('option')).toHaveText([/^Fills/, /^3D/])
+  const heat = page.getByRole('group', { name: 'Recipes' }).getByRole('option', { name: 'Heatmap', exact: true })
   await expect(heat).toHaveAttribute('aria-disabled', 'true')
   await expect(heat).toContainText('Heatmaps need points; this layer has none.')
 })
@@ -115,7 +118,7 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
 
     // Size and the point symbol don't apply to a point heatmap.
     const headings = await page.getByRole('region', { name: 'Layer style' }).locator('section h3').allTextContents()
-    expect(headings).toEqual(['Style', 'Heatmap', '3D'])
+    expect(headings).toEqual(['Style', 'Heatmap'])
 
     await chooseStyleType(page, 'Single')
     await expect.poll(async () => (await pixelsNear(page, [DENSEST]))[0], { timeout: 20000, intervals: [100] }).toBe(0)

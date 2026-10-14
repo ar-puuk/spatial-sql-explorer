@@ -97,6 +97,11 @@
     setLegendHidden,
     setScaleKind,
     startEncoding,
+    RECIPES,
+    applyRecipe,
+    recipeUnavailable,
+    setDraw,
+    type RecipeId,
     type ChannelId,
     type Encoding,
     type ScaleKind,
@@ -220,15 +225,45 @@
     }
   }
 
-  const RENDERERS: Array<{ kind: Renderer['kind']; label: string; hint: string }> = [
-    { kind: 'single', label: 'Single', hint: 'One symbol for every feature' },
-    { kind: 'categorized', label: 'Categorized', hint: 'A color for each value of a column' },
-    { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
-    { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
-    { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
-    { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
-  ]
-  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
+  // --- Spec 011 US3: Draw as (by geometry) and recipes, in one dropdown (contracts/ui.md).
+  type DrawKind = 'draw:markers' | 'draw:heatmap' | 'draw:lines' | 'draw:fills' | 'draw:3d' | `recipe:${RecipeId}`
+  const DRAW_POINTS = [
+    { kind: 'draw:markers', label: 'Markers', hint: 'One symbol per point, varied by the properties below' },
+    { kind: 'draw:heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
+  ] as const
+  const DRAW_LINES = [{ kind: 'draw:lines', label: 'Lines', hint: 'Lines, varied by the properties below' }] as const
+  const DRAW_POLYGONS = [
+    { kind: 'draw:fills', label: 'Fills', hint: 'Filled polygons, varied by the properties below' },
+    { kind: 'draw:3d', label: '3D', hint: 'Polygons raised by a height; tilt the map to see them' },
+  ] as const
+  const drawOptions = $derived.by(() => {
+    const draws: ReadonlyArray<{ kind: DrawKind; label: string; hint: string }> =
+      geometryType === 'Point' ? DRAW_POINTS : geometryType === 'LineString' ? DRAW_LINES : geometryType === 'Polygon' ? DRAW_POLYGONS : [...DRAW_POINTS, ...DRAW_POLYGONS]
+    return [
+      ...draws.map((d) => ({ ...d, unavailable: null, group: 'Draw as' })),
+      ...RECIPES.map((r) => ({ kind: `recipe:${r.id}` as DrawKind, label: r.label, hint: r.hint, unavailable: recipeUnavailable(r.id, geometryType, layer), group: 'Recipes', action: true })),
+    ]
+  })
+  const drawValue = $derived.by((): DrawKind => {
+    const d = drawOf(style)
+    if (geometryType === 'LineString') return 'draw:lines'
+    if (geometryType === 'Polygon') return d.polygons === '3d' ? 'draw:3d' : 'draw:fills'
+    if (d.points === 'heatmap') return 'draw:heatmap'
+    return geometryType === 'Mixed' && d.polygons === '3d' ? 'draw:3d' : 'draw:markers'
+  })
+  function chooseDraw(kind: DrawKind): void {
+    if (kind.startsWith('recipe:')) {
+      const id = kind.slice('recipe:'.length) as RecipeId
+      apply(applyRecipe(style, id, geometryType, layer))
+      if (id === 'rules') void suggestRules()
+      return
+    }
+    // 3D keeps spec 008's behavior: the first time, a height column and a scale that shows it.
+    if ((kind === 'draw:3d') !== (ext?.enabled === true) && (kind === 'draw:3d' || kind === 'draw:fills')) return toggleExtrusion()
+    if (kind === 'draw:heatmap') return apply(setDraw(style, { points: 'heatmap' }))
+    if (kind === 'draw:markers') apply(setDraw(style, { points: 'markers' }))
+  }
+
   const renderer = $derived(rendererOf(style))
   const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
   /** Why a renderer can't be chosen, or null. */
@@ -442,7 +477,7 @@
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Style</h3>
-      <StyleTypePicker options={typeOptions} value={renderer.kind} onChange={chooseRenderer} />
+      <StyleTypePicker options={drawOptions} value={drawValue} onChange={chooseDraw} label="Draw as" listLabel="Draw as and recipes" />
       {#if classifyingRows !== null}
         <p class="classifying" role="status">Classifying {classifyingRows.toLocaleString('en-US')} rows…</p>
       {/if}
@@ -1000,26 +1035,10 @@
       </section>
     {/if}
 
-    <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height. -->
+    <!-- Spec 008 US6 (FR-025): polygons raised by a column or a constant height; spec 011: shown while Draw as is 3D. -->
+    {#if !extrusionReason && ext?.enabled}
     <section aria-labelledby="style-sec-3d">
-      <h3 id="style-sec-3d">3D</h3>
-      {#if extrusionReason}
-        <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionReason}</p>
-      {:else}
-        <div class="row field">
-          <span class="label" id="extrude-label">Extrude</span>
-          <button
-            type="button"
-            role="switch"
-            class="switch"
-            aria-label="Extrude polygons"
-            aria-checked={ext?.enabled === true}
-            onclick={toggleExtrusion}
-          >
-            <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-            <span class="state">{ext?.enabled ? 'On' : 'Off'}</span>
-          </button>
-        </div>
+      <h3 id="style-sec-3d">Height</h3>
         {#if ext?.enabled}
           <div class="row field">
             <label class="label" for="extrude-height">Height</label>
@@ -1077,8 +1096,8 @@
             <p class="inline-note" role="status"><Icon name="info" size={14} />{extrusionFlat.toLocaleString('en-US')} {extrusionFlat === 1 ? 'polygon' : 'polygons'} drawn flat (no height, zero or negative).</p>
           {/if}
         {/if}
-      {/if}
     </section>
+    {/if}
   </div>
 
   {#if notice}
@@ -1510,76 +1529,5 @@
   .icon-button:hover {
     background: var(--se-control-hover);
     color: var(--se-text-primary);
-  }
-  /* A VS Code-style toggle: a clear off state in every theme, the accent when on. */
-  .switch {
-    display: inline-flex;
-    justify-self: start;
-    align-items: center;
-    gap: 8px;
-    min-height: 24px;
-    padding: 0 4px 0 0;
-    border: 0;
-    border-radius: var(--se-radius-sm);
-    background: transparent;
-    color: var(--se-text-primary);
-    font: inherit;
-    font-weight: normal;
-    cursor: pointer;
-  }
-  .switch:disabled {
-    cursor: default;
-    opacity: 0.5;
-  }
-  .switch .track {
-    position: relative;
-    flex: none;
-    box-sizing: border-box;
-    width: 30px;
-    height: 16px;
-    border-radius: 8px;
-    border: 1px solid var(--se-input-border);
-    background: color-mix(in srgb, var(--se-text-secondary) 22%, var(--se-input-bg));
-    transition:
-      background-color 0.15s,
-      border-color 0.15s;
-  }
-  .switch .thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--se-text-primary);
-    opacity: 0.75;
-    transition:
-      transform 0.15s,
-      opacity 0.15s;
-  }
-  .switch:not(:disabled):hover .track {
-    border-color: var(--se-text-secondary);
-  }
-  .switch[aria-checked='true'] .track {
-    background: var(--se-button-bg);
-    border-color: var(--se-button-bg);
-  }
-  .switch[aria-checked='true'] .thumb {
-    transform: translateX(14px);
-    background: var(--se-button-fg);
-    opacity: 1;
-  }
-  .switch .state {
-    color: var(--se-text-secondary);
-  }
-  .switch:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 2px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .switch .track,
-    .switch .thumb {
-      transition: none;
-    }
   }
 </style>

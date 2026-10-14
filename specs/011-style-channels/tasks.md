@@ -460,14 +460,14 @@ green.
 
 ### Tests for User Story 3
 
-- [ ] T033 [P] [US3] Write `tests/core/style-recipes.test.ts`:
+- [X] T033 [P] [US3] Write `tests/core/style-recipes.test.ts`:
   - each recipe's channels on fixtures (research §11 table);
   - `recipeUnavailable` reasons;
   - Flow / network on lines sets `color` Categories plus `width` Classes;
   - recipes leave other channels untouched;
   - `setDraw` keeps channels when switching to heatmap, and the `height`
     encoding when switching to fills.
-- [ ] T034 [P] [US3] Write `tests/web/specs/style-recipes.spec.ts`:
+- [X] T034 [P] [US3] Write `tests/web/specs/style-recipes.spec.ts`:
   - the dropdown has the groups "Draw as" and "Recipes" (roles and names per
     contracts/ui.md);
   - Flow / network on `roads-los.geojson` in at most 4 choices (SC-001);
@@ -479,20 +479,20 @@ green.
 
 ### Implementation for User Story 3
 
-- [ ] T035 [P] [US3] Create `packages/core/src/style/recipes.ts`:
+- [X] T035 [P] [US3] Create `packages/core/src/style/recipes.ts`:
   - `RECIPES` (id, label, one-line hint);
   - `recipeUnavailable`;
   - `applyRecipe`, reusing `startEncoding`, `suggestedRules`, the bivariate
     start and the heatmap start;
   - `setDraw` in `edit.ts`.
   Export them from core's index. T033 passes.
-- [ ] T036 [US3] Extend `packages/ui/src/style/StyleTypePicker.svelte` to take
+- [X] T036 [US3] Extend `packages/ui/src/style/StyleTypePicker.svelte` to take
   groups:
   - `role="group"`, with `aria-label` "Draw as" and "Recipes";
   - recipe options are actions;
   - the button shows the current Draw as and its hint.
   Arrow keys still skip disabled options across groups.
-- [ ] T037 [US3] Wire Draw as and recipes into `LayerStylePanel.svelte`,
+- [X] T037 [US3] Wire Draw as and recipes into `LayerStylePanel.svelte`,
   replacing T030's interim dropdown:
   - `setDraw` with the camera for the heatmap's meters;
   - the 3D pitch ease (`EXTRUSION_PITCH`) when switching to 3D, as the 3D
@@ -506,7 +506,10 @@ green.
 
 ### Slice 2 clean-up (no story)
 
-- [ ] T038 Drop the alias fields:
+- [ ] T038 **(Moved after Phase 6, 2026-10-13.** Color still resolves through
+  the bridge until US4 gives it Continuous and As-is scales; removing the
+  aliases before that would mean rewriting color resolution twice.**)** Drop
+  the alias fields:
   - from `ResolvedStyle`: `caption`, `classes`, `grid` and `size` at top
     level;
   - from the old edit wrappers in `packages/core/src/style/edit.ts`;
@@ -514,7 +517,7 @@ green.
     migration).
   Move the callers to `resolved.channels`. Update the tests that read the
   aliases to read `channels.color` and `channels.size`. Keep their intent.
-- [ ] T039 Update `README.md`'s styling section and the `CHANGELOG.md`
+- [X] T039 Update `README.md`'s styling section and the `CHANGELOG.md`
   [Unreleased] entries: Changed (style panel by property, Draw as, recipes),
   and Added (Outline color, Outline width, Shape, Pattern, Opacity and
   Rotation by column).

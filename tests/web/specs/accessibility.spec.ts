@@ -280,19 +280,24 @@ test('keyboard: every style control is reachable, and Esc returns to the Layer s
   const styleButton = page.getByRole('button', { name: 'Style', exact: true })
   await styleButton.click()
 
-  // The style type dropdown: arrows open it and move, Enter applies and returns focus to the button.
-  await page.getByRole('button', { name: 'Style type: Single' }).focus()
+  // Spec 011: the Draw as dropdown: arrows open it and move (Markers, Heatmap, then the recipes),
+  // Enter applies a recipe and returns focus to the button, which still shows the drawing.
+  await page.getByRole('button', { name: 'Draw as: Markers' }).focus()
   await page.keyboard.press('ArrowDown')
-  const types = page.getByRole('listbox', { name: 'Style types' })
+  const types = page.getByRole('listbox', { name: 'Draw as and recipes' })
   await expect(types).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
   await expect(types).toHaveAttribute('aria-activedescendant', (await types.getByRole('option', { name: 'Categorized', exact: true }).getAttribute('id'))!)
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: 'Style type: Categorized' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Draw as: Markers' })).toBeFocused()
+  await expect(page.getByRole('region', { name: 'Legend' })).toContainText('categories')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Draw as: Markers' })).toBeFocused()
   // The classes resolve in the engine (spec 007): wait for them before tabbing.
   await expect(page.getByRole('button', { name: /^Hide 0/ }).first()).toBeVisible()
 

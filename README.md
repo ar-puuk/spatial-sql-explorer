@@ -23,11 +23,16 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   autocomplete and inline errors; results replace the map and the table. A
   query can read other files too: workspace files by relative path in VS Code
   (`ST_Read('data/links.shp')`), added files on the web.
-- **Style**: single, categorized, graduated (by a column or a SQL expression),
-  bivariate and rule-based (SQL conditions, first match wins) styles, ramps
-  previewed on the map, size by a column (classed or proportional), marker
-  shapes and dashed lines, layer opacity, 3D polygon extrusion. Saved as a QGIS `.qml` sidecar;
-  imports and exports QML, SLD and Mapbox GL style JSON.
+- **Style**: every property of the drawing (color, outline color and width,
+  size or width, shape, pattern, opacity, rotation) is either fixed or set by
+  its own column, so one map can show several variables at once (say, roads
+  colored by level of service and widened by traffic). Colors by categories,
+  classes (by a column or a SQL expression), bivariate pairs or rule-based SQL
+  conditions; sizes classed or proportional. Points can be drawn as a heatmap
+  and polygons in 3D. One-click recipes (Categorized, Graduated, Proportional
+  symbols, Bivariate, Rules, Heatmap, Flow / network) and a legend group per
+  property. Saved as a QGIS `.qml` sidecar; imports and exports QML, SLD and
+  Mapbox GL style JSON.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;
   all, filtered or selected rows. The map exports as a PNG with its legend.

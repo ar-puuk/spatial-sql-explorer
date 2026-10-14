@@ -16,13 +16,14 @@ test('sections in a fixed order, and only those that apply', async ({ page }) =>
   const headings = () => panel(page).locator('section h3').allTextContents()
   const rows = () => panel(page).locator('.channel h4').allTextContents()
   const colorParts = () => panel(page).locator('[data-channel="color"] h5').allTextContents()
-  expect(await headings()).toEqual(['Style', 'Properties', '3D'])
+  expect(await headings()).toEqual(['Style', 'Properties'])
   expect(await rows()).toEqual(['Color', 'Outline color', 'Outline width', 'Size', 'Shape', 'Opacity', 'Rotation'])
   await chooseStyleType(page, 'Categorized')
   expect(await colorParts()).toEqual(['Color by', 'Colors'])
   await chooseStyleType(page, 'Graduated')
   expect(await colorParts()).toEqual(['Color by', 'Classification', 'Colors'])
-  await expect(page.getByRole('button', { name: 'Style type: Graduated' })).toContainText('Colors by ranges of a number or an expression')
+  // A recipe is an action: the button keeps showing the drawing.
+  await expect(page.getByRole('button', { name: 'Draw as: Markers' })).toContainText('One symbol per point')
   // No Apply step anywhere (FR-002).
   await expect(panel(page).getByRole('button', { name: /^Apply/ })).toHaveCount(0)
 })
