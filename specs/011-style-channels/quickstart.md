@@ -9,7 +9,7 @@
     `heading` (degrees), `age_days`, `hex_color` and `name`;
   - `counties-011.geojson`: polygons with `pop`, `density` and `name`.
 - **Baseline for SC-002**: `tests/core/fixtures/style/pre-011-snapshot.json`,
-  recorded from the pre-011 `paintFor` by `scripts/paint-baseline-011.mjs` (styles in `pre-011-styles.ts`)
+  recorded from the pre-011 `paintFor` by `tests/core/record-pre-011.test.ts` (`SE_RECORD_011=1`; styles in `pre-011-styles.ts`)
   before slice 1 changes the builder.
 - **Optional**: PyQGIS at `C:\OSGeo4W` for the parity checks.
 

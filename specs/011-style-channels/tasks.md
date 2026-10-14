@@ -75,7 +75,7 @@ typecheck and the affected suites before moving on.
 **Purpose**: test data, and the baseline of today's drawing, recorded before
 any style code changes.
 
-- [ ] T001 [P] Write `scripts/fixtures-011.mjs`, modeled on
+- [X] T001 [P] Write `scripts/fixtures-011.mjs`, modeled on
   `scripts/fixtures-009.mjs`, seeded and deterministic. It writes these to
   `tests/vscode-ext/fixtures/`:
   - `roads-los.geojson`: 1,500 LineStrings with:
@@ -93,7 +93,7 @@ any style code changes.
     `name`.
   Document all three in `tests/vscode-ext/fixtures/README.md`. Run the script
   and commit the outputs.
-- [ ] T002 Write `tests/core/fixtures/style/pre-011-styles.ts`, modeled on
+- [X] T002 Write `tests/core/fixtures/style/pre-011-styles.ts`, modeled on
   `pre-009-styles.ts`. It must hold **raw `LayerStyle` JSON literals**, not
   built through `startStyle` or other edit functions, because those APIs
   change. It covers every pre-011 shape:
@@ -111,7 +111,9 @@ any style code changes.
   - a `Mixed` geometry case.
   It also exports `SNAPSHOT_LAYER_011`: features with `v`, `kind`, `w` and
   `h`, plus the rule counts and ruleErrors inputs.
-- [ ] T003 Write `scripts/paint-baseline-011.mjs`. For every style in T002,
+- [X] T003 Write the recorder (done as `tests/core/record-pre-011.test.ts`,
+  gated by `SE_RECORD_011=1`, because core is TypeScript and vitest already
+  resolves it). For every style in T002,
   it records:
   - `resolveStyle`, with `classes`, `caption`, `size`, `grid` and `heat`;
   - `paintFor` at selection color `#f59e0b` and latitude 40;
@@ -120,7 +122,7 @@ any style code changes.
   It writes `tests/core/fixtures/style/pre-011-snapshot.json`. Run it **on the
   current main code, before T006**, commit the JSON, and note the commit hash
   in the file header.
-- [ ] T004 [P] Add `tests/core/fixtures/style/pre-011-sidecars/`: QML files
+- [X] T004 [P] Add `tests/core/fixtures/style/pre-011-sidecars/`: QML files
   saved by the current exporter (`styleToQml`) for each T002 style, plus a
   `README.md` saying they are the 0.3.0 sidecars used for US2 and SC-002.
 
