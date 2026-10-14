@@ -144,12 +144,13 @@ export type Channels = Partial<Record<ChannelId, Encoding>>
 
 /** How points and polygons are drawn (lines are always lines). */
 export interface DrawAs {
-  points?: 'markers' | 'heatmap'
+  points?: 'markers' | 'heatmap' | 'clusters'
   polygons?: 'fills' | '3d'
 }
 
 export function drawOf(style: Pick<LayerStyle, 'draw'>): Required<DrawAs> {
-  return { points: style.draw?.points === 'heatmap' ? 'heatmap' : 'markers', polygons: style.draw?.polygons === '3d' ? '3d' : 'fills' }
+  const points = style.draw?.points === 'heatmap' || style.draw?.points === 'clusters' ? style.draw.points : 'markers'
+  return { points, polygons: style.draw?.polygons === '3d' ? '3d' : 'fills' }
 }
 
 const MARKERS: readonly ChannelId[] = ['color', 'strokeColor', 'strokeWidth', 'size', 'shape', 'opacity', 'rotation']
@@ -160,7 +161,8 @@ const EXTRUDED: readonly ChannelId[] = ['color', 'height', 'opacity']
 /** The properties the panel lists for a geometry and drawing, in CHANNEL_ORDER (Mixed: every part's). */
 export function channelsFor(geometry: StyleGeometry | null | undefined, draw: Required<DrawAs>): ChannelId[] {
   const parts: Array<readonly ChannelId[]> = []
-  const points = draw.points === 'heatmap' ? [] : MARKERS
+  // A heatmap or clusters draw points themselves (points left out of a group keep the single symbol).
+  const points = draw.points === 'heatmap' || draw.points === 'clusters' ? [] : MARKERS
   const polygons = draw.polygons === '3d' ? EXTRUDED : FILLS
   if (geometry === 'Point') parts.push(points)
   else if (geometry === 'LineString') parts.push(LINES)
@@ -456,5 +458,6 @@ export function sanitizeChannels(raw: unknown): Channels {
 /** A stored `draw` made valid; the defaults (markers, fills) are left out. */
 export function sanitizeDraw(raw: unknown): DrawAs {
   if (!isObj(raw)) return {}
-  return { ...(raw.points === 'heatmap' ? { points: 'heatmap' as const } : {}), ...(raw.polygons === '3d' ? { polygons: '3d' as const } : {}) }
+  const points: DrawAs = raw.points === 'heatmap' || raw.points === 'clusters' ? { points: raw.points } : {}
+  return { ...points, ...(raw.polygons === '3d' ? { polygons: '3d' as const } : {}) }
 }

@@ -59,7 +59,7 @@ import { allFeaturesSql } from '../view/features.js'
 import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
-import { tileBoundsWgs84, tileSql, type TileAttr } from '../view/tiles.js'
+import { tileBoundsWgs84, tileSql, type TileAttr, type TileClusters } from '../view/tiles.js'
 
 /** contracts/query-service.md */
 export interface RunRequest {
@@ -814,7 +814,7 @@ export class QuerySession {
     // A heatmap's weight column is read for its largest value only.
     const colorColumn = (r.kind === 'categorized' || r.kind === 'graduated') && has(r.column) ? r.column : r.kind === 'heatmap' && has(r.weight) ? r.weight : null
     const sizeChannel = sizeOf(style)
-    const size = sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap' && has(sizeChannel.column) ? sizeChannel : null
+    const size = sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap' && r.kind !== 'clusters' && has(sizeChannel.column) ? sizeChannel : null
     const axes = r.kind === 'bivariate' && has(r.x.column) && has(r.y.column) && r.x.column !== r.y.column ? r : null
     if (!facts || (!colorColumn && !size && !axes) || this.utilityRows) {
       return resolveStyleFrom(style, this.utilityRows ? { ...base, features: this.utilityRows } : base)
@@ -1354,7 +1354,7 @@ export class QuerySession {
   }
 
   /** Spec 010 tiles mode: one MVT tile of the displayed result. Empty tiles are a 0-byte array. */
-  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = []): Promise<Uint8Array> {
+  async tile(z: number, x: number, y: number, attrs: string[], computed: readonly ComputedColumn[] = [], cluster: TileClusters | null = null): Promise<Uint8Array> {
     return this.exclusive(async (isCancelled) => {
       const delay = testOverrides().slowTileMs
       if (delay) await new Promise((r) => setTimeout(r, delay))
@@ -1369,7 +1369,7 @@ export class QuerySession {
       const columns = this.facts?.columns ?? this.table.columns
       const typeOf = (name: string): string => computed.find((c) => c.name === name)?.type ?? columns.find((c) => c.name === name)?.type ?? 'VARCHAR'
       const typed: TileAttr[] = attrs.filter((a) => target.attrs.includes(a)).map((name) => ({ name, type: typeOf(name) }))
-      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed), isCancelled)
+      const row = await singleRow<{ tile: Uint8Array | null }>(this.conn, tileSql(target, z, x, y, box, typed, cluster), isCancelled)
       return row.tile ?? new Uint8Array(0)
     }, 'tile')
   }

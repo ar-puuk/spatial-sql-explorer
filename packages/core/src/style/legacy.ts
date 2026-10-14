@@ -161,9 +161,10 @@ function heatmapSettingsOf(r: HeatmapRenderer): HeatmapSettings {
 }
 
 /** The style's color renderer, as the pre-011 code reads it. */
-export function rendererOf(style: Pick<LayerStyle, 'renderer' | 'draw' | 'heatmap' | 'channels'>): Renderer {
+export function rendererOf(style: Pick<LayerStyle, 'renderer' | 'draw' | 'heatmap' | 'clusters' | 'channels'>): Renderer {
   if (has(style, 'renderer')) return style.renderer ?? SINGLE
   if (style.draw?.points === 'heatmap' && style.heatmap) return { kind: 'heatmap', ...style.heatmap }
+  if (style.draw?.points === 'clusters' && style.clusters) return { kind: 'clusters', ...style.clusters }
   return rendererFromEncoding(style.channels?.color)
 }
 
@@ -173,10 +174,18 @@ export function withRenderer(style: LayerStyle, r: Renderer): LayerStyle {
   const channels = { ...s.channels }
   const draw = { ...s.draw }
   let heatmap = s.heatmap
+  let clusters = s.clusters
   if (r.kind === 'heatmap') {
     draw.points = 'heatmap'
     heatmap = heatmapSettingsOf(r)
     // The pre-011 heatmap replaced the color renderer (its colors were the single symbol's).
+    delete channels.color
+  } else if (r.kind === 'clusters') {
+    draw.points = 'clusters'
+    const { kind: _k, ...settings } = r
+    void _k
+    clusters = settings
+    // Points left out of a group keep the single symbol.
     delete channels.color
   } else {
     delete draw.points
@@ -184,7 +193,7 @@ export function withRenderer(style: LayerStyle, r: Renderer): LayerStyle {
     if (color) channels.color = color
     else delete channels.color
   }
-  return tidy({ ...s, channels, draw, ...(heatmap ? { heatmap } : {}) })
+  return tidy({ ...s, channels, draw, ...(heatmap ? { heatmap } : {}), ...(clusters ? { clusters } : {}) })
 }
 
 // --- size ↔ size and width channels ----------------------------------------

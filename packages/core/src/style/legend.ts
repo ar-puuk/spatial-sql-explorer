@@ -160,7 +160,7 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
   }
   const size = resolved.size
   const sizeChannel = s.size
-  if (size?.status === 'ok' && size.mode === 'classed' && sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap') {
+  if (size?.status === 'ok' && size.mode === 'classed' && sizeChannel && r.kind !== 'bivariate' && r.kind !== 'heatmap' && r.kind !== 'clusters') {
     const symbols = sizeSymbols(s, resolved).slice(size.samples?.length ?? 0)
     members.push({ channel: 'size', title: size.caption, column: size.column, scale: 'classes', classes: size.classes, symbols, bridgedSize: true })
   }
@@ -203,5 +203,34 @@ export function legendGroups(style: LayerStyle, resolved: ResolvedStyle): Legend
       // Samples of a continuous property are drawn, not hidden.
       toggles: c.key.startsWith(SAMPLE_KEY_PREFIX) ? [] : [first, ...rest].map((m) => ({ channel: m.channel, key: m.classes[i].key })),
     })),
+  }))
+}
+
+/**
+ * Clusters: a legend row per step, its bubble drawn to scale with the others
+ * (the largest at `reach` px, so it fits a row), in the step's color.
+ */
+export function clusterLegendRows(style: LayerStyle, resolved: ResolvedStyle, reach = 10): Array<{ label: string; color: string; symbol: SymbolSpec }> {
+  const steps = resolved.clusters?.steps ?? []
+  const r = rendererOf(legacyView(style))
+  if (!steps.length || r.kind !== 'clusters') return []
+  const largest = Math.max(...steps.map((st) => st.radius))
+  return steps.map((st) => ({
+    label: st.label,
+    color: st.color,
+    symbol: {
+      fillColor: st.color,
+      fillOpacity: r.opacity,
+      strokeColor: r.strokeColor,
+      strokeOpacity: r.opacity,
+      strokeWidth: Math.min(r.strokeWidth, 1.5),
+      lineColor: st.color,
+      lineWidth: 1,
+      radius: Math.max(3, (reach * st.radius) / largest),
+      shape: 'circle',
+      dash: 'solid',
+      rotation: 0,
+      opacity: 1,
+    },
   }))
 }

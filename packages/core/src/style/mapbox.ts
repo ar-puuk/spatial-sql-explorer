@@ -7,12 +7,14 @@
 import { legacyView } from './legacy.js'
 import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
+  DEFAULT_CLUSTERS,
   DEFAULT_LAYER_STYLE,
   metersPerPixel,
   parseColor,
   rgbToHex,
   round,
   sanitizeStyle,
+  type ClusterRenderer,
   type LayerStyle,
   type ResolvedStyle,
   type StyleGeometry,
@@ -20,7 +22,7 @@ import {
 } from './model.js'
 import { rendererOf } from './legacy.js'
 import type { StyleExport } from './qml.js'
-import { heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
+import { CLUSTER_FILTER, clusterPaint, heatmapPaint, symbolExpressions, visibilityFilter } from './expressions.js'
 import { COMPLEX_RULES_NOTE, EXPRESSION_NOTE, HEATMAP_RAMP_NOTE, MAPBOX_SHAPE_NOTE, categorizedFrom, graduatedFrom, portableRules, thematicForExport, type ImportedCategory, type ImportedRange } from './interchange.js'
 import { hasLike, parseSimpleWhere, type SimpleWhere } from './simpleWhere.js'
 import { dashFromPattern, dashPattern } from './symbol.js'
@@ -154,12 +156,19 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
   // A heatmap draws the points (the same paint as the viewer's).
   const heat = r.kind === 'heatmap' && resolved?.status === 'ok' && resolved.heat ? heatmapPaint(style, resolved) : null
   if (wants('Point') && heat) layers.push({ id: `${layerName}-heatmap`, type: 'heatmap', source, filter: POINT_FILTER, paint: heat })
+  // Clusters: the source groups points; bubbles and counts as the viewer draws them (mapgl's layers).
+  const bubbles = r.kind === 'clusters' && wants('Point') ? clusterPaint(style) : null
+  if (bubbles) {
+    layers.push({ id: `${layerName}-clusters`, type: 'circle', source, filter: CLUSTER_FILTER, paint: bubbles.bubble })
+    layers.push({ id: `${layerName}-cluster-count`, type: 'symbol', source, filter: CLUSTER_FILTER, layout: { ...bubbles.count.layout, 'text-font': MAPBOX_FONT }, paint: bubbles.count.paint })
+    notes.push(MAPBOX_FONT_NOTE)
+  }
   if (wants('Point') && !heat) {
     layers.push({
       id: `${layerName}-point`,
       type: 'circle',
       source,
-      filter: filter(POINT_FILTER),
+      filter: bubbles ? ['all', filter(POINT_FILTER), ['!', CLUSTER_FILTER]] : filter(POINT_FILTER),
       paint: {
         'circle-color': fillColor,
         'circle-opacity': times(style.fillOpacity),
@@ -209,11 +218,67 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
     version: 8,
     name: `${layerName} style`,
     metadata: { [METADATA_KEY]: style },
-    ...(labels && labelColumn ? { glyphs: MAPBOX_GLYPHS } : {}),
-    sources: { [source]: { type: 'geojson', data: dataFileName } },
+    ...((labels && labelColumn) || bubbles ? { glyphs: MAPBOX_GLYPHS } : {}),
+    sources: { [source]: { type: 'geojson', data: dataFileName, ...(bubbles && r.kind === 'clusters' ? { cluster: true, clusterRadius: r.radius, clusterMaxZoom: r.maxZoom } : {}) } },
     layers,
   }
   return { text: JSON.stringify(doc, null, 2) + '\n', notes }
+}
+
+// --- clusters (a clustered GeoJSON source and its bubble layer) --------------
+
+/** A step expression over `point_count`: its base value and its [count, value] steps, or null. */
+function countSteps(e: unknown): { base: unknown; steps: Array<[number, unknown]> } | null {
+  if (!Array.isArray(e) || e[0] !== 'step' || JSON.stringify(e[1]) !== '["get","point_count"]') return null
+  const steps: Array<[number, unknown]> = []
+  for (let i = 3; i + 1 < e.length; i += 2) {
+    if (typeof e[i] !== 'number') return null
+    steps.push([e[i] as number, e[i + 1]])
+  }
+  return { base: e[2], steps }
+}
+
+/** Our clusters from a clustered style (mapgl's cluster_options writes this shape). */
+function clustersFromMapbox(root: { sources?: unknown }, bubble: StyleLayerJson, layers: StyleLayerJson[], notes: string[]): ClusterRenderer | null {
+  const sourceId = (bubble as { source?: unknown }).source
+  const src = typeof sourceId === 'string' ? ((root.sources as Record<string, Record<string, unknown>> | undefined)?.[sourceId] ?? null) : null
+  const p = bubble.paint ?? {}
+  const color = countSteps(p['circle-color']) ?? (typeof p['circle-color'] === 'string' ? { base: p['circle-color'], steps: [] } : null)
+  const radius = countSteps(p['circle-radius']) ?? (typeof p['circle-radius'] === 'number' ? { base: p['circle-radius'], steps: [] } : null)
+  if (!color || typeof color.base !== 'string') {
+    notes.push("The cluster bubbles' colors aren't steps by count: the default steps were used.")
+  }
+  // One step per count either expression starts at; each takes the color and radius in force there.
+  const counts = [...new Set([...(color?.steps ?? []), ...(radius?.steps ?? [])].map(([n]) => n))].filter((n) => n > 1).sort((a, b) => a - b)
+  const at = (sv: { base: unknown; steps: Array<[number, unknown]> } | null, n: number): unknown => {
+    if (!sv) return undefined
+    let v = sv.base
+    for (const [from, value] of sv.steps) if (n >= from) v = value
+    return v
+  }
+  const steps = [2, ...counts].map((from) => ({
+    from,
+    color: typeof at(color, from) === 'string' ? (at(color, from) as string) : DEFAULT_CLUSTERS.steps[0].color,
+    radius: typeof at(radius, from) === 'number' ? (at(radius, from) as number) : DEFAULT_CLUSTERS.steps[0].radius,
+  }))
+  const count = layers.find((l) => l.type === 'symbol' && JSON.stringify((l as { filter?: unknown }).filter ?? null) === JSON.stringify(CLUSTER_FILTER))
+  const text = (count as { layout?: Record<string, unknown> } | undefined)?.layout?.['text-field']
+  const textColor = (count?.paint ?? {})['text-color']
+  const countFormat = JSON.stringify(text ?? '').includes('number-format') ? 'grouped' : Array.isArray(text) && text[0] === 'to-string' ? 'raw' : 'abbreviated'
+  const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  if (src && src.cluster !== true) notes.push("The bubbles' source isn't clustered in this style; here the points are grouped.")
+  return {
+    kind: 'clusters',
+    ...DEFAULT_CLUSTERS,
+    steps: color || radius ? steps : DEFAULT_CLUSTERS.steps.map((st) => ({ ...st })),
+    countFormat,
+    ...(num(src?.clusterRadius) !== undefined ? { radius: num(src?.clusterRadius) as number } : {}),
+    ...(num(src?.clusterMaxZoom) !== undefined ? { maxZoom: num(src?.clusterMaxZoom) as number } : {}),
+    ...(typeof textColor === 'string' ? { textColor } : {}),
+    ...(num(p['circle-opacity']) !== undefined ? { opacity: num(p['circle-opacity']) as number } : {}),
+    ...(typeof p['circle-stroke-color'] === 'string' ? { strokeColor: p['circle-stroke-color'] } : {}),
+    ...(num(p['circle-stroke-width']) !== undefined ? { strokeWidth: num(p['circle-stroke-width']) as number } : {}),
+  }
 }
 
 // --- foreign thematic expressions (no spatial-explorer metadata) -------------
@@ -396,7 +461,7 @@ export function mapboxToStyle(text: string): StyleImportResult {
     throw new Error('This file is not valid JSON.')
   }
   const notes: string[] = []
-  const root = json as { metadata?: Record<string, unknown>; layers?: unknown }
+  const root = json as { metadata?: Record<string, unknown>; layers?: unknown; sources?: unknown }
 
   const embedded = root?.metadata?.[METADATA_KEY]
   if (embedded && typeof embedded === 'object') {
@@ -461,9 +526,16 @@ export function mapboxToStyle(text: string): StyleImportResult {
     } as LayerStyle['renderer']
     if (typeof p['heatmap-opacity'] === 'number' && p['heatmap-opacity'] < 1) style.layerOpacity = p['heatmap-opacity']
   }
+  // Clusters: a circle layer over groups (`has point_count`), its color and radius stepping by count.
+  const isGroups = (l: StyleLayerJson): boolean => JSON.stringify((l as { filter?: unknown }).filter ?? null) === JSON.stringify(CLUSTER_FILTER)
+  const bubbleLayer = layers.find((l) => l.type === 'circle' && isGroups(l))
+  if (bubbleLayer) {
+    const clusters = clustersFromMapbox(root, bubbleLayer, layers, notes)
+    if (clusters) style.renderer = clusters
+  }
   const fillLayer = first('fill')
   const lineLayer = first('line')
-  const circleLayer = first('circle')
+  const circleLayer = layers.find((l) => l.type === 'circle' && !isGroups(l))
   if (!fillLayer && !lineLayer && !circleLayer && !heatLayer && !first('fill-extrusion')) throw new Error('This style has no fill, line, circle or heatmap layers.')
 
   // Data-driven colors (a foreign style, or ours with the metadata stripped).

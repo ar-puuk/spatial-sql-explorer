@@ -297,7 +297,7 @@ function exportAxes(style: LayerStyle, resolved: ResolvedStyle | undefined, them
   const generic = genericAxes(style, resolved)
   const r = rendererOf(style)
   if (!generic.length) return null
-  if (r.kind === 'rules' || r.kind === 'bivariate' || r.kind === 'heatmap') return { axes: [], generic }
+  if (r.kind === 'rules' || r.kind === 'bivariate' || r.kind === 'heatmap' || r.kind === 'clusters') return { axes: [], generic }
   const axes: Axis[] = []
   if (thematic) axes.push({ id: 'color', column: thematic.renderer.column, classes: thematic.classes, apply: (look, c, geom) => (geom === 'LineString' ? { ...look, strokeColor: c.color } : { ...look, fillColor: c.color }) })
   if (sizeClasses && style.size)

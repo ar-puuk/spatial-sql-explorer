@@ -30,15 +30,21 @@ export interface TileAttr {
 /** ST_AsMVT takes VARCHAR, FLOAT, DOUBLE, INTEGER, BIGINT and BOOLEAN only (research.md S1): numbers go as doubles. */
 const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|FLOAT|REAL|DOUBLE|DECIMAL|NUMERIC)\b/i
 
-/** A tile property's value: numbers as DOUBLE, booleans as they are, everything else as text. */
-function tileValue(a: TileAttr): string {
-  const col = quoteIdent(a.name)
+/** How a tile carries a property: numbers as DOUBLE, booleans as they are, everything else as text. */
+function tileType(a: TileAttr): 'DOUBLE' | 'BOOLEAN' | 'VARCHAR' {
   const type = a.type.trim()
   // Lists, structs and maps (INTEGER[] starts like a number) are text.
-  if (/\[\d*\]$|^(STRUCT|MAP|UNION)\b/i.test(type)) return `CAST(${col} AS VARCHAR)`
-  if (NUMERIC.test(type)) return `CAST(${col} AS DOUBLE)`
-  if (/^BOOL/i.test(type)) return col
-  return `CAST(${col} AS VARCHAR)`
+  if (/\[\d*\]$|^(STRUCT|MAP|UNION)\b/i.test(type)) return 'VARCHAR'
+  if (NUMERIC.test(type)) return 'DOUBLE'
+  if (/^BOOL/i.test(type)) return 'BOOLEAN'
+  return 'VARCHAR'
+}
+
+/** A tile property's value, as tileType carries it. */
+function tileValue(a: TileAttr): string {
+  const col = quoteIdent(a.name)
+  const type = tileType(a)
+  return type === 'BOOLEAN' ? col : `CAST(${col} AS ${type})`
 }
 
 /**
@@ -50,7 +56,8 @@ function tileValue(a: TileAttr): string {
  * `__se_dot` (user decision 2026-10-13, option C): ST_AsMVTGeom would drop it,
  * and a map of small parcels would be sparse at its overview.
  */
-export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[]): string {
+export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[], cluster: TileClusters | null = null): string {
+  if (cluster && z <= cluster.maxZoom) return clusteredTileSql(t, z, x, y, box, attrs, cluster)
   const g = t.geom
   // 2 px of a 512 px tile, in the layer's units.
   const span = num((box[2] - box[0]) / 256)
@@ -66,4 +73,68 @@ export function tileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbo
   const near = t.index === 'bbox-table' ? `__se_rowid IN (SELECT rn FROM (${candidates(t, box)}))` : hiddenOverlap(box)
   const where = `${near} AND ${validGeometry(t.geom, t.allValid)}`
   return `SELECT ST_AsMVT({${struct.join(', ')}}, '${TILE_LAYER}') AS tile FROM (SELECT * FROM ${t.relation} WHERE ${where} LIMIT ${TILE_FEATURE_LIMIT})`
+}
+
+/** Clusters in engine tiles: points this close on screen (px) group, up to this zoom. */
+export interface TileClusters {
+  radius: number
+  maxZoom: number
+}
+
+/** MVT tile coordinates (ST_AsMVTGeom's default extent). */
+const EXTENT = 4096
+
+/**
+ * A tile with its points grouped (clusters, the tiles counterpart of
+ * MapLibre's GeoJSON clustering). Points are binned on a grid of about the
+ * cluster radius, in whole cells per tile so the grid lines up across tiles;
+ * a cell with one point keeps the feature (its id and attributes), a cell
+ * with more is a bubble at their mean position carrying `point_count` (the
+ * map's cluster layers draw it; NULL properties are left out of the tile).
+ * Every point of the tile is counted, not the first TILE_FEATURE_LIMIT.
+ * Lines and polygons are drawn as in tileSql.
+ */
+function clusteredTileSql(t: ViewTarget, z: number, x: number, y: number, box: Bbox, attrs: TileAttr[], cluster: TileClusters): string {
+  const g = t.geom
+  const cells = Math.max(1, Math.round(512 / cluster.radius))
+  const cell = num(EXTENT / cells)
+  const near = t.index === 'bbox-table' ? `__se_rowid IN (SELECT rn FROM (${candidates(t, box)}))` : hiddenOverlap(box)
+  const where = `${near} AND ${validGeometry(t.geom, t.allValid)}`
+  const mvtGeom = (shape: string) => `ST_AsMVTGeom(${toWebMercatorSql(shape, t.srid)}, ST_Extent(ST_TileEnvelope(${z}, ${x}, ${y})))`
+  const isPoint = `ST_Dimension(${g}) = 0 AND ST_GeometryType(${g}) = 'POINT'`
+  // Every row the same struct: attributes NULL on bubbles, point_count NULL on features.
+  const props = (from: 'f' | 'b') => [
+    `'__id': ${from === 'f' ? '__se_rowid' : 'NULL::BIGINT'}`,
+    ...attrs.map((a) => `'${a.name.replace(/'/g, "''")}': ${from === 'f' ? tileValue(a) : `NULL::${tileType(a)}`}`),
+    `'${DOT_PROP}': false`,
+    `'point_count': ${from === 'f' ? 'NULL::INTEGER' : 'n'}`,
+  ]
+  // Points inside this tile (ST_AsMVTGeom keeps a buffer around it, which the neighbors own), in their cells.
+  const points = `SELECT *, ${mvtGeom(g)} AS __g FROM ${t.relation} WHERE ${where} AND ${isPoint}`
+  const binned = `SELECT *, floor(__x / ${cell}) AS __cx, floor(__y / ${cell}) AS __cy
+    FROM (SELECT *, ST_X(__g) AS __x, ST_Y(__g) AS __y FROM (${points}) WHERE __g IS NOT NULL)
+    WHERE __x >= 0 AND __x < ${EXTENT} AND __y >= 0 AND __y < ${EXTENT}`
+  // A group split across neighboring cells would show as overlapping bubbles: each cell joins its
+  // heaviest neighbor (itself included) whose center is within the radius, and that one's, two hops.
+  const r2 = num((cluster.radius * (EXTENT / 512)) ** 2)
+  const merged = `WITH __b AS (${binned}),
+    __c AS (SELECT __cx, __cy, count(*) AS n, avg(__x) AS mx, avg(__y) AS my FROM __b GROUP BY __cx, __cy),
+    __m AS (SELECT a.__cx, a.__cy, arg_max([o.__cx, o.__cy], [o.n, o.__cx, o.__cy]) AS t FROM __c a JOIN __c o
+      ON abs(a.__cx - o.__cx) <= 1 AND abs(a.__cy - o.__cy) <= 1 AND (a.mx - o.mx) ** 2 + (a.my - o.my) ** 2 < ${r2} GROUP BY a.__cx, a.__cy),
+    __m2 AS (SELECT m.__cx, m.__cy, h.t AS __t FROM __m m JOIN __m h ON h.__cx = m.t[1] AND h.__cy = m.t[2])
+    SELECT __b.*, __t, count(*) OVER (PARTITION BY __t) AS n FROM __b JOIN __m2 USING (__cx, __cy)`
+  const singles = `SELECT {${[...props('f'), `'geometry': __g`].join(', ')}} AS f FROM (${merged}) WHERE n = 1`
+  const bubbles = `SELECT {${[...props('b'), `'geometry': ST_Point(avg(__x), avg(__y))`].join(', ')}} AS f FROM (${merged}) WHERE n > 1 GROUP BY __t, n`
+  // Lines and polygons as tileSql draws them (small ones as dots).
+  const span = num((box[2] - box[0]) / 256)
+  const [x0, y0, x1, y1] = t.index === 'columns' ? ['__se_xmin', '__se_ymin', '__se_xmax', '__se_ymax'] : [`ST_XMin(${g})`, `ST_YMin(${g})`, `ST_XMax(${g})`, `ST_YMax(${g})`]
+  const small = `(${x1} - ${x0} < ${span} AND ${y1} - ${y0} < ${span})`
+  const shapes = `SELECT {${[
+    `'__id': __se_rowid`,
+    ...attrs.map((a) => `'${a.name.replace(/'/g, "''")}': ${tileValue(a)}`),
+    `'${DOT_PROP}': ${small}`,
+    `'point_count': NULL::INTEGER`,
+    `'geometry': ${mvtGeom(`CASE WHEN ${small} THEN ST_Centroid(${g}) ELSE ${g} END`)}`,
+  ].join(', ')}} AS f FROM (SELECT * FROM ${t.relation} WHERE ${where} AND ST_Dimension(${g}) > 0 LIMIT ${TILE_FEATURE_LIMIT})`
+  return `SELECT ST_AsMVT(f, '${TILE_LAYER}') AS tile FROM (${singles} UNION ALL ${bubbles} UNION ALL ${shapes})`
 }

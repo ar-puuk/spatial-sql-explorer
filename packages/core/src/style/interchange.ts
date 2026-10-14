@@ -12,6 +12,7 @@ import {
   type ClassOverride,
   type GraduatedMethod,
   type GraduatedRenderer,
+  CLUSTER_MAX_ZOOM,
   type LayerStyle,
   type RampRef,
   type ResolvedStyle,
@@ -60,7 +61,7 @@ export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | u
   style = legacyView(style)
   const r = rendererOf(style)
   // A heatmap is written by each format itself (or not at all: SLD).
-  if (r.kind === 'single' || r.kind === 'heatmap') return { thematic: null, notes: [] }
+  if (r.kind === 'single' || r.kind === 'heatmap' || r.kind === 'clusters') return { thematic: null, notes: [] }
   // Spec 010: only QML can classify an expression; SLD and Mapbox GL get the single symbol (previewExportNotice says so).
   if (r.kind === 'graduated' && r.expression && format && format !== 'qml') return { thematic: null, notes: [] }
   if (!resolved || resolved.status !== 'ok') {
@@ -79,6 +80,10 @@ export function thematicForExport(style: LayerStyle, resolved: ResolvedStyle | u
 export const HEATMAP_RAMP_NOTE = `The heatmap's own colors were replaced by the ${rampById(DEFAULT_HEATMAP_RAMP)?.name ?? DEFAULT_HEATMAP_RAMP} ramp.`
 /** SLD has no heatmap symbolizer. */
 export const HEATMAP_SLD_NOTE = 'SLD has no heatmap: the points are written with the single symbol (QML and Mapbox GL keep the heatmap).'
+/** QGIS's point cluster renderer groups at every scale. */
+export const CLUSTER_QML_NOTE = (maxZoom: number): string => `QGIS groups points at every scale: the "up to zoom ${maxZoom}" limit is kept here only.`
+/** SLD has no point clusters. */
+export const CLUSTER_SLD_NOTE = 'SLD has no clusters: the points are written with the single symbol (QML and Mapbox GL keep the clusters).'
 /** QGIS's heatmap renderer has no intensity setting. */
 export const HEATMAP_QML_NOTE = 'QGIS heatmaps have no intensity: QGIS draws it at 1 (Spatial Explorer keeps yours).'
 
@@ -105,6 +110,8 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   }
   // Heatmap: SLD has none; QGIS has no intensity.
   if (r.kind === 'heatmap' && format === 'sld') items.push(HEATMAP_SLD_NOTE)
+  if (r.kind === 'clusters' && format === 'sld') items.push(CLUSTER_SLD_NOTE)
+  if (r.kind === 'clusters' && format === 'qml' && r.maxZoom < CLUSTER_MAX_ZOOM.max) items.push(CLUSTER_QML_NOTE(r.maxZoom))
   // Automatic intensity is QGIS's own default (its maximum follows the data).
   if (r.kind === 'heatmap' && format === 'qml' && !r.autoIntensity && r.intensity !== 1) items.push(HEATMAP_QML_NOTE)
   // Spec 008 FR-027: SLD has no 3D.

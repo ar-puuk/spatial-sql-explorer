@@ -6,6 +6,9 @@ import {
   DEFAULT_CLASS_COUNT,
   DEFAULT_ELSE_LABEL,
   DEFAULT_HEATMAP_RAMP,
+  DEFAULT_CLUSTERS,
+  sanitizeRenderer,
+  type ClusterSettings,
   DEFAULT_LAYER_STYLE,
   HEATMAP_INTENSITY,
   HEATMAP_METERS,
@@ -89,6 +92,8 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
   // Spec 010: rules start empty; the panel fills in suggestions from the data (suggestedRules).
   if (kind === 'rules') return { kind: 'rules', rules: [], elseColor: OTHER_COLOR, elseVisible: true, elseLabel: DEFAULT_ELSE_LABEL }
   // Each point counts once until a weight column is chosen.
+  // mapgl's cluster_options defaults.
+  if (kind === 'clusters') return { kind: 'clusters', ...DEFAULT_CLUSTERS, steps: DEFAULT_CLUSTERS.steps.map((st) => ({ ...st })) }
   if (kind === 'heatmap') {
     return { kind: 'heatmap', weight: column ?? '', radius: HEATMAP_RADIUS.default, intensity: HEATMAP_INTENSITY.default, ramp: { id: DEFAULT_HEATMAP_RAMP, reversed: false } }
   }
@@ -117,7 +122,7 @@ export function startRenderer(kind: Renderer['kind'], layer: ResolveInput | null
 /** Applies `patch` to the override of the class with `key` (`v:<value>`, `range:<i>`, `__other`, `__null`). */
 function patchClass(style: LayerStyle, key: string, patch: ClassOverride): LayerStyle {
   const r = rendererOf(style)
-  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap') return style
+  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap' || r.kind === 'clusters') return style
   // Spec 010: `rule:<id>` and `__else`.
   if (r.kind === 'rules') {
     if (key === RULES_ELSE_KEY) {
@@ -164,9 +169,9 @@ export const THEMATIC_SYMBOL = Object.freeze({ fillOpacity: 0.75, strokeColor: '
 export function startStyle(style: LayerStyle, kind: Renderer['kind'], layer: ResolveInput | null, column?: string): LayerStyle {
   const next: LayerStyle = { ...style, renderer: startRenderer(kind, layer, column) }
   // A heatmap draws no class symbols: the symbol settings stay as they are.
-  const classed = (k: Renderer['kind']) => k !== 'single' && k !== 'heatmap'
+  const classed = (k: Renderer['kind']) => k !== 'single' && k !== 'heatmap' && k !== 'clusters'
   const wasThematic = classed(rendererOf(style).kind)
-  if (kind === 'heatmap' || (kind === 'single' && !wasThematic)) return next
+  if (kind === 'heatmap' || kind === 'clusters' || (kind === 'single' && !wasThematic)) return next
   // Into a thematic renderer: untouched spec 001 defaults become the thematic
   // ones. Back to single: untouched thematic defaults become spec 001's again.
   const [from, to] = classed(kind) ? [DEFAULT_LAYER_STYLE, THEMATIC_SYMBOL] : [THEMATIC_SYMBOL, DEFAULT_LAYER_STYLE]
@@ -186,7 +191,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
   const trimmed = label.trim()
   if (trimmed) return patchClass(style, key, { label: trimmed })
   const r = rendererOf(style)
-  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap') return style
+  if (r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'heatmap' || r.kind === 'clusters') return style
   if (r.kind === 'rules') return key === RULES_ELSE_KEY ? setRulesElse(style, { elseLabel: DEFAULT_ELSE_LABEL }) : key.startsWith('rule:') ? updateRule(style, key.slice(5), { label: '' }) : style
   const strip = <T extends ClassOverride>(o: T): T => {
     const rest = { ...o }
@@ -203,7 +208,7 @@ export function setClassLabel(style: LayerStyle, key: string, label: string): La
 
 export function setRamp(style: LayerStyle, ramp: RampRef): LayerStyle {
   const r = rendererOf(style)
-  return r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'rules' ? style : { ...style, renderer: { ...r, ramp } }
+  return r.kind === 'single' || r.kind === 'bivariate' || r.kind === 'rules' || r.kind === 'clusters' ? style : { ...style, renderer: { ...r, ramp } }
 }
 
 /** A method recomputes the classes; color, label and visibility overrides by index are kept. */
@@ -575,6 +580,13 @@ export function suggestedRules(s: RuleSuggestions): RuleDef[] {
   }
   if (s.text) out.push({ id: `r${out.length + 1}`, label: '', where: `${sqlColumnName(s.text.column)} = '${s.text.value.replace(/'/g, "''")}'`, color: ruleColor(out.length), visible: true })
   return out
+}
+
+/** Clusters: any of their settings, made valid (steps rising from 2, every number within its range). */
+export function setClusters(style: LayerStyle, patch: Partial<ClusterSettings>): LayerStyle {
+  const r = rendererOf(style)
+  if (r.kind !== 'clusters') return style
+  return { ...style, renderer: sanitizeRenderer({ ...r, ...patch }) }
 }
 
 /** Heatmap: the weight column ('' = each point counts once), radius or intensity, kept within their ranges. */

@@ -63,6 +63,8 @@ export interface LayerStyle {
   channels?: Channels
   /** Spec 011: the heatmap's settings, used while points are drawn as a heatmap. */
   heatmap?: HeatmapSettings
+  /** The clusters' settings, used while points are drawn as clusters (bubbles). */
+  clusters?: ClusterSettings
   /** Spec 011: the fixed 3D height (meters × scale, spec 008's constant), when no height channel varies. */
   height?: { meters: number; scale?: number }
   /** Spec 011 US6: labels. */
@@ -72,7 +74,7 @@ export interface LayerStyle {
 // --- Renderers (spec 003, data-model.md) ----------------------------------
 
 /** The color channel. */
-export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer | RulesRenderer | HeatmapRenderer
+export type Renderer = SingleRenderer | CategorizedRenderer | GraduatedRenderer | BivariateRenderer | RulesRenderer | HeatmapRenderer | ClusterRenderer
 
 export interface SingleRenderer {
   kind: 'single'
@@ -266,6 +268,69 @@ export function metersPerPixel(latitude: number, zoom: number): number {
 }
 export const DEFAULT_HEATMAP_RAMP = 'brewer-ylorrd'
 
+// --- Clusters (bubbles) ------------------------------------------------------
+
+/**
+ * Nearby points grouped into bubbles, sized and colored by how many points
+ * each holds, with the count on it; a click zooms in until it breaks apart.
+ * After mapgl's cluster_options (R, walkerke/mapgl): three steps (#51bbd6,
+ * #f1f075, #f28cb1 at 20, 30 and 40 px, from 100 and 750 points), a 50 px
+ * radius, grouping up to zoom 14, abbreviated counts. Points not in a group
+ * keep the single symbol; lines and polygons are never grouped.
+ */
+export interface ClusterRenderer {
+  kind: 'clusters'
+  /** px on screen: how close points must be to group (MapLibre `clusterRadius`). */
+  radius: number
+  /** Points stop grouping above this zoom (MapLibre `clusterMaxZoom`). */
+  maxZoom: number
+  /** Smallest groups first: the count each step starts at (the first is 2), its color and its bubble radius (px). */
+  steps: ClusterStep[]
+  /** How counts read on the bubbles: 12.3k, 12,345 or 12345. */
+  countFormat: ClusterCountFormat
+  /** The counts' color. */
+  textColor: string
+  /** The bubbles' opacity, 0..1. */
+  opacity: number
+  /** The bubbles' outline (width 0: none). */
+  strokeColor: string
+  strokeWidth: number
+}
+
+export interface ClusterStep {
+  /** Groups of at least this many points (the first step: 2, the smallest group). */
+  from: number
+  color: string
+  /** The bubble's radius, px. */
+  radius: number
+}
+
+export type ClusterCountFormat = 'abbreviated' | 'grouped' | 'raw'
+
+/** The clusters' settings (`draw.points = 'clusters'`). */
+export type ClusterSettings = Omit<ClusterRenderer, 'kind'>
+
+export const CLUSTER_RADIUS = { min: 10, max: 200, default: 50 } as const
+export const CLUSTER_MAX_ZOOM = { min: 0, max: 17, default: 14 } as const
+export const CLUSTER_BUBBLE = { min: 4, max: 100 } as const
+export const CLUSTER_STEP_COUNT = { min: 1, max: 6 } as const
+
+/** mapgl's cluster_options defaults. */
+export const DEFAULT_CLUSTERS: Readonly<ClusterSettings> = Object.freeze({
+  radius: CLUSTER_RADIUS.default,
+  maxZoom: CLUSTER_MAX_ZOOM.default,
+  steps: [
+    { from: 2, color: '#51bbd6', radius: 20 },
+    { from: 100, color: '#f1f075', radius: 30 },
+    { from: 750, color: '#f28cb1', radius: 40 },
+  ],
+  countFormat: 'abbreviated',
+  textColor: '#000000',
+  opacity: 1,
+  strokeColor: '#ffffff',
+  strokeWidth: 0,
+})
+
 export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
 
 export interface BivariateAxis {
@@ -305,6 +370,8 @@ export interface ResolvedStyle {
   size?: ResolvedSizeChannel
   /** Heatmap: the density ramp (low to high) and, when weighted, the weight column's largest value. */
   heat?: { colors: string[]; weight?: { column: string; max: number }; intensity?: number }
+  /** Clusters: each step's bubble, smallest groups first, with the counts it covers. */
+  clusters?: { steps: Array<{ color: string; radius: number; label: string }> }
   /** Spec 011: every channel that varies by data, as resolved. */
   channels?: Partial<Record<ChannelId, ResolvedChannel>>
 }
@@ -417,6 +484,7 @@ export const MAX_CLASS_COUNT = 10
 export function rendererColumns(renderer: Renderer): string[] {
   if (renderer.kind === 'single') return []
   if (renderer.kind === 'heatmap') return renderer.weight ? [renderer.weight] : []
+  if (renderer.kind === 'clusters') return []
   if (renderer.kind === 'bivariate') return [renderer.x.column, renderer.y.column].filter(Boolean)
   // Spec 010: rules and expressions draw from a column the engine computes per feature.
   if (renderer.kind === 'rules') return [RULE_CLASS_COLUMN]
@@ -448,6 +516,7 @@ export function styleDataColumns(style: LayerStyle): string[] {
 export function rendererTitle(renderer: Renderer): string {
   if (renderer.kind === 'rules') return 'Rules'
   if (renderer.kind === 'heatmap') return 'Heatmap'
+  if (renderer.kind === 'clusters') return 'Clusters'
   if (renderer.kind === 'graduated' && renderer.expression) return renderer.column || renderer.expression
   return rendererColumns(renderer).join(' × ')
 }
@@ -582,6 +651,8 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
   const draw = sanitizeDraw(style.draw)
   const heatmapRaw = style.heatmap ?? (draw.points === 'heatmap' ? {} : undefined)
   const heatmap = heatmapRaw && typeof heatmapRaw === 'object' ? heatmapSettings(sanitizeRenderer({ ...heatmapRaw, kind: 'heatmap' } as Partial<Renderer>) as HeatmapRenderer) : undefined
+  const clustersRaw = style.clusters ?? (draw.points === 'clusters' ? {} : undefined)
+  const clusters = clustersRaw && typeof clustersRaw === 'object' ? clusterSettings(sanitizeRenderer({ ...clustersRaw, kind: 'clusters' } as Partial<Renderer>) as ClusterRenderer) : undefined
   const labels = sanitizeLabels(style.labels)
   let out: LayerStyle = {
     fillColor: pick(style.fillColor, DEFAULT_LAYER_STYLE.fillColor),
@@ -599,6 +670,7 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
     ...(Object.keys(draw).length ? { draw } : {}),
     ...(Object.keys(channels).length ? { channels } : {}),
     ...(heatmap ? { heatmap } : {}),
+    ...(clusters ? { clusters } : {}),
     ...(style.height && finite(style.height.meters)
       ? { height: { meters: Math.max(0, style.height.meters), ...(finite(style.height.scale) && style.height.scale > 0 && style.height.scale !== 1 ? { scale: style.height.scale } : {}) } }
       : {}),
@@ -615,6 +687,31 @@ function heatmapSettings(r: HeatmapRenderer): HeatmapSettings {
   const { kind: _k, ...settings } = r
   void _k
   return settings
+}
+
+function clusterSettings(r: ClusterRenderer): ClusterSettings {
+  const { kind: _k, ...settings } = r
+  void _k
+  return settings
+}
+
+/** Cluster steps made valid: 1 to 6, starting at 2, counts rising, radii within 4..100 px. */
+export function sanitizeClusterSteps(raw: unknown): ClusterStep[] {
+  const list = Array.isArray(raw) ? raw : []
+  const out: ClusterStep[] = []
+  for (const item of list.slice(0, CLUSTER_STEP_COUNT.max)) {
+    if (!item || typeof item !== 'object') continue
+    const st = item as Partial<ClusterStep>
+    const rgba = typeof st.color === 'string' ? parseColor(st.color) : null
+    const from = typeof st.from === 'number' && Number.isFinite(st.from) ? Math.max(2, Math.round(st.from)) : null
+    const radius = typeof st.radius === 'number' && Number.isFinite(st.radius) ? clamp(st.radius, CLUSTER_BUBBLE.min, CLUSTER_BUBBLE.max) : null
+    if (!rgba || from === null || radius === null) continue
+    if (out.length && from <= out[out.length - 1].from) continue
+    out.push({ from, color: rgbToHex(rgba), radius })
+  }
+  if (!out.length) return DEFAULT_CLUSTERS.steps.map((x) => ({ ...x }))
+  out[0] = { ...out[0], from: 2 }
+  return out
 }
 
 /** Spec 009: a stored or imported size channel made valid, or undefined (none). */
@@ -683,6 +780,25 @@ function sanitizeSizes(g: { sizeMin?: unknown; sizeMax?: unknown }): { sizeMin: 
  */
 export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
   if (!r || typeof r !== 'object') return { kind: 'single' }
+  if (r.kind === 'clusters') {
+    const c = r as Partial<ClusterRenderer>
+    const num = (v: unknown, b: { min: number; max: number; default: number }) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, b.min, b.max) : b.default)
+    const color = (v: unknown, fallback: string): string => {
+      const rgba = typeof v === 'string' ? parseColor(v) : null
+      return rgba ? rgbToHex(rgba) : fallback
+    }
+    return {
+      kind: 'clusters',
+      radius: num(c.radius, CLUSTER_RADIUS),
+      maxZoom: Math.round(num(c.maxZoom, CLUSTER_MAX_ZOOM)),
+      steps: sanitizeClusterSteps(c.steps),
+      countFormat: c.countFormat === 'grouped' || c.countFormat === 'raw' ? c.countFormat : 'abbreviated',
+      textColor: color(c.textColor, DEFAULT_CLUSTERS.textColor),
+      opacity: typeof c.opacity === 'number' && Number.isFinite(c.opacity) ? clamp(c.opacity, 0, 1) : DEFAULT_CLUSTERS.opacity,
+      strokeColor: color(c.strokeColor, DEFAULT_CLUSTERS.strokeColor),
+      strokeWidth: typeof c.strokeWidth === 'number' && Number.isFinite(c.strokeWidth) ? clamp(c.strokeWidth, 0, 10) : DEFAULT_CLUSTERS.strokeWidth,
+    }
+  }
   if (r.kind === 'heatmap') {
     const h = r as Partial<HeatmapRenderer>
     const num = (v: unknown, b: { min: number; max: number; default: number }) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, b.min, b.max) : b.default)

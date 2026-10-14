@@ -3,7 +3,7 @@
 // style or the result changes. Classes cover every row of the displayed
 // result and nothing else (FR-005).
 import type { Feature, Layer } from '../models.js'
-import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, parseColor, rgbToHex, round, rendererColumns, ruleLabel, HEATMAP_METERS, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedChannel, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, NO_VALUE_COLOR, OTHER_COLOR, parseColor, rgbToHex, round, rendererColumns, ruleLabel, HEATMAP_METERS, type ClusterRenderer, type HeatmapRenderer, type RulesRenderer, type BivariateRenderer, type CategorizedRenderer, type GraduatedMethod, type GraduatedRenderer, type LayerStyle, type ResolvedChannel, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle, type SizeChannel } from './model.js'
 import { legacyView, rendererFromEncoding, rendererOf, sizeChannelFromEncoding } from './legacy.js'
 import { JENKS_EXACT_LIMIT, classOf, compareCategories, equalIntervalBreaks, jenksBreaks, quantileBreaks, toCategory, toNumber } from './classify.js'
 import { rampById, rampColors } from './ramps.js'
@@ -148,7 +148,7 @@ function resolvedChannels(style: LayerStyle, r: ResolvedStyle): ResolvedStyle['c
   if (!enc) return undefined
   const out: NonNullable<ResolvedStyle['channels']> = {}
   const color = enc.color
-  if (color && style.draw?.points !== 'heatmap' && !isGenericChannel('color', color)) {
+  if (color && style.draw?.points !== 'heatmap' && style.draw?.points !== 'clusters' && !isGenericChannel('color', color)) {
     out.color = {
       channel: 'color',
       status: r.status,
@@ -448,6 +448,28 @@ function resolveColor(style: LayerStyle, layer: ResolveInput | null): ResolvedSt
       return rules(style, r, layer)
     case 'heatmap':
       return heatmap(style, r, layer)
+    case 'clusters':
+      return clusters(style, r, layer)
+  }
+}
+
+/**
+ * Clusters: the points left alone (the single symbol) and the bubbles' steps,
+ * smallest groups first, each with the counts it covers (`2–99`, `750+`).
+ */
+function clusters(style: LayerStyle, r: ClusterRenderer, layer: ResolveInput | null): ResolvedStyle {
+  const nf = new Intl.NumberFormat('en-US')
+  const steps = r.steps.map((st, i) => {
+    const next = r.steps[i + 1]
+    const label = next ? (next.from - 1 === st.from ? nf.format(st.from) : `${nf.format(st.from)}–${nf.format(next.from - 1)}`) : `${nf.format(st.from)}+`
+    return { color: st.color, radius: st.radius, label: `${label} points` }
+  })
+  return {
+    status: 'ok',
+    caption: 'Clusters',
+    notes: [],
+    classes: [{ key: 'single', kind: 'single', label: 'Single points', color: style.fillColor, visible: true, count: rowsOf(layer) }],
+    clusters: { steps },
   }
 }
 
@@ -866,7 +888,7 @@ export const SIZE_KEY_PREFIX = 'size:'
 export function resolveSizeChannel(style: LayerStyle, layer: ResolveInput | null): ResolvedSizeChannel | undefined {
   style = legacyView(style)
   const s = style.size
-  if (!s || rendererOf(style).kind === 'bivariate' || rendererOf(style).kind === 'heatmap') return undefined
+  if (!s || rendererOf(style).kind === 'bivariate' || rendererOf(style).kind === 'heatmap' || rendererOf(style).kind === 'clusters') return undefined
   const off = (reason: string): ResolvedSizeChannel => ({ status: 'fallback', reason, caption: `${s.column} · not available`, mode: s.mode, column: s.column, classes: [], notes: [] })
   if (!layer) return off('No data to size by.')
   const why = notNumeric(layer, s.column)

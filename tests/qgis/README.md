@@ -99,3 +99,19 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_011.py C:\tmp\qgis011
 ```
 
 Last run: see `specs/011-style-channels/research.md`, "SC-003".
+
+## Clusters (`check_clusters.py`)
+
+`tests/core/qgis-clusters-cases.test.ts` writes two groups of points (300 and
+120), five points far apart and the clusters QML the app saves when
+`SE_QGIS_CLUSTERS` names a directory. `check_clusters.py` loads it into QGIS:
+the renderer must be a point cluster (distance in pixels) around a single
+symbol, and a render must color the groups by their steps and a lone point
+with the single symbol. It exits 1 on any mismatch.
+
+```
+C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_clusters.py <dir>
+```
+
+Last run (2026-10-14, QGIS 4.2.3): pointCluster, 40 px, singleSymbol inside;
+the groups drew #f28cb1 and #f1f075, the lone point #3b82f6.

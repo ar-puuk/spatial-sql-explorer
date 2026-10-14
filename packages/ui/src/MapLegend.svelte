@@ -28,8 +28,10 @@
     onToggleEntry?: (toggles: LegendEntry['toggles'], visible: boolean) => void
     /** Spec 009 US2: proportional sizes (reference sizes, then No value), drawn to scale. */
     proportional?: { channel: ResolvedSizeChannel; symbols: SymbolSpec[] } | null
+    /** Clusters: a row per step, its bubble to scale (core `clusterLegendRows`). */
+    clusterRows?: Array<{ label: string; color: string; symbol: SymbolSpec }>
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null }: Props = $props()
+  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null, clusterRows = [] }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
@@ -53,7 +55,7 @@
   }
   /** "class", "size class", "shape class": what the toggle names, after the group's first property. */
   const noun = (c: ChannelId) => (c === 'color' ? 'class' : `${CHANNEL_NAMES[c].toLowerCase()} class`)
-  const single = $derived(!resolved.grid && !resolved.heat && !groups.length && !proportional && resolved.classes.length === 1 && resolved.classes[0].kind === 'single')
+  const single = $derived(!resolved.grid && !resolved.heat && !resolved.clusters && !groups.length && !proportional && resolved.classes.length === 1 && resolved.classes[0].kind === 'single')
   const singleSwatch = $derived(shape === 'point' ? Math.min(SWATCH, Math.max(16, Math.ceil(2 * reachOf(symbols) * Math.min(1, (SWATCH / 2 - 1) / reachOf(symbols)) + 2))) : 18)
   const propReach = $derived(reachOf(proportional?.symbols ?? []))
   const propKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
@@ -83,6 +85,25 @@
           <span class="count">{nf.format(points)} {points === 1 ? 'point' : 'points'}</span>
           <span>Dense</span>
         </div>
+      </div>
+    {:else if resolved.clusters && resolved.status === 'ok' && clusterRows.length}
+      <!-- Clusters: the bubbles, smallest groups first, then the points not in a group. -->
+      {@const points = resolved.classes[0]}
+      <div role="group" aria-label={heading} class="group">
+        <ul>
+          {#each clusterRows as row (row.label)}
+            <li>
+              <span class="swatch"><SymbolSwatch symbol={row.symbol} kind="point" size={SWATCH} /></span>
+              <span class="label" title={row.label}>{row.label}</span>
+            </li>
+          {/each}
+          {#if points}
+            <li>
+              <span class="swatch" style:--swatch={points.color}><SymbolSwatch symbol={symbols[0]} kind="point" scale={Math.min(1, (SWATCH / 2 - 1) / reachOf(symbols))} size={singleSwatch} /></span>
+              <span class="label" title={points.label}>{points.label}</span>
+            </li>
+          {/if}
+        </ul>
       </div>
     {:else if single}
       <!-- Nothing varies: the single symbol's row. -->

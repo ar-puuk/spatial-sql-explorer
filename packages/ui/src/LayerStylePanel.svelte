@@ -70,6 +70,12 @@
     setMethod,
     setRamp,
     setHeatmap,
+    setClusters,
+    CLUSTER_RADIUS,
+    CLUSTER_MAX_ZOOM,
+    CLUSTER_BUBBLE,
+    CLUSTER_STEP_COUNT,
+    type ClusterStep,
     setHeatmapRadiusUnit,
     setHeatmapAutoIntensity,
     HEATMAP_METERS,
@@ -85,7 +91,8 @@
     setSizeClassCount,
     setSizeClassLabel,
     setSizeClassVisible,
-    setSizeMethod,
+    setSizeMethod,
+
     setSizeRange,
     sizeSymbols as sizeSymbolsOf,
     baseSymbol,
@@ -98,7 +105,8 @@
     validateStyle,
     previewExportNotice,
     type GeometryType,
-    type LayerStyle,
+    type LayerStyle,
+
     type Renderer,
     type Scale,
     type ResolveInput,
@@ -113,8 +121,11 @@
     isNumericType,
     setChannelClass,
     setChannelClasses,
-    setChannelColumn,
-    setChannelRamp,
+    setChannelColumn,
+
+    setChannelRamp,
+
+
     setChannelDomain,
     defaultRamp,
     addCondition,
@@ -265,12 +276,14 @@
     { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
     { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
     { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
+    { kind: 'clusters', label: 'Clusters', hint: 'Nearby points grouped into bubbles, sized and colored by how many' },
   ]
   const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
   const colorEnc = $derived(style.renderer === undefined ? style.channels?.color : undefined)
   const colorType = $derived<ColorType>(renderer.kind === 'single' && (colorEnc?.scale.kind === 'continuous' || colorEnc?.scale.kind === 'identity') ? colorEnc.scale.kind : renderer.kind)
-  const thematic = $derived(colorType !== 'single')
+  // Clusters keep the single symbol for points not in a group.
+  const thematic = $derived(colorType !== 'single' && colorType !== 'clusters')
   /** Text columns, for colors read as is (name-like ones first: hex, color, colour). */
   const colorColumns = $derived(eligibleColumns(layer?.columns, 'categorized').filter((c) => !isNumericType(c.type)).sort((a, b) => Number(/hex|colou?r/i.test(b.name)) - Number(/hex|colou?r/i.test(a.name))))
   const columnsFor = (kind: 'categorized' | 'graduated') => eligibleColumns(layer?.columns, kind)
@@ -282,6 +295,7 @@
     if (kind === 'bivariate') return columnsFor('graduated').length >= 2 ? null : 'Bivariate maps need two numeric columns.'
     if (kind === 'rules') return layer?.columns.length ? null : 'This result has no attribute columns.'
     if (kind === 'heatmap') return geometryType === 'Point' || geometryType === 'Mixed' ? null : 'Heatmaps need points; this layer has none.'
+    if (kind === 'clusters') return geometryType === 'Point' || geometryType === 'Mixed' ? null : 'Clusters need points; this layer has none.'
     if (columnsFor(kind).length) return null
     return kind === 'graduated' ? 'Graduated styling needs a numeric column.' : 'This result has no attribute columns.'
   }
@@ -303,6 +317,23 @@
     onChange(startStyle(style, kind, layer))
     if (kind === 'rules') void suggestRules()
   }
+
+  // --- Clusters -----------------------------------------------------------------
+
+  /** The steps with one changed (a count, a color or a bubble size). */
+  function withStep(steps: ClusterStep[], i: number, patch: Partial<ClusterStep>): ClusterStep[] {
+    return steps.map((st, j) => (j === i ? { ...st, ...patch } : st))
+  }
+  /** A step after the last: five times its count, its color, a bubble 10 px larger. */
+  function addedStep(steps: ClusterStep[]): ClusterStep[] {
+    const last = steps[steps.length - 1]
+    return [...steps, { from: Math.max(last.from * 5, last.from + 1), color: last.color, radius: Math.min(last.radius + 10, CLUSTER_BUBBLE.max) }]
+  }
+  const COUNT_FORMATS = [
+    { value: 'abbreviated', label: 'Abbreviated (1.2k)' },
+    { value: 'grouped', label: 'Grouped (1,234)' },
+    { value: 'raw', label: 'Plain (1234)' },
+  ] as const
 
   // --- Heatmap ------------------------------------------------------------------
   // Intensity on a log scale: 0.01 to 5, where dense data needs the low end.
@@ -819,6 +850,149 @@
         {#each resolved.notes as note (note)}
           <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
         {/each}
+      </section>
+    {/if}
+
+    <!-- Clusters: groups of points as bubbles (after mapgl's cluster_options). -->
+    {#if renderer.kind === 'clusters'}
+      <section aria-labelledby="style-sec-clusters">
+        <h3 id="style-sec-clusters">Clusters</h3>
+        <div class="row">
+          <span class="label" id="cluster-radius-label">Radius</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="cluster-radius-label"
+            aria-valuetext="{renderer.radius} pixels"
+            min={CLUSTER_RADIUS.min}
+            max={120}
+            step="5"
+            value={renderer.radius}
+            oninput={(e) => apply(setClusters(style, { radius: Number(e.currentTarget.value) }))}
+          />
+          <span class="value">{renderer.radius} px</span>
+        </div>
+        <p class="hint">Points this close on screen group into one bubble.</p>
+        <div class="row">
+          <span class="label" id="cluster-zoom-label">Up to zoom</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="cluster-zoom-label"
+            aria-valuetext="zoom {renderer.maxZoom}"
+            min={CLUSTER_MAX_ZOOM.min}
+            max={CLUSTER_MAX_ZOOM.max}
+            step="1"
+            value={renderer.maxZoom}
+            oninput={(e) => apply(setClusters(style, { maxZoom: Number(e.currentTarget.value) }))}
+          />
+          <span class="value">{renderer.maxZoom}</span>
+        </div>
+        <p class="hint">Zoomed in further, every point shows on its own.</p>
+
+        <span class="label" id="cluster-steps-label">Bubbles</span>
+        <ul class="cluster-steps" aria-labelledby="cluster-steps-label">
+          {#each renderer.steps as st, i (i)}
+            {@const label = resolved.clusters?.steps[i]?.label ?? `${st.from}+ points`}
+            <li>
+              <input type="color" aria-label="Color for {label}" value={st.color} oninput={(e) => apply(setClusters(style, { steps: withStep(renderer.steps, i, { color: e.currentTarget.value }) }))} />
+              {#if i === 0}
+                <span class="from">From 2</span>
+              {:else}
+                <label class="from">
+                  From
+                  <input
+                    class="number"
+                    type="number"
+                    aria-label="Step {i + 1} starts at"
+                    min={renderer.steps[i - 1].from + 1}
+                    step="1"
+                    value={st.from}
+                    onchange={(e) => {
+                      const v = Math.round(Number(e.currentTarget.value))
+                      if (Number.isFinite(v)) apply(setClusters(style, { steps: withStep(renderer.steps, i, { from: v }) }))
+                    }}
+                  />
+                </label>
+              {/if}
+              <label class="size">
+                <input
+                  class="number"
+                  type="number"
+                  aria-label="Bubble radius for {label}"
+                  min={CLUSTER_BUBBLE.min}
+                  max={CLUSTER_BUBBLE.max}
+                  step="1"
+                  value={st.radius}
+                  onchange={(e) => {
+                    const v = Number(e.currentTarget.value)
+                    if (Number.isFinite(v)) apply(setClusters(style, { steps: withStep(renderer.steps, i, { radius: v }) }))
+                  }}
+                />
+                px
+              </label>
+              {#if renderer.steps.length > CLUSTER_STEP_COUNT.min}
+                <button
+                  type="button"
+                  class="icon-button"
+                  aria-label="Remove the step for {label}"
+                  title="Remove this step"
+                  onclick={() => apply(setClusters(style, { steps: renderer.steps.filter((_, j) => j !== i) }))}><Icon name="close" size={14} /></button
+                >
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        {#if renderer.steps.length < CLUSTER_STEP_COUNT.max}
+          <button type="button" class="link add-step" onclick={() => apply(setClusters(style, { steps: addedStep(renderer.steps) }))}><Icon name="plus" size={12} />Add a step</button>
+        {/if}
+
+        <div class="row field">
+          <label class="label" for="cluster-count-format">Counts</label>
+          <select id="cluster-count-format" class="column-select" value={renderer.countFormat} onchange={(e) => apply(setClusters(style, { countFormat: e.currentTarget.value as typeof renderer.countFormat }))}>
+            {#each COUNT_FORMATS as f (f.value)}
+              <option value={f.value}>{f.label}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="row">
+          <span class="label" id="cluster-text-label">Count color</span>
+          <input type="color" aria-labelledby="cluster-text-label" value={renderer.textColor} oninput={(e) => apply(setClusters(style, { textColor: e.currentTarget.value }))} />
+        </div>
+        <div class="row">
+          <span class="label" id="cluster-opacity-label">Opacity</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="cluster-opacity-label"
+            aria-valuetext={pct(renderer.opacity)}
+            min="0"
+            max="1"
+            step="0.05"
+            value={renderer.opacity}
+            oninput={(e) => apply(setClusters(style, { opacity: Number(e.currentTarget.value) }))}
+          />
+          <span class="value">{pct(renderer.opacity)}</span>
+        </div>
+        <div class="row">
+          <span class="label" id="cluster-outline-label">Outline</span>
+          <input type="color" aria-labelledby="cluster-outline-label" value={renderer.strokeColor} oninput={(e) => apply(setClusters(style, { strokeColor: e.currentTarget.value }))} />
+          <input
+            type="range"
+            aria-label="Outline width"
+            aria-valuetext="{renderer.strokeWidth} pixels"
+            min="0"
+            max="5"
+            step="0.5"
+            value={renderer.strokeWidth}
+            oninput={(e) => apply(setClusters(style, { strokeWidth: Number(e.currentTarget.value) }))}
+          />
+          <span class="value">{renderer.strokeWidth} px</span>
+        </div>
+        <p class="hint">A click on a bubble zooms in until it breaks apart. Points not in a group take the symbol below.</p>
+        {#if geometryType === 'Mixed'}
+          <p class="inline-note" role="status"><Icon name="info" size={14} />Only points are grouped; lines and polygons keep the single symbol.</p>
+        {/if}
       </section>
     {/if}
 
@@ -1361,6 +1535,57 @@
   .row.field {
     grid-template-columns: 72px 1fr;
   }
+  /* Clusters: one row per step (color, starting count, bubble radius). */
+  .cluster-steps {
+    list-style: none;
+    margin: 4px 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cluster-steps li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cluster-steps .from {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--se-text-secondary);
+  }
+  .cluster-steps .size {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--se-text-secondary);
+  }
+  .cluster-steps .number {
+    width: 64px;
+  }
+  .add-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--se-link, var(--se-accent));
+    font: inherit;
+    font-size: 0.92em;
+    cursor: pointer;
+  }
+  .add-step:hover {
+    text-decoration: underline;
+  }
+  .add-step:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+
   /* Heatmap: automatic intensity, under its slider. */
   .check {
     display: flex;

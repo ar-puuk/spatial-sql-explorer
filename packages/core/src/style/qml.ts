@@ -19,7 +19,11 @@ import {
   ruleLabel,
   sanitizeStyle,
   DEFAULT_ELSE_LABEL,
+  DEFAULT_CLUSTERS,
+  CLUSTER_MAX_ZOOM,
   OTHER_COLOR,
+  type ClusterCountFormat,
+  type ClusterRenderer,
   type HeatmapRenderer,
   type LayerStyle,
   type ResolvedStyle,
@@ -28,8 +32,8 @@ import {
   type StyleGeometry,
   type StyleImportResult,
 } from './model.js'
-import { rendererOf } from './legacy.js'
-import { HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
+import { rendererOf, withRenderer } from './legacy.js'
+import { CLUSTER_QML_NOTE, HEATMAP_QML_NOTE, HEATMAP_RAMP_NOTE, QGIS_METHODS, QGIS_METHOD_IDS, categorizedFrom, classLayerStyle, graduatedFrom, thematicForExport, type ImportedCategory, type ImportedRange, type Thematic } from './interchange.js'
 import { dashFromPattern, type LineDash, type MarkerShape } from './symbol.js'
 import { CHANNEL_NAMES, CHANNEL_ORDER, OUTPUT_KIND, fixedValue, type ChannelId, type Channels, type ClassDef, type ContinuousScale, type Encoding, type IdentityScale, type Output, type Scale } from './channels.js'
 import type { ResolvedClass } from './model.js'
@@ -835,6 +839,13 @@ ${symbolXml(kind, style, '0', sizeDd)}
       if (!r.autoIntensity && r.intensity !== 1) notes.push(HEATMAP_QML_NOTE)
     } else notes.push('QGIS heatmaps are for point layers: this layer was exported with its single symbol.')
   }
+  // Clusters, as QGIS's point cluster renderer around the single symbol (point layers only).
+  if (r.kind === 'clusters') {
+    if (kind === 'marker') {
+      renderer = clusterRendererXml(r, renderer)
+      notes.push(...CLUSTER_QML_NOTES(r))
+    } else notes.push('QGIS clusters points only: this layer was exported with its single symbol.')
+  }
   // Spec 010: rules, as a rule-based renderer.
   if (r.kind === 'rules') {
     renderer = rulesRendererXml(style, r, resolved, kind, sizeDd)
@@ -859,6 +870,107 @@ ${renderer3d}${labeling}${customProperties(props)}  <layerOpacity>${round(style.
 </qgis>
 `
   return { text, notes }
+}
+
+// --- clusters ---------------------------------------------------------------
+
+/** What QGIS's point cluster renderer can't hold of ours. */
+const CLUSTER_QML_NOTES = (r: ClusterRenderer): string[] => (r.maxZoom < CLUSTER_MAX_ZOOM.max ? [CLUSTER_QML_NOTE(r.maxZoom)] : [])
+
+/** A QGIS expression over `@cluster_size`: the first step's value, or a later step's from its count. */
+function clusterCase(r: ClusterRenderer, value: (st: ClusterRenderer['steps'][number]) => string): string {
+  if (r.steps.length === 1) return value(r.steps[0])
+  const later = r.steps
+    .slice(1)
+    .reverse()
+    .map((st) => `WHEN @cluster_size >= ${st.from} THEN ${value(st)}`)
+  return `CASE ${later.join(' ')} ELSE ${value(r.steps[0])} END`
+}
+
+/** The count on a bubble, as the map writes it (expressions.ts clusterCountText), in QGIS's expression language. */
+export function qgisClusterCount(format: ClusterCountFormat): string {
+  if (format === 'grouped') return 'format_number(@cluster_size, 0)'
+  if (format === 'raw') return 'to_string(@cluster_size)'
+  return (
+    "CASE WHEN @cluster_size >= 1000000 THEN to_string(floor(@cluster_size / 100000) / 10) || 'M' " +
+    "WHEN @cluster_size >= 10000 THEN to_string(floor(@cluster_size / 1000)) || 'k' " +
+    "WHEN @cluster_size >= 1000 THEN to_string(floor(@cluster_size / 100) / 10) || 'k' " +
+    'ELSE to_string(@cluster_size) END'
+  )
+}
+
+/**
+ * QGIS's point cluster renderer: the distance in pixels, the single symbol
+ * (`embedded`) for points not in a group, and the bubble: a circle whose color
+ * and size follow `@cluster_size` by step, with the count as a font marker.
+ */
+function clusterRendererXml(r: ClusterRenderer, embedded: string): string {
+  const inner = embedded
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n')
+  const first = r.steps[0]
+  const bubble = {
+    name: 'circle',
+    angle: '0',
+    color: qgisColor(first.color, 1),
+    outline_color: qgisColor(r.strokeColor, 1),
+    outline_style: r.strokeWidth > 0 ? 'solid' : 'no',
+    outline_width: String(round(r.strokeWidth)),
+    outline_width_unit: 'Pixel',
+    scale_method: 'diameter',
+    size: String(round(first.radius * 2)),
+    size_unit: 'Pixel',
+  }
+  const count = {
+    chr: '0',
+    font: 'Arial',
+    color: qgisColor(r.textColor, 1),
+    horizontal_anchor_point: '1',
+    vertical_anchor_point: '1',
+    size: '12',
+    size_unit: 'Pixel',
+  }
+  const bubbleDd: Array<[string, string[]]> = [
+    ['fillColor', expressionEntries(clusterCase(r, (st) => qgisString(st.color)))],
+    ['size', expressionEntries(clusterCase(r, (st) => String(round(st.radius * 2))))],
+  ]
+  return `  <renderer-v2 type="pointCluster" tolerance="${round(r.radius)}" toleranceUnit="Pixel" toleranceUnitScale="3x:0,0,0,0,0,0" symbollevels="0" forceraster="0" enableorderby="0" referencescale="-1">
+${inner}
+      <symbol type="marker" name="centerSymbol" alpha="${round(r.opacity, 4)}" clip_to_extent="1" force_rhr="0">
+        <layer class="SimpleMarker" enabled="1" locked="0" pass="0">
+${options(bubble)}${dataDefinedBlock(bubbleDd, 10)}
+        </layer>
+        <layer class="FontMarker" enabled="1" locked="0" pass="0">
+${options(count)}${dataDefinedBlock([['char', expressionEntries(qgisClusterCount(r.countFormat))]], 10)}
+        </layer>
+      </symbol>
+  </renderer-v2>`
+}
+
+/**
+ * A QGIS point cluster renderer read back: the renderer inside it as usual
+ * and, around a single symbol, our clusters with QGIS's distance as the
+ * radius (our own files restore every setting from `spatialExplorer/style`).
+ */
+function clustersFromQgis(doc: Document, outer: Element): StyleImportResult {
+  const inner = Array.from(outer.children).find((c) => c.tagName === 'renderer-v2')
+  if (!inner) throw new Error('This QML point cluster renderer has no renderer inside it.')
+  const tolerance = outer.getAttribute('tolerance') ?? undefined
+  const unit = outer.getAttribute('toleranceUnit') ?? 'MM'
+  const innerType = inner.getAttribute('type') ?? 'singleSymbol'
+  outer.parentNode?.replaceChild(inner, outer)
+  const result = qmlToStyle(new XMLSerializer().serializeToString(doc))
+  if (result.style.draw?.points === 'clusters') return result
+  const notes = [...result.notes]
+  if (innerType !== 'singleSymbol') {
+    notes.push('QGIS groups these points around a styled renderer; here clusters keep a single symbol, so the renderer was imported without clusters.')
+    return { ...result, notes }
+  }
+  const radius = toPx(tolerance, unit, notes, 'cluster distance')
+  const clusters: ClusterRenderer = { kind: 'clusters', ...DEFAULT_CLUSTERS, steps: DEFAULT_CLUSTERS.steps.map((st) => ({ ...st })), ...(radius !== null && radius > 0 ? { radius: Math.round(radius) } : {}) }
+  notes.push('QGIS clusters have one bubble symbol: the bubbles take the default steps.')
+  return { style: sanitizeStyle(withRenderer(result.style, clusters)), format: 'qml', notes }
 }
 
 // --- heatmap ----------------------------------------------------------------
@@ -1224,6 +1336,8 @@ export function qmlToStyle(text: string): StyleImportResult {
   // Spec 010: our own rules (the renderer in a custom property), or any other rule-based renderer.
   const ownRules = rendererType === 'RuleRenderer' && !ownBivariate ? readCustomProperties(doc).get('spatialExplorer/rules') : undefined
   const foreignRules = rendererType === 'RuleRenderer' && !ownBivariate && !ownRules
+  // Clusters: the renderer inside, then the clusters around it.
+  if (rendererType === 'pointCluster') return clustersFromQgis(doc, renderer)
   // A heatmap has no symbols of its own.
   if (rendererType === 'heatmapRenderer') {
     const style = heatmapFromQgis(renderer, readCustomProperties(doc), notes)
@@ -1428,7 +1542,7 @@ export function qmlToStyle(text: string): StyleImportResult {
 
 /** Spec 011: the channel model fields, as JSON for `spatialExplorer/style` (null: a single style, nothing to add). */
 function ownStyle(style: LayerStyle): string | null {
-  const keys = ['draw', 'channels', 'heatmap', 'height', 'labels', 'lineWidth', 'rotation', 'opacity'] as const
+  const keys = ['draw', 'channels', 'heatmap', 'clusters', 'height', 'labels', 'lineWidth', 'rotation', 'opacity'] as const
   const out: Partial<LayerStyle> = {}
   for (const k of keys) if (style[k] !== undefined) (out as Record<string, unknown>)[k] = style[k]
   return Object.keys(out).length ? JSON.stringify(out) : null

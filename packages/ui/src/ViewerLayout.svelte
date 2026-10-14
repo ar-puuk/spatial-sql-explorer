@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -58,7 +58,7 @@
   // Spec 009 US2: proportional sizes are reference sizes, not classes: their own group.
   const legendProportional = $derived.by(() => {
     const size = store.resolvedStyle.size
-    if (size?.status !== 'ok' || size.mode !== 'proportional' || legendRenderer.kind === 'bivariate' || legendRenderer.kind === 'heatmap') return null
+    if (size?.status !== 'ok' || size.mode !== 'proportional' || legendRenderer.kind === 'bivariate' || legendRenderer.kind === 'heatmap' || legendRenderer.kind === 'clusters') return null
     return { channel: size, symbols: sizeSymbols(store.style, store.resolvedStyle) }
   })
   const showLegend = $derived(
@@ -69,6 +69,8 @@
   )
   // The single symbol, as the map draws it, for the row shown when nothing varies.
   const legendSymbols = $derived(classSymbols(store.style, store.resolvedStyle))
+  // Clusters: a row per step, bubbles drawn to scale.
+  const clusterRows = $derived(clusterLegendRows(store.style, store.resolvedStyle))
   const legendTitle = $derived(rendererTitle(legendRenderer))
   /** Hides or shows a legend entry: its class in every merged property. */
   function toggleEntry(toggles: Array<{ channel: ChannelId; key: string }>, visible: boolean): void {
@@ -105,7 +107,9 @@
       title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
       shape: colorGroup ? shapeOf(colorGroup) : base,
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
-      rows: r.heat || r.grid ? [] : colorGroup ? rowsOf(colorGroup) : others.length || legendProportional ? [] : r.classes.map((c, i) => ({ color: c.color, label: c.label, symbol: legendSymbols[i] })),
+      rows: r.clusters && r.status === 'ok'
+        ? [...clusterRows, { color: r.classes[0].color, label: r.classes[0].label, symbol: legendSymbols[0] }]
+        : r.heat || r.grid ? [] : colorGroup ? rowsOf(colorGroup) : others.length || legendProportional ? [] : r.classes.map((c, i) => ({ color: c.color, label: c.label, symbol: legendSymbols[i] })),
       // A heatmap: its ramp.
       gradient: r.heat && r.status === 'ok' ? r.heat.colors : undefined,
       // Spec 009 US6: the bivariate square.
@@ -414,6 +418,7 @@
             groups={legend}
             onToggleEntry={toggleEntry}
             proportional={legendProportional}
+            {clusterRows}
           />
         {/if}
         {@render mapOverlay?.()}

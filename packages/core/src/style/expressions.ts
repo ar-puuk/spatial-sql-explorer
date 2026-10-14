@@ -7,13 +7,14 @@
 // legend therefore can't disagree on which class a feature is in, and the
 // index rules mirror `classify.ts` exactly (toCategory / toNumber).
 import { extrusionHeightExpression } from './extrusion.js'
-import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
+import { EXPRESSION_VALUE_COLUMN, HEATMAP_METERS, metersPerPixel, type ClusterCountFormat, type ClusterRenderer, type HeatmapRenderer, RULE_CLASS_COLUMN, parseColor, withLayerOpacity, type CategorizedRenderer, type GraduatedRenderer, type LayerStyle, type ResolvedClass, type ResolvedSizeChannel, type ResolvedStyle } from './model.js'
 import { legacyView, rendererOf } from './legacy.js'
 import { CONTINUOUS_STOPS, ICON_COLOR_STEPS, continuousOutput, isGenericChannel } from './resolve.js'
 import { CHANNEL_ORDER, fixedValue, isColorChannel, type ChannelId, type ContinuousScale, type Output, type SymbolPart } from './channels.js'
 import type { LineDash, MarkerShape } from './symbol.js'
 import { baseSymbol, classSymbols, dashPattern, markerExtent, markerIconId, type SymbolSpec } from './symbol.js'
 import { bivariateIndexExpression } from './bivariate.js'
+import { LABEL_FONT } from './labelLayer.js'
 
 /**
  * `marker` draws points of a shape other than the circle, from icons
@@ -56,6 +57,7 @@ export function classIndexExpression(style: LayerStyle, resolved: ResolvedStyle)
     case 'rules':
       return rulesIndex(resolved)
     case 'heatmap':
+    case 'clusters':
       return null
   }
 }
@@ -165,7 +167,7 @@ const atLeast1 = (e: number | unknown[]): number | unknown[] => (typeof e === 'n
 function activeSize(style: LayerStyle, resolved: ResolvedStyle): ResolvedSizeChannel | null {
   const size = resolved.size
   const kind = rendererOf(style).kind
-  return style.size && size?.status === 'ok' && kind !== 'bivariate' && kind !== 'heatmap' ? size : null
+  return style.size && size?.status === 'ok' && kind !== 'bivariate' && kind !== 'heatmap' && kind !== 'clusters' ? size : null
 }
 
 /** The size channel's class position per feature (classed), or null. */
@@ -481,6 +483,79 @@ export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLa
     'heatmap-weight': w ? ['/', ['max', 0, ['to-number', ['get', w.column], 0]], w.max] : 1,
     'heatmap-color': color,
     'heatmap-opacity': style.layerOpacity ?? 1,
+  }
+}
+
+// --- Clusters (bubbles) ------------------------------------------------------
+
+/** A group of points (MapLibre's GeoJSON clustering and the engine's tiles both set `point_count`). */
+export const CLUSTER_FILTER = ['has', 'point_count']
+
+/** True when the map groups points into clusters (bubbles). */
+export function drawsClusters(style: LayerStyle, resolved: ResolvedStyle): boolean {
+  style = legacyView(style)
+  return rendererOf(style).kind === 'clusters' && resolved.status === 'ok' && !!resolved.clusters
+}
+
+/**
+ * The count on a bubble, as mapgl writes it: abbreviated (987, 1.2k, 12k,
+ * 1.2M), grouped (12,345) or raw (12345). One expression for GeoJSON and
+ * tiles alike (tiles have no `point_count_abbreviated`).
+ */
+export function clusterCountText(format: ClusterCountFormat): unknown {
+  const n = ['get', 'point_count']
+  if (format === 'grouped') return ['number-format', n, { locale: 'en-US' }]
+  if (format === 'raw') return ['to-string', n]
+  return [
+    'case',
+    ['>=', n, 1_000_000],
+    ['concat', ['to-string', ['/', ['floor', ['/', n, 100_000]], 10]], 'M'],
+    ['>=', n, 10_000],
+    ['concat', ['to-string', ['floor', ['/', n, 1000]]], 'k'],
+    ['>=', n, 1000],
+    ['concat', ['to-string', ['/', ['floor', ['/', n, 100]], 10]], 'k'],
+    ['to-string', n],
+  ]
+}
+
+/** The GeoJSON source's clustering for this style (MapLibre `cluster`, `clusterRadius`, `clusterMaxZoom`). */
+export function clusterSourceOptions(style: LayerStyle, resolved: ResolvedStyle): { cluster: boolean; clusterRadius?: number; clusterMaxZoom?: number } {
+  if (!drawsClusters(style, resolved)) return { cluster: false }
+  const r = rendererOf(legacyView(style))
+  return r.kind === 'clusters' ? { cluster: true, clusterRadius: r.radius, clusterMaxZoom: r.maxZoom } : { cluster: false }
+}
+
+/** The engine tiles' clustering for this style (grouped in SQL, view/tiles.ts), or null. */
+export function clusterTiles(style: LayerStyle): { radius: number; maxZoom: number } | null {
+  const r = rendererOf(legacyView(style))
+  return r.kind === 'clusters' ? { radius: r.radius, maxZoom: r.maxZoom } : null
+}
+
+/** A step expression over the group's size: the first step's value, then each later step's from its count. */
+function clusterStep(r: ClusterRenderer, value: (st: ClusterRenderer['steps'][number]) => unknown): unknown {
+  if (r.steps.length === 1) return value(r.steps[0])
+  return ['step', ['get', 'point_count'], value(r.steps[0]), ...r.steps.slice(1).flatMap((st) => [st.from, value(st)])]
+}
+
+/** The bubbles (a circle layer) and their counts (a symbol layer), MapLibre and Mapbox GL alike. */
+export function clusterPaint(style: LayerStyle): { bubble: Record<string, unknown>; count: { layout: Record<string, unknown>; paint: Record<string, unknown> } } | null {
+  style = legacyView(style)
+  const r = rendererOf(style)
+  if (r.kind !== 'clusters') return null
+  const opacity = r.opacity * (style.layerOpacity ?? 1)
+  return {
+    bubble: {
+      'circle-color': clusterStep(r, (st) => st.color),
+      'circle-radius': clusterStep(r, (st) => st.radius),
+      'circle-opacity': opacity,
+      'circle-stroke-color': r.strokeColor,
+      'circle-stroke-width': r.strokeWidth,
+      'circle-stroke-opacity': opacity,
+    },
+    count: {
+      layout: { 'text-field': clusterCountText(r.countFormat), 'text-font': LABEL_FONT, 'text-size': 12, 'text-allow-overlap': true, 'text-ignore-placement': true },
+      paint: { 'text-color': r.textColor, 'text-opacity': style.layerOpacity ?? 1 },
+    },
   }
 }
 

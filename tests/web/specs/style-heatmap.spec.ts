@@ -67,6 +67,7 @@ test('the style type dropdown: each type with what it does; Heatmap only for poi
     /^Bivariate\s*Bivariate maps need two numeric columns\./,
     /^Rules\s*SQL conditions: the first one a feature meets colors it/,
     /^Heatmap\s*Where points cluster, as a smooth density surface/,
+    /^Clusters\s*Nearby points grouped into bubbles, sized and colored by how many/,
   ])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('listbox', { name: 'Color styles' })).toBeHidden()

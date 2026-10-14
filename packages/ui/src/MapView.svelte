@@ -18,6 +18,10 @@
     loadBasemapStyle,
     paintFor,
     drawsHeatmap,
+    drawsClusters,
+    clusterPaint,
+    clusterSourceOptions,
+    CLUSTER_FILTER,
     layoutFor,
     isMarkerIconId,
     markerIconIds,
@@ -189,6 +193,9 @@
       filter: MARKER_POINT,
       layout: { 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport' },
     },
+    // Clusters: groups of points as bubbles, and their counts (points not in a group draw as usual).
+    { id: 'cluster', type: 'circle', filter: CLUSTER_FILTER },
+    { id: 'cluster-count', type: 'symbol', filter: CLUSTER_FILTER },
     // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
     { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
     // Spec 011 US6: labels, above everything (on the ground in 3D: research §3); not interactive.
@@ -211,6 +218,8 @@
    */
   function layerPaint(id: string, p: ReturnType<typeof paintFor>): Record<string, unknown> {
     if (LABEL_DEFS.has(id)) return labelSpec(id)?.paint ?? {}
+    if (id === 'cluster') return clusterPaint(style)?.bubble ?? {}
+    if (id === 'cluster-count') return clusterPaint(style)?.count.paint ?? {}
     const paint = p[id as keyof typeof p] ?? {}
     if (extruded && id === 'fill') return { ...paint, 'fill-opacity': 0 }
     return paint
@@ -220,6 +229,7 @@
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
     const heat = drawsHeatmap(style, resolved)
     if (id === 'heatmap') return heat ? 'visible' : 'none'
+    if (id === 'cluster' || id === 'cluster-count') return drawsClusters(style, resolved) ? 'visible' : 'none'
     if (id === 'marker' || id === 'marker-select') return drawsMarkerIcons(style, resolved) && !heat ? 'visible' : 'none'
     if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
     return 'visible'
@@ -252,6 +262,12 @@
    * (spec 011) the circle layer also keeps the points whose shape is a circle.
    */
   function layerFilter(def: (typeof LAYER_DEFS)[number]): unknown {
+    const own = baseFilter(def)
+    // Clusters: groups are the bubbles' alone (a group is a point, so it would match the point layers).
+    return CLUSTER_DEFS.has(def.id) || !drawsClusters(style, resolved) ? own : ['all', own, ['!', CLUSTER_FILTER]]
+  }
+  const CLUSTER_DEFS = new Set(['cluster', 'cluster-count'])
+  function baseFilter(def: (typeof LAYER_DEFS)[number]): unknown {
     // Dots standing in for features too small to see (option C) get no label.
     if (LABEL_DEFS.has(def.id)) return ['all', labelSpec(def.id)?.filter ?? def.filter, ['!', DOT]]
     const hidden = visibilityFilter(style, resolved)
@@ -270,6 +286,7 @@
     // Spec 009: `icon-size` follows the size channel; without one it is back to 1 (layoutFor leaves it out).
     const defaults = def.id === 'marker' ? { 'icon-size': 1 } : {}
     if (LABEL_DEFS.has(def.id)) return { ...(labelSpec(def.id)?.layout ?? {}), visibility: layerVisibility(def.id) }
+    if (def.id === 'cluster-count') return { ...(clusterPaint(style)?.count.layout ?? {}), visibility: layerVisibility(def.id) }
     return { ...(def.layout ?? {}), ...defaults, ...(layouts[def.id as keyof typeof layouts] ?? {}), visibility: layerVisibility(def.id) }
   }
 
@@ -311,8 +328,21 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const setProps = new Map<string, { paint: string[]; layout: string[] }>()
 
+  /** The cluster options the GeoJSON source has (JSON), so a style change sets them only when they change. */
+  let appliedClusters = ''
+  function applyClusters(m: MapLibreMap): void {
+    if (styledTiles || styledTileUrl) return
+    const options = clusterSourceOptions(style, resolved)
+    const key = JSON.stringify(options)
+    const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined
+    if (!source || key === appliedClusters) return
+    appliedClusters = key
+    void source.setClusterOptions(options)
+  }
+
   function applyPaint(): void {
     if (!map || !mapReady) return
+    applyClusters(map)
     if (map.getLayer(BLANK_BG)) map.setPaintProperty(BLANK_BG, 'background-color', blankBackground())
     const p = paintFor(style, resolved, selectionColor(), layerLatitude())
     const layouts = layoutFor(style, resolved)
@@ -402,7 +432,8 @@
     if (styledTiles) return { type: 'vector', url: styledTiles.url }
     if (styledTileUrl) return { type: 'vector', tiles: [styledTileUrl], minzoom: 0, maxzoom: 14, promoteId: { data: ID_PROP } }
     // geojson-vt drops features under its tolerance at low zoom; their dots (option C) keep them visible.
-    return { type: 'geojson', data: currentData, promoteId: ID_PROP }
+    appliedClusters = JSON.stringify(clusterSourceOptions(style, resolved))
+    return { type: 'geojson', data: currentData, promoteId: ID_PROP, ...clusterSourceOptions(style, resolved) }
   }
 
   /** Our map layers (data, then the tiles-mode selection overlay), with the current paint, layout and filters. */
@@ -521,6 +552,29 @@
     return Math.hypot(back.x - p.x, back.y - p.y) < 2
   }
 
+  /** The bubble under a point, if the map draws clusters. */
+  function clusterAt(point: { x: number; y: number }): MapGeoJSONFeature | null {
+    if (!map || !drawsClusters(style, resolved)) return null
+    const layers = layerInstances()
+      .filter((l) => l.def.id === 'cluster')
+      .map((l) => l.id)
+      .filter((id) => map?.getLayer(id))
+    return layers.length ? (map.queryRenderedFeatures([point.x, point.y], { layers })[0] ?? null) : null
+  }
+  /** Zooms in on a bubble: to where it breaks apart (GeoJSON), or one level (engine tiles group again at every zoom). */
+  async function expandCluster(bubble: MapGeoJSONFeature): Promise<void> {
+    const m = map
+    if (!m || bubble.geometry.type !== 'Point') return
+    const center = bubble.geometry.coordinates as [number, number]
+    const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined
+    let zoom = Math.min(m.getZoom() + 1, 20)
+    const id = bubble.properties?.cluster_id
+    if (source && typeof source.getClusterExpansionZoom === 'function' && typeof id === 'number') {
+      zoom = await source.getClusterExpansionZoom(id).catch(() => zoom)
+    }
+    m.easeTo({ center, zoom })
+  }
+
   function registerHandlers(): void {
     if (!map) return
     const m = map
@@ -544,6 +598,11 @@
         onInspectTileFeature?.(near ? tileFeature(near) : null)
         return
       }
+      const bubble = clusterAt(e.point)
+      if (bubble) {
+        void expandCluster(bubble)
+        return
+      }
       const hit = m.queryRenderedFeatures(e.point, { layers: interactiveLayers() })[0]
       onSelectFeature(featureId(hit), e.originalEvent.ctrlKey || e.originalEvent.metaKey)
     })
@@ -553,6 +612,7 @@
       const hit = layers.length && onSurface(e.point) ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
       else setHover(featureId(hit))
+      if (!hit && onSurface(e.point) && clusterAt(e.point)) m.getCanvas().style.cursor = 'pointer'
     })
     m.on('moveend', () => {
       const c = m.getCenter()
@@ -946,6 +1006,7 @@
     void style.draw
     void style.height
     void style.heatmap
+    void style.clusters
     void style.markerShape
     void style.lineDash
     void style.channels

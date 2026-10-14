@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -851,7 +851,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       void untrack(() => refreshStyle())
       // Spec 010: GeoJSON carries every column; tiles carry the style's, so new ones need new tiles.
       untrack(() => {
-        if (drawMode === 'tiles' && querySession && styleColumns(style).join('\u0000') !== tileColumnsKey) drawTiles(querySession)
+        if (drawMode === 'tiles' && querySession && tileKeyOf(style) !== tileColumnsKey) drawTiles(querySession)
       })
     })
   })
@@ -1116,8 +1116,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let drawCalls = $state(0)
   let drawGeneration = 0
   let unregisterTiles: (() => void) | null = null
-  /** The columns the current tiles carry (joined), to notice a style that needs others. */
+  /** The columns the current tiles carry (joined), and clusters' settings, to notice a style that needs other tiles. */
   let tileColumnsKey = ''
+  const tileKeyOf = (s: LayerStyle): string => styleColumns(s).join('\u0000') + '\u0002' + JSON.stringify(clusterTiles(s))
   /** Spec 010: the computed columns (rules, expressions) of the current drawing, as one key. */
   let drawnComputedKey = ''
   const computedKey = (c: readonly ComputedColumn[]): string => c.map((x) => `${x.name}=${x.sql}`).join('\u0000')
@@ -1129,7 +1130,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     unregisterTiles?.()
     const attrs = styleColumns(style)
     const computed = currentComputed()
-    tileColumnsKey = attrs.join('\u0000')
+    // Clusters are grouped in the engine's tiles: their settings are part of what a tile draws.
+    const cluster = clusterTiles(style)
+    tileColumnsKey = tileKeyOf(style)
     drawnComputedKey = computedKey(computed)
     const key = `${viewerId}-${qs.dataVersion}-${hashKey(tileColumnsKey + '\u0001' + drawnComputedKey)}`
     unregisterTiles = registerTileProvider(key, async (z, x, y) => {
@@ -1137,7 +1140,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       for (;;) {
         try {
           drawCalls++
-          return await qs.tile(z, x, y, attrs, computed)
+          return await qs.tile(z, x, y, attrs, computed, cluster)
         } catch (err) {
           if (!(err instanceof ViewSkippedError || err instanceof QueryCancelledError) || qs !== querySession) throw err
           await qs.whenIdle()

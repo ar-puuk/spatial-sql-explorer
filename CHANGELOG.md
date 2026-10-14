@@ -12,6 +12,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - A Copy button at the top right of the SQL editor copies the query.
+- **Clusters style** for points (bubble aggregation), after the R package
+  mapgl's `cluster_options`.
+  - Nearby points group into bubbles, colored and sized by how many points
+    each holds, with the count on it (1.2k, 1,234 or 1234). Points not in a
+    group keep the single symbol; lines and polygons are never grouped.
+  - mapgl's defaults: three steps (from 2, 100 and 750 points, at 20, 30 and
+    40 px), a 50 px radius, grouping up to zoom 14. Up to six steps, each
+    with its own count, color and size; bubble opacity and outline, and the
+    counts' color.
+  - A click on a bubble zooms in until it breaks apart.
+  - Large results (drawn from the engine's tiles) are grouped by the engine,
+    on a grid that lines up across tiles; neighbors within the radius merge.
+  - The legend lists each step's counts with its bubble, then the single
+    points; the map image includes it.
+  - Saved as QGIS's point cluster renderer in QML (the bubble colored and
+    sized by `@cluster_size`), checked in QGIS 4.2.3, and as a clustered
+    source in Mapbox GL styles; both read back, as do clustered styles made
+    with mapgl. SLD has no clusters, and the save menu says so.
 - **Heatmap style** for points.
   - Shows where points cluster, as a smooth density surface. Zero density is
     transparent, and the densest areas take the ramp's last color.
