@@ -36,7 +36,7 @@ test('a selection shows its attributes in a card on the map, with Style still op
   await openFile(page, fixture('world-boundaries.geojson'))
   const rows = page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr')
   const card = page.getByRole('region', { name: 'Feature attributes' })
-  await expect(page.getByRole('toolbar', { name: 'Panels' }).getByRole('button')).toHaveText(['', '', ''])
+  await expect(page.getByRole('toolbar', { name: 'Panels' }).getByRole('button')).toHaveText(['', '', '', ''])
 
   await rows.nth(2).click()
   await expect(card).toContainText('Albania')

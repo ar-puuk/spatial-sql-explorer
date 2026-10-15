@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, groupsInCorner, shownControls, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -27,6 +27,7 @@
   import SelectionBar from './SelectionBar.svelte'
   import ActivityRail from './ActivityRail.svelte'
   import LabelsPanel from './LabelsPanel.svelte'
+  import MapControlsPanel from './MapControlsPanel.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -238,13 +239,15 @@
   })
 
   // --- Side panel ----------------------------------------------------------------
-  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', basemap: 'Basemap' }
+  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', basemap: 'Basemap', controls: 'Map controls' }
   /** Spec 011 US6: what labels show, for the rail button's tooltip (null: off). */
   const labelsOn = $derived.by(() => {
     const l = store.style.labels
     if (!l?.enabled) return null
     return l.source.kind === 'column' ? l.source.column : 'expression'
   })
+  /** Spec 014: map buttons in the top-left corner push the feature card over by their width (28 px + a gap). */
+  const ctlLeft = $derived(groupsInCorner(store.mapControls, 'top-left').some((g) => shownControls(store.mapControls, g).length > 0) ? 36 : 0)
   const sideActive = $derived<SideTab | null>(layout.sideOpen ? layout.sideTab : null)
 
   function selectSide(panel: SideTab | null): void {
@@ -330,7 +333,7 @@
 
   <div class="workbench">
     <div class="main" bind:this={main} bind:clientHeight={mainHeight}>
-      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed}>
+      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed} style:--se-ctl-left="{ctlLeft}px">
         <MapView
           layer={store.mapLayer ?? layer}
           mapData={store.mapData}
@@ -354,6 +357,7 @@
           tickedIds={store.selection.kind === 'all-matching' ? 'all' : store.selection.ids}
           fitRequest={store.fitRequest}
           projection={store.projection}
+          controls={store.mapControls}
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
           onCursorMove={(c) => store.setCursor(c)}
@@ -621,6 +625,8 @@
               onChange={(patch) => store.setStyle({ labels: setLabels(store.style, patch, store.styleInput?.columns ?? []).labels })}
             />
           {/if}
+        {:else if layout.sideTab === 'controls'}
+          <MapControlsPanel prefs={store.mapControls} onChange={(prefs) => store.setMapControls(prefs)} />
         {:else}
           <BasemapPicker
             activeId={store.basemap.id}
@@ -728,7 +734,7 @@
   .map-ov.inspector-slot {
     position: absolute;
     top: 48px;
-    left: 10px;
+    left: calc(10px + var(--se-ctl-left, 0px));
     /* 8 px above the scale bar (10 px margin + 11px * 1.6 line + 1 px border), the gap under the search box. */
     bottom: calc(var(--se-map-bottom-inset, 0px) + 10px + 11px * 1.6 + 1px + 8px);
     z-index: 6;

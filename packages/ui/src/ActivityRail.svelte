@@ -21,6 +21,8 @@
     { id: 'style', label: 'Style', icon: 'paint' },
     { id: 'labels', label: 'Labels', icon: 'tag' },
     { id: 'basemap', label: 'Basemap', icon: 'map' },
+    // Spec 014: which map buttons show and where; apart from the panels, at the bottom (VS Code's Manage gear).
+    { id: 'controls', label: 'Map controls', icon: 'sliders' },
   ]
 
   let rail = $state<HTMLDivElement>()
@@ -29,6 +31,7 @@
     if (b.id === 'style' && disabled.style) return disabled.style
     if (b.id === 'labels') return disabled.labels ? disabled.labels : labelsOn ? `Labels: on (${labelsOn})` : 'Labels'
     if (b.id === 'basemap' && basemapName) return `Basemap: ${basemapName}`
+    if (b.id === 'controls') return 'Map controls'
     return 'Layer style'
   }
 
@@ -53,6 +56,7 @@
       aria-pressed={active === b.id}
       title={title(b)}
       data-rail={b.id}
+      class:bottom={b.id === 'controls'}
       disabled={(b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
       onclick={() => onSelect(active === b.id ? null : b.id)}
     >
@@ -82,6 +86,9 @@
     background: transparent;
     color: var(--se-activity-inactive-fg, var(--se-text-secondary));
     cursor: pointer;
+  }
+  button.bottom {
+    margin-top: auto;
   }
   button:hover:not(:disabled),
   button.active {

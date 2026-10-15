@@ -41,6 +41,13 @@
     type MapData,
     type ResolvedStyle,
     EXTRUSION_PITCH,
+    DEFAULT_MAP_CONTROLS,
+    groupsInCorner,
+    isControlOn,
+    shownControls,
+    type ControlCorner,
+    type MapControlId,
+    type MapControlsPrefs,
   } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ProgressBar from './ProgressBar.svelte'
@@ -90,6 +97,8 @@
     /** Spec 008 FR-023: flat (Web Mercator) or globe. */
     projection?: 'mercator' | 'globe'
     onToggleProjection?: () => void
+    /** Spec 014: which buttons show, and in which corner each group sits. */
+    controls?: MapControlsPrefs
     /** Spec 008: the camera after each move (center, zoom, pitch, bearing), and (spec 010) the WGS84 bounds. */
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
@@ -128,6 +137,7 @@
     fitRequest = null,
     projection = 'mercator',
     onToggleProjection = () => {},
+    controls = DEFAULT_MAP_CONTROLS,
     onCameraChange = () => {},
     onCursorMove,
     tiles = null,
@@ -646,6 +656,7 @@
     })
     m.on('mousemove', (e: MapMouseEvent) => {
       onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
+      trackCursor(e.lngLat.lng, e.lngLat.lat)
       const layers = interactiveLayers()
       const hit = layers.length && onSurface(e.point) ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
@@ -949,7 +960,6 @@
     })
     // Test hooks only: the tests read the style itself (spec 010: exactly one basemap in it).
     if (document.documentElement.dataset.seTestHooks !== undefined) (container as unknown as { seMap: MapLibreMap }).seMap = map
-    map.addControl(new ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-left')
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     // Shaped marker icons, on demand (also after a basemap switch replaces the style's images).
     map.on('styleimagemissing', (e: { id: string }) => {
@@ -968,6 +978,8 @@
     resizeObserver?.disconnect()
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
     if (skyFrame) cancelAnimationFrame(skyFrame)
+    if (cursorFrame) cancelAnimationFrame(cursorFrame)
+    if (copiedTimer) clearTimeout(copiedTimer)
     map?.remove()
     map = null
   })
@@ -1113,6 +1125,63 @@
     map?.easeTo({ pitch: 0, bearing: 0, duration: 500 })
   }
 
+  // Spec 014: the scale bar is one of the controls the user can turn off.
+  let scaleControl: ScaleControl | null = null
+  $effect(() => {
+    const on = isControlOn(controls, 'scale')
+    if (!map || !mapReady) return
+    if (on && !scaleControl) {
+      scaleControl = new ScaleControl({ unit: 'metric', maxWidth: 96 })
+      map.addControl(scaleControl, 'bottom-left')
+    } else if (!on && scaleControl) {
+      map.removeControl(scaleControl)
+      scaleControl = null
+    }
+  })
+
+  // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
+  // what was under the cursor. Updated at most once a frame, and only while the control is on.
+  let lastCursor = $state<{ lon: number; lat: number } | null>(null)
+  let cursorFrame = 0
+  let copied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  function trackCursor(lon: number, lat: number): void {
+    if (!untrack(() => isControlOn(controls, 'coordinates'))) return
+    const next = { lon, lat }
+    if (cursorFrame) {
+      pendingCursor = next
+      return
+    }
+    lastCursor = next
+    cursorFrame = requestAnimationFrame(() => {
+      cursorFrame = 0
+      if (pendingCursor) lastCursor = pendingCursor
+      pendingCursor = null
+    })
+  }
+  let pendingCursor: { lon: number; lat: number } | null = null
+  /** The same "lat, lon" the status bar shows, to 5 decimals. */
+  const cursorText = $derived(lastCursor ? `${lastCursor.lat.toFixed(5)}, ${lastCursor.lon.toFixed(5)}` : null)
+  async function copyCursor(): Promise<void> {
+    if (!cursorText) return
+    try {
+      await navigator.clipboard.writeText(cursorText)
+    } catch {
+      return
+    }
+    copied = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied = false), 1200)
+  }
+
+  const CORNERS: ControlCorner[] = ['top-right', 'bottom-right', 'top-left']
+  /** The groups to draw in a corner, each with the buttons shown (an empty group draws nothing). */
+  function cornerGroups(corner: ControlCorner): Array<{ group: string; ids: MapControlId[] }> {
+    return groupsInCorner(controls, corner)
+      .map((group) => ({ group, ids: shownControls(controls, group, (id) => id !== 'resetView' || tilted) }))
+      .filter((g) => g.ids.length > 0)
+  }
+
   // Spec 008 FR-023: switching keeps the camera (center and zoom).
   $effect(() => {
     const type = projection
@@ -1179,28 +1248,47 @@
   {#if drawLoading}
     <ProgressBar label="Loading the features" />
   {/if}
-  <div class="controls" role="toolbar" aria-label="Map controls">
-    <div class="group">
-      <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
-      <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
-      <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
-      <button
-        type="button"
-        title={projection === 'globe' ? 'Flat map' : 'Globe view'}
-        aria-label="Globe view"
-        aria-pressed={projection === 'globe'}
-        class:active={projection === 'globe'}
-        onclick={onToggleProjection}
-      >
-        <Icon name="globe" />
-      </button>
-      <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
-      {#if tilted}
-        <!-- Spec 008 FR-026: back to flat and north-up. -->
-        <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
-      {/if}
-    </div>
-  </div>
+  {#each CORNERS as corner (corner)}
+    {@const groups = cornerGroups(corner)}
+    {#if groups.length > 0}
+      <div class="controls {corner}" role="toolbar" aria-label="Map controls">
+        {#each groups as g (g.group)}
+          <div class="group">
+            {#each g.ids as id (id)}
+              {#if id === 'zoom'}
+                <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
+                <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
+              {:else if id === 'zoomToLayer'}
+                <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
+              {:else if id === 'globe'}
+                <button
+                  type="button"
+                  title={projection === 'globe' ? 'Flat map' : 'Globe view'}
+                  aria-label="Globe view"
+                  aria-pressed={projection === 'globe'}
+                  class:active={projection === 'globe'}
+                  onclick={onToggleProjection}
+                >
+                  <Icon name="globe" />
+                </button>
+              {:else if id === 'exportImage'}
+                <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
+              {:else if id === 'resetView'}
+                <!-- Spec 008 FR-026: back to flat and north-up. -->
+                <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
+              {/if}
+            {/each}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/each}
+  {#if isControlOn(controls, 'coordinates')}
+    <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
+      <span class="value">{cursorText ?? 'lat, lon'}</span>
+      <Icon name={copied ? 'check' : 'copy'} size={12} />
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -1235,12 +1323,54 @@
   }
   .controls {
     position: absolute;
-    top: 10px;
-    right: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     z-index: 5;
+  }
+  .coords {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    transform: translateX(-50%);
+    background: var(--se-control-bg);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius-sm);
+    color: var(--se-text-secondary);
+    font: 11px/1.6 var(--se-font-mono);
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: var(--se-overlay-blur);
+    cursor: pointer;
+  }
+  .coords:hover:not(:disabled) {
+    color: var(--se-text-primary);
+  }
+  .coords:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .coords:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
+  }
+  .controls.top-right {
+    top: 10px;
+    right: 10px;
+  }
+  /* Above the compact attribution button (spec 014). */
+  .controls.bottom-right {
+    right: 10px;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
+  }
+  /* Under the search box, where the feature card is; the card moves over by --se-ctl-left. */
+  .controls.top-left {
+    top: 48px;
+    left: 10px;
   }
   .group {
     display: flex;

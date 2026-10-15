@@ -47,6 +47,7 @@
     | 'monitor'
     | 'maximize'
     | 'restore'
+    | 'sliders'
 
   const PATHS: Record<IconName, string> = {
     plus: 'M8 3.5v9M3.5 8h9',
@@ -97,6 +98,8 @@
     sun: 'M8 5a3 3 0 110 6 3 3 0 010-6zM8 1v1.75M8 13.25V15M1 8h1.75M13.25 8H15M3 3l1.25 1.25M11.75 11.75L13 13M3 13l1.25-1.25M11.75 4.25L13 3',
     moon: 'M13.25 9.5A5.5 5.5 0 016.5 2.75a5.5 5.5 0 106.75 6.75z',
     monitor: 'M2 2.5h12v8.5H2zM5.5 14h5M8 11v3',
+    // Spec 014: two sliders (Map controls).
+    sliders: 'M2.5 4.5h4.25M11.25 4.5h2.25M2.5 11.5h2.25M9.25 11.5h4.25M9 3a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM7 10a1.5 1.5 0 110 3 1.5 1.5 0 010-3z',
   }
 </script>
 

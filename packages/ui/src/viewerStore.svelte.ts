@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -135,7 +135,7 @@ export type MapImageOutcome =
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
 
 /** Spec 010 layout (Option A): the side panel and the bottom panel, shared by both shells and remembered. */
-export type SideTab = 'style' | 'labels' | 'basemap'
+export type SideTab = 'style' | 'labels' | 'basemap' | 'controls'
 export interface LayoutState {
   sideOpen: boolean
   sideTab: SideTab
@@ -154,7 +154,7 @@ export function readLayout(saved: unknown): LayoutState {
   const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d)
   return {
     sideOpen: typeof s.sideOpen === 'boolean' ? s.sideOpen : DEFAULT_LAYOUT.sideOpen,
-    sideTab: s.sideTab === 'style' || s.sideTab === 'labels' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
+    sideTab: s.sideTab === 'style' || s.sideTab === 'labels' || s.sideTab === 'basemap' || s.sideTab === 'controls' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
     sideWidth: num(s.sideWidth, 240, 560, DEFAULT_LAYOUT.sideWidth),
     bottomTab: s.bottomTab === 'sql' ? 'sql' : 'table',
     bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,
@@ -335,6 +335,9 @@ export interface ViewerStore {
   /** User-chosen blank background color; null = match the host theme (the default). Remembered via HostAdapter.saveState. */
   readonly blankColor: string | null
   setBlankColor(color: string | null): void
+  /** Spec 014: which map buttons show and where, a user preference remembered through HostAdapter state. */
+  readonly mapControls: MapControlsPrefs
+  setMapControls(prefs: MapControlsPrefs): void
   readonly basemap: BasemapCatalogEntry
   /** Short FR-016 message after a basemap failure; null when fine. */
   readonly basemapNotice: string | null
@@ -479,6 +482,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     .catch(() => {})
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
+  const MAP_CONTROLS_KEY = 'mapControls'
+  let mapControls = $state<MapControlsPrefs>(DEFAULT_MAP_CONTROLS)
+  let mapControlsTouched = false
+  void hostAdapter
+    .loadState<unknown>(MAP_CONTROLS_KEY)
+    .then((saved) => {
+      // A change made before the saved choices arrived wins.
+      if (saved !== undefined && !mapControlsTouched) mapControls = readMapControls(saved)
+    })
+    .catch(() => {})
   let legendCollapsed = $state(false)
   const LAYOUT_KEY = 'layout'
   let layout = $state<LayoutState>({ ...DEFAULT_LAYOUT })
@@ -1976,6 +1989,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setBlankColor(color) {
       blankColor = color
       void hostAdapter.saveState(BLANK_COLOR_KEY, color).catch(() => {})
+    },
+    get mapControls() {
+      return mapControls
+    },
+    setMapControls(prefs) {
+      mapControlsTouched = true
+      mapControls = prefs
+      void hostAdapter.saveState(MAP_CONTROLS_KEY, prefs).catch(() => {})
     },
     get basemap() {
       return basemap
