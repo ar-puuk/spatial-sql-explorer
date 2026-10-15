@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A line drawn with the Measure or Draw tool follows its great circle (the shortest path on the globe), live while you draw, so the
   line you see is the length shown; the `drawn` table and exports carry the same path.
 - **A new look** (spec 015). Every icon is now Lucide (one icon library, replacing the hand-drawn set). The web app has its own
-  identity: chart-ink text on a cool paper, chart magenta as the one accent, a deep navy for dark, IBM Plex Sans and Fira Code
+  identity: chart-ink text on a cool paper, ultramarine as the one accent, a deep navy for dark, IBM Plex Sans and Fira Code
   (self-hosted); the cream and amber palette, uppercase labels and numbered cards are gone. The landing page shows the idea in
   one short animation: a query is typed and a map colors in. In VS Code the colors still come from your theme.
 - Switches, segmented controls, sliders, selects and tooltips are bits-ui components, themed from the same tokens; map and rail
