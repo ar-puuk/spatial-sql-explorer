@@ -1386,7 +1386,7 @@
     <!-- Spec 008 (user request): loading a style is as visible as saving one (QGIS: Load Style…). -->
     <button type="button" class="secondary" aria-label="Load style…" title="Load a style: QGIS .qml, OGC .sld or Mapbox GL style .json" onclick={onImport}><Icon name="import" size={14} />Load…</button>
     <span class="spacer"></span>
-    <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset" /></button>
+    <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset-style" /></button>
   </footer>
 </div>
 

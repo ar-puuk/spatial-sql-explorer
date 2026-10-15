@@ -42,6 +42,7 @@ export interface DrawController {
   /** Deletes the shape selected in edit mode. */
   deleteSelected(): void
   undo(): void
+  redo(): void
   destroy(): void
 }
 
@@ -175,6 +176,9 @@ export async function createDrawController(map: MapLibreMap, colors: DrawColors,
     },
     undo() {
       if (draw.canUndo()) draw.undo()
+    },
+    redo() {
+      if (draw.canRedo()) draw.redo()
     },
     destroy() {
       try {

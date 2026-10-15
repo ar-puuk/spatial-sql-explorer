@@ -17,7 +17,7 @@ import type { WorkspaceResolution } from '../hostAdapter.js'
 import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
 import { isDefaultQuery } from './resultModel.js'
 import { defaultQueryFor } from '../sql/names.js'
-import { PageCache, pageSql, type PageTarget } from '../view/pages.js'
+import { PageCache, pageSql, rowPositionSql, type PageTarget } from '../view/pages.js'
 import { RESULT_STAGING } from './resultModel.js'
 import { isOutOfMemory, OutOfMemoryError, outOfMemoryMessage } from '../outOfMemory.js'
 import {
@@ -1541,6 +1541,24 @@ export class QuerySession {
     }, 'background')
     this.pages.set(req, result)
     return result
+  }
+
+  /** The zero-based position of a row in the table (under the sort and the standing filters), or null when it is not in it. */
+  async rowPosition(rowId: number, sort: TablePageRequest['sort']): Promise<number | null> {
+    if (this.utilityRows) {
+      const i = this.utilityRows.findIndex((f) => Number(f.id) === rowId)
+      return i >= 0 ? i : null
+    }
+    return this.exclusive(async (isCancelled) => {
+      const plain = this.pageTarget()
+      if (!plain) return null
+      const target = { ...plain, relation: this.narrowed(plain.relation) }
+      let position: number | null = null
+      await streamRows(this.conn, rowPositionSql(target, sort, rowId), isCancelled, (batch) => {
+        for (const r of batch) position = Number(r.pos)
+      })
+      return position
+    }, 'background')
   }
 
   /**

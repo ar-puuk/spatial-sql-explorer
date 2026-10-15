@@ -748,6 +748,8 @@
     m.on('move', () => {
       const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
       if (t !== tilted) tilted = t
+      const bearing = m.getBearing()
+      if (Math.abs(bearing - mapBearing) > 0.4) mapBearing = bearing
     })
     m.on('mouseout', () => {
       onCursorMove(null)
@@ -1062,10 +1064,64 @@
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
+    // Overlays are laid out against each other, not only against the map: whenever the map, a stack or the open
+    // tools change size, the tools are fitted again.
+    overlayObserver = new ResizeObserver(scheduleFit)
+    overlayObserver.observe(rootEl)
+  })
+
+  let rootEl: HTMLDivElement
+  let overlayObserver: ResizeObserver | null = null
+  let fitFrame = 0
+  function scheduleFit(): void {
+    if (fitFrame) return
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = 0
+      // The stacks come and go with the controls: watch each, so a legend growing or collapsing refits the tools.
+      for (const c of rootEl.querySelectorAll('.corner')) overlayObserver?.observe(c)
+      fitPalette()
+    })
+  }
+  /**
+   * The open drawing tools are a column that can be taller than the room under them. They take as many columns as it
+   * takes to end above the map's bottom edge and above any stack at the bottom they would reach (the legend), so
+   * nothing is covered, whatever the size of the map or the legend.
+   */
+  function fitPalette(): void {
+    const el = rootEl?.querySelector<HTMLElement>('.group.palette')
+    if (!el) return
+    const root = rootEl.getBoundingClientRect()
+    const bottoms = Array.from(rootEl.querySelectorAll<HTMLElement>('.corner.bottom-left, .corner.bottom-right, .corner.bottom-center')).filter((c) => c.offsetHeight > 0)
+    const fits = (): boolean => {
+      const r = el.getBoundingClientRect()
+      // The bottom band holds the attribution and the scale: the tools end above it.
+      let limit = root.bottom - 44
+      for (const c of bottoms) {
+        const o = c.getBoundingClientRect()
+        const overlapsX = o.left < r.right && o.right > r.left
+        if (overlapsX && o.top > r.top) limit = Math.min(limit, o.top - 8)
+      }
+      return r.bottom <= limit
+    }
+    const buttons = el.children.length
+    for (let cols = 1; cols <= Math.min(buttons, 6); cols++) {
+      el.style.setProperty('--cols', String(cols))
+      if (fits()) return
+    }
+  }
+  $effect(() => {
+    // The tools open or close, or the stacks around them change.
+    void drawTool?.purpose
+    void drawTool?.tool
+    void controls
+    void layer
+    void tick().then(scheduleFit)
   })
 
   onDestroy(() => {
     resizeObserver?.disconnect()
+    overlayObserver?.disconnect()
+    if (fitFrame) cancelAnimationFrame(fitFrame)
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
     if (skyFrame) cancelAnimationFrame(skyFrame)
     if (cursorFrame) cancelAnimationFrame(cursorFrame)
@@ -1205,6 +1261,8 @@
 
   // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show.
   let tilted = $state(false)
+  /** The map's bearing in degrees, for the north arrow on Reset view. */
+  let mapBearing = $state(0)
   let wasExtruded = false
   $effect(() => {
     const on = extruded
@@ -1737,7 +1795,7 @@
                     {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}
                     <!-- Spec 008 FR-026: back to flat and north-up. -->
-                    {@render mapButton('Reset view', 'Reset view (flat, north up)', 'reset', corner, { onclick: resetView })}
+                    {@render mapButton('Reset view', 'Reset view (flat, north up)', 'north', corner, { rotate: -mapBearing, onclick: resetView })}
                   {/if}
                 {/each}
               </div>
@@ -1750,6 +1808,7 @@
                     {#if drawTool.purpose === 'draw'}
                       {@render mapButton('Delete selected shape', 'Delete the selected shape (edit mode)', 'trash', corner, { disabled: drawTool.tool !== 'edit' || !selectedShape, onclick: () => drawController?.deleteSelected() })}
                       {@render mapButton('Undo', 'Undo', 'undo', corner, { onclick: () => drawController?.undo() })}
+                    {@render mapButton('Redo', 'Redo', 'redo', corner, { onclick: () => drawController?.redo() })}
                     {/if}
                     {#if drawTool.purpose === 'measure'}
                       {@render mapButton(`Units: ${drawUnits}`, `Units: ${drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch.`, null, corner, {
@@ -1778,17 +1837,17 @@
     {/if}
 {/snippet}
 
-{#snippet mapButton(label: string, hint: string, icon: IconName | null, corner: ControlPosition, o: { pressed?: boolean; disabled?: boolean; text?: string; onclick: () => void })}
+{#snippet mapButton(label: string, hint: string, icon: IconName | null, corner: ControlPosition, o: { pressed?: boolean; disabled?: boolean; text?: string; rotate?: number; onclick: () => void })}
   <Tip text={hint} side={corner.endsWith('left') ? 'right' : corner.endsWith('right') ? 'left' : corner.startsWith('top') ? 'bottom' : 'top'}>
     {#snippet trigger(props)}
       <button type="button" {...props} aria-label={label} aria-pressed={o.pressed} class:active={o.pressed} class:text={!!o.text} disabled={o.disabled} onclick={o.onclick}>
-        {#if icon}<Icon name={icon} />{:else}{o.text}{/if}
+        {#if icon}<Icon name={icon} rotate={o.rotate} />{:else}{o.text}{/if}
       </button>
     {/snippet}
   </Tip>
 {/snippet}
 
-<div class="map-view" class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
+<div class="map-view" bind:this={rootEl} class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
   {#if projection === 'globe'}
     <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
     <canvas class="comets" bind:this={cometCanvas} aria-hidden="true"></canvas>
@@ -1805,8 +1864,10 @@
   </div>
   {@render cornerStack('top-center')}
   {@render cornerStack('bottom-center')}
-  {@render cornerStack('top-right')}
-  {@render cornerStack('bottom-right')}
+  <div class="side right">
+    {@render cornerStack('top-right')}
+    {@render cornerStack('bottom-right')}
+  </div>
   {#if pointMenu}
     <div class="point-menu" role="menu" aria-label="Position" bind:this={pointMenuEl} style:left="{pointMenuLeft}px" style:top="{pointMenuTop}px" onkeydown={pointMenuKeydown} tabindex="-1">
       <div class="point-head">
@@ -1908,22 +1969,43 @@
   /* When the two do not fit, the legend gives up more of its height than the card (its list scrolls). */
   .side.left > .corner.bottom-left {
     flex: 0 1 auto;
+    min-height: 0;
     margin-top: auto;
     align-items: flex-start;
   }
   .side.left > .corner > .native {
     flex: none;
   }
-  .corner.top-right {
+  /* The right column: the buttons on top, the legend (or anything else put at the bottom) under them, above the attribution. */
+  .side.right {
+    position: absolute;
     top: 10px;
     right: 10px;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 38px);
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: calc(50% - 15px);
+    pointer-events: none;
+  }
+  .side.right > .corner {
+    position: static;
+    max-width: 100%;
+    max-height: none;
     align-items: flex-end;
   }
-  /* Above the compact attribution, which stays here. */
-  .corner.bottom-right {
-    right: 10px;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 38px);
-    align-items: flex-end;
+  .side.right > .corner.top-right {
+    flex: none;
+  }
+  .side.right > .corner.bottom-right {
+    flex: 0 1 auto;
+    min-height: 0;
+    margin-top: auto;
+  }
+  .side.right > .corner > .native {
+    flex: none;
   }
   /* Along an edge, centered (a wide, short readout); clear of the corners' stacks on both sides. */
   .corner.top-center,
@@ -1950,8 +2032,22 @@
     width: 30px;
     font: 500 11px/1 var(--se-font-mono);
   }
-  .group.palette {
+  /* The tools: a grid whose columns are chosen to fit (fitPalette). */
+  .map-view .group.palette {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 1), 30px);
+    gap: 0;
+    max-width: none;
+    background: var(--se-control-bg);
     border-color: var(--se-focus);
+  }
+  .map-view .group.palette :global(button) {
+    background: var(--se-control-bg);
+    border-top: 0;
+    box-shadow: inset -1px -1px 0 var(--se-border);
+  }
+  .map-view .group.palette :global(button.active) {
+    background: var(--se-control-active-bg);
   }
   .live-label {
     position: absolute;
@@ -2087,7 +2183,8 @@
       flex-direction: row;
       flex-wrap: wrap;
       gap: 1px;
-      max-width: 154px;
+      /* A box of up to six buttons stays one row (the navigation group, with Reset view, is six). */
+      max-width: 190px;
       background: var(--se-border);
     }
     .map-view .group :global(button) {
@@ -2100,48 +2197,21 @@
     .map-view .group :global(button.active) {
       background: var(--se-control-active-bg);
     }
-    .map-view .corner .pair,
-    .map-view .corner.top-right .pair,
-    .map-view .corner.bottom-right .pair {
-      flex-direction: column;
-    }
-    .map-view .corner.top-right .pair,
-    .map-view .corner.bottom-right .pair {
-      align-items: flex-end;
-    }
-    .map-view .corner.top-left .pair,
-    .map-view .corner.bottom-left .pair {
-      align-items: flex-start;
-    }
   }
-  /* A very short map has no room under the buttons either: the tools open beside them again. */
-  @container (max-height: 250px) {
-    .map-view .corner.top-right .pair,
-    .map-view .corner.bottom-right .pair {
-      flex-direction: row-reverse;
-      align-items: flex-start;
-    }
-    .map-view .corner.top-left .pair,
-    .map-view .corner.bottom-left .pair {
-      flex-direction: row;
-      align-items: flex-start;
-    }
-  }
+  /* The open tools sit beside the buttons, out of the flow: however tall they are, they never push the stack (and so
+     the legend under it) around, and fitPalette decides how many columns they need. */
   .pair {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
+    position: relative;
   }
-  /* Against the right edge the second column opens toward the map (to the left of the buttons). */
-  .corner.top-right .pair,
-  .corner.bottom-right .pair {
-    flex-direction: row-reverse;
+  .map-view .group.palette {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 6px);
   }
-  /* Centered stacks have no side to open toward: the tools sit under the buttons. */
-  .corner.top-center .pair,
-  .corner.bottom-center .pair {
-    flex-direction: column;
-    align-items: center;
+  .map-view .corner.top-right .group.palette,
+  .map-view .corner.bottom-right .group.palette {
+    left: auto;
+    right: calc(100% + 6px);
   }
   .group {
     display: flex;

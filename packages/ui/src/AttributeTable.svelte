@@ -26,6 +26,8 @@
     revision: number
     sort: { column: string; dir: 'asc' | 'desc' } | null
     loadPage: (offset: number) => Promise<TablePage | null>
+    /** Where a row sits in the table now, for scrolling to a row on a page that is not loaded yet. */
+    locateRow?: (id: string | number) => Promise<number | null>
     onSort: (sort: { column: string; dir: 'asc' | 'desc' } | null) => void
     selectedFeatureId: string | number | null
     onSelectFeature: (id: string | number | null) => void
@@ -47,6 +49,7 @@
     revision,
     sort,
     loadPage,
+    locateRow,
     onSort,
     selectedFeatureId,
     onSelectFeature,
@@ -231,6 +234,25 @@
       activeIndex = index
       ensureVisible(index)
     }
+  })
+
+  // A row picked on the map whose page is not loaded (a long table, sorted or filtered): ask where it sits, scroll there, and the
+  // page loads as for any scroll. Centered, so the row is not left at an edge.
+  let locatedId: string | number | null = null
+  $effect(() => {
+    const id = selectedFeatureId
+    if (id === null || id === locatedId || !locateRow) return
+    if (untrack(() => selectedIndex) >= 0) {
+      locatedId = id
+      return
+    }
+    locatedId = id
+    void locateRow(id).then((position) => {
+      if (position === null || !scroller || selectedFeatureId !== id) return
+      const top = headerHeight + position * rowHeight
+      scroller.scrollTop = Math.max(0, top - (scroller.clientHeight - rowHeight) / 2)
+      activeIndex = position
+    })
   })
 
   /** Moves the cursor; selects the row there, waiting for its page if needed. */

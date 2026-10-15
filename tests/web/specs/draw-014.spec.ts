@@ -242,3 +242,23 @@ test('the palette and the shapes bar have no axe violations', async ({ page }) =
   const results = await new AxeBuilder({ page }).include('.map-view .corner').include('[aria-label="Drawn shapes"]').analyze()
   expect(results.violations).toEqual([])
 })
+
+test('Undo and Redo work while a shape is being drawn, and the shape still finishes', async ({ page }) => {
+  const m = await open(page)
+  await pickTool(page, 'Draw', 'Polygon')
+  const [a, b, c, d] = around(m, 100, 70)
+  for (const [x, y] of [a, b, c]) {
+    await page.mouse.move(x, y)
+    await page.mouse.click(x, y)
+    await page.waitForTimeout(80)
+  }
+  await palette(page, 'Draw').getByRole('button', { name: 'Undo', exact: true }).click()
+  await palette(page, 'Draw').getByRole('button', { name: 'Redo', exact: true }).click()
+  // Back on the map (the buttons took the focus): one more corner, then Enter.
+  await page.mouse.move(d[0], d[1])
+  await page.mouse.click(d[0], d[1])
+  await page.waitForTimeout(80)
+  await page.keyboard.press('Enter')
+  await expect(bar(page)).toBeVisible()
+  await expect(labels(page)).toHaveCount(1)
+})

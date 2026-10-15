@@ -14,6 +14,8 @@
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
   import Circle from '@lucide/svelte/icons/circle'
   import CircleX from '@lucide/svelte/icons/circle-x'
+  import BrushCleaning from '@lucide/svelte/icons/brush-cleaning'
+  import Navigation2 from '@lucide/svelte/icons/navigation-2'
   import Columns3 from '@lucide/svelte/icons/columns-3'
   import Copy from '@lucide/svelte/icons/copy'
   import Download from '@lucide/svelte/icons/download'
@@ -51,6 +53,7 @@
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
   import RotateCcwClock from '@lucide/svelte/icons/rotate-ccw-clock'
   import RulerDimensionLine from '@lucide/svelte/icons/ruler-dimension-line'
+  import Redo2 from '@lucide/svelte/icons/redo-2'
   import Save from '@lucide/svelte/icons/save'
   import Scan from '@lucide/svelte/icons/scan'
   import Search from '@lucide/svelte/icons/search'
@@ -87,6 +90,10 @@
     export: Upload,
     import: Download,
     reset: RotateCcw,
+    // Reset view: an arrow that points north (MapView turns it with the map's bearing).
+    north: Navigation2,
+    // Reset style: a brush sweeping the style clean (the round arrow stays for "back to the default" elsewhere).
+    'reset-style': BrushCleaning,
     layers: Layers,
     map: MapIcon,
     check: Check,
@@ -124,6 +131,7 @@
     'shape-freehand': PencilLine,
     pointer: MousePointer2,
     undo: Undo2,
+    redo: Redo2,
     // The color styles (single, categorized, graduated, continuous, as is, bivariate, rules, heatmap, clusters).
     'style-single': Palette,
     'style-categorized': Shapes,
@@ -143,12 +151,14 @@
   interface Props {
     name: IconName
     size?: number
+    /** Degrees, clockwise (an arrow that follows the map's bearing). */
+    rotate?: number
   }
-  let { name, size = 16 }: Props = $props()
+  let { name, size = 16, rotate = 0 }: Props = $props()
   const Component = $derived(ICONS[name])
 </script>
 
-<Component class="icon" {size} strokeWidth={1.6} aria-hidden="true" focusable="false" />
+<Component class="icon" {size} strokeWidth={1.6} aria-hidden="true" focusable="false" style={rotate ? `transform: rotate(${rotate}deg)` : undefined} />
 
 <style>
   :global(.icon) {

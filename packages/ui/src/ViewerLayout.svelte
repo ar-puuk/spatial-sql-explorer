@@ -574,6 +574,7 @@
                   revision={store.tableRevision}
                   sort={store.tableSort}
                   loadPage={(offset) => store.loadPage(offset)}
+                  locateRow={(id) => store.rowPosition(id)}
                   onSort={(s) => store.setTableSort(s)}
                   selectedFeatureId={session.selectedFeatureId}
                   onSelectFeature={(id) => {

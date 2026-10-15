@@ -61,7 +61,7 @@
   const propKind = $derived<'point' | 'line'>(geometryType === 'Point' ? 'point' : 'line')
 </script>
 
-<section class="legend" aria-label="Legend" style:--swatch-size="{SWATCH}px">
+<section class="legend" class:open={!collapsed} aria-label="Legend" style:--swatch-size="{SWATCH}px">
   <button type="button" class="head" aria-expanded={!collapsed} onclick={onToggleCollapsed} title={heading}>
     <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={12} />
     <span class="caption">{heading}</span>
@@ -208,6 +208,9 @@
     min-width: 160px;
     max-width: min(300px, 100%);
     max-height: 100%;
+    /* It gives way when the column is short: the list scrolls, nothing else spills out of the box. */
+    min-height: 0;
+    overflow: hidden;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -216,7 +219,12 @@
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
   }
+  /* Open, it keeps room for its title and a few rows, so it is never a sliver; the tools above it make way (MapView fitPalette). */
+  .legend.open {
+    min-height: min(72px, 100%);
+  }
   .head {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 6px;
