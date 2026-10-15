@@ -180,6 +180,15 @@
   /** The feature card was closed (× or Escape); the next selection opens it again. */
   let inspectorClosed = $state(false)
 
+  // How much room the map has decides what is drawn over it (a big table panel leaves a strip). In steps, so nothing ever
+  // overlaps: under SHORT_MAP_PX the legend shows only its title (and the buttons lay out in rows, MapView); under
+  // TINY_MAP_PX the legend and the feature card wait until the map is taller (the selection stays highlighted, and its row is in the table).
+  const SHORT_MAP_PX = 420
+  const TINY_MAP_PX = 250
+  let mapPaneHeight = $state(0)
+  const shortMap = $derived(mapPaneHeight > 0 && mapPaneHeight < SHORT_MAP_PX)
+  const tinyMap = $derived(mapPaneHeight > 0 && mapPaneHeight < TINY_MAP_PX)
+
   const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX)
   const bottomHeight = $derived(
     layout.bottomCollapsed ? TAB_BAR_H : maximized ? Math.max(TAB_BAR_H, mainHeight - 1) : Math.max(TAB_BAR_H, Math.round(layout.bottomFraction * mainHeight))
@@ -332,17 +341,17 @@
     {/if}
   {:else if id === 'info'}
     <!-- The selected feature's card. Not a control: it shows whenever a feature is selected. -->
-    {#if inspected && !inspectorClosed}
+    {#if inspected && !inspectorClosed && !tinyMap}
       <div class="inspector-slot">
         <FeatureInspector feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
       </div>
     {/if}
-  {:else if id === 'legend' && layer && showLegend}
+  {:else if id === 'legend' && layer && showLegend && !tinyMap}
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
           geometryType={layer.geometryType}
-          collapsed={store.legendCollapsed}
+          collapsed={store.legendCollapsed || shortMap}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
           symbols={legendSymbols}
@@ -378,7 +387,7 @@
 
   <div class="workbench">
     <div class="main" bind:this={main} bind:clientHeight={mainHeight}>
-      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed}>
+      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
           mapData={store.mapData}

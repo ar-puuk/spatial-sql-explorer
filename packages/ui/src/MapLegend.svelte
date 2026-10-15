@@ -208,7 +208,6 @@
     min-width: 160px;
     max-width: min(300px, 100%);
     max-height: 100%;
-    min-height: 0;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);

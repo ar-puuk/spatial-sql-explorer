@@ -1907,8 +1907,7 @@
   }
   /* When the two do not fit, the legend gives up more of its height than the card (its list scrolls). */
   .side.left > .corner.bottom-left {
-    flex: 0 4 auto;
-    min-height: 0;
+    flex: 0 1 auto;
     margin-top: auto;
     align-items: flex-start;
   }
@@ -2080,6 +2079,53 @@
     background: var(--se-menu-hover-bg);
     color: var(--se-menu-hover-fg);
     outline: none;
+  }
+  /* A short map (a big table panel under it): the buttons lie in rows instead of one tall column, so the stack fits
+     the strip. The tools of an open purpose open under the buttons, not beside them. */
+  @container (max-height: 420px) {
+    .map-view .group {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 1px;
+      max-width: 154px;
+      background: var(--se-border);
+    }
+    .map-view .group :global(button) {
+      background: var(--se-control-bg);
+      border-top: 0;
+    }
+    .map-view .group :global(button + button) {
+      border-top: 0;
+    }
+    .map-view .group :global(button.active) {
+      background: var(--se-control-active-bg);
+    }
+    .map-view .corner .pair,
+    .map-view .corner.top-right .pair,
+    .map-view .corner.bottom-right .pair {
+      flex-direction: column;
+    }
+    .map-view .corner.top-right .pair,
+    .map-view .corner.bottom-right .pair {
+      align-items: flex-end;
+    }
+    .map-view .corner.top-left .pair,
+    .map-view .corner.bottom-left .pair {
+      align-items: flex-start;
+    }
+  }
+  /* A very short map has no room under the buttons either: the tools open beside them again. */
+  @container (max-height: 250px) {
+    .map-view .corner.top-right .pair,
+    .map-view .corner.bottom-right .pair {
+      flex-direction: row-reverse;
+      align-items: flex-start;
+    }
+    .map-view .corner.top-left .pair,
+    .map-view .corner.bottom-left .pair {
+      flex-direction: row;
+      align-items: flex-start;
+    }
   }
   .pair {
     display: flex;
