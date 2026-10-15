@@ -5,7 +5,7 @@
   // (design-plan.md §4.3), docked over the bottom of the map like the legacy
   // app's map status bar. VS Code shows the same fields in its native status
   // bar via HostAdapter.setStatus (apps/vscode-ext/src/extension.ts).
-  import type { DatasetFacts, DrawMode, ViewerSession } from '@spatial-explorer/core'
+  import { formatElevation, type DatasetFacts, type DrawMode, type ViewerSession } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   /** Spec 010: how the map draws the result, and the switches between the modes. */
@@ -88,9 +88,9 @@
       </span>
     {/if}
     <span class="spacer"></span>
-    <span class="item cursor" title="Cursor coordinates (lat, lon)">
+    <span class="item cursor" title="Cursor coordinates (lat, lon), and elevation when terrain is on">
       {#if session.cursorCoordinates}
-        {session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}
+        {session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}{#if typeof session.cursorCoordinates.elevation === 'number'} · {formatElevation(session.cursorCoordinates.elevation)}{/if}
       {/if}
     </span>
   </div>

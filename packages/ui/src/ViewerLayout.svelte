@@ -28,6 +28,7 @@
   import ActivityRail from './ActivityRail.svelte'
   import LabelsPanel from './LabelsPanel.svelte'
   import MapControlsPanel from './MapControlsPanel.svelte'
+  import TerrainSection from './TerrainSection.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -359,6 +360,9 @@
           projection={store.projection}
           controls={store.mapControls}
           tooltipColumns={store.tooltipColumns}
+          terrain={store.terrain}
+          onToggleTerrain={() => store.setTerrain(!store.terrain.on)}
+          onTerrainFailure={() => store.reportTerrainFailure()}
           tooltipRecord={(id) => store.tooltipRecord(id)}
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
@@ -407,6 +411,12 @@
             {#if store.viewNotice.dismissible}
               <button type="button" aria-label="Dismiss" onclick={() => store.dismissViewNotice()}><Icon name="close" size={14} /></button>
             {/if}
+          </div>
+        {:else if store.terrainNotice}
+          <div class="map-notice" role="status">
+            <Icon name="warning" size={14} />
+            <span>{store.terrainNotice}</span>
+            <button type="button" aria-label="Dismiss" onclick={() => store.dismissTerrainNotice()}><Icon name="close" size={14} /></button>
           </div>
         {:else if store.basemapNotice && sideActive !== 'basemap'}
           <div class="map-notice" role="status">
@@ -634,6 +644,7 @@
             tooltip={layer ? { available: store.tooltipAvailable, chosen: store.tooltipColumns, onChange: (cols) => store.setTooltipColumns(cols) } : null}
           />
         {:else}
+          <TerrainSection on={store.terrain.on} exaggeration={store.terrain.exaggeration} onToggle={(on) => store.setTerrain(on)} onExaggeration={(v) => store.setTerrainExaggeration(v)} />
           <BasemapPicker
             activeId={store.basemap.id}
             followingTheme={store.basemapChoice === 'auto'}

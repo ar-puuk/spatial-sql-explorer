@@ -42,6 +42,10 @@
     type ResolvedStyle,
     EXTRUSION_PITCH,
     DEFAULT_MAP_CONTROLS,
+    formatElevation,
+    TERRAIN_HILLSHADE_ID,
+    TERRAIN_SOURCE_ID,
+    terrainSource,
     groupsInCorner,
     isControlOn,
     shownControls,
@@ -101,10 +105,14 @@
     controls?: MapControlsPrefs
     /** Spec 014: the columns the hover tooltip shows, and (engine tiles, which carry only the style's columns) a by-id lookup of the rest. */
     tooltipColumns?: string[]
+    /** Spec 014: 3D terrain (a DEM the map is lifted onto), and what to do when its tiles fail. */
+    terrain?: { on: boolean; exaggeration: number }
+    onToggleTerrain?: () => void
+    onTerrainFailure?: () => void
     tooltipRecord?: (id: number) => Promise<Record<string, unknown> | null>
     /** Spec 008: the camera after each move (center, zoom, pitch, bearing), and (spec 010) the WGS84 bounds. */
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
-    onCursorMove: (coords: { lon: number; lat: number } | null) => void
+    onCursorMove: (coords: { lon: number; lat: number; elevation?: number | null } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
     /** A clicked PMTiles feature, for the inspector (tiles carry no table to look it up in). */
@@ -142,6 +150,9 @@
     onToggleProjection = () => {},
     controls = DEFAULT_MAP_CONTROLS,
     tooltipColumns = [],
+    terrain = { on: false, exaggeration: 1 },
+    onToggleTerrain = () => {},
+    onTerrainFailure = () => {},
     tooltipRecord,
     onCameraChange = () => {},
     onCursorMove,
@@ -582,7 +593,8 @@
   function swapBasemap(m: MapLibreMap, doc: BasemapDoc): void {
     for (const id of basemapLayerIds) if (m.getLayer(id)) m.removeLayer(id)
     for (const id of basemapSourceIds) if (m.getSource(id)) m.removeSource(id)
-    const before = (m.getStyle().layers ?? []).find((l) => l.id.startsWith('se-'))?.id
+    // The terrain's shading (when on) sits above the basemap and below our data.
+    const before = m.getLayer(TERRAIN_HILLSHADE_ID) ? TERRAIN_HILLSHADE_ID : (m.getStyle().layers ?? []).find((l) => l.id.startsWith('se-'))?.id
     for (const [id, src] of Object.entries(doc.sources)) m.addSource(id, src as never)
     for (const l of doc.layers) m.addLayer(l as never, before)
     if (doc.glyphs) m.setGlyphs(doc.glyphs)
@@ -660,8 +672,9 @@
       onSelectFeature(featureId(hit), e.originalEvent.ctrlKey || e.originalEvent.metaKey)
     })
     m.on('mousemove', (e: MapMouseEvent) => {
-      onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat })
-      trackCursor(e.lngLat.lng, e.lngLat.lat)
+      const elevation = terrainActive ? elevationAt(e.lngLat) : undefined
+      onCursorMove({ lon: e.lngLat.lng, lat: e.lngLat.lat, elevation })
+      trackCursor(e.lngLat.lng, e.lngLat.lat, elevation)
       const layers = interactiveLayers()
       const hit = layers.length && onSurface(e.point) ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
@@ -693,6 +706,11 @@
     // (e.g. tiles blocked by CSP): degrade to blank + message (FR-016).
     // Errors from the data source are never counted.
     m.on('error', (e: { sourceId?: string; error?: { message?: string } }) => {
+      // The terrain's own tiles are not the basemap's: their failure turns terrain off.
+      if (e.sourceId === TERRAIN_SOURCE_ID) {
+        if (terrainHealth.recordFailure()) onTerrainFailure()
+        return
+      }
       if (!activeBasemap || activeBasemap.type === 'blank') return
       const fromBasemap = (e.sourceId !== undefined && !e.sourceId.startsWith('se-')) || (basemapHost !== '' && String(e.error?.message ?? '').includes(basemapHost))
       if (fromBasemap && health.recordFailure()) {
@@ -737,6 +755,10 @@
       }
     })
     m.on('sourcedata', (e: { sourceId?: string; tile?: unknown; sourceDataType?: string }) => {
+      if (e.sourceId === TERRAIN_SOURCE_ID) {
+        if (e.tile) terrainHealth.recordSuccess()
+        return
+      }
       if (e.sourceId && !e.sourceId.startsWith('se-') && e.tile) health.recordSuccess()
       // Spec 010 (tests): each (re)load of our data source, by setData or a rebuilt style; a basemap swap makes none.
       if (e.sourceId === SOURCE_ID && e.sourceDataType === 'metadata') container.dataset.sourceLoads = String(Number(container.dataset.sourceLoads ?? 0) + 1)
@@ -1135,6 +1157,53 @@
     map?.easeTo({ pitch: 0, bearing: 0, duration: 500 })
   }
 
+  // Spec 014: terrain. A DEM source and a hillshade layer are added while it is on, and `setTerrain` lifts the one
+  // basemap and our data onto it. Neither carries the `se-` prefix (replaceDataSource drops those) and both come
+  // back after any rebuild through this effect. A basemap swap keeps them (swapBasemap puts the new layers under the shading).
+  let terrainHealth = new BasemapHealth()
+  /** Terrain is lifted (a tile source exists); the cursor then reports an elevation. */
+  let terrainActive = false
+  let terrainElevationScale = 1
+  function applyTerrain(m: MapLibreMap, on: boolean, exaggeration: number): void {
+    if (on) {
+      if (!m.getSource(TERRAIN_SOURCE_ID)) {
+        terrainHealth = new BasemapHealth()
+        m.addSource(TERRAIN_SOURCE_ID, terrainSource() as never)
+      }
+      if (!m.getLayer(TERRAIN_HILLSHADE_ID)) {
+        const before = (m.getStyle().layers ?? []).find((l) => l.id.startsWith('se-'))?.id
+        // Relief shading, so the surface reads on flat-colored basemaps too. Colors are the relief's own (not theme chrome).
+        m.addLayer({ id: TERRAIN_HILLSHADE_ID, type: 'hillshade', source: TERRAIN_SOURCE_ID, paint: { 'hillshade-exaggeration': 0.45, 'hillshade-shadow-color': '#1f2933', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#1f2933' } } as never, before)
+      }
+      m.setTerrain({ source: TERRAIN_SOURCE_ID, exaggeration })
+      terrainElevationScale = exaggeration
+      terrainActive = true
+    } else {
+      terrainActive = false
+      if (m.getTerrain()) m.setTerrain(null)
+      if (m.getLayer(TERRAIN_HILLSHADE_ID)) m.removeLayer(TERRAIN_HILLSHADE_ID)
+      if (m.getSource(TERRAIN_SOURCE_ID)) m.removeSource(TERRAIN_SOURCE_ID)
+    }
+    container.dataset.terrain = on ? String(exaggeration) : ''
+  }
+  /** Meters at a point, without the exaggeration; undefined where the DEM has no tile yet. */
+  function elevationAt(lngLat: { lng: number; lat: number }): number | null {
+    const v = map?.queryTerrainElevation(lngLat)
+    return typeof v === 'number' && Number.isFinite(v) ? v / terrainElevationScale : null
+  }
+  let wasTerrain = false
+  $effect(() => {
+    const { on, exaggeration } = terrain
+    if (!map || !mapReady) return
+    untrack(() => {
+      if (!map) return
+      applyTerrain(map, on, exaggeration)
+      // Relief shows when the map is tilted: tilt it, as turning extrusion on does.
+      if (on && !wasTerrain && map.getPitch() < 1) map.easeTo({ pitch: EXTRUSION_PITCH, duration: 600 })
+      wasTerrain = on
+    })
+  })
+
   // Spec 014: the scale bar is one of the controls the user can turn off.
   let scaleControl: ScaleControl | null = null
   $effect(() => {
@@ -1229,13 +1298,13 @@
 
   // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
-  let lastCursor = $state<{ lon: number; lat: number } | null>(null)
+  let lastCursor = $state<{ lon: number; lat: number; elevation?: number | null } | null>(null)
   let cursorFrame = 0
   let copied = $state(false)
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
-  function trackCursor(lon: number, lat: number): void {
+  function trackCursor(lon: number, lat: number, elevation?: number | null): void {
     if (!untrack(() => isControlOn(controls, 'coordinates'))) return
-    const next = { lon, lat }
+    const next = { lon, lat, elevation }
     if (cursorFrame) {
       pendingCursor = next
       return
@@ -1247,9 +1316,11 @@
       pendingCursor = null
     })
   }
-  let pendingCursor: { lon: number; lat: number } | null = null
+  let pendingCursor: { lon: number; lat: number; elevation?: number | null } | null = null
   /** The same "lat, lon" the status bar shows, to 5 decimals. */
   const cursorText = $derived(lastCursor ? `${lastCursor.lat.toFixed(5)}, ${lastCursor.lon.toFixed(5)}` : null)
+  /** What the readout shows: the coordinates, then the elevation when terrain gives one. Only the coordinates are copied. */
+  const cursorShown = $derived(cursorText && typeof lastCursor?.elevation === 'number' ? `${cursorText} · ${formatElevation(lastCursor.elevation)}` : cursorText)
   async function copyCursor(): Promise<void> {
     if (!cursorText) return
     try {
@@ -1359,6 +1430,17 @@
                 >
                   <Icon name="globe" />
                 </button>
+              {:else if id === 'terrain'}
+                <button
+                  type="button"
+                  title={terrain.on ? 'Terrain off' : 'Terrain on'}
+                  aria-label="Terrain"
+                  aria-pressed={terrain.on}
+                  class:active={terrain.on}
+                  onclick={onToggleTerrain}
+                >
+                  <Icon name="mountain" />
+                </button>
               {:else if id === 'exportImage'}
                 <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
               {:else if id === 'resetView'}
@@ -1380,7 +1462,7 @@
   {/if}
   {#if isControlOn(controls, 'coordinates')}
     <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
-      <span class="value">{cursorText ?? 'lat, lon'}</span>
+      <span class="value">{cursorShown ?? 'lat, lon'}</span>
       <Icon name={copied ? 'check' : 'copy'} size={12} />
     </button>
   {/if}

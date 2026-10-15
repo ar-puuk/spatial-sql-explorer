@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
 import { registerTileProvider } from './engineTiles.js'
@@ -344,6 +344,14 @@ export interface ViewerStore {
   setTooltipColumns(columns: string[]): void
   /** Spec 014: a feature's attributes by its stable id (the tooltip in tiles mode, where a tile carries only the style's columns). Cached. */
   tooltipRecord(id: number): Promise<Record<string, unknown> | null>
+  /** Spec 014: 3D terrain. On or off for this session (the map opens flat); the exaggeration is remembered for the user. */
+  readonly terrain: { on: boolean; exaggeration: number }
+  setTerrain(on: boolean): void
+  setTerrainExaggeration(value: number): void
+  /** The tiles failed: terrain goes off and this says why (null: nothing to say). */
+  readonly terrainNotice: string | null
+  reportTerrainFailure(): void
+  dismissTerrainNotice(): void
   readonly basemap: BasemapCatalogEntry
   /** Short FR-016 message after a basemap failure; null when fine. */
   readonly basemapNotice: string | null
@@ -441,7 +449,7 @@ export interface ViewerStore {
   readonly openedSize: number | null
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
-  setCursor(coords: { lon: number; lat: number } | null): void
+  setCursor(coords: { lon: number; lat: number; elevation?: number | null } | null): void
   setStyle(patch: Partial<LayerStyle>): void
   /**
    * Spec 008 FR-004: shows `next` on the map and legend without committing it
@@ -493,6 +501,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // A plain cache, not reactive state.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   let tooltipCache: { qs: unknown; rows: Map<number, Record<string, unknown>> } = { qs: null, rows: new Map() }
+  // Spec 014: terrain. Off at every start (as the globe); the exaggeration is the user's.
+  const TERRAIN_EXAGGERATION_KEY = 'terrain.exaggeration'
+  let terrainOn = $state(false)
+  let terrainExaggeration = $state<number>(TERRAIN_EXAGGERATION.default)
+  let terrainNotice = $state<string | null>(null)
+  void hostAdapter
+    .loadState<unknown>(TERRAIN_EXAGGERATION_KEY)
+    .then((saved) => {
+      if (saved !== undefined) terrainExaggeration = readExaggeration(saved)
+    })
+    .catch(() => {})
   const MAP_CONTROLS_KEY = 'mapControls'
   let mapControls = $state<MapControlsPrefs>(DEFAULT_MAP_CONTROLS)
   let mapControlsTouched = false
@@ -2018,6 +2037,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setTooltipColumns(columns) {
       tooltipChoice = { signature: tooltipAvailable.join('\u0001'), columns }
+    },
+    get terrain() {
+      return { on: terrainOn, exaggeration: terrainExaggeration }
+    },
+    setTerrain(on) {
+      terrainOn = on
+      if (on) terrainNotice = null
+    },
+    setTerrainExaggeration(value) {
+      terrainExaggeration = clampExaggeration(value)
+      void hostAdapter.saveState(TERRAIN_EXAGGERATION_KEY, terrainExaggeration).catch(() => {})
+    },
+    get terrainNotice() {
+      return terrainNotice
+    },
+    reportTerrainFailure() {
+      terrainOn = false
+      terrainNotice = TERRAIN_FAILURE_MESSAGE
+    },
+    dismissTerrainNotice() {
+      terrainNotice = null
     },
     async tooltipRecord(id) {
       const qs = querySession

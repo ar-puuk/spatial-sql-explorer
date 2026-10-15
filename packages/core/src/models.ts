@@ -204,7 +204,7 @@ export interface ViewerSession {
   basemapEnabled: boolean
   basemapAppearance: 'light' | 'dark'
   selectedFeatureId: Feature['id'] | null
-  cursorCoordinates: { lon: number; lat: number } | null
+  cursorCoordinates: { lon: number; lat: number; elevation?: number | null } | null
 }
 
 export function createInitialViewerSession(): ViewerSession {

@@ -56,7 +56,8 @@ export interface StatusFields {
   featureCount?: number
   /** Spec 007: `rows` when invalid geometry isn't known yet (large files read in parts), so the count never over-claims. */
   countLabel?: 'features' | 'rows'
-  cursor?: { lon: number; lat: number } | null
+  /** `elevation`: meters, while terrain is on and the point is over it. */
+  cursor?: { lon: number; lat: number; elevation?: number | null } | null
   /** Spec 010: how the map draws the result (VS Code: a status bar item). */
   drawMode?: 'geojson' | 'tiles'
   /** Spec 010: "Load all" is offered (tiles mode). */

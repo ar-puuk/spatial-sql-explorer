@@ -17,7 +17,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -91,6 +91,9 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
 const SECRET_NAME = /^basemapKey\.[a-z0-9-]+$/
 
 const FEATURED_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.opentopomap.org https://tile.openstreetmap.org'
+
+/** Spec 014: the terrain DEM tiles (packages/core/src/terrain.ts TERRAIN_HOSTS). */
+const TERRAIN_HOSTS = 'https://s3.amazonaws.com'
 
 /**
  * Spec 008 FR-018: the same text as GDB_UNSUPPORTED in
@@ -546,7 +549,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
   ): void {
     if (!panel.active) return
     if (msg.drawMode) {
@@ -568,7 +571,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarFeatureCount.show()
     }
     if (msg.cursor) {
-      this.statusBarCursor.text = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}`
+      this.statusBarCursor.text = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}${typeof msg.cursor.elevation === 'number' ? ` · ${Math.round(msg.cursor.elevation).toLocaleString('en-US')} m` : ''}`
       this.statusBarCursor.show()
     } else if (msg.cursor === null) {
       this.statusBarCursor.hide()
@@ -832,7 +835,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode"${this.context.extensionMode === vscode.ExtensionMode.Production ? '' : ' data-se-test-hooks'}>
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS}; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>
