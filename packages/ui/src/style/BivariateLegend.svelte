@@ -98,6 +98,7 @@
 
 <style>
   .bivariate {
+    --gap: 2px;
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-areas:
@@ -125,16 +126,23 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The cells are square tiles with one gap, the same between rows and between columns (as in ArcGIS Pro's bivariate
+     legend and mapgl's). The cell wrappers are blocks with no line box, or the row gap would grow by the text's descender. */
   .square {
     grid-area: square;
     display: grid;
-    gap: 2px;
+    gap: var(--gap);
   }
   .row {
     display: flex;
-    gap: 2px;
+    gap: var(--gap);
+  }
+  [role='gridcell'] {
+    display: block;
+    line-height: 0;
   }
   .cell {
+    display: block;
     width: var(--cell);
     height: var(--cell);
     padding: 0;
