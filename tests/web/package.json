@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:chrome": "playwright test -c playwright.chrome.config.ts --workers=3"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

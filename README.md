@@ -68,6 +68,7 @@ npm run build               # web app build (apps/web/dist)
 npm run build --workspace=apps/vscode-ext   # extension (then F5 in VS Code, or `npm run package` there)
 npm run test:core           # unit tests (Vitest)
 npm run test:web            # browser tests (Playwright)
+npm run test:web:chrome     # the same on your installed Chrome (if Playwright's browsers are blocked)
 npm run test:vscode-ext     # extension tests (@vscode/test-electron)
 npm run lint
 ```
