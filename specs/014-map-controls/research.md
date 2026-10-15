@@ -21,7 +21,9 @@ finished `finish` events and the line or polygon being drawn (for the live label
 - Keyless Terrarium tiles at `s3.amazonaws.com/elevation-tiles-prod/terrarium`; CSP `connect-src` and `img-src` gained
   `https://s3.amazonaws.com` (VS Code). Attribution links to the Tilezen list of sources (the full required credits are many
   national agencies; the compact attribution links to them).
-- Hillshade is on with terrain (without it the surface barely reads on flat-colored basemaps).
+- Hillshade is on with terrain (without it the surface barely reads on flat-colored basemaps). Its colors follow the basemap
+  (`reliefKindFor`, `hillshadePaint` in terrain.ts): a white highlight over satellite imagery looked glossy (user report,
+  2026-10-15), so imagery gets shadows only at a low exaggeration, dark maps a faint highlight, the rest a soft one.
 
 ## Measurements
 

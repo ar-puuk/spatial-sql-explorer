@@ -50,6 +50,8 @@
     type UnitSystem,
     formatElevation,
     TERRAIN_HILLSHADE_ID,
+    hillshadePaint,
+    reliefKindFor,
     TERRAIN_SOURCE_ID,
     terrainSource,
     controlsAt,
@@ -1214,7 +1216,7 @@
       if (!m.getLayer(TERRAIN_HILLSHADE_ID)) {
         const before = (m.getStyle().layers ?? []).find((l) => l.id.startsWith('se-'))?.id
         // Relief shading, so the surface reads on flat-colored basemaps too. Colors are the relief's own (not theme chrome).
-        m.addLayer({ id: TERRAIN_HILLSHADE_ID, type: 'hillshade', source: TERRAIN_SOURCE_ID, paint: { 'hillshade-exaggeration': 0.45, 'hillshade-shadow-color': '#1f2933', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#1f2933' } } as never, before)
+        m.addLayer({ id: TERRAIN_HILLSHADE_ID, type: 'hillshade', source: TERRAIN_SOURCE_ID, paint: hillshadePaint(reliefKindFor(basemap)) } as never, before)
       }
       m.setTerrain({ source: TERRAIN_SOURCE_ID, exaggeration })
       terrainElevationScale = exaggeration
@@ -1232,6 +1234,16 @@
     const v = map?.queryTerrainElevation(lngLat)
     return typeof v === 'number' && Number.isFinite(v) ? v / terrainElevationScale : null
   }
+  /** The shading follows the basemap: shadows only over imagery, a faint highlight over a dark map. */
+  function updateHillshadePaint(entry: BasemapCatalogEntry): void {
+    if (!map || !map.getLayer(TERRAIN_HILLSHADE_ID)) return
+    for (const [name, value] of Object.entries(hillshadePaint(reliefKindFor(entry)))) map.setPaintProperty(TERRAIN_HILLSHADE_ID, name as never, value as never)
+  }
+  $effect(() => {
+    const entry = basemap
+    if (!mapReady) return
+    untrack(() => updateHillshadePaint(entry))
+  })
   let wasTerrain = false
   $effect(() => {
     const { on, exaggeration } = terrain

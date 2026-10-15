@@ -34,7 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     perimeter). They are scratch geometry, never edits to the data.
 - **Terrain** on and off, with relief shading and an exaggeration slider
   (Basemap panel, and a button on the map). The cursor readout and the status
-  bars show elevation in meters. Keyless Terrarium tiles; if they can't load,
+  bars show elevation in meters. The relief follows the basemap: shadows only
+  over satellite imagery (a white highlight made it look glossy), a faint
+  highlight over dark maps, a soft one elsewhere. Keyless Terrarium tiles; if they can't load,
   terrain turns itself off with a message.
 - Optional **hover tooltip** with a choice of columns, and an optional on-map
   **coordinates** readout that copies lat, lon on click.

@@ -166,3 +166,28 @@ test('when the elevation tiles fail, terrain goes off with a short message', asy
   await expect(page.getByRole('status').filter({ hasText: 'Terrain could not be loaded' })).toBeVisible({ timeout: 30000 })
   await expect(terrainButton(page)).toHaveAttribute('aria-pressed', 'false')
 })
+
+test('the relief follows the basemap: over satellite imagery it has shadows only, over a plain map a soft highlight', async ({ page }) => {
+  // Imagery tiles are a pixel; nothing here needs the network.
+  const PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  await page.route(/^https:\/\/server\.arcgisonline\.com\//, (route) => route.fulfill({ body: PX, contentType: 'image/png' }))
+  await open(page)
+  await terrainButton(page).click()
+  await expect.poll(() => page.locator('.canvas-host').getAttribute('data-terrain')).toBe('1')
+  const highlight = () =>
+    page.evaluate(() => {
+      const m = (document.querySelector('.canvas-host') as unknown as Hooked).seMap
+      return String(m.getPaintProperty('terrain-hillshade', 'hillshade-highlight-color'))
+    })
+  const alpha = async (): Promise<number> => {
+    const v = await highlight()
+    // MapLibre reports a color as a string or an object; take the last number of rgba(...).
+    const m = /([\d.]+)\)?$/.exec(v.replace(/\s/g, '')) ?? []
+    return Number(m[1])
+  }
+  await page.locator('.rail').getByRole('button', { name: 'Basemap' }).click()
+  await page.getByRole('radio', { name: /^Satellite/ }).click()
+  await expect.poll(async () => (await highlight()).replace(/\s/g, '')).toMatch(/,0\)$|^rgba\(255,255,255,0\)$|"a":0|a:0/)
+  await page.getByRole('radio', { name: /^Blank/ }).click()
+  await expect.poll(alpha).toBeGreaterThan(0.3)
+})
