@@ -5,17 +5,44 @@
   // collapsible sections, as GeoLibre's basemap picker is. A click applies a
   // basemap and keeps the modal open to compare; Enter or a double-click
   // applies and closes. Arrow keys move through the section headers and rows.
-  // Previews load only for rows in view. Modal mechanics follow ExportDialog.
-  import { onDestroy, onMount, tick } from 'svelte'
+  // Previews (spec 012, basemapPreviews.svelte.ts) load only for rows in view.
+  // Modal mechanics follow ExportDialog.
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { GALLERY, galleryCategories, galleryGroups, galleryProviders, KEY_SIGNUP, searchGallery, type GalleryBasemap } from '@spatial-explorer/core'
+  import BasemapThumb from './BasemapThumb.svelte'
   import Icon from './Icon.svelte'
+  import { galleryPreview, tilePreview, type BasemapPreview } from './basemapPreviews.svelte.js'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
     store: ViewerStore
+    /** Spec 012: the search to start with (the Basemap panel's). */
+    initialQuery?: string
+    /** Spec 012: centered over this (the map's column) rather than the whole viewer, when it is wide enough. */
+    anchor?: HTMLElement | null
     onClose: () => void
   }
-  let { store, onClose }: Props = $props()
+  let { store, initialQuery = '', anchor = null, onClose }: Props = $props()
+
+  /** Narrower than this, the gallery centers on the whole viewer (its filters need the room). */
+  const MIN_ANCHOR_WIDTH = 640
+  let backdrop = $state<HTMLDivElement>()
+  /** The anchor's box within the backdrop (null: center on the backdrop). */
+  let frame = $state<{ left: number; top: number; width: number; height: number } | null>(null)
+  $effect(() => {
+    const host = backdrop
+    if (!anchor || !host) return
+    const place = (): void => {
+      const a = anchor.getBoundingClientRect()
+      const b = host.getBoundingClientRect()
+      frame = a.width >= MIN_ANCHOR_WIDTH ? { left: a.left - b.left, top: a.top - b.top, width: a.width, height: a.height } : null
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(anchor)
+    observer.observe(host)
+    return () => observer.disconnect()
+  })
 
   const categories = galleryCategories()
   const providers = galleryProviders()
@@ -23,8 +50,8 @@
   let dialog = $state<HTMLDivElement>()
   let list = $state<HTMLDivElement>()
   let keyInput = $state<HTMLInputElement>()
-  let query = $state('')
-  let search = $state('')
+  let query = $state(untrack(() => initialQuery))
+  let search = $state(untrack(() => initialQuery))
   let category = $state<string | null>(null)
   let provider = $state('')
   let kind = $state<'' | 'vector' | 'raster'>('')
@@ -181,46 +208,21 @@
   }
 
   // --- Previews, loaded when a row comes into view -----------------------------
-  type Preview = { kind: 'image'; src: string } | { kind: 'colors'; land: string; water: string | null } | { kind: 'none' }
-  const previews = $state<Record<string, Preview>>({})
-  // Plain caches, never rendered from.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const styleCache = new Map<string, Promise<Preview>>()
-
-  function tileUrl(template: string, scheme: GalleryBasemap['scheme']): string {
-    const [z, x, y] = [2, 2, 1]
-    return template
-      .replace('{z}', String(z))
-      .replace('{x}', String(x))
-      .replace('{y}', String(scheme === 'tms' ? 2 ** z - 1 - y : y))
-      .replace('{r}', '')
-  }
-
-  function stylePreview(url: string): Promise<Preview> {
-    let p = styleCache.get(url)
-    if (!p) {
-      p = fetch(url)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((style: { layers?: Array<{ id: string; type: string; paint?: Record<string, unknown> }> } | null) => {
-          const layers = style?.layers ?? []
-          const land = layers.find((l) => l.type === 'background')?.paint?.['background-color']
-          const water = layers.find((l) => l.type === 'fill' && l.id.includes('water'))?.paint?.['fill-color']
-          if (typeof land !== 'string') return { kind: 'none' } as Preview
-          return { kind: 'colors', land, water: typeof water === 'string' ? water : null } as Preview
-        })
-        .catch(() => ({ kind: 'none' }) as Preview)
-      styleCache.set(url, p)
-    }
-    return p
+  // Keyed rows with a stored key resolve their URLs (raster: a live tile); the rest are known at once.
+  const previews = $state<Record<string, BasemapPreview>>({})
+  const visible = $state<Record<string, boolean>>({})
+  function previewOf(g: GalleryBasemap): BasemapPreview | null {
+    if (!visible[g.id]) return null
+    return galleryPreview(g, !!store.basemapKeys[g.provider]) ?? previews[g.id] ?? null
   }
 
   async function loadPreview(g: GalleryBasemap): Promise<void> {
-    if (previews[g.id]) return
+    visible[g.id] = true
+    if (previews[g.id] || galleryPreview(g, !!store.basemapKeys[g.provider])) return
     previews[g.id] = { kind: 'none' }
+    if (g.kind !== 'raster') return
     const urls = await store.galleryPreviewUrls(g.id)
-    if (!urls) return
-    if (g.kind === 'raster' && urls.tiles?.[0]) previews[g.id] = { kind: 'image', src: tileUrl(urls.tiles[0], g.scheme) }
-    else if (g.kind === 'vector' && urls.url && g.key === 'none') previews[g.id] = await stylePreview(urls.url)
+    previews[g.id] = tilePreview(g, urls?.tiles)
   }
 
   let observer: IntersectionObserver | null = null
@@ -261,7 +263,15 @@
   onDestroy(() => observer?.disconnect())
 </script>
 
-<div class="backdrop" role="presentation" onkeydown={onKeydown}>
+<div class="backdrop" role="presentation" onkeydown={onKeydown} bind:this={backdrop}>
+  <div
+    class="frame"
+    style:left={frame ? `${frame.left}px` : undefined}
+    style:top={frame ? `${frame.top}px` : undefined}
+    style:width={frame ? `${frame.width}px` : undefined}
+    style:height={frame ? `${frame.height}px` : undefined}
+    style:position={frame ? 'absolute' : undefined}
+  >
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="basemap-gallery-title" bind:this={dialog}>
     <header>
       <h2 id="basemap-gallery-title">Basemaps</h2>
@@ -344,7 +354,7 @@
           {#if open}
             <div id="bg-group-{group.provider}" role="listbox" aria-label="{group.providerName} basemaps">
               {#each group.basemaps as g (g.id)}
-                {@const preview = previews[g.id]}
+                {@const preview = previewOf(g)}
                 {@const active = isActive(g)}
                 <div
                   id="bg-{g.id}"
@@ -360,14 +370,7 @@
                   onkeydown={(e) => onRowKeydown(e, g)}
                 >
                   <span class="preview" aria-hidden="true">
-                    {#if preview?.kind === 'image'}
-                      <img src={preview.src} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={() => (previews[g.id] = { kind: 'none' })} />
-                    {:else if preview?.kind === 'colors'}
-                      <span class="land" style:background={preview.land}></span>
-                      {#if preview.water}<span class="water" style:background={preview.water}></span>{/if}
-                    {:else}
-                      <span class="provider-swatch">{g.providerName}</span>
-                    {/if}
+                    <BasemapThumb preview={preview ?? { kind: 'none' }} label={g.providerName} />
                   </span>
                   <span class="text">
                     <span class="name">{g.name}</span>
@@ -406,6 +409,7 @@
       </div>
     {/if}
   </div>
+  </div>
 </div>
 
 <style>
@@ -415,14 +419,25 @@
     z-index: 30;
     display: grid;
     place-items: center;
-    padding: 16px;
     background: color-mix(in srgb, black 40%, transparent);
+  }
+  /* The box the dialog centers in: the backdrop's, or the anchor's (spec 012). */
+  .frame {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 16px;
+    box-sizing: border-box;
   }
   .dialog {
     display: flex;
     flex-direction: column;
     width: min(880px, 92vw);
     height: min(640px, 86vh);
+    max-width: 100%;
     max-height: 100%;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
@@ -620,41 +635,12 @@
     outline-offset: -1px;
   }
   .preview {
-    position: relative;
     flex: none;
-    width: 96px;
-    height: 56px;
+    width: 100px;
+    height: 60px;
     overflow: hidden;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
-    background: var(--se-map-bg);
-  }
-  .preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .land {
-    position: absolute;
-    inset: 0;
-  }
-  .water {
-    position: absolute;
-    right: -12px;
-    bottom: -16px;
-    width: 52px;
-    height: 44px;
-    border-radius: 50%;
-  }
-  .provider-swatch {
-    display: grid;
-    place-items: center;
-    height: 100%;
-    padding: 0 4px;
-    color: var(--se-text-muted);
-    font-size: 10.5px;
-    text-align: center;
   }
   .text {
     flex: 1;

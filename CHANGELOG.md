@@ -95,6 +95,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Basemap panel redesigned, with real previews.**
+  - Every basemap preview now shows the real map, all framed on the same place
+    (around Zurich, at city scale), so styles can be told apart. Keyless vector
+    styles use small thumbnails bundled with the app (about 110 KB, loaded when
+    first shown), which also work offline. Raster basemaps load one live tile of
+    the same place. Basemaps that need an API key say so instead of showing a
+    made-up map.
+  - The panel shows the current basemap with its provider, a "Follow the theme"
+    checkbox, and the featured basemaps as a grid of previews (arrow keys move
+    through it).
+  - A search box finds any of the 130 basemaps from the panel, with previews;
+    Enter takes the first. "More basemaps…" opens the gallery with the same
+    search.
+  - The gallery opens centered over the map, not the whole window, so the
+    panel stays in view beside it (in a narrow window it still centers on the
+    window).
+  - Fixed: the OpenStreetMap preview showed "Access blocked", because preview
+    tiles were requested without a referrer, which OpenStreetMap's tile policy
+    requires.
 - **Labels: one per polygon.** A polygon made of several parts (Canada,
   Indonesia) is labeled once, on its largest part, as QGIS does by default;
   a big polygon spread over several map tiles no longer repeats its label in

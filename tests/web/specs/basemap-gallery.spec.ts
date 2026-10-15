@@ -85,8 +85,10 @@ test('a click applies a basemap and keeps the modal open; exactly one basemap is
   await expect(gallery(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'More basemaps…' })).toBeFocused()
   await expect.poll(async () => (await basemapSources(page)).map((s) => s.tiles?.[0] ?? '')).toEqual([expect.stringContaining('World_Street_Map')])
-  // The picker shows the gallery choice as the checked entry.
-  await expect(page.getByRole('radio', { checked: true })).toContainText('World Street Map')
+  // Spec 012: the panel shows the gallery choice as the current basemap; no featured card is checked.
+  await expect(page.locator('.current')).toContainText('World Street Map')
+  await expect(page.locator('.current')).toContainText('ESRI · Raster')
+  await expect(page.getByRole('radio', { checked: true })).toHaveCount(0)
 })
 
 test('a keyed basemap asks for a key, then uses it in its URL', async ({ page }) => {

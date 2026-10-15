@@ -85,7 +85,9 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   Respect provider usage policies (OSM standard tiles discourage heavy use).
 - A BLANK background is a first-class option.
 - Default follows VS Code theme kind: positron (light) / dark (dark).
-- Picker shows previews (background color first, then a snapshot).
+- Picker shows previews (spec 012): keyless vector styles as thumbnails rendered by scripts/basemap-thumbnails.mjs and
+  bundled (packages/core/src/basemapThumbnails.json, lazy-loaded), raster rows as one live tile of the same place
+  (GeoLibre's center, 8°E 47°N, at city scale), keyed rows as a "Needs key" tile. Rerun the script after basemap-catalog.mjs.
 - Failure must degrade gracefully (offline, CSP block, bad key): fall back to blank + short message.
 - API keys: non-secret values in settings, secrets in context.secrets (SecretStorage).
 - CSP: webview needs img-src/connect-src for style, sprite, glyph and tile hosts; worker-src blob:;

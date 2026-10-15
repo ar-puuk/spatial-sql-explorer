@@ -5,6 +5,7 @@
   // `currentColor` keeps every icon on the active theme's foreground token.
   export type IconName =
     | 'plus'
+    | 'key'
     | 'minus'
     | 'fit'
     | 'paint'
@@ -89,6 +90,8 @@
     // Spec 011 US6: labels.
     tag: 'M2 2.5h5.25l6.75 6.75-4.75 4.75L2.5 7.25V2.5zM5 5.25v.25',
     image: 'M2 3h12v10H2zM2 11l3.5-3.5 3 3 2-2L14 12M10.5 5.5v.5',
+    // A key: a round bow and a shaft with two teeth (needs an API key).
+    key: 'M5.5 7a3 3 0 110 6 3 3 0 010-6zM7.6 7.9L13 2.5M11 4.5l1.5 1.5M9.5 6l1.25 1.25',
     search: 'M7 2.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9zM10.25 10.25L13.5 13.5',
     link: 'M6.75 9.25a2.75 2.75 0 003.9 0l2-2a2.75 2.75 0 00-3.9-3.9l-.75.75M9.25 6.75a2.75 2.75 0 00-3.9 0l-2 2a2.75 2.75 0 003.9 3.9l.75-.75',
     sun: 'M8 5a3 3 0 110 6 3 3 0 010-6zM8 1v1.75M8 13.25V15M1 8h1.75M13.25 8H15M3 3l1.25 1.25M11.75 11.75L13 13M3 13l1.25-1.25M11.75 4.25L13 3',

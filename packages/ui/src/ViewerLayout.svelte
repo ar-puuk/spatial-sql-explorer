@@ -170,6 +170,8 @@
   let exportButton = $state<HTMLButtonElement>()
   let columnsOpen = $state(false)
   let galleryOpen = $state(false)
+  /** Spec 012: the gallery opens searching for what the Basemap panel's search holds. */
+  let galleryQuery = $state('')
   /** The feature card was closed (× or Escape); the next selection opens it again. */
   let inspectorClosed = $state(false)
   /** The search box's width (it fits its placeholder); the feature card under it matches. */
@@ -621,15 +623,19 @@
           {/if}
         {:else}
           <BasemapPicker
-            embedded
             activeId={store.basemap.id}
             followingTheme={store.basemapChoice === 'auto'}
             appearance={session.basemapAppearance}
             blankColor={store.blankColor}
             notice={store.basemapNotice}
-            galleryEntry={store.basemap.id.startsWith('g-') ? { id: store.basemap.id, name: store.basemap.name } : null}
+            keys={store.basemapKeys}
             onChoose={(choice) => store.setBasemap(choice)}
-            onMore={() => (galleryOpen = true)}
+            onChooseGallery={(id) => store.chooseGalleryBasemap(id)}
+            previewUrls={(id) => store.galleryPreviewUrls(id)}
+            onMore={(query) => {
+              galleryQuery = query ?? ''
+              galleryOpen = true
+            }}
             onBlankColor={(color) => store.setBlankColor(color)}
             onClose={closeSide}
           />
@@ -659,6 +665,8 @@
   {#if galleryOpen}
     <BasemapGallery
       {store}
+      initialQuery={galleryQuery}
+      anchor={main}
       onClose={() => {
         galleryOpen = false
         store.cancelKeyRequest()
