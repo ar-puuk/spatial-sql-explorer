@@ -200,7 +200,6 @@ export function toCatalogEntry(g: GalleryBasemap, resolved: { url?: string; tile
     attribution: g.attribution,
     requiresKey: g.key === 'required',
     region: 'global',
-    preview: null,
     provider: g.provider,
     providerName: g.providerName,
     ...(keyed ? { keyed: true } : {}),

@@ -2972,6 +2972,25 @@ the rest of its country's population spread evenly over the country's land.
 
 ---
 
+## Basemap preview thumbnails
+
+`packages/core/src/basemapThumbnails.json` holds small preview images
+(240×144 px) of keyless vector basemap styles, all showing the same area
+around Zurich. `scripts/basemap-thumbnails.mjs` renders them with MapLibre
+GL JS from each provider's published style and tiles:
+- OpenFreeMap (Positron, Liberty, Bright, Dark, Fiord): © OpenFreeMap,
+  © OpenMapTiles, data © OpenStreetMap contributors;
+- CARTO basemap styles (Positron, Voyager, Dark Matter): © CARTO, data ©
+  OpenStreetMap contributors;
+- VersaTiles styles: © VersaTiles, data © OpenStreetMap contributors;
+- Maptoolkit styles: © Maptoolkit, data © OpenStreetMap contributors.
+
+OpenStreetMap data is available under the Open Database License
+(https://www.openstreetmap.org/copyright). Raster basemaps are not bundled:
+their previews are loaded from the provider when shown.
+
+---
+
 ## Color data (thematic styling ramps)
 
 The color ramps in `packages/core/src/style/ramps.ts` are data, not code.

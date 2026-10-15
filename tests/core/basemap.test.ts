@@ -21,12 +21,7 @@ describe('resolveBasemap', () => {
     expect(resolveBasemap('blank', 'dark').id).toBe('blank')
     expect(resolveBasemap('nope', 'dark')).toEqual(getDefaultBasemap('dark'))
   })
-  it('every non-blank catalog entry has a preview', () => {
-    for (const e of BASEMAP_CATALOG) {
-      if (e.type === 'blank') expect(e.preview).toBeNull()
-      else expect(e.preview?.land).toMatch(/^#/)
-    }
-  })
+  // Previews: tests/core/basemap-thumbnails.test.ts (spec 012).
 })
 
 describe('loadBasemapStyle', () => {

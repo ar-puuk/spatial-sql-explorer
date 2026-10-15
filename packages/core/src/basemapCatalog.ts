@@ -14,12 +14,6 @@ export interface BasemapCatalogEntry {
   region: string
   /** Which host theme kind this entry is the default for, if any. */
   defaultFor?: 'light' | 'dark'
-  /**
-   * Picker preview (CLAUDE.md: "background color first, then a snapshot"):
-   * the style's own background and water colors, read from the published
-   * style JSON. Null for the blank entry, which previews as the host background.
-   */
-  preview: { land: string; water: string } | null
   /** Raster rows (spec 008): the highest zoom with tiles; MapLibre overzooms past it. */
   maxzoom?: number
   /** Raster rows: values for `{s}` in the URL template, spread across requests. */
@@ -44,7 +38,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '',
     requiresKey: false,
     region: 'global',
-    preview: null,
   },
   {
     id: 'openfreemap-positron',
@@ -54,7 +47,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#f2f3f0', water: '#c2c8ca' },
     defaultFor: 'light',
   },
   {
@@ -65,7 +57,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#f8f4f0', water: '#9ebdff' },
   },
   {
     id: 'openfreemap-bright',
@@ -75,7 +66,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#f8f4f0', water: '#aecfe2' },
   },
   {
     id: 'openfreemap-dark',
@@ -85,7 +75,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#0c0c0c', water: '#1b1b1d' },
     defaultFor: 'dark',
   },
   {
@@ -96,7 +85,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#45516e', water: '#38435c' },
   },
   // Spec 008 (research §7): keyless raster basemaps, URL templates from
   // leaflet-providers as data. Each provider's usage policy applies: none is
@@ -109,7 +97,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics, and the GIS User Community',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#4b5a3c', water: '#1d3150' },
     maxzoom: 19,
   },
   {
@@ -120,7 +107,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: 'Map data © OpenStreetMap contributors, SRTM | Map style © OpenTopoMap (CC-BY-SA)',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#e8e4d0', water: '#97d2e3' },
     maxzoom: 17,
     subdomains: ['a', 'b', 'c'],
   },
@@ -132,7 +118,6 @@ export const BASEMAP_CATALOG: BasemapCatalogEntry[] = [
     attribution: '© OpenStreetMap contributors',
     requiresKey: false,
     region: 'global',
-    preview: { land: '#f2efe9', water: '#aad3df' },
     maxzoom: 19,
   },
 ]
