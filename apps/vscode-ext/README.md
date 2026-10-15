@@ -24,13 +24,14 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 - **Correct positions in any CRS.** The source coordinate system is read from
   the file and shown in the status bar, and the data is reprojected for
   display. Files with no CRS are clearly marked as "WGS84 assumed".
-- **Map views.** A short list of basemaps (OpenFreeMap, Satellite, Topographic,
-  OpenStreetMap, or a blank background in a color you choose), and **More
-  basemaps…**: 129 basemaps from 26 providers, grouped by provider, with
-  previews. Keyed providers (MapTiler, Stadia, Protomaps, Google, Mapbox and
-  others) use your own key, kept in VS Code's secret storage. Switch to a
-  **globe**, set in a night sky; tilt and rotate with a right-drag, so a
-  basemap's 3D buildings show.
+- **Map views.** The **Basemap** panel shows the featured basemaps
+  (OpenFreeMap, Satellite, Topographic, OpenStreetMap, or a blank background
+  in a color you choose) as a grid of real previews, follows your theme until
+  you pick one, and searches all 129 basemaps from 26 providers. **More
+  basemaps…** opens the full gallery, grouped by provider. Keyed providers
+  (MapTiler, Stadia, Protomaps, Google, Mapbox and others) use your own key,
+  kept in VS Code's secret storage. Switch to a **globe**, set in a night
+  sky; tilt and rotate with a right-drag, so a basemap's 3D buildings show.
 - **One search box** on the map: values in the layer (choose one to select
   and zoom to its feature), coordinates (`-111.9, 40.7`), and places.
 - **Thematic maps that QGIS understands.**
@@ -43,25 +44,42 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
     match wins, with a count per rule. QGIS draws the saved rules the same.
   - **Bivariate maps**: two numeric columns colored from a 3×3 square, with
     a keyboard legend square whose cells hide their features.
-  - **Size by a column**: line width or marker size by another numeric
-    column, in classes or proportional, next to the class colors. Marker
-    shapes and dashed lines too.
+  - **Vary by attribute**: more properties, each by its own column, so one map
+    shows several variables (roads colored by level of service and widened
+    by traffic). Points: size, outline color and width, shape, opacity,
+    rotation; lines: width, pattern, opacity; polygons: outline color and
+    width, opacity. Each takes categories, classes, a continuous scale, SQL
+    conditions, or the column's values as they are (colors, pixels,
+    degrees). Properties that share a column and classes share a legend
+    group.
+  - **Continuous** and **As is** colors: along a ramp without classes, or
+    the colors a column holds.
+  - **Heatmap**: points as a density surface, optionally weighted by a
+    column, with a radius in pixels or meters and automatic intensity.
+  - **Clusters**: nearby points grouped into bubbles colored and sized by
+    their count (after the R package mapgl); a click on a bubble zooms in.
+    Large files are grouped by the engine.
   - Layer opacity, fill, outline and point size, live on the map and legend.
     Edit any class's color, label or bounds, or hide it from its legend
     swatch.
   - **3D extrusion**: raise polygons by a numeric column or a constant height,
     and tilt or rotate the map (right-drag or Shift+arrows).
+  - **Labels**, from their own side-rail button: text from a column or a SQL
+    expression, size, color, halo and placement. Lines are labeled along the
+    line, polygons once inside their largest part, and labels never overlap.
+    Drawn with your system's font, with nothing downloaded.
   - **Save style (QML)** writes `<file>.qml` next to the data, which QGIS loads
     automatically, and it's applied when you reopen the file. The arrow next to
     it saves OGC SLD or Mapbox GL style JSON. **Load…** imports any of the
-    three.
+    three. The QML carries every property, heatmaps, clusters and labels in
+    forms QGIS draws the same (checked in QGIS).
 - **Spatial SQL.** Press **Ctrl+Shift+Q** (**Cmd+Shift+Q** on macOS) to open
   the query panel, and query the file by its own name (`us-counties.parquet` is
   `us_counties`, a GeoPackage's layers are `us_boundaries.counties`) or as
   `layer`, with DuckDB spatial SQL. **Ctrl/Cmd+Enter** runs the statement under the cursor or the selection.
   Results go to the map and the table. Autocomplete covers your columns and the
-  spatial functions, errors are underlined where they happen, and recent
-  queries are kept per file. A query can read **other files in the
+  spatial functions, errors are underlined where they happen, recent
+  queries are kept per file, and a **Copy** button copies the query. A query can read **other files in the
   workspace** by their path from the workspace root, listed beside the editor.
 - **Export.** From the **Export** button above the table, or **Spatial
   Explorer: Export Data…**:
@@ -74,7 +92,7 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
   A notice lists anything the format changes (field renames, reprojection).
   The source file is never modified.
 - **Map image.** **Export map image…** saves the view as a PNG at 1x or 2x,
-  with the legend and the basemap's attribution.
+  with its labels, every legend group and the basemap's attribution.
 - **Looks like VS Code.** Every color comes from your theme, including
   high-contrast themes. CRS, feature count and cursor coordinates appear in the
   native status bar.

@@ -17,8 +17,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   PMTiles and Excel, on a map and in an attribute table kept in sync. Small
   results are drawn once from memory; big ones (millions of rows, several GB)
   from vector tiles the engine builds as you pan, with a "Load all" option.
-  129 basemaps from 26 providers (keyed ones with your own key), a globe view,
-  one search box for layer values, coordinates and places, and any source CRS.
+  129 basemaps from 26 providers (keyed ones with your own key), each with a
+  real preview and searchable from the Basemap panel, a globe view, one search
+  box for layer values, coordinates and places, and any source CRS.
 - **Query**: DuckDB spatial SQL against the file by its own name
   (`us-counties.parquet` is `us_counties`; a GeoPackage's layers are
   `us_boundaries.counties`) or as `layer`, with
@@ -27,7 +28,8 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   (`ST_Read('data/links.shp')`), added files on the web.
 - **Style**: single, categorized, graduated (by a column or a SQL expression),
   continuous, as-is (colors read from a column), bivariate, rule-based (SQL
-  conditions, first match wins) and heatmap styles, ramps previewed on the
+  conditions, first match wins), heatmap and clusters (points grouped into
+  bubbles sized by count) styles, ramps previewed on the
   map, and, under **Vary by attribute**, more properties each by their own
   column (size or width, outline color and width, shape, pattern, opacity,
   rotation), so one map can show several variables at once (say, roads
@@ -38,7 +40,8 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   `.qml` sidecar; imports and exports QML, SLD and Mapbox GL style JSON.
 - **Labels**: from their own button on the side rail: text from a column or a
   SQL expression, size, color, halo, and where point labels sit. Lines are
-  labeled along the line, polygons inside; labels never overlap. Drawn with
+  labeled along the line, polygons once inside their largest part; labels
+  never overlap. Drawn with
   the system's fonts (nothing downloaded), saved with the style, written to
   QML, SLD and Mapbox GL, and included in the map image.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,

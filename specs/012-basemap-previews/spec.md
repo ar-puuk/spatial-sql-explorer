@@ -1,6 +1,6 @@
 # Spec 012: Basemap previews and the Basemap panel
 
-**Status:** built (2026-10-15), branch `012-basemap-previews`.
+**Status:** built (2026-10-14), branch `012-basemap-previews`.
 **Request (user, 2026-10-14):** "The fake [previews] look ugly. Also maybe a
 redesigned basemap panel from the right sidecar?"
 
