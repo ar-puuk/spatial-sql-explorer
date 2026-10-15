@@ -464,16 +464,14 @@
     padding: 0 12px 0 14px;
     background: var(--se-header-bg);
     border-bottom: 1px solid var(--se-header-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
   .brand {
     margin: 0;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font: 700 11px var(--se-font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
+    font: 600 14px var(--se-font-ui);
+    letter-spacing: -0.005em;
     color: var(--se-brand-text);
     white-space: nowrap;
   }
@@ -492,9 +490,8 @@
     border: 1px solid var(--se-border);
     border-radius: var(--se-radius-sm);
     background: var(--se-bg-base);
-    color: var(--se-text-secondary);
-    font-family: var(--se-font-mono);
-    font-size: 11px;
+    color: var(--se-text-primary);
+    font-size: 12.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -549,13 +546,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 26px;
-    padding: 0 10px;
+    height: 28px;
+    padding: 0 11px;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
     background: var(--se-button-secondary-bg);
     color: var(--se-button-secondary-fg);
-    font: 500 12px var(--se-font-ui);
+    font: 500 13px var(--se-font-ui);
     cursor: pointer;
   }
   .open:disabled {

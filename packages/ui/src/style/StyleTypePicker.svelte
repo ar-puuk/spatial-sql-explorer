@@ -4,11 +4,13 @@
   // be used for this layer). Arrows move (skipping unusable types), Enter
   // applies, Esc closes: RampPicker's pattern.
   import { onMount } from 'svelte'
-  import Icon from '../Icon.svelte'
+  import Icon, { type IconName } from '../Icon.svelte'
 
   interface Option {
     kind: K
     label: string
+    /** Drawn before the name, so a type is recognized at a glance. */
+    icon?: IconName
     /** One line: what the type does. */
     hint: string
     /** Why the type can't be used for this layer, or null. */
@@ -109,6 +111,7 @@
     onclick={() => (open ? close() : openList())}
     onkeydown={onButtonKeydown}
   >
+    {#if current?.icon}<span class="glyph"><Icon name={current.icon} size={22} /></span>{/if}
     <span class="text">
       <span class="name">{current?.label}</span>
       <span class="hint" id={`${id}-hint`}>{current?.hint}</span>
@@ -135,11 +138,12 @@
           }}
           onclick={() => choose(i)}
         >
+          {#if o.icon}<span class="glyph"><Icon name={o.icon} size={22} /></span>{/if}
           <span class="text">
             <span class="name" id={`${id}-${i}-name`}>{o.label}</span>
             <span class="hint" id={`${id}-${i}-hint`}>{o.unavailable ?? o.hint}</span>
           </span>
-          {#if o.kind === value}<Icon name="check" size={12} />{/if}
+          {#if o.kind === value}<span class="chosen"><Icon name="check" size={16} /></span>{/if}
         </li>
       {/each}
     </ul>
@@ -208,13 +212,58 @@
     outline: 1px solid var(--se-focus);
     outline-offset: -1px;
   }
+  .glyph {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--se-radius-sm);
+    color: var(--se-text-secondary);
+  }
   li[role='option'] {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 6px;
+    padding: 5px 8px 5px 10px;
     border-radius: var(--se-radius-sm);
     cursor: pointer;
+  }
+  /* The chosen type: a bar on the edge, a tint, the icon and name in the accent, a clear check. Never only a tiny mark. */
+  li[role='option'][aria-selected='true'] {
+    background: var(--se-control-active-bg);
+  }
+  li[role='option'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 5px;
+    bottom: 5px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--se-accent);
+  }
+  li[role='option'][aria-selected='true'] .glyph,
+  li[role='option'][aria-selected='true'] .name {
+    color: var(--se-control-active-fg);
+  }
+  li[role='option'][aria-selected='true'] .name {
+    font-weight: 700;
+  }
+  .chosen {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--se-accent);
+    color: var(--se-button-fg);
+  }
+  li[role='option'].active[aria-selected='true'] .glyph,
+  li[role='option'].active[aria-selected='true'] .name {
+    color: inherit;
   }
   li[role='option'].active {
     background: var(--se-menu-hover-bg);

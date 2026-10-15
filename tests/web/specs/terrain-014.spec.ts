@@ -88,12 +88,12 @@ test('the Basemap panel switch and slider; the exaggeration is remembered', asyn
   await page.locator('.rail').getByRole('button', { name: 'Basemap' }).click()
   const section = page.getByRole('region', { name: 'Terrain', exact: true })
   await expect(section).toBeVisible()
-  await section.getByRole('checkbox', { name: /^3D terrain/ }).check()
+  await section.getByRole('switch', { name: /^3D terrain/ }).check()
   await expect(terrainButton(page)).toHaveAttribute('aria-pressed', 'true')
-  const slider = section.getByRole('slider', { name: 'Terrain exaggeration' })
-  await slider.fill('2.5')
+  await section.getByRole('spinbutton', { name: 'Terrain exaggeration, value' }).fill('2.5')
+  await section.getByRole('spinbutton', { name: 'Terrain exaggeration, value' }).press('Enter')
   await expect.poll(() => page.locator('.canvas-host').getAttribute('data-terrain')).toBe('2.5')
-  await section.getByRole('checkbox', { name: /^3D terrain/ }).uncheck()
+  await section.getByRole('switch', { name: /^3D terrain/ }).uncheck()
   await expect.poll(() => page.locator('.canvas-host').getAttribute('data-terrain')).toBe('')
 
   // Off at every start, the exaggeration kept.
@@ -102,6 +102,9 @@ test('the Basemap panel switch and slider; the exaggeration is remembered', asyn
   await expect(terrainButton(page)).toHaveAttribute('aria-pressed', 'false')
   await page.locator('.rail').getByRole('button', { name: 'Basemap' }).click().catch(() => {})
   if (!(await sidePanel(page).isVisible())) await page.locator('.rail').getByRole('button', { name: 'Basemap' }).click()
+  // The slider shows while terrain is on.
+  await expect(page.getByRole('slider', { name: 'Terrain exaggeration' })).toHaveCount(0)
+  await page.getByRole('switch', { name: /^3D terrain/ }).check()
   await expect(page.getByRole('slider', { name: 'Terrain exaggeration' })).toHaveValue('2.5')
 })
 
@@ -109,7 +112,7 @@ test('the cursor reports meters, whatever the exaggeration', async ({ page }) =>
   await open(page)
   // Show the readout on the map.
   await page.locator('.rail').getByRole('button', { name: 'Map controls' }).click()
-  await page.getByRole('checkbox', { name: /^Coordinates/ }).check()
+  await page.getByRole('switch', { name: /^Coordinates/ }).check()
   await terrainButton(page).click()
   const box = (await page.locator('.canvas-host').boundingBox())!
   const readout = page.locator('.map-view .coords')
@@ -121,13 +124,17 @@ test('the cursor reports meters, whatever the exaggeration', async ({ page }) =>
 
   // Exaggerate 2.5x: the surface is lifted, the reading stays 1,000 m.
   await page.locator('.rail').getByRole('button', { name: 'Basemap' }).click()
-  await page.getByRole('slider', { name: 'Terrain exaggeration' }).fill('2.5')
+  await page.getByRole('spinbutton', { name: 'Terrain exaggeration, value' }).fill('2.5')
+  await page.getByRole('spinbutton', { name: 'Terrain exaggeration, value' }).press('Enter')
   await expect.poll(() => page.locator('.canvas-host').getAttribute('data-terrain')).toBe('2.5')
   await page.waitForTimeout(500)
   await wiggle()
   await expect.poll(async () => { await wiggle(); return (await readout.innerText()).includes('1,000 m') }, { timeout: 20000 }).toBe(true)
-  // What is copied is the coordinates only.
-  expect(await readout.getAttribute('aria-label')).not.toContain('m')
+  // What the right-click menu copies is the coordinates only; the elevation is shown beside them.
+  const box2 = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2, { button: 'right' })
+  await expect(page.getByRole('menu', { name: 'Position' }).locator('.point-coords')).toHaveText(/^-?\d+\.\d{5}, -?\d+\.\d{5}$/)
+  await expect(page.getByRole('menu', { name: 'Position' }).locator('.point-elev')).toContainText('m')
 })
 
 test('terrain works on the globe too, and a basemap switch keeps the shading above it', async ({ page }) => {
@@ -136,10 +143,10 @@ test('terrain works on the globe too, and a basemap switch keeps the shading abo
   await open(page)
   await terrainButton(page).click()
   await expect.poll(() => page.locator('.canvas-host').getAttribute('data-terrain')).toBe('1')
-  await page.getByRole('button', { name: 'Globe view' }).click()
+  await page.getByRole('button', { name: 'Globe view', exact: true }).click()
   await page.waitForTimeout(1500)
   expect(errors).toEqual([])
-  await page.getByRole('button', { name: 'Globe view' }).click()
+  await page.getByRole('button', { name: 'Globe view', exact: true }).click()
   await page.waitForTimeout(500)
 
   // A basemap swap (Blank needs no network): the new layers go under the shading.

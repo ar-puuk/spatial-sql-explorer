@@ -9,37 +9,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-15
+
+Map controls and drawing tools, terrain, and a new look.
+
 ### Added
 
-- **Map controls** (a new right-rail tab, sliders icon): a row per control with
-  an on/off switch, its name and where it sits. Each control offers the
-  positions that suit it: the four corners for buttons, search, legend, scale
-  bar and logo; the middle of the top or bottom edge for the coordinates
-  readout. Search, zoom, zoom to layer, reset view, globe,
-  terrain, the drawing tools, export image, legend, coordinates, the scale bar
-  and the MapLibre logo (on by default) can each go anywhere; controls in a
-  corner stack in the order listed. A user preference, for every file.
-- **Draw, Measure and Select by shape.** Point, line, polygon, rectangle,
-  circle and freehand tools, and an edit tool, on Terra Draw (loaded the first
-  time a tool is opened). Distances, and areas with perimeters, show live and
-  stay on the map (metric or imperial).
-  - A finished shape in Select by shape selects the rows it covers (Ctrl or
-    Cmd adds). The condition is intersects, within, contains or centroid
-    within, in the engine, so it covers rows off screen and in tiles mode.
-  - A bar offers what to do with the shapes: select rows, keep the rows
-    narrowed to them (a standing filter), write a query for them in the SQL
-    editor, show them as a layer (every export format applies), save them as
-    GeoJSON, or clear them.
-  - The shapes are the table `drawn` in SQL (kind, geometry, area, length,
-    perimeter). They are scratch geometry, never edits to the data.
-- **Terrain** on and off, with relief shading and an exaggeration slider
-  (Basemap panel, and a button on the map). The cursor readout and the status
-  bars show elevation in meters. The relief follows the basemap: shadows only
-  over satellite imagery (a white highlight made it look glossy), a faint
-  highlight over dark maps, a soft one elsewhere. Keyless Terrarium tiles; if they can't load,
-  terrain turns itself off with a message.
-- Optional **hover tooltip** with a choice of columns, and an optional on-map
-  **coordinates** readout that copies lat, lon on click.
+- **Map controls** (a new right-rail tab, sliders icon): a row per control with an on/off switch, its name and where it sits.
+  Each control offers the positions that suit it: the four corners for buttons, search, legend, scale bar and logo; the middle
+  of the top or bottom edge for the coordinates readout. Search, zoom, zoom to layer, reset view, globe, terrain, the drawing
+  tools, export image, legend, coordinates, the scale bar and the MapLibre logo (on by default) can each go anywhere. A user
+  preference, for every file. The layer picker and the selected feature's card are not controls: they show whenever needed.
+- **Draw, Measure and Select by shape.** Point, line, polygon, rectangle, circle and freehand tools, an edit tool, and Undo and
+  Redo, on Terra Draw (loaded the first time a tool is opened). Distances, and areas with perimeters, show live and stay on the
+  map (metric or imperial). A drawn line follows its great circle (the shortest path on the globe), live while you draw, so the
+  line you see is the length shown.
+  - A finished shape in Select by shape selects the rows it covers (Ctrl or Cmd adds). The condition is intersects, within,
+    contains or centroid within, in the engine, so it covers rows off screen and in tiles mode.
+  - A bar offers what to do with the shapes: select rows, keep the rows narrowed to them (a standing filter), write a query for
+    them in the SQL editor, show them as a layer (every export format applies), save them as GeoJSON, or clear them.
+  - The shapes are the table `drawn` in SQL (kind, geometry, area, length, perimeter); lines carry their great-circle path. They
+    are scratch geometry, never edits to the data.
+- **Terrain** on and off, with relief shading and an exaggeration slider (Basemap panel, and a button on the map). The cursor
+  readout and the status bars show elevation in meters. The relief follows the basemap: shadows only over satellite imagery, a
+  faint highlight over dark maps, a soft one elsewhere. Keyless Terrarium tiles; if they can't load, terrain turns itself off
+  with a message.
+- An optional **hover tooltip** with a choice of columns, an optional on-map **coordinates** readout, and a **right-click
+  position menu** on the map: copy lat, lon, lon, lat or a WKT point (the live readout moves with the cursor; the menu keeps the
+  place you pointed at).
+- **More colors.** Ramps: Inferno, Cividis, Mako, Rocket, Turbo, eleven more ColorBrewer sequential and diverging schemes, Set 3,
+  Accent, Pastel 1 and 2, Okabe-Ito (color-blind safe) and Tableau 10. Bivariate: the five palettes of the mapgl R package.
+- A redesigned **ramp picker** (search, groups, a clear chosen row) and a **color field** that replaces the browser's own color
+  picker everywhere: a themed popup with a saturation and hue area, a hex box, the eyedropper where the browser has one,
+  suggested colors and the ones used lately.
+- A feature picked on the map **scrolls the table to its row**, even on a page the table has not loaded.
+- The globe's sky is the real one, where it is tonight (the device's clock gives the sidereal time): about 2,000 stars, the 88
+  constellations' figures and the Milky Way, seen as the globe's camera would see them beyond the Earth. So Polaris and the Big
+  Dipper appear behind the Earth only when you look from the southern hemisphere, never with the Arctic in view.
+
+### Changed
+
+- **A new look** (spec 015). Every icon is Lucide (one library, replacing the hand-drawn set). The web app has its own identity:
+  chart-ink text on a cool paper, ultramarine as the one accent, a deep navy for dark, IBM Plex Sans and Fira Code (self-hosted).
+  The landing page types a query and colors a map in once, over a faint map sheet of contours and a graticule. In VS Code the
+  colors and fonts still come from your theme.
+- Switches, selects and tooltips are themed bits-ui components; map and rail buttons have tooltips; the warning about rows without
+  geometry is a notice over the map. The default fill is a muted blue-teal.
+- Overlays on the map no longer overlap on a short map (a big table panel): the buttons lie in rows, the legend shows only its
+  title, and under a certain height the legend and card wait; the open drawing tools take as many columns as fit above the legend.
+  The draw, measure and select tools open as a second column beside the buttons.
+- The Color style list shows an icon for each type and marks the chosen one clearly. Heatmap "Automatic" has an info icon with the
+  explanation. "Save style" is one label (it downloads in the browser). Reset style returns to "Default". Values in the table and
+  the feature card are colored by type. The bivariate legend follows mapgl's: touching square cells with a hairline between.
 
 ## [0.4.0] - 2026-10-14
 

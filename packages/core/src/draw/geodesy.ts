@@ -77,3 +77,83 @@ export function formatArea(squareMeters: number, units: UnitSystem): string {
   if (squareMeters < 1_000_000) return `${n(squareMeters / 10_000, 2)} ha`
   return `${n(squareMeters / 1_000_000, squareMeters < 10_000_000 ? 2 : 1)} km²`
 }
+
+// --- Great-circle paths ------------------------------------------------------------------------------
+
+/** Longitudes within 180 degrees of `reference` (the same place, continuous along a path across the date line). */
+const unwrapLon = (lon: number, reference: number): number => {
+  let l = lon
+  while (l - reference > 180) l -= 360
+  while (l - reference < -180) l += 360
+  return l
+}
+
+/**
+ * A line with every segment bent onto its great circle: extra positions at most `maxStepDegrees` of arc apart, so
+ * on a flat map the line curves the way the shortest path on the globe does, and its drawn length is the length
+ * measured (lineLengthMeters). Longitudes stay continuous across the date line (values beyond +-180), as a map
+ * draws them; use `geodesicGeometry` for GeoJSON and SQL.
+ */
+export function greatCirclePath(line: readonly Position[], maxStepDegrees = 0.5): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  for (let i = 0; i < line.length; i++) {
+    const [lonB, latB] = line[i]
+    if (i === 0) {
+      out.push([lonB, latB])
+      continue
+    }
+    const [prevLon, prevLat] = out[out.length - 1]
+    const endLon = unwrapLon(lonB, prevLon)
+    const a = unit(prevLon, prevLat)
+    const b = unit(endLon, latB)
+    const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+    const delta = Math.acos(dot)
+    const steps = Math.min(2000, Math.ceil(delta / (maxStepDegrees * RAD)))
+    if (steps > 1 && Math.sin(delta) > 1e-9) {
+      const s = Math.sin(delta)
+      let ref = prevLon
+      for (let k = 1; k < steps; k++) {
+        const f = k / steps
+        const wa = Math.sin((1 - f) * delta) / s
+        const wb = Math.sin(f * delta) / s
+        const x = wa * a[0] + wb * b[0]
+        const y = wa * a[1] + wb * b[1]
+        const z = wa * a[2] + wb * b[2]
+        const lon = unwrapLon(Math.atan2(y, x) / RAD, ref)
+        ref = lon
+        out.push([lon, Math.asin(Math.max(-1, Math.min(1, z))) / RAD])
+      }
+    }
+    out.push([endLon, latB])
+  }
+  return out
+}
+
+function unit(lon: number, lat: number): [number, number, number] {
+  const cl = Math.cos(lat * RAD)
+  return [cl * Math.cos(lon * RAD), cl * Math.sin(lon * RAD), Math.sin(lat * RAD)]
+}
+
+/**
+ * A shape's geometry as GeoJSON for SQL and export: a line follows its great circle (split where it crosses the
+ * date line, as GeoJSON wants); anything else is returned as it is.
+ */
+export function geodesicGeometry<G extends { type: string; coordinates: unknown }>(geometry: G): G | { type: 'LineString'; coordinates: Array<[number, number]> } | { type: 'MultiLineString'; coordinates: Array<Array<[number, number]>> } {
+  if (geometry.type !== 'LineString') return geometry
+  const path = greatCirclePath(geometry.coordinates as Position[])
+  // Back into -180..180, cut where the line crosses the date line.
+  const wrapped = path.map(([lon, lat]): [number, number] => [lon - 360 * Math.round(lon / 360), lat])
+  // A jump of more than 180 degrees between neighbours is the date line: start a new part there.
+  const cut: Array<Array<[number, number]>> = []
+  let current: Array<[number, number]> = []
+  for (const p of wrapped) {
+    const last = current[current.length - 1]
+    if (last && Math.abs(p[0] - last[0]) > 180) {
+      cut.push(current)
+      current = []
+    }
+    current.push(p)
+  }
+  cut.push(current)
+  return cut.length === 1 ? { type: 'LineString', coordinates: cut[0] } : { type: 'MultiLineString', coordinates: cut }
+}

@@ -1,7 +1,7 @@
 // T014 (spec 002, US1): run a query and see the result on the map and in the
 // table (quickstart Scenarios 1 and 6), in the production web build.
 import { test, expect } from '@playwright/test'
-import { editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, setQuery, status, showSql } from './helpers'
+import { setColor, editor, fixture, grid, openFile, openQueryPanel, queryPanel, rowCount, runQuery, setQuery, status, showSql } from './helpers'
 
 test('the default query reproduces the initial view, and a filter replaces it', async ({ page }) => {
   await openFile(page, fixture('world-boundaries.geojson'))
@@ -65,7 +65,7 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   await runQuery(page, "SELECT * FROM layer WHERE name LIKE 'U%'")
   expect(await rowCount(page)).toBe(8)
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first().fill('#ff0000')
+  await setColor(page, 'Fill', '#ff0000')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Unedited since the last run: Reset needs no confirmation.
@@ -76,7 +76,7 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveText(initialScale ?? '')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await expect(page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3b82f6')
+  await expect(page.getByRole('region', { name: 'Layer style' }).getByRole('button', { name: 'Fill', exact: true })).toHaveCSS('background-color', 'rgb(63, 143, 168)')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Edited text: Reset asks first, and "Keep" keeps it.

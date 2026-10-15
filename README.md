@@ -19,7 +19,13 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   from vector tiles the engine builds as you pan, with a "Load all" option.
   129 basemaps from 26 providers (keyed ones with your own key), each with a
   real preview and searchable from the Basemap panel, a globe view, one search
-  box for layer values, coordinates and places, and any source CRS.
+  box for layer values, coordinates and places, and any source CRS. The globe
+  is set against the real stars.
+- **Map tools**: switch each map control on or off and place it (corner or
+  edge), measure distances along the great circle and areas, draw shapes to
+  select or filter rows or to use as the SQL table `drawn`, turn terrain on
+  with relief shading and elevation, and copy a position with a right-click.
+  Scratch geometry only: the data is never edited.
 - **Query**: DuckDB spatial SQL against the file by its own name
   (`us-counties.parquet` is `us_counties`; a GeoPackage's layers are
   `us_boundaries.counties`) or as `layer`, with
@@ -96,6 +102,8 @@ The single-page app this project replaces is preserved at the `legacy-v1` tag.
 - [DuckDB](https://duckdb.org/) and its spatial extension
 - [MapLibre GL JS](https://maplibre.org/) for map rendering
 - [OpenFreeMap](https://openfreemap.org/) for free, open map tiles
+- [Lucide](https://lucide.dev/) (icons), [bits-ui](https://bits-ui.com/) (components), [Terra Draw](https://github.com/JamesLMilner/terra-draw) (drawing), [vanilla-colorful](https://github.com/web-padawan/vanilla-colorful) (the color picker)
+- The [mapgl](https://github.com/walkerke/mapgl) R package for the cluster and bivariate designs and palettes, [d3-celestial](https://github.com/ofrohn/d3-celestial) for the stars, and ColorBrewer, matplotlib, seaborn and Okabe-Ito for the color ramps
 - [Nominatim](https://nominatim.org/) / [OpenStreetMap](https://www.openstreetmap.org/) contributors for geocoding
 
 Third-party licenses: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColorField from '../kit/ColorField.svelte'
   // Spec 010 phase 11: rule-based styling. Each rule is a SQL condition over
   // the layer's columns with a color; the first rule a feature matches colors
   // it, and the rest are "Everything else". A condition is checked when its
@@ -40,7 +41,7 @@
         >
           <Icon name={rule.visible ? 'eye' : 'eye-off'} size={14} />
         </button>
-        <input type="color" aria-label={`Color of ${name(rule, i)}`} value={rule.color} onchange={(e) => onUpdate(rule.id, { color: e.currentTarget.value })} />
+        <ColorField label={`Color of ${name(rule, i)}`} value={rule.color} apply="end" size="sm" onChange={(v) => onUpdate(rule.id, { color: v })} />
         <input
           type="text"
           class="where"
@@ -100,7 +101,7 @@
   >
     <Icon name={renderer.elseVisible ? 'eye' : 'eye-off'} size={14} />
   </button>
-  <input type="color" aria-label={`Color of ${renderer.elseLabel}`} value={renderer.elseColor} onchange={(e) => onElse({ elseColor: e.currentTarget.value })} />
+  <ColorField label={`Color of ${renderer.elseLabel}`} value={renderer.elseColor} apply="end" size="sm" onChange={(v) => onElse({ elseColor: v })} />
   <span class="else-label" title={renderer.elseLabel}>{renderer.elseLabel}</span>
   <span class="count" title="Features no rule matches">{rest ? nf.format(rest.count) : '–'}</span>
 </div>
@@ -193,21 +194,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  input[type='color'] {
-    width: 22px;
-    height: 18px;
-    padding: 0;
-    border: 1px solid var(--se-swatch-border);
-    border-radius: 2px;
-    background: transparent;
-    cursor: pointer;
-  }
-  input[type='color']::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  input[type='color']::-webkit-color-swatch {
-    border: 0;
   }
   .icon-button {
     display: grid;

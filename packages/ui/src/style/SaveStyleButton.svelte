@@ -90,7 +90,7 @@
     onclick={onSave}
     title={canSaveSidecar ? `Save ${sidecarName} next to the data. QGIS loads it automatically.` : `Download ${sidecarName}. Keep it next to the data so QGIS loads it automatically.`}
   >
-    <Icon name="save" size={14} />{canSaveSidecar ? 'Save style (QML)' : 'Download style (QML)'}
+    <Icon name="save" size={14} />Save style
   </button>
   <button
     type="button"

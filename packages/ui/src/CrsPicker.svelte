@@ -547,8 +547,8 @@
     padding-left: 8px;
     cursor: default;
     font-size: 0.85em;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: var(--se-section-title-transform, uppercase);
+    letter-spacing: var(--se-section-title-tracking, 0.04em);
   }
   .twisty {
     display: inline-grid;

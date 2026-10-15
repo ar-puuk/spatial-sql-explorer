@@ -12,7 +12,7 @@
     /** Cell size, px. */
     cell?: number
   }
-  let { resolved, onToggle, cell = 22 }: Props = $props()
+  let { resolved, onToggle, cell = 32 }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const grid = $derived(resolved.grid)
@@ -62,7 +62,7 @@
                   class:hidden={!c.visible}
                   data-cell={c.key}
                   style:background-color={c.visible ? c.color : 'transparent'}
-                  style:border-color={c.color}
+                  style:border-color={c.visible ? undefined : c.color}
                   tabindex={c.key === tabKey ? 0 : -1}
                   aria-pressed={!c.visible}
                   aria-label={name(c)}
@@ -97,49 +97,67 @@
 {/if}
 
 <style>
+  /* After mapgl's bivariate legend (R package, add_bivariate_legend): square cells that touch, a hairline between them,
+     one thin outline round the grid; the second axis' title runs up the left side, the first one's runs along the
+     bottom. Both at 11 px in the secondary color. */
   .bivariate {
+    --line: color-mix(in srgb, var(--se-bg-elevated) 55%, transparent);
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto auto;
     grid-template-areas:
-      'y y'
-      'square .'
-      'x x'
+      'y square'
+      '. x'
       'nv nv';
+    justify-content: start;
     align-items: center;
-    gap: 2px 6px;
-    padding: 2px 8px 6px;
+    justify-items: center;
+    gap: 6px;
+    padding: 4px 8px 8px;
     font-size: 0.92em;
   }
-  /* Axis 2 reads upward: its label sits above the square, horizontal, so long names fit. */
   .y-axis {
     grid-area: y;
+    max-height: calc(var(--cell) * 3 + 2px);
     overflow: hidden;
     color: var(--se-text-secondary);
+    font-size: 11px;
+    text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
   }
   .x-axis {
     grid-area: x;
+    max-width: calc(var(--cell) * 3 + 2px);
     overflow: hidden;
     color: var(--se-text-secondary);
+    font-size: 11px;
+    text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .square {
     grid-area: square;
     display: grid;
-    gap: 2px;
+    gap: 0;
+    border: 1px solid color-mix(in srgb, var(--se-text-primary) 20%, transparent);
   }
   .row {
     display: flex;
-    gap: 2px;
+  }
+  [role='gridcell'] {
+    display: block;
+    line-height: 0;
   }
   .cell {
+    display: block;
+    box-sizing: border-box;
     width: var(--cell);
     height: var(--cell);
     padding: 0;
-    border: 1px solid transparent;
-    border-radius: 2px;
+    border: 1px solid var(--line);
+    border-radius: 0;
     cursor: pointer;
   }
   /* Hidden: hollow, the color kept as its outline. */
@@ -153,6 +171,7 @@
   }
   .no-value {
     grid-area: nv;
+    justify-self: stretch;
     display: grid;
     grid-template-columns: 14px 1fr auto;
     align-items: center;

@@ -49,7 +49,7 @@ test('Copy link: a #v1= link without data; opening it asks for the file, then re
   await openQueryPanel(other)
   await expect(editor(other)).toContainText("name LIKE 'S%'")
   await expect(other.getByRole('region', { name: 'Legend' })).toContainText('id · ')
-  await expect(other.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('title', 'Basemap: Blank')
+  await expect(other.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('aria-description', 'Basemap: Blank')
   await expect(other.getByRole('button', { name: 'Globe view' })).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(async () => (await mapState(other)).zoom ?? 0).toBeCloseTo(2.5, 1)
   const center = (await mapState(other)).center!

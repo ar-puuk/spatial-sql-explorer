@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import ColorField from './kit/ColorField.svelte'
   import type { Encoding as SetAsideEncoding } from '@spatial-explorer/core'
   /** Spec 011 FR-007: properties removed from Vary by attribute, per layer and property, for the session. */
   // Not reactive on purpose: only read when a property is added again.
@@ -144,7 +145,8 @@
     type Encoding,
     type ScaleKind,
   } from '@spatial-explorer/core'
-  import Icon from './Icon.svelte'
+  import Icon, { type IconName } from './Icon.svelte'
+  import Tip from './kit/Tip.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
@@ -278,7 +280,7 @@
     { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
     { kind: 'clusters', label: 'Clusters', hint: 'Nearby points grouped into bubbles, sized and colored by how many' },
   ]
-  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
+  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, icon: `style-${r.kind}` as IconName, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
   const colorEnc = $derived(style.renderer === undefined ? style.channels?.color : undefined)
   const colorType = $derived<ColorType>(renderer.kind === 'single' && (colorEnc?.scale.kind === 'continuous' || colorEnc?.scale.kind === 'identity') ? colorEnc.scale.kind : renderer.kind)
@@ -831,11 +833,13 @@
             checked={renderer.autoIntensity === true}
             onchange={(e) => apply(setHeatmapAutoIntensity(style, e.currentTarget.checked, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))}
           />
-          <span>Automatic: the densest spot takes the last color</span>
+          <span>Automatic</span>
+          <Tip text="The densest spot takes the last color. Worked out from all the points, so it holds at every zoom (it needs the radius in meters)." side="top">
+            {#snippet trigger(props)}
+              <button type="button" class="info" {...props} aria-label="About automatic intensity"><Icon name="info" size={13} /></button>
+            {/snippet}
+          </Tip>
         </label>
-        {#if renderer.autoIntensity}
-          <p class="hint">Worked out from all the points, so it holds at every zoom (it needs the radius in meters).</p>
-        {/if}
         <RampPicker
           value={renderer.ramp}
           renderer="graduated"
@@ -895,7 +899,7 @@
           {#each renderer.steps as st, i (i)}
             {@const label = resolved.clusters?.steps[i]?.label ?? `${st.from}+ points`}
             <li>
-              <input type="color" aria-label="Color for {label}" value={st.color} oninput={(e) => apply(setClusters(style, { steps: withStep(renderer.steps, i, { color: e.currentTarget.value }) }))} />
+              <ColorField label="Color for {label}" value={st.color} apply="live" size="md" onChange={(v) => apply(setClusters(style, { steps: withStep(renderer.steps, i, { color: v }) }))} />
               {#if i === 0}
                 <span class="from">From 2</span>
               {:else}
@@ -957,7 +961,7 @@
         </div>
         <div class="row">
           <span class="label" id="cluster-text-label">Count color</span>
-          <input type="color" aria-labelledby="cluster-text-label" value={renderer.textColor} oninput={(e) => apply(setClusters(style, { textColor: e.currentTarget.value }))} />
+          <ColorField labelledby="cluster-text-label" value={renderer.textColor} apply="live" size="md" onChange={(v) => apply(setClusters(style, { textColor: v }))} />
         </div>
         <div class="row">
           <span class="label" id="cluster-opacity-label">Opacity</span>
@@ -976,7 +980,7 @@
         </div>
         <div class="row">
           <span class="label" id="cluster-outline-label">Outline</span>
-          <input type="color" aria-labelledby="cluster-outline-label" value={renderer.strokeColor} oninput={(e) => apply(setClusters(style, { strokeColor: e.currentTarget.value }))} />
+          <ColorField labelledby="cluster-outline-label" value={renderer.strokeColor} apply="live" size="md" onChange={(v) => apply(setClusters(style, { strokeColor: v }))} />
           <input
             type="range"
             aria-label="Outline width"
@@ -1017,7 +1021,7 @@
         {#if resolved.status === 'fallback'}
           <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
         {:else}
-          <BivariateLegend {resolved} cell={28} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
+          <BivariateLegend {resolved} cell={32} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
           {#each resolved.notes as note (note)}
             <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
           {/each}
@@ -1035,7 +1039,7 @@
           {#if thematic}
             <span class="by-class" title="Class colors come from the classes above">·</span>
           {:else}
-            <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+            <ColorField labelledby="fill-label" value={style.fillColor} apply="live" size="md" onChange={(v) => onChange({ fillColor: v })} />
           {/if}
           <input
             type="range"
@@ -1053,7 +1057,7 @@
 
       <div class="row">
         <span class="label" id="stroke-label">{strokeLabel}</span>
-        <input type="color" aria-labelledby="stroke-label" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
+        <ColorField labelledby="stroke-label" value={style.strokeColor} apply="live" size="md" onChange={(v) => onChange({ strokeColor: v })} />
         <input
           type="range"
           aria-label="{strokeLabel} opacity"
@@ -1383,7 +1387,7 @@
     <!-- Spec 008 (user request): loading a style is as visible as saving one (QGIS: Load Style…). -->
     <button type="button" class="secondary" aria-label="Load style…" title="Load a style: QGIS .qml, OGC .sld or Mapbox GL style .json" onclick={onImport}><Icon name="import" size={14} />Load…</button>
     <span class="spacer"></span>
-    <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset" /></button>
+    <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={onReset}><Icon name="reset-style" /></button>
   </footer>
 </div>
 
@@ -1593,6 +1597,22 @@
     gap: 6px;
     color: var(--se-text-primary);
     cursor: pointer;
+  }
+  .check .info {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: help;
+  }
+  .check .info:hover,
+  .check .info:focus-visible {
+    color: var(--se-text-primary);
   }
   .check input {
     margin: 0;
@@ -1839,22 +1859,6 @@
     font-size: 0.9em;
     font-variant-numeric: tabular-nums;
     color: var(--se-text-secondary);
-  }
-  input[type='color'] {
-    width: 28px;
-    height: 22px;
-    padding: 1px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
-    cursor: pointer;
-  }
-  input[type='color']::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  input[type='color']::-webkit-color-swatch {
-    border: 0;
-    border-radius: calc(var(--se-radius-sm) - 1px);
   }
   input[type='range'] {
     width: 100%;

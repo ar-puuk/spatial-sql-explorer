@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColorField from './kit/ColorField.svelte'
   // Spec 012: the Basemap side panel. The current basemap as a large preview
   // (with "Follow the theme"), a search over every basemap with results in
   // the panel, the featured basemaps as a grid of real previews, and "More
@@ -38,7 +39,8 @@
   const themeDefaultId = $derived(getDefaultBasemap(appearance).id)
   const lightName = getDefaultBasemap('light').name
   const darkName = getDefaultBasemap('dark').name
-  let blankInput = $state<HTMLInputElement>()
+  let blankOpen = $state(false)
+  let blankButton = $state<HTMLElement | null>(null)
   let grid = $state<HTMLDivElement>()
   let resultsList = $state<HTMLUListElement>()
 
@@ -164,7 +166,7 @@
         <span class="current-detail" title={current.detail}>{current.detail}</span>
       {#if activeId === 'blank'}
         <div class="blank-tools">
-          <button type="button" class="tool" title="Choose blank background color" aria-label="Choose blank background color" onclick={() => blankInput?.click()}>
+          <button type="button" class="tool" bind:this={blankButton} title="Choose blank background color" aria-label="Choose blank background color" onclick={() => (blankOpen = !blankOpen)}>
             <Icon name="paint" size={14} />Color…
           </button>
           {#if blankColor}
@@ -182,15 +184,15 @@
     </div>
 
     <!-- The blank color's input lives outside the current card so it survives Blank being chosen by it. -->
-    <input
-      bind:this={blankInput}
-      class="color-input"
-      type="color"
-      tabindex="-1"
-      aria-hidden="true"
+    <ColorField
+      hideTrigger
+      bind:open={blankOpen}
+      anchor={blankButton}
+      label="Blank background color"
       value={blankColor ?? '#808080'}
-      oninput={(e) => {
-        onBlankColor(e.currentTarget.value)
+      apply="live"
+      onChange={(v) => {
+        onBlankColor(v)
         if (activeId !== 'blank') onChoose('blank')
       }}
     />
@@ -362,15 +364,6 @@
   }
   .tool:hover {
     background: var(--se-button-secondary-hover);
-  }
-  .color-input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    border: 0;
-    opacity: 0;
-    pointer-events: none;
   }
   .basemap-search {
     display: flex;

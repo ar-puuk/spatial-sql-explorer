@@ -1,7 +1,11 @@
 // Color ramp catalog (spec 003 FR-007/FR-008, research §6). Like the basemap
 // catalog, this is DATA: the picker renders from it, and adding a ramp means
 // adding a row. Colors are fixed and theme-independent (Constitution III).
-import { BREWER, PERCEPTUAL } from './rampData.js'
+import { BREWER as BREWER_CORE, PERCEPTUAL as PERCEPTUAL_CORE } from './rampData.js'
+import { BREWER_MORE, PERCEPTUAL_MORE } from './rampDataMore.js'
+
+const BREWER = { ...BREWER_CORE, ...BREWER_MORE }
+const PERCEPTUAL = { ...PERCEPTUAL_CORE, ...PERCEPTUAL_MORE }
 import { parseColor, rgbToHex, type RampRef } from './model.js'
 
 export type RampKind = 'sequential' | 'diverging' | 'qualitative'
@@ -10,9 +14,11 @@ export interface Ramp {
   id: string
   name: string
   kind: RampKind
-  license: 'Apache-2.0 (ColorBrewer)' | 'CC0'
+  license: 'Apache-2.0 (ColorBrewer)' | 'CC0' | 'Apache-2.0 (Google)' | 'BSD-3-Clause (seaborn)' | 'ISC (d3-scale-chromatic)' | 'Published palette (Okabe & Ito)'
   /** Qualitative palettes: how many distinct colors before they repeat. */
   maxClasses?: number
+  /** Perceptual colormaps (Viridis and kin: even in lightness, kind to color blindness) or ColorBrewer schemes. */
+  family: 'perceptual' | 'brewer'
 }
 
 interface RampSource {
@@ -21,10 +27,15 @@ interface RampSource {
   anchors?: string
 }
 
-const ROWS: Array<Ramp & RampSource> = [
+const ROWS: Array<Omit<Ramp, 'family'> & RampSource> = [
   { id: 'viridis', name: 'Viridis', kind: 'sequential', license: 'CC0', anchors: 'viridis' },
   { id: 'magma', name: 'Magma', kind: 'sequential', license: 'CC0', anchors: 'magma' },
   { id: 'plasma', name: 'Plasma', kind: 'sequential', license: 'CC0', anchors: 'plasma' },
+  { id: 'inferno', name: 'Inferno', kind: 'sequential', license: 'CC0', anchors: 'inferno' },
+  { id: 'cividis', name: 'Cividis', kind: 'sequential', license: 'CC0', anchors: 'cividis' },
+  { id: 'mako', name: 'Mako', kind: 'sequential', license: 'BSD-3-Clause (seaborn)', anchors: 'mako' },
+  { id: 'rocket', name: 'Rocket', kind: 'sequential', license: 'BSD-3-Clause (seaborn)', anchors: 'rocket' },
+  { id: 'turbo', name: 'Turbo', kind: 'sequential', license: 'Apache-2.0 (Google)', anchors: 'turbo' },
   { id: 'brewer-blues', name: 'Blues', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Blues' },
   { id: 'brewer-greens', name: 'Greens', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Greens' },
   { id: 'brewer-oranges', name: 'Oranges', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Oranges' },
@@ -32,18 +43,39 @@ const ROWS: Array<Ramp & RampSource> = [
   { id: 'brewer-purples', name: 'Purples', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Purples' },
   { id: 'brewer-ylorrd', name: 'Yellow–orange–red', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'YlOrRd' },
   { id: 'brewer-ylgnbu', name: 'Yellow–green–blue', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'YlGnBu' },
+  { id: 'brewer-bugn', name: 'Blue–green', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'BuGn' },
+  { id: 'brewer-bupu', name: 'Blue–purple', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'BuPu' },
+  { id: 'brewer-gnbu', name: 'Green–blue', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'GnBu' },
+  { id: 'brewer-orrd', name: 'Orange–red', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'OrRd' },
+  { id: 'brewer-pubu', name: 'Purple–blue', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PuBu' },
+  { id: 'brewer-pubugn', name: 'Purple–blue–green', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PuBuGn' },
+  { id: 'brewer-purd', name: 'Purple–red', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PuRd' },
+  { id: 'brewer-rdpu', name: 'Red–purple', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'RdPu' },
+  { id: 'brewer-ylgn', name: 'Yellow–green', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'YlGn' },
+  { id: 'brewer-ylorbr', name: 'Yellow–orange–brown', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'YlOrBr' },
+  { id: 'brewer-greys', name: 'Greys', kind: 'sequential', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Greys' },
   { id: 'brewer-rdbu', name: 'Red–blue', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'RdBu' },
   { id: 'brewer-rdylbu', name: 'Red–yellow–blue', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'RdYlBu' },
   { id: 'brewer-brbg', name: 'Brown–teal', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'BrBG' },
   { id: 'brewer-piyg', name: 'Pink–green', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PiYG' },
   { id: 'brewer-spectral', name: 'Spectral', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Spectral' },
+  { id: 'brewer-prgn', name: 'Purple–green', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PRGn' },
+  { id: 'brewer-puor', name: 'Purple–orange', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'PuOr' },
+  { id: 'brewer-rdgy', name: 'Red–grey', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'RdGy' },
+  { id: 'brewer-rdylgn', name: 'Red–yellow–green', kind: 'diverging', license: 'Apache-2.0 (ColorBrewer)', brewer: 'RdYlGn' },
   { id: 'brewer-set2', name: 'Set 2', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Set2', maxClasses: 8 },
   { id: 'brewer-dark2', name: 'Dark 2', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Dark2', maxClasses: 8 },
   { id: 'brewer-set1', name: 'Set 1', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Set1', maxClasses: 9 },
   { id: 'brewer-paired', name: 'Paired', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Paired', maxClasses: 12 },
+  { id: 'brewer-set3', name: 'Set 3', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Set3', maxClasses: 12 },
+  { id: 'brewer-accent', name: 'Accent', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Accent', maxClasses: 8 },
+  { id: 'brewer-pastel1', name: 'Pastel 1', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Pastel1', maxClasses: 9 },
+  { id: 'brewer-pastel2', name: 'Pastel 2', kind: 'qualitative', license: 'Apache-2.0 (ColorBrewer)', brewer: 'Pastel2', maxClasses: 8 },
+  { id: 'okabe-ito', name: 'Okabe–Ito (color-blind safe)', kind: 'qualitative', license: 'Published palette (Okabe & Ito)', brewer: 'OkabeIto', maxClasses: 8 },
+  { id: 'tableau10', name: 'Tableau 10', kind: 'qualitative', license: 'ISC (d3-scale-chromatic)', brewer: 'Tableau10', maxClasses: 10 },
 ]
 
-export const RAMPS: readonly Ramp[] = ROWS.map(({ brewer: _b, anchors: _a, ...ramp }) => ramp)
+export const RAMPS: readonly Ramp[] = ROWS.map(({ brewer: _b, anchors, ...ramp }) => ({ ...ramp, family: anchors ? ('perceptual' as const) : ('brewer' as const) }))
 
 const byId = new Map(ROWS.map((r) => [r.id, r]))
 

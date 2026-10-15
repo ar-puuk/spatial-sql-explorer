@@ -78,7 +78,7 @@ test('extrusion is kept in the saved QML and Mapbox GL style, and loads back', a
   await panel(page).getByLabel('Height scale').fill('1.5')
   await panel(page).getByLabel('Height scale').press('Enter')
 
-  const [qml] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const [qml] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   const qmlText = fs.readFileSync((await qml.path())!, 'utf8')
   expect(qmlText).toContain('<renderer-3d layer="" type="vector">')
   expect(qmlText).toContain('&quot;height_m&quot; * 1.5')

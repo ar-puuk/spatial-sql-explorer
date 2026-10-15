@@ -3,6 +3,7 @@
   // opens the side panel on Style, Labels (spec 011) or Basemap, as VS Code's activity
   // bar does. Feature details are a card on the map (user decision 2026-10-14). Clicking the active button closes the panel.
   import Icon, { type IconName } from './Icon.svelte'
+  import Tip from './kit/Tip.svelte'
   import type { SideTab } from './viewerStore.svelte.js'
 
   interface Props {
@@ -21,7 +22,7 @@
     { id: 'style', label: 'Style', icon: 'paint' },
     { id: 'labels', label: 'Labels', icon: 'tag' },
     { id: 'basemap', label: 'Basemap', icon: 'map' },
-    // Spec 014: which map buttons show and where; apart from the panels, at the bottom (VS Code's Manage gear).
+    // Spec 014: which map buttons show and where.
     { id: 'controls', label: 'Map controls', icon: 'sliders' },
   ]
 
@@ -49,19 +50,28 @@
 
 <div class="rail" role="toolbar" aria-orientation="vertical" aria-label="Panels" tabindex="-1" bind:this={rail} onkeydown={keydown}>
   {#each BUTTONS as b (b.id)}
-    <button
-      type="button"
-      class:active={active === b.id}
-      aria-label={b.label}
-      aria-pressed={active === b.id}
-      title={title(b)}
-      data-rail={b.id}
-      class:bottom={b.id === 'controls'}
-      disabled={(b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
-      onclick={() => onSelect(active === b.id ? null : b.id)}
-    >
-      <Icon name={b.icon} size={18} />
-    </button>
+    {@const off = (b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
+    <Tip text={title(b)} side="left">
+      {#snippet trigger(props)}
+        <button
+          type="button"
+          {...props}
+          class:active={active === b.id}
+          aria-label={b.label}
+          aria-pressed={active === b.id}
+          {...{ 'aria-description': title(b) }}
+          title={off ? title(b) : undefined}
+          data-rail={b.id}
+          disabled={off}
+          onclick={(e) => {
+            ;(props.onclick as ((e: MouseEvent) => void) | undefined)?.(e)
+            onSelect(active === b.id ? null : b.id)
+          }}
+        >
+          <Icon name={b.icon} size={18} />
+        </button>
+      {/snippet}
+    </Tip>
   {/each}
 </div>
 
@@ -80,15 +90,12 @@
     display: grid;
     place-items: center;
     width: 44px;
-    height: 44px;
+    height: 40px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--se-activity-inactive-fg, var(--se-text-secondary));
     cursor: pointer;
-  }
-  button.bottom {
-    margin-top: auto;
   }
   button:hover:not(:disabled),
   button.active {

@@ -2,7 +2,8 @@
 // Bilinear CIELAB interpolation between #e8e8e8, two ColorBrewer anchors from
 // rampData.ts (Copyright (c) 2002 Cynthia Brewer, Mark Harrower, and The
 // Pennsylvania State University; Apache-2.0) and their average hue at
-// lightness 28. Cells are row-major from low/low: index i + 3j.
+// lightness 28; and (spec 015) the five palettes of mapgl's bivariate_palettes() (MIT, Copyright (c) Kyle
+// Walker; "blue-pink" is Joshua Stevens' scheme), kept as they are. Cells are row-major from low/low: index i + 3j.
 
 export interface BivariatePalette {
   id: string
@@ -73,5 +74,84 @@ export const BIVARIATE_PALETTES: ReadonlyArray<BivariatePalette> = [
       '#575991',
       '#602e68'
     ]
+  },
+  {
+    id: 'blue-pink',
+    name: 'Blue – Pink',
+    cells: [
+      '#e8e8e8',
+      '#ace4e4',
+      '#5ac8c8',
+      '#dfb0d6',
+      '#a5add3',
+      '#5698b9',
+      '#be64ac',
+      '#8c62aa',
+      '#3b4994'
+    ],
+    note: 'Less distinct for red-green color blindness.'
+  },
+  {
+    id: 'blue-red',
+    name: 'Blue – Red',
+    cells: [
+      '#e8e8e8',
+      '#e4acac',
+      '#c85a5a',
+      '#b0d5df',
+      '#ad9ea5',
+      '#985356',
+      '#64acbe',
+      '#627f8c',
+      '#574249'
+    ]
+  },
+  {
+    id: 'green-blue',
+    name: 'Green – Blue',
+    cells: [
+      '#e8e8e8',
+      '#b5c0da',
+      '#6c83b5',
+      '#b8d6be',
+      '#90b2b3',
+      '#567994',
+      '#73ae80',
+      '#5a9178',
+      '#2a5a5b'
+    ],
+    note: 'Less distinct for red-green color blindness.'
+  },
+  {
+    id: 'purple-orange',
+    name: 'Purple – Orange',
+    cells: [
+      '#f2f2f2',
+      '#fddbc7',
+      '#f4a582',
+      '#d1e5f0',
+      '#b3a2c7',
+      '#b35806',
+      '#67a9cf',
+      '#8073ac',
+      '#542788'
+    ],
+    note: 'Some cells are close in color. Less distinct for red-green color blindness.'
+  },
+  {
+    id: 'brown-green',
+    name: 'Brown – Green',
+    cells: [
+      '#f5f5f5',
+      '#c7eae5',
+      '#80cdc1',
+      '#dfc27d',
+      '#a6b88f',
+      '#35978f',
+      '#bf812d',
+      '#8c6d31',
+      '#01665e'
+    ],
+    note: 'Some cells are close in color. Less distinct for red-green color blindness.'
   }
 ]

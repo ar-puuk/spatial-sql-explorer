@@ -40,7 +40,7 @@ test('patterns by category draw from engine tiles: one line solid, the other das
 
   const png = await page.locator('.canvas-host canvas').first().screenshot()
   fs.writeFileSync(info.outputPath('dash-tiles.png'), png)
-  // Rows where the line color (#1d4ed8-ish) is drawn, and along each band, how often it breaks.
+  // Rows where the line color (#1b5470-ish, the default outline) is drawn, and along each band, how often it breaks.
   const bands = await page.evaluate(async (b64) => {
     const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob())
     const cv = new OffscreenCanvas(bmp.width, bmp.height)
@@ -49,7 +49,7 @@ test('patterns by category draw from engine tiles: one line solid, the other das
     const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
     const isLine = (x: number, y: number) => {
       const i = (y * bmp.width + x) * 4
-      return d[i + 2] > 150 && d[i] < 100 && d[i + 1] < 140
+      return Math.abs(d[i] - 27) < 45 && Math.abs(d[i + 1] - 84) < 45 && Math.abs(d[i + 2] - 112) < 45
     }
     const rows: Array<{ y: number; on: number; runs: number }> = []
     for (let y = 0; y < bmp.height; y++) {

@@ -2,7 +2,7 @@
 // scratch geometry for queries and filters (never edits to the data).
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { fixture, grid, openFile, rowCount, runQuery } from './helpers'
+import { fixture, grid, openFile, rowCount, runQuery, choose } from './helpers'
 
 type E2E = { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }
 
@@ -81,6 +81,9 @@ test('Measure: a line shows its length; the units switch', async ({ page }) => {
   const cy = m.y + m.h / 2
   await page.mouse.click(cx - 100, cy)
   await page.mouse.move(cx + 100, cy, { steps: 4 })
+  // Under load the first moves can arrive before Terra Draw has the first corner: move again.
+  await page.waitForTimeout(150)
+  await page.mouse.move(cx + 101, cy + 1, { steps: 2 })
   // Live, while drawing.
   await expect(page.locator('.map-view .live-label')).toHaveText(/\d.* km/)
   await page.mouse.click(cx + 100, cy)
@@ -105,7 +108,7 @@ test('Select by shape: a rectangle selects the rows it covers; the predicate mat
   expect(intersecting).toBeLessThan(60)
 
   // Rows entirely inside the rectangle are fewer than rows that touch it.
-  await bar(page).getByLabel('Rows that').selectOption('within')
+  await choose(page, bar(page).getByRole('button', { name: 'Rows that' }), 'Within')
   await bar(page).getByRole('button', { name: 'Select rows' }).click()
   await expect.poll(count).toBeLessThan(intersecting)
   expect(await count()).toBeGreaterThan(0)
@@ -241,4 +244,24 @@ test('the palette and the shapes bar have no axe violations', async ({ page }) =
   await expect(bar(page)).toBeVisible()
   const results = await new AxeBuilder({ page }).include('.map-view .corner').include('[aria-label="Drawn shapes"]').analyze()
   expect(results.violations).toEqual([])
+})
+
+test('Undo and Redo work while a shape is being drawn, and the shape still finishes', async ({ page }) => {
+  const m = await open(page)
+  await pickTool(page, 'Draw', 'Polygon')
+  const [a, b, c, d] = around(m, 100, 70)
+  for (const [x, y] of [a, b, c]) {
+    await page.mouse.move(x, y)
+    await page.mouse.click(x, y)
+    await page.waitForTimeout(80)
+  }
+  await palette(page, 'Draw').getByRole('button', { name: 'Undo', exact: true }).click()
+  await palette(page, 'Draw').getByRole('button', { name: 'Redo', exact: true }).click()
+  // Back on the map (the buttons took the focus): one more corner, then Enter.
+  await page.mouse.move(d[0], d[1])
+  await page.mouse.click(d[0], d[1])
+  await page.waitForTimeout(80)
+  await page.keyboard.press('Enter')
+  await expect(bar(page)).toBeVisible()
+  await expect(labels(page)).toHaveCount(1)
 })

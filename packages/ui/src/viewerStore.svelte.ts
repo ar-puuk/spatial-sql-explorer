@@ -193,6 +193,8 @@ export interface ViewerStore {
   setTableSort(sort: { column: string; dir: 'asc' | 'desc' } | null): void
   /** One page of rows (PAGE_SIZE) at `offset`, in the current sort; null when there's nothing to page. */
   loadPage(offset: number): Promise<TablePage | null>
+  /** Where a row sits in the table now (sort and filters applied), or null; for scrolling to a row whose page is not loaded. */
+  rowPosition(id: string | number): Promise<number | null>
   // --- Spec 008 US2: columns, filters, selection --------------------------
   /** Columns hidden in the table (FR-008/FR-009): remembered per file for the file's own columns. */
   readonly hiddenColumns: ReadonlySet<string>
@@ -1725,6 +1727,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       tableSort = sort
       tableRevision++
     },
+    async rowPosition(id) {
+      const qs = querySession
+      if (!qs || typeof id !== 'number') return null
+      const sort = tableSort ? { column: tableSort.column, dir: tableSort.dir } : null
+      try {
+        return await retryWhenBusy(qs, () => qs.rowPosition(id, sort))
+      } catch {
+        return null
+      }
+    },
     async loadPage(offset) {
       const qs = querySession
       if (!qs) return null
@@ -2476,9 +2488,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     resetStyle() {
       previewBase = null
       style = { ...DEFAULT_LAYER_STYLE }
-      styleSource = null
       styleNotice = null
-      styleDirty = true
+      // Back to the default there is nothing left to save: "Default" says so. A style that came from (or was saved to) a
+      // file is still that file's name, marked modified, since the file no longer matches what is shown.
+      styleDirty = styleSource !== null
     },
     saveStyle,
     saveStyleAs: (format) => (format === 'qml' ? saveStyle() : exportStyleAs(format)),

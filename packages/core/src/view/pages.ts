@@ -37,6 +37,15 @@ export function pageSql(t: PageTarget, req: TablePageRequest): string {
 }
 
 /**
+ * Where a row sits in the table, in the order the pages use (the sort, then the row id): its zero-based position, so
+ * the table can scroll to a row on a page it has not loaded. One query over the whole result.
+ */
+export function rowPositionSql(t: PageTarget, sort: TablePageRequest['sort'], rowId: number): string {
+  const order = sort ? `ORDER BY ${quoteIdent(sort.column)} ${sort.dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, __se_rowid` : 'ORDER BY __se_rowid'
+  return `SELECT pos FROM (SELECT __se_rowid, row_number() OVER (${order}) - 1 AS pos FROM ${t.relation}) WHERE __se_rowid = ${Math.floor(rowId)}`
+}
+
+/**
  * Pages of the current result, least recently used dropped first. Keyed by
  * sort and offset; a new result or a new sort starts a new cache (clear()).
  */

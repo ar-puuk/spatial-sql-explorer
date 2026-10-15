@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColorField from './kit/ColorField.svelte'
   // Spec 011 US6 (contracts/ui.md "Labels panel"): the label settings of the
   // layer, in their own side panel (not part of the style). Text from a column
   // or a SQL expression the engine computes; size, color, halo, and where point
@@ -119,7 +120,7 @@
       </div>
       <div class="row">
         <span class="label" id="labels-color-label">Color</span>
-        <input type="color" aria-labelledby="labels-color-label" value={labels?.color ?? '#1f2937'} oninput={(e) => onChange({ color: e.currentTarget.value })} />
+        <ColorField labelledby="labels-color-label" value={labels?.color ?? '#1f2937'} apply="live" size="md" onChange={(v) => onChange({ color: v })} />
       </div>
       <!-- The halo on one row: on or off, then its color and width (kept readable on any basemap). -->
       <div class="row">
@@ -127,7 +128,7 @@
           <input type="checkbox" checked={halo.enabled} onchange={(e) => onChange({ halo: { enabled: e.currentTarget.checked } })} />
           Halo
         </label>
-        <input type="color" aria-label="Halo color" disabled={!halo.enabled} value={halo.color} oninput={(e) => onChange({ halo: { color: e.currentTarget.value } })} />
+        <ColorField label="Halo color" disabled={!halo.enabled} value={halo.color} apply="live" size="md" onChange={(v) => onChange({ halo: { color: v } })} />
         <input
           type="range"
           aria-label="Halo width"
@@ -249,22 +250,6 @@
     background: var(--se-input-bg);
     color: var(--se-input-fg, var(--se-text-primary));
     font: inherit;
-  }
-  input[type='color'] {
-    width: 28px;
-    height: 22px;
-    padding: 1px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
-    cursor: pointer;
-  }
-  input[type='color']::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  input[type='color']::-webkit-color-swatch {
-    border: 0;
-    border-radius: 2px;
   }
   input[type='range'] {
     width: 100%;

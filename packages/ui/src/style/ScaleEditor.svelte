@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColorField from '../kit/ColorField.svelte'
   import ColumnOptions from './ColumnOptions.svelte'
   // Spec 011 (contracts/ui.md "Scale editor"): how one property's column
   // becomes outputs. Categories or classes: the method and class count, the
@@ -81,7 +82,7 @@
 
 {#snippet outputEditor(label: string, value: Output | undefined, set: (o: Output) => void)}
   {#if kind === 'color'}
-    <input type="color" aria-label={label} value={String(value ?? '#000000')} onchange={(e) => set(e.currentTarget.value)} />
+    <ColorField label={label} value={String(value ?? '#000000')} apply="end" size="md" onChange={(v) => set(v)} />
   {:else if kind === 'shape'}
     <select aria-label={label} value={String(value)} onchange={(e) => set(e.currentTarget.value)}>
       {#each MARKER_SHAPES as s (s)}
@@ -266,7 +267,7 @@
             <Icon name={c.visible ? 'eye' : 'eye-off'} size={14} />
           </button>
           {#if kind === 'color'}
-            <input type="color" aria-label="{c.label} {name.toLowerCase()}" value={String(c.output ?? '#000000')} onchange={(e) => onClass(c.key, { output: e.currentTarget.value as Output })} />
+            <ColorField label="{c.label} {name.toLowerCase()}" value={String(c.output ?? '#000000')} apply="end" size="sm" onChange={(v) => onClass(c.key, { output: v as Output })} />
           {:else if kind === 'shape'}
             <select aria-label="{c.label} {name.toLowerCase()}" value={String(c.output)} onchange={(e) => onClass(c.key, { output: e.currentTarget.value })}>
               {#each MARKER_SHAPES as s (s)}

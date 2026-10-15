@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle, chooseStyleType } from './helpers'
+import { setColor, fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle, chooseStyleType } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
@@ -148,7 +148,7 @@ test.describe('ramps and class edits (US3)', () => {
     const listbox = page.getByRole('listbox', { name: 'Color ramps' })
     await expect(listbox).toBeFocused()
     await page.keyboard.press('End')
-    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp')
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowUp')
     await expect(page.getByRole('option', { name: 'Red–blue, diverging' })).toHaveClass(/active/)
     await page.keyboard.press('Enter')
     await expect(listbox).toHaveCount(0)
@@ -158,7 +158,7 @@ test.describe('ramps and class edits (US3)', () => {
     await expect.poll(() => swatchColor(page, 0)).toBe('#0571b0')
 
     // One class's color; the method stays Quantile.
-    await page.getByLabel('Color of 6,273 – 9,801').fill('#ff00ff')
+    await setColor(page, 'Color of 6,273 – 9,801', '#ff00ff')
     await expect.poll(() => swatchColor(page, 4)).toBe('#ff00ff')
     await expect(page.getByLabel('Method', { exact: true })).toHaveValue('quantile')
 
@@ -199,7 +199,7 @@ test.describe('styles follow query results (US5)', () => {
     await chooseStyleType(page, 'Graduated')
     await page.getByLabel('Column', { exact: true }).selectOption('value')
     // Web Save is a download: keep it next to the data, as a QGIS sidecar.
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
     const sidecar = path.join(path.dirname(data), 'parcels-2000.qml')
     await download.saveAs(sidecar)
     expect(fs.readFileSync(sidecar, 'utf8')).toContain('type="graduatedSymbol"')

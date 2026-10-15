@@ -4,6 +4,7 @@
   // them, show them as a layer (so every export format applies), save them as GeoJSON, or clear them.
   import { SPATIAL_PREDICATES, shapeLabel, type SpatialPredicate } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import Select from './kit/Select.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -22,14 +23,15 @@
 
 <div class="bar" role="group" aria-label="Drawn shapes">
   <span class="summary" title="Shapes you drew: scratch geometry for queries and filters, never edits to the data">{summary}</span>
-  <label class="predicate">
-    <span class="sr">Rows that</span>
-    <select aria-label="Rows that" title={hint} value={store.shapePredicate} onchange={(e) => store.setShapePredicate(e.currentTarget.value as SpatialPredicate)}>
-      {#each SPATIAL_PREDICATES as p (p.id)}
-        <option value={p.id}>{p.label}</option>
-      {/each}
-    </select>
-  </label>
+  <span class="predicate" title={hint}>
+    <Select
+      compact
+      label="Rows that"
+      value={store.shapePredicate}
+      options={SPATIAL_PREDICATES.map((p) => ({ value: p.id, label: p.label }))}
+      onChange={(v) => store.setShapePredicate(v as SpatialPredicate)}
+    />
+  </span>
   <button type="button" title="Select the rows that meet this condition against the shapes (Ctrl or Cmd adds to the selection)" onclick={(e) => void store.selectInShapes(e.ctrlKey || e.metaKey)}>
     <Icon name="select-shape" size={14} /><span>Select rows</span>
   </button>
@@ -75,23 +77,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--se-text-secondary);
   }
-  .sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  select {
-    height: 24px;
-    padding: 0 4px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
-    color: var(--se-input-fg, var(--se-text-primary));
-    font: inherit;
-  }
   button {
     display: inline-flex;
     align-items: center;
@@ -116,8 +101,7 @@
     opacity: 0.5;
     cursor: default;
   }
-  button:focus-visible,
-  select:focus-visible {
+  button:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: 1px;
   }

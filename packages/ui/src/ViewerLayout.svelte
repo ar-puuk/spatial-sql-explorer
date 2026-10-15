@@ -6,7 +6,8 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, type ControlPosition, type MapControlId, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import './kit/base.css'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -38,6 +39,7 @@
   import { tick, untrack } from 'svelte'
   import Icon from './Icon.svelte'
   import type { SideTab, ViewerStore } from './viewerStore.svelte.js'
+  import type { MapExtraId } from './MapView.svelte'
 
   interface Props {
     store: ViewerStore
@@ -177,8 +179,15 @@
   let galleryQuery = $state('')
   /** The feature card was closed (× or Escape); the next selection opens it again. */
   let inspectorClosed = $state(false)
-  /** The search box's width (it fits its placeholder); the feature card under it matches. */
-  let searchWidth = $state(0)
+
+  // How much room the map has decides what is drawn over it (a big table panel leaves a strip). In steps, so nothing ever
+  // overlaps: under SHORT_MAP_PX the legend shows only its title (and the buttons lay out in rows, MapView); under
+  // TINY_MAP_PX the legend and the feature card wait until the map is taller (the selection stays highlighted, and its row is in the table).
+  const SHORT_MAP_PX = 420
+  const TINY_MAP_PX = 250
+  let mapPaneHeight = $state(0)
+  const shortMap = $derived(mapPaneHeight > 0 && mapPaneHeight < SHORT_MAP_PX)
+  const tinyMap = $derived(mapPaneHeight > 0 && mapPaneHeight < TINY_MAP_PX)
 
   const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX)
   const bottomHeight = $derived(
@@ -310,40 +319,39 @@
   const queryFiles = $derived(store.workspaceFiles.length ? store.workspaceFiles : [{ path: fileName ?? 'layer', size: 0, open: true }])
 </script>
 
-{#snippet mapExtra(id: MapControlId, corner: ControlPosition)}
+{#snippet mapExtra(id: MapExtraId, corner: ControlPosition)}
   {#if id === 'search'}
     {@const up = corner.startsWith('bottom')}
-    <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. The selected feature's card goes with it. -->
-    <div class="search-stack" class:up>
-      <div class="search-row">
-        <div class="search-slot" bind:offsetWidth={searchWidth}>
-          <SearchBox
-            {store}
-            layerName={fileName ?? 'layer'}
-            dropUp={up}
-            onChooseFeature={(id) => {
-              handleMapSelect(id)
-              store.zoomToFeature(id)
-            }}
-          />
-        </div>
-        {#if store.fileLayers.length > 1}
-          <!-- Spec 008 US3: the file's layers. -->
-          <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
-        {/if}
-      </div>
-      {#if inspected && !inspectorClosed}
-        <div class="inspector-slot" style:--se-card-width={searchWidth ? `${searchWidth}px` : null}>
-          <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
-        </div>
-      {/if}
+    <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. -->
+    <div class="search-slot">
+      <SearchBox
+        {store}
+        layerName={fileName ?? 'layer'}
+        dropUp={up}
+        onChooseFeature={(id) => {
+          handleMapSelect(id)
+          store.zoomToFeature(id)
+        }}
+      />
     </div>
-  {:else if id === 'legend' && layer && showLegend}
+  {:else if id === 'layers'}
+    <!-- Spec 008 US3: the file's layers. Not a control: it shows whenever the file has more than one. -->
+    {#if store.fileLayers.length > 1}
+      <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+    {/if}
+  {:else if id === 'info'}
+    <!-- The selected feature's card. Not a control: it shows whenever a feature is selected. -->
+    {#if inspected && !inspectorClosed && !tinyMap}
+      <div class="inspector-slot">
+        <FeatureInspector feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+      </div>
+    {/if}
+  {:else if id === 'legend' && layer && showLegend && !tinyMap}
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
           geometryType={layer.geometryType}
-          collapsed={store.legendCollapsed}
+          collapsed={store.legendCollapsed || shortMap}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
           onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
           symbols={legendSymbols}
@@ -379,7 +387,7 @@
 
   <div class="workbench">
     <div class="main" bind:this={main} bind:clientHeight={mainHeight}>
-      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed}>
+      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
           mapData={store.mapData}
@@ -566,6 +574,7 @@
                   revision={store.tableRevision}
                   sort={store.tableSort}
                   loadPage={(offset) => store.loadPage(offset)}
+                  locateRow={(id) => store.rowPosition(id)}
                   onSort={(s) => store.setTableSort(s)}
                   selectedFeatureId={session.selectedFeatureId}
                   onSelectFeature={(id) => {
@@ -770,26 +779,9 @@
   .search-slot {
     min-width: 0;
   }
-  /* Spec 014: the search box and, under it, the selected feature's card, wherever the search sits. */
-  .search-stack {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    min-height: 0;
-    max-width: 100%;
-  }
-  .search-stack.up {
-    flex-direction: column-reverse;
-  }
-  .search-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    max-width: 100%;
-  }
   .inspector-slot {
     display: flex;
+    flex: 0 1 auto;
     flex-direction: column;
     min-height: 0;
     max-width: 100%;

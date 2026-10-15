@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColorField from './kit/ColorField.svelte'
   // Editable class list (spec 003 FR-009, contracts/ui-style-panel.md).
   // Each row: visibility, color, label (F2 or the edit button; Enter commits,
   // Esc cancels), count, delete. "Edit values" swaps labels for the category
@@ -134,7 +135,7 @@
           <SymbolSwatch symbol={sizeSymbols.symbols[i]} kind={sizeSymbols.kind} scale={sizeScale} size={22} />
         </span>
       {:else}
-        <input type="color" data-col="color" aria-label={`Color of ${c.label}`} value={c.color} onchange={(e) => onColor(c.key, e.currentTarget.value)} />
+        <ColorField dataCol="color" label={`Color of ${c.label}`} value={c.color} apply="end" size="sm" onChange={(v) => onColor(c.key, v)} />
       {/if}
 
       {#if editingValues && c.kind === 'value'}
@@ -265,21 +266,6 @@
     font-size: 0.9em;
     font-variant-numeric: tabular-nums;
     color: var(--se-text-secondary);
-  }
-  input[type='color'] {
-    width: 22px;
-    height: 18px;
-    padding: 0;
-    border: 1px solid var(--se-swatch-border);
-    border-radius: 2px;
-    background: transparent;
-    cursor: pointer;
-  }
-  input[type='color']::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  input[type='color']::-webkit-color-swatch {
-    border: 0;
   }
   input[type='text'],
   input[type='number'] {

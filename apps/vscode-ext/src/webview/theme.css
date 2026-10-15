@@ -40,11 +40,18 @@
   --se-section-title-font: 700 11px var(--vscode-font-family);
   --se-section-title-transform: uppercase;
   --se-section-title-tracking: normal;
+  --se-tab-font: 11px var(--vscode-font-family);
+  --se-tab-transform: uppercase;
+  --se-tab-tracking: normal;
+  --se-tab-underline-bottom: 4px;
+  --se-tab-underline-height: 1px;
   --se-section-title-fg: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
 
   /* Shape */
   --se-radius-sm: 2px;
   --se-radius: 4px;
+  --se-radius-lg: 6px;
+  --se-ease: cubic-bezier(0.3, 0.7, 0.3, 1);
   --se-shadow-card: 0 0 4px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
   --se-shadow-elevated: 0 0 8px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
   --se-overlay-blur: none;
@@ -85,6 +92,16 @@
   --se-table-stripe: var(--vscode-keybindingTable-rowsBackground, var(--vscode-tree-tableOddRowsBackground, transparent));
   --se-table-row-border: transparent;
   --se-table-number-fg: var(--vscode-foreground);
+
+  /* The type of a value (spec 015): VS Code's own tokens for variable values (the debug variables view) where it has
+     them, its chart colors elsewhere, so the grid and the feature card read like the rest of the workbench. */
+  --se-type-text: var(--vscode-debugTokenExpression-string, var(--vscode-foreground));
+  --se-type-integer: var(--vscode-debugTokenExpression-number, var(--vscode-foreground));
+  --se-type-decimal: var(--vscode-charts-green, var(--vscode-debugTokenExpression-number, var(--vscode-foreground)));
+  --se-type-boolean: var(--vscode-debugTokenExpression-boolean, var(--vscode-foreground));
+  --se-type-datetime: var(--vscode-charts-purple, var(--vscode-foreground));
+  --se-type-nested: var(--vscode-charts-orange, var(--vscode-foreground));
+  --se-type-geometry: var(--vscode-descriptionForeground);
 
   /* Selection: list.activeSelection* while the grid has focus,
      list.inactiveSelection* otherwise — VS Code's own list semantics. */

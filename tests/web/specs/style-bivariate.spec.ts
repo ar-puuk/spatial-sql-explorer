@@ -57,7 +57,7 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
   await panel(page).getByRole('button', { name: 'Swap axes' }).click()
   await expect(panel(page).getByLabel('Axis 1', { exact: true })).toHaveValue('obesity_rate')
   await expect(legend(page)).toContainText('obesity_rate × poverty_rate')
-  await panel(page).getByRole('radiogroup', { name: 'Bivariate palette' }).getByRole('radio', { name: /Green/ }).click()
+  await panel(page).getByRole('radiogroup', { name: 'Bivariate palette' }).getByRole('radio', { name: 'Green – Purple' }).click()
   await expect.poll(topRight).not.toBe(before)
   // Counties are polygons: no size channel either way (FR-006/FR-007; core tests cover points and lines).
   await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)

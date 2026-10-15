@@ -1,11 +1,11 @@
 <script lang="ts">
-  // Color ramp picker (spec 003 FR-007, contracts/ui-style-panel.md): a
-  // button showing the current ramp strip, a listbox of strips grouped by
-  // kind (arrows move, Enter applies, Esc closes), and a Reverse toggle.
-  // Spec 008 FR-004: while the list is open, the focused ramp previews on the
-  // map (`onPreview`); closing without a choice restores the previous one.
-  import { onMount } from 'svelte'
-  import { rampColors, rampsFor, type RampRef } from '@spatial-explorer/core'
+  // Color ramp picker (spec 003 FR-007, contracts/ui-style-panel.md; redone in spec 015): a button showing the
+  // current ramp's strip and name, a popup with a search box and a listbox of strips in groups (perceptual, sequential,
+  // diverging, qualitative; arrows move, Enter applies, Esc closes), and a Reverse toggle. Typing in the list goes to
+  // the search box. Spec 008 FR-004: while the list is open, the focused ramp previews on the map (`onPreview`);
+  // closing without a choice restores the previous one.
+  import { onMount, tick } from 'svelte'
+  import { rampColors, rampsFor, type Ramp, type RampRef } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   interface Props {
@@ -19,15 +19,29 @@
   }
   let { value, renderer, classCount, onChange, onPreview = () => {} }: Props = $props()
 
-  const ramps = $derived(rampsFor(renderer))
-  const kinds = $derived([...new Set(ramps.map((r) => r.kind))])
-  const KIND_LABEL = { sequential: 'Sequential', diverging: 'Diverging', qualitative: 'Qualitative' } as const
-  const current = $derived(ramps.find((r) => r.id === value.id) ?? ramps[0])
+  const all = $derived(rampsFor(renderer))
+  const current = $derived(all.find((r) => r.id === value.id) ?? all[0])
   const previewCount = $derived(Math.max(classCount, renderer === 'categorized' ? 8 : 5))
+
+  let query = $state('')
+  /** The ramps shown, in the order of the groups. */
+  const GROUPS: Array<{ id: string; label: string; test: (r: Ramp) => boolean }> = [
+    { id: 'perceptual', label: 'Perceptual', test: (r) => r.family === 'perceptual' },
+    { id: 'sequential', label: 'Sequential', test: (r) => r.family === 'brewer' && r.kind === 'sequential' },
+    { id: 'diverging', label: 'Diverging', test: (r) => r.kind === 'diverging' },
+    { id: 'qualitative', label: 'Qualitative', test: (r) => r.kind === 'qualitative' },
+  ]
+  const shown = $derived.by(() => {
+    const q = query.trim().toLowerCase()
+    const ramps = q ? all.filter((r) => r.name.toLowerCase().includes(q) || r.kind.includes(q)) : all
+    const groups = GROUPS.map((g) => ({ ...g, ramps: ramps.filter(g.test) })).filter((g) => g.ramps.length > 0)
+    return { groups, flat: groups.flatMap((g) => g.ramps) }
+  })
 
   let open = $state(false)
   let active = $state(0)
   let list = $state<HTMLUListElement>()
+  let search = $state<HTMLInputElement>()
   let button = $state<HTMLButtonElement>()
   let root = $state<HTMLDivElement>()
 
@@ -39,8 +53,9 @@
   }
 
   function openList(): void {
+    query = ''
     open = true
-    active = Math.max(0, ramps.findIndex((r) => r.id === value.id))
+    active = Math.max(0, shown.flat.findIndex((r) => r.id === value.id))
     queueMicrotask(() => list?.focus())
   }
 
@@ -57,8 +72,10 @@
   }
 
   function choose(i: number): void {
+    const r = shown.flat[i]
+    if (!r) return
     previewing = null
-    onChange({ id: ramps[i].id, reversed: value.reversed })
+    onChange({ id: r.id, reversed: value.reversed })
     close()
   }
 
@@ -67,7 +84,7 @@
   const PREVIEW_DELAY_MS = 90
   $effect(() => {
     if (!open) return
-    const r = ramps[active]
+    const r = shown.flat[active]
     if (!r || r.id === (previewing ?? value.id)) return
     const timer = setTimeout(() => {
       previewing = r.id
@@ -76,25 +93,59 @@
     return () => clearTimeout(timer)
   })
 
+  function move(e: KeyboardEvent): boolean {
+    const n = shown.flat.length
+    if (n === 0) return false
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') active = (active + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
+    else if (e.key === 'Home' || e.key === 'End') active = e.key === 'Home' ? 0 : n - 1
+    else return false
+    e.preventDefault()
+    return true
+  }
+
   function onKeydown(e: KeyboardEvent): void {
-    const n = ramps.length
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       close()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      active = (active + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
-    } else if (e.key === 'Home' || e.key === 'End') {
-      e.preventDefault()
-      active = e.key === 'Home' ? 0 : n - 1
+    } else if (move(e)) {
+      // moved
     } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      choose(active)
+    } else if (e.key === 'Tab') {
+      close(false)
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Typing in the list searches: the key goes to the box.
+      query = e.key
+      e.preventDefault()
+      void tick().then(() => {
+        search?.focus()
+        search?.setSelectionRange(1, 1)
+      })
+    }
+  }
+
+  function onSearchKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      close()
+    } else if (move(e)) {
+      // moved
+    } else if (e.key === 'Enter') {
       e.preventDefault()
       choose(active)
     } else if (e.key === 'Tab') {
       close(false)
     }
   }
+
+  // A new search starts at its first match.
+  $effect(() => {
+    void query
+    active = 0
+  })
 
   $effect(() => {
     if (open) list?.querySelector(`#ramp-${active}`)?.scrollIntoView({ block: 'nearest' })
@@ -120,6 +171,7 @@
     onclick={() => (open ? close() : openList())}
   >
     <span class="strip" style:background={strip(value.id, value.reversed)}></span>
+    <span class="current-name">{current?.name}</span>
     <Icon name="chevron-down" size={12} />
   </button>
   <button
@@ -134,19 +186,33 @@
   </button>
 
   {#if open}
-    <ul
-      bind:this={list}
-      class="list"
-      role="listbox"
-      aria-label="Color ramps"
-      tabindex="0"
-      aria-activedescendant={`ramp-${active}`}
-      onkeydown={onKeydown}
-    >
-      {#each kinds as kind (kind)}
-        <li class="group" role="presentation">{KIND_LABEL[kind]}</li>
-        {#each ramps as r, i (r.id)}
-          {#if r.kind === kind}
+    <div class="popup">
+      <label class="search">
+        <Icon name="search" size={14} />
+        <input
+          type="text"
+          bind:this={search}
+          bind:value={query}
+          aria-label="Search color ramps"
+          placeholder="Search {all.length} ramps"
+          autocomplete="off"
+          spellcheck="false"
+          onkeydown={onSearchKeydown}
+        />
+      </label>
+      <ul
+        bind:this={list}
+        class="list"
+        role="listbox"
+        aria-label="Color ramps"
+        tabindex="0"
+        aria-activedescendant={`ramp-${active}`}
+        onkeydown={onKeydown}
+      >
+        {#each shown.groups as g (g.id)}
+          <li class="group" role="presentation">{g.label}<span class="n">{g.ramps.length}</span></li>
+          {#each g.ramps as r (r.id)}
+            {@const i = shown.flat.indexOf(r)}
             <!-- Keys are handled on the listbox (aria-activedescendant pattern). -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <li
@@ -160,12 +226,15 @@
             >
               <span class="strip" style:background={strip(r.id, value.reversed)}></span>
               <span class="name">{r.name}</span>
-              {#if r.id === value.id}<Icon name="check" size={12} />{/if}
+              {#if r.id === value.id}<span class="chosen"><Icon name="check" size={12} /></span>{/if}
             </li>
-          {/if}
+          {/each}
         {/each}
-      {/each}
-    </ul>
+        {#if shown.flat.length === 0}
+          <li class="none" role="presentation">No ramp matches “{query.trim()}”.</li>
+        {/if}
+      </ul>
+    </div>
   {/if}
 </div>
 
@@ -180,9 +249,9 @@
   .reverse {
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 24px;
-    padding: 0 6px;
+    gap: 8px;
+    height: 28px;
+    padding: 0 8px;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
     background: var(--se-input-bg);
@@ -193,33 +262,85 @@
     flex: 1;
     min-width: 0;
   }
-  .reverse[aria-pressed='true'] {
-    background: var(--se-control-hover);
-    color: var(--se-text-primary);
+  .current:hover,
+  .reverse:hover {
+    border-color: var(--se-text-muted);
   }
+  .current-name {
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    color: var(--se-text-primary);
+    font-size: 0.92em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .reverse {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+  .reverse[aria-pressed='true'] {
+    background: var(--se-control-active-bg);
+    border-color: var(--se-control-active-fg);
+    color: var(--se-control-active-fg);
+  }
+  /* A ramp as bands of its colors, with a hairline edge that reads on any panel color. */
   .strip {
     flex: 1;
     min-width: 40px;
-    height: 12px;
+    height: 14px;
     border: 1px solid var(--se-swatch-border);
-    border-radius: 2px;
+    border-radius: 3px;
   }
-  .list {
+  .popup {
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
     z-index: 20;
-    width: max(100%, 280px);
-    max-height: 240px;
-    margin: 0;
-    padding: 4px;
-    overflow-y: auto;
-    list-style: none;
+    display: flex;
+    flex-direction: column;
+    width: max(100%, 300px);
+    max-height: 340px;
     background: var(--se-menu-bg);
     color: var(--se-menu-fg);
     border: 1px solid var(--se-menu-border);
     border-radius: var(--se-radius);
     box-shadow: var(--se-shadow-elevated);
+  }
+  .search {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 6px 2px;
+    padding: 0 8px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-text-secondary);
+  }
+  .search:focus-within {
+    border-color: var(--se-focus);
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--se-text-primary);
+    font: inherit;
+  }
+  .list {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 2px 4px 4px;
+    overflow-y: auto;
+    list-style: none;
     outline: none;
   }
   .list:focus-visible {
@@ -227,31 +348,82 @@
     outline-offset: -1px;
   }
   .group {
-    padding: 6px 6px 2px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 8px 6px 3px;
+    background: var(--se-menu-bg);
     color: var(--se-text-secondary);
-    font-size: 0.85em;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .group .n {
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
   }
   li[role='option'] {
+    position: relative;
     display: grid;
-    grid-template-columns: 96px 1fr 12px;
+    grid-template-columns: 132px 1fr 20px;
     align-items: center;
-    gap: 8px;
-    padding: 3px 6px;
+    gap: 10px;
+    padding: 4px 8px 4px 10px;
     border-radius: var(--se-radius-sm);
     cursor: pointer;
+  }
+  li[role='option'] .strip {
+    min-width: 0;
+    height: 16px;
   }
   li[role='option'].active {
     background: var(--se-menu-hover-bg);
     color: var(--se-menu-hover-fg);
+  }
+  /* The chosen ramp: an edge bar and a tint, a bold name and a check badge, as in the Color type list. */
+  li[role='option'][aria-selected='true'] {
+    background: var(--se-control-active-bg);
+  }
+  li[role='option'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--se-accent);
+  }
+  li[role='option'][aria-selected='true'] .name {
+    color: var(--se-control-active-fg);
+    font-weight: 600;
+  }
+  li[role='option'].active[aria-selected='true'] .name {
+    color: inherit;
+  }
+  .chosen {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--se-accent);
+    color: var(--se-button-fg);
   }
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .none {
+    padding: 10px 8px;
+    color: var(--se-text-secondary);
+  }
   .current:focus-visible,
   .reverse:focus-visible {
-    outline: 1px solid var(--se-focus);
+    outline: 2px solid var(--se-focus);
     outline-offset: -1px;
   }
 </style>

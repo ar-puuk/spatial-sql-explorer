@@ -1,3 +1,9 @@
+<script lang="ts" module>
+  import type { MapControlId } from '@spatial-explorer/core'
+  /** What a corner's `extra` snippet may be asked to draw: a control, or one of the two things that are not controls and show whenever they are needed (the file's layer picker, the selected feature's card). */
+  export type MapExtraId = MapControlId | 'layers' | 'info'
+</script>
+
 <script lang="ts">
   import {
     AttributionControl,
@@ -60,14 +66,14 @@
     isControlOn,
     type ControlPosition,
     type ControlGroupId,
-    type MapControlId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
   import type { Snippet } from 'svelte'
   import Icon, { type IconName } from './Icon.svelte'
   import type { DrawController, DrawTool } from './draw/controller.js'
   import ProgressBar from './ProgressBar.svelte'
-  import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
+  import Tip from './kit/Tip.svelte'
+  import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
   import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
@@ -116,7 +122,7 @@
     /** Spec 014: which buttons show, and in which corner each group sits. */
     controls?: MapControlsPrefs
     /** The controls that live outside the map (search, legend), drawn where the user put them. */
-    extra?: Snippet<[MapControlId, ControlPosition]>
+    extra?: Snippet<[MapExtraId, ControlPosition]>
     /** Spec 014: the columns the hover tooltip shows, and (engine tiles, which carry only the style's columns) a by-id lookup of the rest. */
     tooltipColumns?: string[]
     /** Spec 014: 3D terrain (a DEM the map is lifted onto), and what to do when its tiles fail. */
@@ -721,6 +727,17 @@
       lastPoint = e.point
       if (progressText) placeLive()
     })
+    // A position worth copying is the one you point at: right-click opens a small menu there (it does not move with the
+    // cursor, as the live readout does). Not while a drawing tool is open.
+    m.on('contextmenu', (e: MapMouseEvent) => {
+      if (drawingOn) return
+      e.originalEvent.preventDefault()
+      hideTip()
+      pointCopied = null
+      pointMenu = { x: e.point.x, y: e.point.y, width: m.getContainer().clientWidth, height: m.getContainer().clientHeight, lon: e.lngLat.lng, lat: e.lngLat.lat, elevation: terrainActive ? elevationAt(e.lngLat) : null }
+    })
+    m.on('mousedown', () => (pointMenu = null))
+    m.on('movestart', () => (pointMenu = null))
     m.on('moveend', () => {
       const c = m.getCenter()
       const b = m.getBounds()
@@ -731,6 +748,8 @@
     m.on('move', () => {
       const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
       if (t !== tilted) tilted = t
+      const bearing = m.getBearing()
+      if (Math.abs(bearing - mapBearing) > 0.4) mapBearing = bearing
     })
     m.on('mouseout', () => {
       onCursorMove(null)
@@ -1045,10 +1064,64 @@
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
+    // Overlays are laid out against each other, not only against the map: whenever the map, a stack or the open
+    // tools change size, the tools are fitted again.
+    overlayObserver = new ResizeObserver(scheduleFit)
+    overlayObserver.observe(rootEl)
+  })
+
+  let rootEl: HTMLDivElement
+  let overlayObserver: ResizeObserver | null = null
+  let fitFrame = 0
+  function scheduleFit(): void {
+    if (fitFrame) return
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = 0
+      // The stacks come and go with the controls: watch each, so a legend growing or collapsing refits the tools.
+      for (const c of rootEl.querySelectorAll('.corner')) overlayObserver?.observe(c)
+      fitPalette()
+    })
+  }
+  /**
+   * The open drawing tools are a column that can be taller than the room under them. They take as many columns as it
+   * takes to end above the map's bottom edge and above any stack at the bottom they would reach (the legend), so
+   * nothing is covered, whatever the size of the map or the legend.
+   */
+  function fitPalette(): void {
+    const el = rootEl?.querySelector<HTMLElement>('.group.palette')
+    if (!el) return
+    const root = rootEl.getBoundingClientRect()
+    const bottoms = Array.from(rootEl.querySelectorAll<HTMLElement>('.corner.bottom-left, .corner.bottom-right, .corner.bottom-center')).filter((c) => c.offsetHeight > 0)
+    const fits = (): boolean => {
+      const r = el.getBoundingClientRect()
+      // The bottom band holds the attribution and the scale: the tools end above it.
+      let limit = root.bottom - 44
+      for (const c of bottoms) {
+        const o = c.getBoundingClientRect()
+        const overlapsX = o.left < r.right && o.right > r.left
+        if (overlapsX && o.top > r.top) limit = Math.min(limit, o.top - 8)
+      }
+      return r.bottom <= limit
+    }
+    const buttons = el.children.length
+    for (let cols = 1; cols <= Math.min(buttons, 6); cols++) {
+      el.style.setProperty('--cols', String(cols))
+      if (fits()) return
+    }
+  }
+  $effect(() => {
+    // The tools open or close, or the stacks around them change.
+    void drawTool?.purpose
+    void drawTool?.tool
+    void controls
+    void layer
+    void tick().then(scheduleFit)
   })
 
   onDestroy(() => {
     resizeObserver?.disconnect()
+    overlayObserver?.disconnect()
+    if (fitFrame) cancelAnimationFrame(fitFrame)
     if (resizeFrame) cancelAnimationFrame(resizeFrame)
     if (skyFrame) cancelAnimationFrame(skyFrame)
     if (cursorFrame) cancelAnimationFrame(cursorFrame)
@@ -1188,6 +1261,8 @@
 
   // Spec 008 US6 (FR-026): extrusion on tilts a flat map so heights show.
   let tilted = $state(false)
+  /** The map's bearing in degrees, for the north arrow on Reset view. */
+  let mapBearing = $state(0)
   let wasExtruded = false
   $effect(() => {
     const on = extruded
@@ -1536,7 +1611,6 @@
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
   let lastCursor = $state<{ lon: number; lat: number; elevation?: number | null } | null>(null)
   let cursorFrame = 0
-  let copied = $state(false)
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
   function trackCursor(lon: number, lat: number, elevation?: number | null): void {
     if (!untrack(() => isControlOn(controls, 'coordinates'))) return
@@ -1555,26 +1629,66 @@
   let pendingCursor: { lon: number; lat: number; elevation?: number | null } | null = null
   /** The same "lat, lon" the status bar shows, to 5 decimals. */
   const cursorText = $derived(lastCursor ? `${lastCursor.lat.toFixed(5)}, ${lastCursor.lon.toFixed(5)}` : null)
-  /** What the readout shows: the coordinates, then the elevation when terrain gives one. Only the coordinates are copied. */
-  const cursorShown = $derived(cursorText && typeof lastCursor?.elevation === 'number' ? `${cursorText} · ${formatElevation(lastCursor.elevation)}` : cursorText)
-  async function copyCursor(): Promise<void> {
-    if (!cursorText) return
+
+  // The right-click position menu.
+  type PointMenu = { x: number; y: number; width: number; height: number; lon: number; lat: number; elevation: number | null }
+  let pointMenu = $state<PointMenu | null>(null)
+  let pointCopied = $state<string | null>(null)
+  let pointMenuEl = $state<HTMLDivElement>()
+  const pointItems = $derived(
+    pointMenu
+      ? [
+          { id: 'latlon', label: 'Copy lat, lon', text: `${pointMenu.lat.toFixed(5)}, ${pointMenu.lon.toFixed(5)}` },
+          { id: 'lonlat', label: 'Copy lon, lat', text: `${pointMenu.lon.toFixed(5)}, ${pointMenu.lat.toFixed(5)}` },
+          { id: 'wkt', label: 'Copy as WKT', text: `POINT(${pointMenu.lon.toFixed(6)} ${pointMenu.lat.toFixed(6)})` },
+        ]
+      : []
+  )
+  /** Kept inside the map. */
+  const pointMenuLeft = $derived(pointMenu ? Math.max(4, Math.min(pointMenu.x, pointMenu.width - 196)) : 0)
+  const pointMenuTop = $derived(pointMenu ? Math.max(4, Math.min(pointMenu.y, pointMenu.height - 150)) : 0)
+  async function copyPoint(id: string, text: string): Promise<void> {
     try {
-      await navigator.clipboard.writeText(cursorText)
+      await navigator.clipboard.writeText(text)
     } catch {
       return
     }
-    copied = true
+    pointCopied = id
     if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copied = false), 1200)
+    copiedTimer = setTimeout(() => ((pointMenu = null), (pointCopied = null)), 700)
   }
+  function closePointMenu(refocus = true): void {
+    pointMenu = null
+    pointCopied = null
+    if (refocus) map?.getCanvas().focus()
+  }
+  function pointMenuKeydown(e: KeyboardEvent): void {
+    const items = Array.from(pointMenuEl?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+    const i = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      closePointMenu()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+    } else if (e.key === 'Tab') closePointMenu(false)
+  }
+  $effect(() => {
+    if (!pointMenu) return
+    void tick().then(() => pointMenuEl?.querySelector<HTMLButtonElement>('button')?.focus())
+    const outside = (ev: PointerEvent): void => {
+      if (pointMenuEl && !pointMenuEl.contains(ev.target as Node)) closePointMenu(false)
+    }
+    window.addEventListener('pointerdown', outside, true)
+    return () => window.removeEventListener('pointerdown', outside, true)
+  })
 
-  const POSITIONS: ControlPosition[] = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
   const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
   const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
-  type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapControlId }
+  type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
   /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
   function cornerSegments(corner: ControlPosition): Segment[] {
     const out: Segment[] = []
@@ -1588,6 +1702,10 @@
       if (last && last.kind === 'buttons' && last.group === group) last.ids.push(id)
       else out.push({ kind: 'buttons', key: `b:${id}`, group, ids: [id] })
     }
+    // Not controls: the file's layers and the selected feature's card show whenever they are needed, at the top left.
+    if (corner === 'top-left') {
+      out.push({ kind: 'item', key: 'i:layers', id: 'layers' }, { kind: 'item', key: 'i:info', id: 'info' })
+    }
     return out
   }
 
@@ -1597,7 +1715,10 @@
     if (!map || !mapReady) return
     if (map.getProjection()?.type !== type) map.setProjection({ type })
     map.setSky(type === 'globe' ? GLOBE_SKY : FLAT_SKY)
-    if (type === 'globe') void tick().then(scheduleSky)
+    if (type === 'globe') {
+      loadSky(scheduleSky)
+      void tick().then(scheduleSky)
+    }
   })
 
   let appliedFit = 0
@@ -1648,97 +1769,65 @@
   })
 </script>
 
-<div class="map-view" class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
-  {#if projection === 'globe'}
-    <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
-    <canvas class="comets" bind:this={cometCanvas} aria-hidden="true"></canvas>
-  {/if}
-  <div class="canvas-host" class:dimmed bind:this={container}></div>
-  {#if drawLoading}
-    <ProgressBar label="Loading the features" />
-  {/if}
-  {#each POSITIONS as corner (corner)}
+{#snippet cornerStack(corner: ControlPosition)}
     {@const segments = cornerSegments(corner)}
     {#if segments.length > 0}
       <div class="corner {corner}">
         {#each segments as seg (seg.key)}
           {#if seg.kind === 'buttons'}
-            <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
-              {#each seg.ids as id (id)}
-                {#if id === 'zoom'}
-                  <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
-                  <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
-                {:else if id === 'zoomToLayer'}
-                  <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
-                {:else if id === 'globe'}
-                  <button
-                    type="button"
-                    title={projection === 'globe' ? 'Flat map' : 'Globe view'}
-                    aria-label="Globe view"
-                    aria-pressed={projection === 'globe'}
-                    class:active={projection === 'globe'}
-                    onclick={onToggleProjection}
-                  >
-                    <Icon name="globe" />
-                  </button>
-                {:else if id === 'terrain'}
-                  <button
-                    type="button"
-                    title={terrain.on ? 'Terrain off' : 'Terrain on'}
-                    aria-label="Terrain"
-                    aria-pressed={terrain.on}
-                    class:active={terrain.on}
-                    onclick={onToggleTerrain}
-                  >
-                    <Icon name="mountain" />
-                  </button>
-                {:else if id === 'draw' || id === 'measure' || id === 'select'}
-                  {@const purpose: ShapePurpose = id}
-                  <button
-                    type="button"
-                    title={PURPOSE_LABEL[purpose]}
-                    aria-label={PURPOSE_LABEL[purpose]}
-                    aria-pressed={drawTool?.purpose === purpose}
-                    class:active={drawTool?.purpose === purpose}
-                    onclick={() => onToggleDrawPurpose(purpose)}
-                  >
-                    <Icon name={id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape'} />
-                  </button>
-                {:else if id === 'exportImage'}
-                  <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
-                {:else if id === 'resetView'}
-                  <!-- Spec 008 FR-026: back to flat and north-up. -->
-                  <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
-                {/if}
-              {/each}
+                    <!-- The tools of an open purpose (draw, measure, select) form a second column beside the buttons, on the side away from the map's edge. -->
+            <div class="pair">
+      <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
+                {#each seg.ids as id (id)}
+                  {#if id === 'zoom'}
+                    {@render mapButton('Zoom in', 'Zoom in', 'plus', corner, { onclick: () => map?.zoomIn() })}
+                    {@render mapButton('Zoom out', 'Zoom out', 'minus', corner, { onclick: () => map?.zoomOut() })}
+                  {:else if id === 'zoomToLayer'}
+                    {@render mapButton('Zoom to layer', 'Zoom to layer', 'fit', corner, { disabled: !layer?.extent, onclick: () => fitExtent(true) })}
+                  {:else if id === 'globe'}
+                    {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
+                  {:else if id === 'terrain'}
+                    {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
+                  {:else if id === 'draw' || id === 'measure' || id === 'select'}
+                    {@const purpose: ShapePurpose = id}
+                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape', corner, {
+                      pressed: drawTool?.purpose === purpose,
+                      onclick: () => onToggleDrawPurpose(purpose),
+                    })}
+                  {:else if id === 'exportImage'}
+                    {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
+                  {:else if id === 'resetView'}
+                    <!-- Spec 008 FR-026: back to flat and north-up. -->
+                    {@render mapButton('Reset view', 'Reset view (flat, north up)', 'north', corner, { rotate: -mapBearing, onclick: resetView })}
+                  {/if}
+                {/each}
+              </div>
+              {#if drawTool && seg.ids.includes(PURPOSE_CONTROL[drawTool.purpose])}
+                <!-- The open tool's palette, under the box holding its button. -->
+                  <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
+                    {#each PALETTE[drawTool.purpose] as t (t)}
+                      {@render mapButton(TOOL_LABEL[t], `${TOOL_LABEL[t]}: ${TOOL_HINT[t]}`, TOOL_ICON[t], corner, { pressed: drawTool.tool === t, onclick: () => onSetDrawTool(t) })}
+                    {/each}
+                    {#if drawTool.purpose === 'draw'}
+                      {@render mapButton('Delete selected shape', 'Delete the selected shape (edit mode)', 'trash', corner, { disabled: drawTool.tool !== 'edit' || !selectedShape, onclick: () => drawController?.deleteSelected() })}
+                      {@render mapButton('Undo', 'Undo', 'undo', corner, { onclick: () => drawController?.undo() })}
+                    {@render mapButton('Redo', 'Redo', 'redo', corner, { onclick: () => drawController?.redo() })}
+                    {/if}
+                    {#if drawTool.purpose === 'measure'}
+                      {@render mapButton(`Units: ${drawUnits}`, `Units: ${drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch.`, null, corner, {
+                        text: drawUnits === 'metric' ? 'km' : 'mi',
+                        onclick: () => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric'),
+                      })}
+                    {/if}
+                    {@render mapButton('Close drawing tools', 'Close the tools (the shapes stay)', 'check', corner, { onclick: () => onSetDrawTool(null) })}
+                  </div>
+              {/if}
             </div>
-            {#if drawTool && seg.ids.includes(PURPOSE_CONTROL[drawTool.purpose])}
-              <!-- The open tool's palette, under the box holding its button. -->
-                <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
-                  {#each PALETTE[drawTool.purpose] as t (t)}
-                    <button type="button" title="{TOOL_LABEL[t]}: {TOOL_HINT[t]}" aria-label={TOOL_LABEL[t]} aria-pressed={drawTool.tool === t} class:active={drawTool.tool === t} onclick={() => onSetDrawTool(t)}>
-                      <Icon name={TOOL_ICON[t]} />
-                    </button>
-                  {/each}
-                  {#if drawTool.purpose === 'draw'}
-                    <button type="button" title="Delete the selected shape (edit mode)" aria-label="Delete selected shape" disabled={drawTool.tool !== 'edit' || !selectedShape} onclick={() => drawController?.deleteSelected()}>
-                      <Icon name="trash" />
-                    </button>
-                    <button type="button" title="Undo" aria-label="Undo" onclick={() => drawController?.undo()}><Icon name="undo" /></button>
-                  {/if}
-                  {#if drawTool.purpose === 'measure'}
-                    <button type="button" class="text" title="Units: {drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch." aria-label="Units: {drawUnits}" onclick={() => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric')}>
-                      {drawUnits === 'metric' ? 'km' : 'mi'}
-                    </button>
-                  {/if}
-                  <button type="button" title="Close the tools (the shapes stay)" aria-label="Close drawing tools" onclick={() => onSetDrawTool(null)}><Icon name="check" /></button>
-                </div>
-            {/if}
           {:else if seg.id === 'coordinates'}
-            <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
-              <span class="value">{cursorShown ?? 'lat, lon'}</span>
-              <Icon name={copied ? 'check' : 'copy'} size={12} />
-            </button>
+            <output class="coords" title="Right-click the map to copy a position">
+              <span class="pos">{cursorText ?? 'lat, lon'}</span>
+              {#if typeof lastCursor?.elevation === 'number'}<span class="elev">{formatElevation(lastCursor.elevation)}</span>{/if}
+            </output>
           {:else if seg.id === 'scale'}
             <div class="native" bind:this={scaleHost}></div>
           {:else if seg.id === 'logo'}
@@ -1749,7 +1838,53 @@
         {/each}
       </div>
     {/if}
-  {/each}
+{/snippet}
+
+{#snippet mapButton(label: string, hint: string, icon: IconName | null, corner: ControlPosition, o: { pressed?: boolean; disabled?: boolean; text?: string; rotate?: number; onclick: () => void })}
+  <Tip text={hint} side={corner.endsWith('left') ? 'right' : corner.endsWith('right') ? 'left' : corner.startsWith('top') ? 'bottom' : 'top'}>
+    {#snippet trigger(props)}
+      <button type="button" {...props} aria-label={label} aria-pressed={o.pressed} class:active={o.pressed} class:text={!!o.text} disabled={o.disabled} onclick={o.onclick}>
+        {#if icon}<Icon name={icon} rotate={o.rotate} />{:else}{o.text}{/if}
+      </button>
+    {/snippet}
+  </Tip>
+{/snippet}
+
+<div class="map-view" bind:this={rootEl} class:space={projection === 'globe'} style:background={projection === 'globe' ? undefined : (blankColor ?? undefined)}>
+  {#if projection === 'globe'}
+    <canvas class="sky" bind:this={skyCanvas} aria-hidden="true"></canvas>
+    <canvas class="comets" bind:this={cometCanvas} aria-hidden="true"></canvas>
+  {/if}
+  <div class="canvas-host" class:dimmed bind:this={container}></div>
+  {#if drawLoading}
+    <ProgressBar label="Loading the features" />
+  {/if}
+  <!-- The left side is one column: what is at the top left (search, layers, the feature's card) shares the height with what is
+       at the bottom left (legend, scale, logo), so the card is never taller than the room between them. -->
+  <div class="side left">
+    {@render cornerStack('top-left')}
+    {@render cornerStack('bottom-left')}
+  </div>
+  {@render cornerStack('top-center')}
+  {@render cornerStack('bottom-center')}
+  <div class="side right">
+    {@render cornerStack('top-right')}
+    {@render cornerStack('bottom-right')}
+  </div>
+  {#if pointMenu}
+    <div class="point-menu" role="menu" aria-label="Position" bind:this={pointMenuEl} style:left="{pointMenuLeft}px" style:top="{pointMenuTop}px" onkeydown={pointMenuKeydown} tabindex="-1">
+      <div class="point-head">
+        <span class="point-coords">{pointItems[0]?.text}</span>
+        {#if typeof pointMenu.elevation === 'number'}<span class="point-elev">{formatElevation(pointMenu.elevation)}</span>{/if}
+      </div>
+      {#each pointItems as it (it.id)}
+        <button type="button" role="menuitem" onclick={() => void copyPoint(it.id, it.text)}>
+          <span>{pointCopied === it.id ? 'Copied' : it.label}</span>
+          {#if pointCopied === it.id}<Icon name="check" size={14} />{/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
   {#if progressText}
     <div class="live-label" bind:this={liveEl}>{progressText}</div>
   {/if}
@@ -1767,6 +1902,8 @@
     position: relative;
     width: 100%;
     height: 100%;
+    /* Search, layer picker and feature card, one width. */
+    --se-stack-width: 300px;
     /* Cards in the corners are sized against the map's own height (cqh). */
     container-type: size;
     background: var(--se-map-bg);
@@ -1808,28 +1945,70 @@
   .corner > :global(*) {
     pointer-events: auto;
   }
-  .corner.top-left {
+  /* The left column: top and bottom stacks in one flex column; the top one gives way when the bottom one is tall. */
+  .side.left {
+    position: absolute;
     top: 10px;
     left: 10px;
-    align-items: flex-start;
-    /* Search results open over the other corners. */
-    z-index: 7;
-  }
-  .corner.top-right {
-    top: 10px;
-    right: 10px;
-    align-items: flex-end;
-  }
-  .corner.bottom-left {
     bottom: calc(var(--se-map-bottom-inset, 0px) + 10px);
-    left: 10px;
+    z-index: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: calc(50% - 15px);
+    pointer-events: none;
+  }
+  .side.left > .corner {
+    position: static;
+    max-width: 100%;
+    max-height: none;
+  }
+  .side.left > .corner.top-left {
+    flex: 0 1 auto;
+    min-height: 0;
     align-items: flex-start;
   }
-  /* Above the compact attribution, which stays here. */
-  .corner.bottom-right {
+  /* When the two do not fit, the legend gives up more of its height than the card (its list scrolls). */
+  .side.left > .corner.bottom-left {
+    flex: 0 1 auto;
+    min-height: 0;
+    margin-top: auto;
+    align-items: flex-start;
+  }
+  .side.left > .corner > .native {
+    flex: none;
+  }
+  /* The right column: the buttons on top, the legend (or anything else put at the bottom) under them, above the attribution. */
+  .side.right {
+    position: absolute;
+    top: 10px;
     right: 10px;
     bottom: calc(var(--se-map-bottom-inset, 0px) + 38px);
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
     align-items: flex-end;
+    gap: 8px;
+    max-width: calc(50% - 15px);
+    pointer-events: none;
+  }
+  .side.right > .corner {
+    position: static;
+    max-width: 100%;
+    max-height: none;
+    align-items: flex-end;
+  }
+  .side.right > .corner.top-right {
+    flex: none;
+  }
+  .side.right > .corner.bottom-right {
+    flex: 0 1 auto;
+    min-height: 0;
+    margin-top: auto;
+  }
+  .side.right > .corner > .native {
+    flex: none;
   }
   /* Along an edge, centered (a wide, short readout); clear of the corners' stacks on both sides. */
   .corner.top-center,
@@ -1853,11 +2032,25 @@
     float: none;
   }
   .group button.text {
-    width: 28px;
-    font: 600 11px/1 var(--se-font-mono);
+    width: 30px;
+    font: 500 11px/1 var(--se-font-mono);
   }
-  .group.palette {
+  /* The tools: a grid whose columns are chosen to fit (fitPalette). */
+  .map-view .group.palette {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 1), 30px);
+    gap: 0;
+    max-width: none;
+    background: var(--se-control-bg);
     border-color: var(--se-focus);
+  }
+  .map-view .group.palette :global(button) {
+    background: var(--se-control-bg);
+    border-top: 0;
+    box-shadow: inset -1px -1px 0 var(--se-border);
+  }
+  .map-view .group.palette :global(button.active) {
+    background: var(--se-control-active-bg);
   }
   .live-label {
     position: absolute;
@@ -1927,18 +2120,101 @@
     font: 11px/1.6 var(--se-font-mono);
     font-variant-numeric: tabular-nums;
     backdrop-filter: var(--se-overlay-blur);
-    cursor: pointer;
   }
-  .coords:hover:not(:disabled) {
+  .coords .pos {
     color: var(--se-text-primary);
   }
-  .coords:disabled {
-    opacity: 0.6;
-    cursor: default;
+  .coords .elev {
+    padding-left: 8px;
+    border-left: 1px solid var(--se-border);
   }
-  .coords:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 1px;
+  /* Right-click: where you pointed, and what to copy. */
+  .point-menu {
+    position: absolute;
+    z-index: 8;
+    width: 192px;
+    padding: 4px;
+    background: var(--se-menu-bg);
+    color: var(--se-menu-fg);
+    border: 1px solid var(--se-menu-border);
+    border-radius: var(--se-radius);
+    box-shadow: var(--se-shadow-elevated);
+    font: var(--se-font-size) var(--se-font-ui);
+    outline: none;
+  }
+  .point-head {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 8px 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--se-border);
+  }
+  .point-coords {
+    font: 12px var(--se-font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--se-text-primary);
+  }
+  .point-elev {
+    font-size: 12px;
+    color: var(--se-text-secondary);
+  }
+  .point-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .point-menu button:hover,
+  .point-menu button:focus-visible {
+    background: var(--se-menu-hover-bg);
+    color: var(--se-menu-hover-fg);
+    outline: none;
+  }
+  /* A short map (a big table panel under it): the buttons lie in rows instead of one tall column, so the stack fits
+     the strip. The tools of an open purpose open under the buttons, not beside them. */
+  @container (max-height: 420px) {
+    .map-view .group {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 1px;
+      /* A box of up to six buttons stays one row (the navigation group, with Reset view, is six). */
+      max-width: 190px;
+      background: var(--se-border);
+    }
+    .map-view .group :global(button) {
+      background: var(--se-control-bg);
+      border-top: 0;
+    }
+    .map-view .group :global(button + button) {
+      border-top: 0;
+    }
+    .map-view .group :global(button.active) {
+      background: var(--se-control-active-bg);
+    }
+  }
+  /* The open tools sit beside the buttons, out of the flow: however tall they are, they never push the stack (and so
+     the legend under it) around, and fitPalette decides how many columns they need. */
+  .pair {
+    position: relative;
+  }
+  .map-view .group.palette {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 6px);
+  }
+  .map-view .corner.top-right .group.palette,
+  .map-view .corner.bottom-right .group.palette {
+    left: auto;
+    right: calc(100% + 6px);
   }
   .group {
     display: flex;
@@ -1953,15 +2229,15 @@
   .group button {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--se-control-fg);
     cursor: pointer;
   }
-  .group button + button {
+  .group :global(button + button) {
     border-top: 1px solid var(--se-border);
   }
   .group button:hover:not(:disabled) {
@@ -1976,8 +2252,8 @@
     cursor: default;
   }
   .group button:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: -1px;
+    outline: 2px solid var(--se-focus);
+    outline-offset: -2px;
   }
 
   /* MapLibre's own controls, re-skinned onto the same tokens. */

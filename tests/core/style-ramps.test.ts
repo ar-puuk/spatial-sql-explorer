@@ -11,7 +11,7 @@ describe('ramp catalog', () => {
       expect(r.id).toMatch(/^[a-z0-9-]+$/)
       expect(r.name.length).toBeGreaterThan(0)
       expect(['sequential', 'diverging', 'qualitative']).toContain(r.kind)
-      expect(r.license).toMatch(/CC0|Apache-2.0/)
+      expect(r.license).toMatch(/CC0|Apache-2.0|BSD-3-Clause|ISC|Published palette/)
     }
     expect(new Set(RAMPS.map((r) => r.id)).size).toBe(RAMPS.length)
   })

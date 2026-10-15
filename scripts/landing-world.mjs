@@ -1,5 +1,5 @@
 // The web landing page's map: the world's population, estimated per hexagon,
-// as one static SVG (apps/web/public/landing/world-population.svg). Drawn as
+// as one static SVG (apps/web/src/landing/world-population.svg). Drawn as
 // an image, so the landing page needs no engine, no network and no live SVG.
 //
 //   node scripts/landing-world.mjs
@@ -20,7 +20,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const out = path.join(root, 'apps', 'web', 'public', 'landing', 'world-population.svg')
+const out = path.join(root, 'apps', 'web', 'src', 'landing', 'world-population.svg')
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'se-world-'))
 const fwd = (p) => p.replace(/\\/g, '/')
 const run = (cmd, args, input) => {
@@ -29,7 +29,7 @@ const run = (cmd, args, input) => {
 }
 
 /** Same ramp as Landing.svelte's RAMP (fixed data colors). */
-const RAMP = ['#fdecb4', '#fcd27f', '#f9b14f', '#f08a32', '#dd6526', '#b9441f', '#8a2c1b']
+const RAMP = ['#d9e9ef', '#a9cfdb', '#74b0c4', '#3f8fa8', '#26708b', '#1b5470', '#123b52']
 /** Class breaks (people per hexagon): RAMP[i] is for values from BREAKS[i - 1]. Landing.svelte's legend labels them. */
 const BREAKS = [100e3, 300e3, 1e6, 3e6, 10e6, 30e6]
 const HEX_KM = 450 // flat-to-flat (pointy-top hexagons)

@@ -2,7 +2,7 @@
 // measurements, and the SQL that uses them: the `drawn` table, a spatial predicate on the layer, and
 // GeoJSON export. Shapes are WGS84 GeoJSON (what Terra Draw and MapLibre work in). Pure builders.
 import { quoteIdent, quoteLiteral } from '../query/util.js'
-import { formatArea, formatLength, lineLengthMeters, polygonAreaSquareMeters, polygonPerimeterMeters, type UnitSystem } from './geodesy.js'
+import { formatArea, formatLength, geodesicGeometry, lineLengthMeters, polygonAreaSquareMeters, polygonPerimeterMeters, type UnitSystem } from './geodesy.js'
 
 export type ShapeKind = 'point' | 'line' | 'polygon' | 'rectangle' | 'circle' | 'freehand'
 
@@ -48,7 +48,8 @@ export function shapeLabel(shape: Pick<DrawnShape, 'geometry'>, units: UnitSyste
 /** The name a query uses for the shapes. */
 export const DRAWN_TABLE = 'drawn'
 
-const geomText = (shape: Pick<DrawnShape, 'geometry'>): string => quoteLiteral(JSON.stringify(shape.geometry))
+// A line follows its great circle in SQL and in exports (geodesicGeometry), as it does on the map and in its length.
+const geomText = (shape: Pick<DrawnShape, 'geometry'>): string => quoteLiteral(JSON.stringify(geodesicGeometry(shape.geometry)))
 
 /** One shape as a geometry value. */
 export function shapeGeometrySql(shape: Pick<DrawnShape, 'geometry'>): string {
@@ -118,7 +119,7 @@ export function shapesGeoJson(shapes: readonly DrawnShape[]): GeoJSON.FeatureCol
     type: 'FeatureCollection',
     features: shapes.map((s) => {
       const m = measureShape(s)
-      return { type: 'Feature', geometry: s.geometry, properties: { id: s.id, kind: s.kind, purpose: s.purpose, area_m2: m.areaM2, length_m: m.lengthM, perimeter_m: m.perimeterM } }
+      return { type: 'Feature', geometry: geodesicGeometry(s.geometry), properties: { id: s.id, kind: s.kind, purpose: s.purpose, area_m2: m.areaM2, length_m: m.lengthM, perimeter_m: m.perimeterM } }
     }),
   }
 }

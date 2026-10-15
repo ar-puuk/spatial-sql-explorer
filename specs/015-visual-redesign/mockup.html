@@ -1,0 +1,1309 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spatial Explorer visual redo (mockup)</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"><style>
+:root{--ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Code","SF Mono",Menlo,monospace;--rs:3px;--rm:6px;--rl:10px}
+*{box-sizing:border-box}body{margin:0;font:13px/1.45 var(--ui);background:#c9d0db;color:#1c2f55;padding:20px;display:grid;gap:20px;grid-template-columns:minmax(0,1160px);justify-content:center}
+.app[data-theme=light]{--bg:#fcfcfd;--pn:#f3f5f8;--el:#fff;--bd:#dde2ea;--bd2:#c9d1de;--tx:#1c2f55;--t2:#5a6882;--ac:#b3135f;--acf:#fff;--ach:#fbe8f1;--hv:#e9edf3;--map:#d3e6f0;--ink:#1c2f55;--sel:#fde9b8;--sh1:0 0 0 1px #dde2ea,0 1px 1px rgba(28,47,85,.08);--sh2:0 24px 48px -16px rgba(28,47,85,.28),0 0 0 1px #dde2ea}
+.app[data-theme=dark]{--bg:#0f1726;--pn:#141e30;--el:#1a2639;--bd:#263349;--bd2:#33445f;--tx:#e4eaf5;--t2:#93a0b8;--ac:#f06aa8;--acf:#2a0a1b;--ach:#3a1d30;--hv:#202d44;--map:#0d2433;--ink:#e4eaf5;--sel:#463b17;--sh1:0 0 0 1px #263349,0 1px 1px rgba(0,0,0,.4);--sh2:0 24px 48px -16px rgba(0,0,0,.6),0 0 0 1px #263349}
+.app{background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:var(--rl);overflow:hidden;min-height:640px;display:flex;flex-direction:column;position:relative}
+button{font:inherit;color:inherit;cursor:pointer}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;flex:none}.sp{flex:1}
+:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.top{display:flex;align-items:center;gap:8px;height:40px;padding:0 10px 0 12px;background:var(--pn);border-bottom:1px solid var(--bd)}
+.mark{display:grid;place-items:center;width:22px;height:22px;border-radius:var(--rs);background:var(--ac);color:var(--acf)}.mark .i{width:14px;height:14px}
+.brand{font-weight:600;letter-spacing:-.005em;margin-right:6px}
+.ftab{display:inline-flex;gap:6px;align-items:center;height:26px;padding:0 10px;border:1px solid var(--bd);border-bottom-color:transparent;border-radius:var(--rs) var(--rs) 0 0;background:var(--bg);margin-bottom:-1px;position:relative;top:7px;height:33px;font-size:12.5px}
+.btn{white-space:nowrap;display:inline-flex;gap:6px;align-items:center;height:28px;padding:0 11px;border:1px solid var(--bd2);border-radius:var(--rs);background:var(--el)}
+.btn:hover{background:var(--hv)}.btn.pri{background:var(--ac);border-color:var(--ac);color:var(--acf);font-weight:600}.btn.pri:hover{filter:brightness(1.08)}.btn.big{height:38px;padding:0 16px;font-size:14px}
+.body{flex:1;display:flex;min-height:0}.mapcol{flex:1;display:flex;flex-direction:column;min-width:0}
+.map{position:relative;flex:1;min-height:400px;background:var(--map);overflow:hidden}.land{position:absolute;inset:0;width:100%;height:100%}.land path{fill:var(--c);stroke:var(--bg);stroke-width:1.2;stroke-linejoin:round}
+.app[data-theme=dark] .land path{filter:saturate(.8) brightness(.85)}
+.notice{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:5px 6px 5px 10px;border-radius:var(--rm);background:var(--el);box-shadow:var(--sh1);font-size:12.5px;z-index:3;white-space:nowrap}
+.notice .i{color:#b7791f}.notice button{border:0;background:none;color:var(--ac);font-weight:600;padding:2px 4px}.notice .x{color:var(--t2)}
+.search{position:absolute;top:52px;left:10px;display:flex;gap:8px;align-items:center;width:270px;height:30px;padding:0 6px 0 10px;border-radius:var(--rs);background:var(--el);box-shadow:var(--sh1);color:var(--t2)}.search span{flex:1}
+kbd{font:11px var(--mono);border:1px solid var(--bd2);border-radius:3px;padding:0 5px;color:var(--t2)}
+.tools{position:absolute;top:52px;right:10px;display:grid;gap:6px;z-index:2}
+.tg{display:grid;background:var(--el);box-shadow:var(--sh1);border-radius:var(--rm);overflow:hidden}
+.tb{width:30px;height:30px;display:grid;place-items:center;border:0;background:none;color:var(--t2);border-radius:var(--rs)}.tb:hover{background:var(--hv);color:var(--tx)}
+.tg .tb{border-radius:0}.tg .tb+.tb{box-shadow:0 -1px 0 var(--bd)}.tb.act{color:var(--ac);background:var(--ach)}
+.drawbar{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:3px 6px 3px 10px;background:var(--el);border-radius:var(--rm);box-shadow:var(--sh2);z-index:2}
+.drawbar .lbl{font-weight:600;margin-right:6px}.drawbar i{width:1px;height:18px;background:var(--bd);margin:0 6px}
+.seg2{display:inline-grid;grid-auto-flow:column;background:var(--hv);border-radius:var(--rs);padding:2px}.seg2 button{border:0;background:none;height:22px;padding:0 8px;border-radius:2px;color:var(--t2);font-size:12px}.seg2 .on{background:var(--el);color:var(--tx);box-shadow:0 0 0 1px var(--bd)}
+.readout{position:absolute;left:10px;bottom:10px;display:flex;background:var(--el);box-shadow:var(--sh1);border-radius:var(--rs);font:12px var(--mono);font-variant-numeric:tabular-nums;overflow:hidden}
+.readout span{padding:3px 9px;color:var(--t2)}.readout span+span{box-shadow:-1px 0 0 var(--bd)}.readout b{font-weight:500;color:var(--tx)}
+.foot{position:absolute;right:10px;bottom:10px;display:flex;gap:12px;align-items:center;color:var(--t2);font-size:11px}.mini{display:flex;gap:4px;align-items:center}
+.scale{display:flex;align-items:center;gap:6px;font:11px var(--mono)}.scale i{width:56px;height:5px;border:1.5px solid var(--t2);border-top:0}
+.tabs{display:flex;gap:2px;align-items:center;height:34px;padding:0 8px;border-top:1px solid var(--bd);background:var(--pn)}
+.tab{padding:0 10px;height:34px;display:grid;place-items:center;color:var(--t2);position:relative}.tab.on{color:var(--tx);font-weight:600}.tab.on:after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:2px;background:var(--ac)}.meta{font-size:12px;color:var(--t2)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;flex:1}th{text-align:left;font-weight:600;color:var(--t2);padding:6px 12px;border-bottom:1px solid var(--bd2);background:var(--pn)}td{padding:5px 12px;border-bottom:1px solid var(--bd)}
+.idx{width:40px;color:var(--t2);font-variant-numeric:tabular-nums}.num{text-align:right;font:12.5px var(--mono);font-variant-numeric:tabular-nums}th.num{font-family:var(--ui)}
+tr.sel td{background:var(--sel)}tr.sel td:first-child{box-shadow:inset 2px 0 0 var(--ac)}
+.status{display:flex;height:24px;align-items:center;background:var(--pn);border-top:1px solid var(--bd);font-size:12px;color:var(--t2)}.status span{white-space:nowrap;padding:0 12px;height:100%;display:flex;align-items:center}.status span+span{box-shadow:-1px 0 0 var(--bd)}.status .sp{box-shadow:none!important}
+.panel{width:296px;background:var(--pn);border-left:1px solid var(--bd);padding:10px 14px 14px;display:flex;flex-direction:column;gap:8px;overflow:auto}
+.ph{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600;margin-right:-6px}
+.grp{margin-top:8px;font-size:12px;font-weight:600;color:var(--t2);padding-bottom:4px;border-bottom:1px solid var(--bd)}
+.fld{display:grid;grid-template-columns:118px 1fr;align-items:center;gap:8px;min-height:28px;color:var(--t2);font-size:12.5px}
+.seg{display:grid;grid-auto-flow:column;background:var(--hv);border-radius:var(--rs);padding:2px}.seg button{border:0;background:none;height:24px;border-radius:2px;color:var(--t2)}.seg .on{background:var(--el);color:var(--tx);box-shadow:0 0 0 1px var(--bd);font-weight:500}
+.selbox{display:flex;justify-content:space-between;align-items:center;height:28px;padding:0 8px;border:1px solid var(--bd2);border-radius:var(--rs);background:var(--el);color:var(--tx)}.selbox .i{width:14px;height:14px;color:var(--t2)}
+.sl{display:flex;align-items:center;gap:10px}.slider{flex:1;height:4px;border-radius:2px;background:var(--hv);position:relative}.slider i{position:absolute;left:0;width:30%;height:100%;background:var(--ac);border-radius:2px}.slider i:after{content:"";position:absolute;right:-7px;top:-5px;width:14px;height:14px;border-radius:50%;background:var(--el);border:2px solid var(--ac)}
+.num2{min-width:38px;text-align:right;font:12px var(--mono);color:var(--tx);border:1px solid var(--bd2);border-radius:var(--rs);padding:3px 6px;background:var(--el)}
+.row{display:flex;align-items:center;gap:10px;min-height:34px;border-bottom:1px solid var(--bd)}.nm{flex:1}.nm.off{color:var(--t2)}
+.sw{width:28px;height:16px;border-radius:8px;background:var(--bd2);position:relative;flex:none;transition:background .14s}.sw:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .14s cubic-bezier(.3,.7,.3,1)}.sw.on{background:var(--ac)}.sw.on:after{left:14px}
+.place{display:grid;grid-template-columns:repeat(3,14px);gap:2px;padding:3px;border:1px solid var(--bd2);border-radius:var(--rs);background:var(--el)}
+.cell{width:14px;height:9px;border-radius:2px;background:var(--hv)}.cell.on{background:var(--ac)}.cell.no{background:none;box-shadow:inset 0 0 0 1px var(--bd);opacity:.8}
+.link{align-self:flex-start;border:0;background:none;color:var(--ac);padding:6px 0;font-weight:500}
+.rail{width:40px;background:var(--pn);border-left:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;padding-top:6px;gap:2px}
+.rb{position:relative;width:36px;height:36px;display:grid;place-items:center;border:0;background:none;color:var(--t2);border-radius:var(--rs)}.rb:hover{color:var(--tx)}.rb.on{color:var(--tx)}.rb.on:before{content:"";position:absolute;right:-4px;top:7px;bottom:7px;width:2px;background:var(--ac);border-radius:1px}
+/* landing */
+.land-app{min-height:640px}.hero{flex:1;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:40px;align-items:center;padding:40px 48px}
+h1{margin:0 0 16px;font-size:46px;line-height:1.04;font-weight:600;letter-spacing:-.03em;text-wrap:balance;max-width:15ch}
+.copy p{margin:0 0 24px;font-size:15px;line-height:1.55;color:var(--t2);max-width:46ch}.copy .fine{font-size:12.5px;margin:20px 0 0;max-width:52ch}.cta{display:flex;gap:10px}
+.demo{background:var(--el);border-radius:var(--rl);box-shadow:var(--sh2);overflow:hidden}
+.dbar{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px;border-bottom:1px solid var(--bd);background:var(--pn);font-size:12px;color:var(--t2)}.dots{display:flex;gap:5px}.dots i{width:9px;height:9px;border-radius:50%;background:var(--bd2)}
+.sql{margin:0;padding:12px 14px;font:12.5px/1.65 var(--mono);color:var(--tx);border-bottom:1px solid var(--bd);min-height:84px}.k{color:var(--ac);font-weight:500}
+.typed{display:inline-block;overflow:hidden;white-space:pre;vertical-align:bottom;animation:type 2.4s steps(60,end) .4s both;max-width:100%}
+.caret{display:inline-block;width:7px;height:15px;background:var(--ac);vertical-align:bottom;margin-left:1px;animation:blink 1s steps(2) infinite}
+.dmap{position:relative;height:250px;background:var(--map)}.dmap .land path{opacity:1}
+.fill-in{animation:fill .7s ease-out both;fill:var(--map)}
+.key{position:absolute;left:10px;bottom:10px;display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--el);box-shadow:var(--sh1);border-radius:var(--rs);font-size:11.5px;color:var(--t2)}.ramp{display:flex}.ramp i{width:16px;height:8px}
+@keyframes type{from{width:0}to{width:100%}}@keyframes blink{50%{opacity:0}}@keyframes fill{from{fill:var(--map)}to{fill:var(--c)}}
+@media (prefers-reduced-motion:reduce){.typed,.fill-in{animation:none}.fill-in{fill:var(--c)}.caret{animation:none}}
+@media (max-width:760px){.hero{grid-template-columns:1fr;padding:24px}h1{font-size:34px}}
+.pal{grid-column:1/-1;background:#fff;border-radius:var(--rl);padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;font-size:12px;color:#1c2f55}.pal i{display:block;width:64px;height:40px;border-radius:var(--rs);border:1px solid #0002}.pal span{display:grid;gap:3px;justify-items:start}.pal code{font:11px var(--mono)}
+</style><body>
+<section class="app land-app" data-theme="light" aria-label="Landing, light">
+  <header class="top"><span class="mark">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</span><b class="brand">Spatial Explorer</b><span class="sp"></span><button class="tb" aria-label="Theme">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-sun"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="4" />
+  <path d="M12 2v2" />
+  <path d="M12 20v2" />
+  <path d="m4.93 4.93 1.41 1.41" />
+  <path d="m17.66 17.66 1.41 1.41" />
+  <path d="M2 12h2" />
+  <path d="M20 12h2" />
+  <path d="m6.34 17.66-1.41 1.41" />
+  <path d="m19.07 4.93-1.41 1.41" />
+</svg>
+</button><button class="tb" aria-label="GitHub">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-link"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+</svg>
+</button></header>
+  <div class="hero">
+    <div class="copy">
+      <h1>Open a map file. Query it like a database.</h1>
+      <p>View GeoPackage, Shapefile, GeoParquet and more on a map, ask questions in SQL, style the result and export it. Nothing to install, and your files never leave this tab.</p>
+      <div class="cta"><button class="btn pri big">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-folder-open"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+</svg>
+Open a file</button><button class="btn big">Try sample data</button></div>
+      <p class="fine">Or drop a file anywhere on this page. Opens GeoPackage, SQLite, Shapefile, GeoParquet, FlatGeobuf, GeoJSON, CSV, Excel, GML and PMTiles.</p>
+    </div>
+    <div class="demo" aria-label="A query shading a map">
+      <div class="dbar"><span class="dots"><i></i><i></i><i></i></span><span class="dname">us_regions.parquet</span></div>
+      <pre class="sql"><span class="typed"><span class="k">SELECT</span> name, pop / area <span class="k">AS</span> density
+<span class="k">FROM</span> layer
+<span class="k">ORDER BY</span> density <span class="k">DESC</span></span><span class="caret"></span></pre>
+      <div class="dmap"><svg class="land" viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M20 70 L70 40 L120 52 L132 96 L96 130 L44 118Z" style="--c:#a9cfdb;animation-delay:3.2s" class="fill-in"/><path d="M120 52 L176 30 L232 48 L238 92 L190 112 L132 96Z" style="--c:#3f8fa8;animation-delay:3.3200000000000003s" class="fill-in"/><path d="M96 130 L132 96 L190 112 L196 160 L140 186 L98 170Z" style="--c:#74b0c4;animation-delay:3.4400000000000004s" class="fill-in"/><path d="M232 48 L292 36 L340 70 L330 120 L280 132 L238 92Z" style="--c:#1b5470;animation-delay:3.56s" class="fill-in"/><path d="M190 112 L238 92 L280 132 L270 180 L214 190 L196 160Z" style="--c:#26708b;animation-delay:3.68s" class="fill-in"/><path d="M330 120 L372 110 L386 160 L350 196 L300 184 L280 132Z" style="--c:#d9e9ef;animation-delay:3.8000000000000003s" class="fill-in"/></svg><div class="key"><span class="ramp"><i style="background:#d9e9ef"></i><i style="background:#a9cfdb"></i><i style="background:#74b0c4"></i><i style="background:#3f8fa8"></i><i style="background:#26708b"></i><i style="background:#1b5470"></i></span><span>density</span></div></div>
+    </div>
+  </div>
+  <footer class="status"><span>SQL engine ready</span><span>Files are read in your browser and never uploaded</span></footer>
+</section>
+<section class="app land-app" data-theme="dark" aria-label="Landing, dark">
+  <header class="top"><span class="mark">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</span><b class="brand">Spatial Explorer</b><span class="sp"></span><button class="tb" aria-label="Theme">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-sun"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="4" />
+  <path d="M12 2v2" />
+  <path d="M12 20v2" />
+  <path d="m4.93 4.93 1.41 1.41" />
+  <path d="m17.66 17.66 1.41 1.41" />
+  <path d="M2 12h2" />
+  <path d="M20 12h2" />
+  <path d="m6.34 17.66-1.41 1.41" />
+  <path d="m19.07 4.93-1.41 1.41" />
+</svg>
+</button><button class="tb" aria-label="GitHub">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-link"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+</svg>
+</button></header>
+  <div class="hero">
+    <div class="copy">
+      <h1>Open a map file. Query it like a database.</h1>
+      <p>View GeoPackage, Shapefile, GeoParquet and more on a map, ask questions in SQL, style the result and export it. Nothing to install, and your files never leave this tab.</p>
+      <div class="cta"><button class="btn pri big">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-folder-open"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+</svg>
+Open a file</button><button class="btn big">Try sample data</button></div>
+      <p class="fine">Or drop a file anywhere on this page. Opens GeoPackage, SQLite, Shapefile, GeoParquet, FlatGeobuf, GeoJSON, CSV, Excel, GML and PMTiles.</p>
+    </div>
+    <div class="demo" aria-label="A query shading a map">
+      <div class="dbar"><span class="dots"><i></i><i></i><i></i></span><span class="dname">us_regions.parquet</span></div>
+      <pre class="sql"><span class="typed"><span class="k">SELECT</span> name, pop / area <span class="k">AS</span> density
+<span class="k">FROM</span> layer
+<span class="k">ORDER BY</span> density <span class="k">DESC</span></span><span class="caret"></span></pre>
+      <div class="dmap"><svg class="land" viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M20 70 L70 40 L120 52 L132 96 L96 130 L44 118Z" style="--c:#a9cfdb;animation-delay:3.2s" class="fill-in"/><path d="M120 52 L176 30 L232 48 L238 92 L190 112 L132 96Z" style="--c:#3f8fa8;animation-delay:3.3200000000000003s" class="fill-in"/><path d="M96 130 L132 96 L190 112 L196 160 L140 186 L98 170Z" style="--c:#74b0c4;animation-delay:3.4400000000000004s" class="fill-in"/><path d="M232 48 L292 36 L340 70 L330 120 L280 132 L238 92Z" style="--c:#1b5470;animation-delay:3.56s" class="fill-in"/><path d="M190 112 L238 92 L280 132 L270 180 L214 190 L196 160Z" style="--c:#26708b;animation-delay:3.68s" class="fill-in"/><path d="M330 120 L372 110 L386 160 L350 196 L300 184 L280 132Z" style="--c:#d9e9ef;animation-delay:3.8000000000000003s" class="fill-in"/></svg><div class="key"><span class="ramp"><i style="background:#d9e9ef"></i><i style="background:#a9cfdb"></i><i style="background:#74b0c4"></i><i style="background:#3f8fa8"></i><i style="background:#26708b"></i><i style="background:#1b5470"></i></span><span>density</span></div></div>
+    </div>
+  </div>
+  <footer class="status"><span>SQL engine ready</span><span>Files are read in your browser and never uploaded</span></footer>
+</section>
+<section class="app" data-theme="light" aria-label="Viewer, light">
+  <header class="top">
+    <span class="mark">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</span><b class="brand">Spatial Explorer</b>
+    <span class="ftab">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-file"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+  <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+</svg>
+world-boundaries.geojson</span>
+    <span class="sp"></span>
+    <button class="btn">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-link"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+</svg>
+Copy link</button><button class="btn pri">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-folder-open"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+</svg>
+Open file</button>
+  </header>
+  <div class="body">
+    <div class="mapcol">
+      <div class="map"><svg class="land" viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M20 70 L70 40 L120 52 L132 96 L96 130 L44 118Z" style="--c:#a9cfdb;" class=""/><path d="M120 52 L176 30 L232 48 L238 92 L190 112 L132 96Z" style="--c:#3f8fa8;" class=""/><path d="M96 130 L132 96 L190 112 L196 160 L140 186 L98 170Z" style="--c:#74b0c4;" class=""/><path d="M232 48 L292 36 L340 70 L330 120 L280 132 L238 92Z" style="--c:#1b5470;" class=""/><path d="M190 112 L238 92 L280 132 L270 180 L214 190 L196 160Z" style="--c:#26708b;" class=""/><path d="M330 120 L372 110 L386 160 L350 196 L300 184 L280 132Z" style="--c:#d9e9ef;" class=""/></svg>
+        <div class="notice">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-triangle-alert"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>
+<span>1 row has no usable geometry. It is in the table, not on the map.</span><button>Show row</button><button class="x" aria-label="Dismiss">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-x"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg>
+</button></div>
+        <div class="search">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-search"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21 21-4.34-4.34" />
+  <circle cx="11" cy="11" r="8" />
+</svg>
+<span>Search a value, coordinates or place</span><kbd>/</kbd></div>
+        <div class="tools"><div class="tg"><button class="tb" aria-label="plus">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-plus"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>
+</button><button class="tb" aria-label="minus">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-minus"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+</svg>
+</button></div><div class="tg"><button class="tb" aria-label="scan">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-scan"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+  <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+</svg>
+</button><button class="tb" aria-label="globe">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</button><button class="tb" aria-label="mountain-snow">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-mountain-snow"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m8 3 4 8 5-5 5 15H2L8 3z" />
+  <path d="M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19" />
+</svg>
+</button></div><div class="tg"><button class="tb" aria-label="pentagon">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-pentagon"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z" />
+</svg>
+</button><button class="tb act" aria-label="ruler-dimension-line">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-ruler-dimension-line"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 15v-3" />
+  <path d="M14 15v-3" />
+  <path d="M18 15v-3" />
+  <path d="M2 8V4" />
+  <path d="M22 6H2" />
+  <path d="M22 8V4" />
+  <path d="M6 15v-3" />
+  <rect x="2" y="12" rx="2" />
+</svg>
+</button><button class="tb" aria-label="square-dashed-mouse-pointer">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-square-dashed-mouse-pointer"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" />
+  <path d="M5 3a2 2 0 0 0-2 2" />
+  <path d="M19 3a2 2 0 0 1 2 2" />
+  <path d="M5 21a2 2 0 0 1-2-2" />
+  <path d="M9 3h1" />
+  <path d="M9 21h2" />
+  <path d="M14 3h1" />
+  <path d="M3 9v1" />
+  <path d="M21 9v2" />
+  <path d="M3 14v1" />
+</svg>
+</button><button class="tb" aria-label="image">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-image"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect x="3" y="3" rx="2" ry="2" />
+  <circle cx="9" cy="9" r="2" />
+  <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+</svg>
+</button></div></div>
+        <div class="drawbar"><span class="lbl">Measure</span><button class="tb act" aria-label="Line">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-spline"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="19" cy="5" r="2" />
+  <circle cx="5" cy="19" r="2" />
+  <path d="M5 17A12 12 0 0 1 17 5" />
+</svg>
+</button><button class="tb" aria-label="Polygon">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-pentagon"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z" />
+</svg>
+</button><button class="tb" aria-label="Circle">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-circle"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+</svg>
+</button><i></i><button class="tb" aria-label="Undo">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-undo-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 14 4 9l5-5" />
+  <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+</svg>
+</button><button class="tb" aria-label="Redo">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-redo-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m15 14 5-5-5-5" />
+  <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" />
+</svg>
+</button><button class="tb" aria-label="Clear">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-trash-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 11v6" />
+  <path d="M14 11v6" />
+  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+  <path d="M3 6h18" />
+  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+</svg>
+</button><i></i><span class="seg2"><button class="on">Metric</button><button>Imperial</button></span></div>
+        <div class="readout"><span><b>8.5412</b> E</span><span><b>47.3769</b> N</span><span><b>408</b> m</span></div>
+        <div class="foot"><span class="mini">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-map-pin"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" />
+  <circle cx="12" cy="10" r="3" />
+</svg>
+MapLibre</span><span class="scale"><i></i>200 km</span></div>
+      </div>
+      <div class="tabs"><span class="tab on">Table</span><span class="tab">SQL</span><span class="sp"></span><span class="meta">180 rows, 179 on the map</span></div>
+      <table><thead><tr><th class="idx">#</th><th>Name</th><th>Region</th><th class="num">Population</th></tr></thead><tbody>
+        <tr><td class="idx">1</td><td>Afghanistan</td><td>Asia</td><td class="num">41,128,771</td></tr>
+        <tr class="sel"><td class="idx">2</td><td>Angola</td><td>Africa</td><td class="num">35,588,987</td></tr>
+        <tr><td class="idx">3</td><td>Albania</td><td>Europe</td><td class="num">2,832,439</td></tr></tbody></table>
+      <footer class="status"><span>EPSG:4326 WGS 84</span><span>179 features</span><span>Polygon</span><span class="sp"></span><span>Engine ready</span></footer>
+    </div>
+    <aside class="panel">
+      <div class="ph"><b>Map controls</b><button class="tb" aria-label="Close">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-x"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg>
+</button></div>
+      <div class="grp">Measuring</div>
+      <div class="fld"><span>Units</span><span class="seg" role="radiogroup" aria-label="Units"><button class="on">Metric</button><button>Imperial</button></span></div>
+      <div class="fld"><span>Select rows that</span><span class="selbox">intersect the shape
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-chevrons-up-down"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m7 15 5 5 5-5" />
+  <path d="m7 9 5-5 5 5" />
+</svg>
+</span></div>
+      <div class="fld"><span>Terrain exaggeration</span><span class="sl"><span class="slider"><i></i></span><span class="num2">1.5</span></span></div>
+      <div class="grp">Placement</div>
+      <div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Search"></span><span class="nm">Search</span><span class="place" role="radiogroup" aria-label="Search position"><span class="cell on"></span><span class="cell no"></span><span class="cell"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Zoom in and out"></span><span class="nm">Zoom in and out</span><span class="place" role="radiogroup" aria-label="Zoom in and out position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Globe view"></span><span class="nm">Globe view</span><span class="place" role="radiogroup" aria-label="Globe view position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Draw shapes"></span><span class="nm">Draw shapes</span><span class="place" role="radiogroup" aria-label="Draw shapes position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Legend"></span><span class="nm">Legend</span><span class="place" role="radiogroup" aria-label="Legend position"><span class="cell"></span><span class="cell no"></span><span class="cell"></span><span class="cell on"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw" role="switch" aria-checked="false" aria-label="Coordinates"></span><span class="nm off">Coordinates</span><span class="place" role="radiogroup" aria-label="Coordinates position"><span class="cell no"></span><span class="cell"></span><span class="cell no"></span><span class="cell no"></span><span class="cell on"></span><span class="cell no"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="MapLibre logo"></span><span class="nm">MapLibre logo</span><span class="place" role="radiogroup" aria-label="MapLibre logo position"><span class="cell"></span><span class="cell no"></span><span class="cell"></span><span class="cell on"></span><span class="cell no"></span><span class="cell"></span></span></div>
+      <button class="link">Reset to defaults</button>
+    </aside>
+    <nav class="rail" aria-label="Panels"><button class="rb" aria-label="Style">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-paintbrush"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m14.622 17.897-10.68-2.913" />
+  <path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z" />
+  <path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15" />
+</svg>
+</button><button class="rb" aria-label="Labels">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-tag"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+  <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+</svg>
+</button><button class="rb" aria-label="Basemap">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-map"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" />
+  <path d="M15 5.764v15" />
+  <path d="M9 3.236v15" />
+</svg>
+</button><button class="rb on" aria-label="Map controls">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-sliders-horizontal"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 5H3" />
+  <path d="M12 19H3" />
+  <path d="M14 3v4" />
+  <path d="M16 17v4" />
+  <path d="M21 12h-9" />
+  <path d="M21 19h-5" />
+  <path d="M21 5h-7" />
+  <path d="M8 10v4" />
+  <path d="M8 12H3" />
+</svg>
+</button></nav>
+  </div>
+</section>
+<section class="app" data-theme="dark" aria-label="Viewer, dark">
+  <header class="top">
+    <span class="mark">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</span><b class="brand">Spatial Explorer</b>
+    <span class="ftab">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-file"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+  <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+</svg>
+world-boundaries.geojson</span>
+    <span class="sp"></span>
+    <button class="btn">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-link"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+</svg>
+Copy link</button><button class="btn pri">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-folder-open"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+</svg>
+Open file</button>
+  </header>
+  <div class="body">
+    <div class="mapcol">
+      <div class="map"><svg class="land" viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M20 70 L70 40 L120 52 L132 96 L96 130 L44 118Z" style="--c:#a9cfdb;" class=""/><path d="M120 52 L176 30 L232 48 L238 92 L190 112 L132 96Z" style="--c:#3f8fa8;" class=""/><path d="M96 130 L132 96 L190 112 L196 160 L140 186 L98 170Z" style="--c:#74b0c4;" class=""/><path d="M232 48 L292 36 L340 70 L330 120 L280 132 L238 92Z" style="--c:#1b5470;" class=""/><path d="M190 112 L238 92 L280 132 L270 180 L214 190 L196 160Z" style="--c:#26708b;" class=""/><path d="M330 120 L372 110 L386 160 L350 196 L300 184 L280 132Z" style="--c:#d9e9ef;" class=""/></svg>
+        <div class="notice">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-triangle-alert"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>
+<span>1 row has no usable geometry. It is in the table, not on the map.</span><button>Show row</button><button class="x" aria-label="Dismiss">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-x"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg>
+</button></div>
+        <div class="search">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-search"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21 21-4.34-4.34" />
+  <circle cx="11" cy="11" r="8" />
+</svg>
+<span>Search a value, coordinates or place</span><kbd>/</kbd></div>
+        <div class="tools"><div class="tg"><button class="tb" aria-label="plus">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-plus"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>
+</button><button class="tb" aria-label="minus">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-minus"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+</svg>
+</button></div><div class="tg"><button class="tb" aria-label="scan">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-scan"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+  <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+</svg>
+</button><button class="tb" aria-label="globe">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg>
+</button><button class="tb" aria-label="mountain-snow">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-mountain-snow"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m8 3 4 8 5-5 5 15H2L8 3z" />
+  <path d="M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19" />
+</svg>
+</button></div><div class="tg"><button class="tb" aria-label="pentagon">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-pentagon"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z" />
+</svg>
+</button><button class="tb act" aria-label="ruler-dimension-line">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-ruler-dimension-line"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 15v-3" />
+  <path d="M14 15v-3" />
+  <path d="M18 15v-3" />
+  <path d="M2 8V4" />
+  <path d="M22 6H2" />
+  <path d="M22 8V4" />
+  <path d="M6 15v-3" />
+  <rect x="2" y="12" rx="2" />
+</svg>
+</button><button class="tb" aria-label="square-dashed-mouse-pointer">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-square-dashed-mouse-pointer"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" />
+  <path d="M5 3a2 2 0 0 0-2 2" />
+  <path d="M19 3a2 2 0 0 1 2 2" />
+  <path d="M5 21a2 2 0 0 1-2-2" />
+  <path d="M9 3h1" />
+  <path d="M9 21h2" />
+  <path d="M14 3h1" />
+  <path d="M3 9v1" />
+  <path d="M21 9v2" />
+  <path d="M3 14v1" />
+</svg>
+</button><button class="tb" aria-label="image">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-image"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect x="3" y="3" rx="2" ry="2" />
+  <circle cx="9" cy="9" r="2" />
+  <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+</svg>
+</button></div></div>
+        <div class="drawbar"><span class="lbl">Measure</span><button class="tb act" aria-label="Line">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-spline"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="19" cy="5" r="2" />
+  <circle cx="5" cy="19" r="2" />
+  <path d="M5 17A12 12 0 0 1 17 5" />
+</svg>
+</button><button class="tb" aria-label="Polygon">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-pentagon"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z" />
+</svg>
+</button><button class="tb" aria-label="Circle">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-circle"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+</svg>
+</button><i></i><button class="tb" aria-label="Undo">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-undo-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 14 4 9l5-5" />
+  <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+</svg>
+</button><button class="tb" aria-label="Redo">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-redo-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m15 14 5-5-5-5" />
+  <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" />
+</svg>
+</button><button class="tb" aria-label="Clear">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-trash-2"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 11v6" />
+  <path d="M14 11v6" />
+  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+  <path d="M3 6h18" />
+  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+</svg>
+</button><i></i><span class="seg2"><button class="on">Metric</button><button>Imperial</button></span></div>
+        <div class="readout"><span><b>8.5412</b> E</span><span><b>47.3769</b> N</span><span><b>408</b> m</span></div>
+        <div class="foot"><span class="mini">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-map-pin"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" />
+  <circle cx="12" cy="10" r="3" />
+</svg>
+MapLibre</span><span class="scale"><i></i>200 km</span></div>
+      </div>
+      <div class="tabs"><span class="tab on">Table</span><span class="tab">SQL</span><span class="sp"></span><span class="meta">180 rows, 179 on the map</span></div>
+      <table><thead><tr><th class="idx">#</th><th>Name</th><th>Region</th><th class="num">Population</th></tr></thead><tbody>
+        <tr><td class="idx">1</td><td>Afghanistan</td><td>Asia</td><td class="num">41,128,771</td></tr>
+        <tr class="sel"><td class="idx">2</td><td>Angola</td><td>Africa</td><td class="num">35,588,987</td></tr>
+        <tr><td class="idx">3</td><td>Albania</td><td>Europe</td><td class="num">2,832,439</td></tr></tbody></table>
+      <footer class="status"><span>EPSG:4326 WGS 84</span><span>179 features</span><span>Polygon</span><span class="sp"></span><span>Engine ready</span></footer>
+    </div>
+    <aside class="panel">
+      <div class="ph"><b>Map controls</b><button class="tb" aria-label="Close">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-x"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg>
+</button></div>
+      <div class="grp">Measuring</div>
+      <div class="fld"><span>Units</span><span class="seg" role="radiogroup" aria-label="Units"><button class="on">Metric</button><button>Imperial</button></span></div>
+      <div class="fld"><span>Select rows that</span><span class="selbox">intersect the shape
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-chevrons-up-down"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m7 15 5 5 5-5" />
+  <path d="m7 9 5-5 5 5" />
+</svg>
+</span></div>
+      <div class="fld"><span>Terrain exaggeration</span><span class="sl"><span class="slider"><i></i></span><span class="num2">1.5</span></span></div>
+      <div class="grp">Placement</div>
+      <div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Search"></span><span class="nm">Search</span><span class="place" role="radiogroup" aria-label="Search position"><span class="cell on"></span><span class="cell no"></span><span class="cell"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Zoom in and out"></span><span class="nm">Zoom in and out</span><span class="place" role="radiogroup" aria-label="Zoom in and out position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Globe view"></span><span class="nm">Globe view</span><span class="place" role="radiogroup" aria-label="Globe view position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Draw shapes"></span><span class="nm">Draw shapes</span><span class="place" role="radiogroup" aria-label="Draw shapes position"><span class="cell"></span><span class="cell no"></span><span class="cell on"></span><span class="cell"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="Legend"></span><span class="nm">Legend</span><span class="place" role="radiogroup" aria-label="Legend position"><span class="cell"></span><span class="cell no"></span><span class="cell"></span><span class="cell on"></span><span class="cell no"></span><span class="cell"></span></span></div><div class="row"><span class="sw" role="switch" aria-checked="false" aria-label="Coordinates"></span><span class="nm off">Coordinates</span><span class="place" role="radiogroup" aria-label="Coordinates position"><span class="cell no"></span><span class="cell"></span><span class="cell no"></span><span class="cell no"></span><span class="cell on"></span><span class="cell no"></span></span></div><div class="row"><span class="sw on" role="switch" aria-checked="true" aria-label="MapLibre logo"></span><span class="nm">MapLibre logo</span><span class="place" role="radiogroup" aria-label="MapLibre logo position"><span class="cell"></span><span class="cell no"></span><span class="cell"></span><span class="cell on"></span><span class="cell no"></span><span class="cell"></span></span></div>
+      <button class="link">Reset to defaults</button>
+    </aside>
+    <nav class="rail" aria-label="Panels"><button class="rb" aria-label="Style">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-paintbrush"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m14.622 17.897-10.68-2.913" />
+  <path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z" />
+  <path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15" />
+</svg>
+</button><button class="rb" aria-label="Labels">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-tag"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+  <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+</svg>
+</button><button class="rb" aria-label="Basemap">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-map"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" />
+  <path d="M15 5.764v15" />
+  <path d="M9 3.236v15" />
+</svg>
+</button><button class="rb on" aria-label="Map controls">
+<svg class="i" aria-hidden="true"
+  class="lucide lucide-sliders-horizontal"
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 5H3" />
+  <path d="M12 19H3" />
+  <path d="M14 3v4" />
+  <path d="M16 17v4" />
+  <path d="M21 12h-9" />
+  <path d="M21 19h-5" />
+  <path d="M21 5h-7" />
+  <path d="M8 10v4" />
+  <path d="M8 12H3" />
+</svg>
+</button></nav>
+  </div>
+</section><section class="pal"><b>Light</b><span><i style="background:#fcfcfd"></i>paper<code>#fcfcfd</code></span><span><i style="background:#f3f5f8"></i>panel<code>#f3f5f8</code></span><span><i style="background:#dde2ea"></i>rule<code>#dde2ea</code></span><span><i style="background:#1c2f55"></i>chart ink<code>#1c2f55</code></span><span><i style="background:#5a6882"></i>secondary<code>#5a6882</code></span><span><i style="background:#b3135f"></i>chart magenta<code>#b3135f</code></span><span style="width:24px"></span><b>Dark</b><span><i style="background:#0f1726"></i>night<code>#0f1726</code></span><span><i style="background:#141e30"></i>panel<code>#141e30</code></span><span><i style="background:#263349"></i>rule<code>#263349</code></span><span><i style="background:#e4eaf5"></i>ink<code>#e4eaf5</code></span><span><i style="background:#f06aa8"></i>magenta<code>#f06aa8</code></span><span style="width:24px"></span><b>Data</b><span><i style="background:#d9e9ef"></i>tide 1<code>#d9e9ef</code></span><span><i style="background:#a9cfdb"></i>tide 2<code>#a9cfdb</code></span><span><i style="background:#74b0c4"></i>tide 3<code>#74b0c4</code></span><span><i style="background:#3f8fa8"></i>tide 4<code>#3f8fa8</code></span><span><i style="background:#26708b"></i>tide 5<code>#26708b</code></span><span><i style="background:#1b5470"></i>tide 6<code>#1b5470</code></span></section></body></html>

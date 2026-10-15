@@ -1,7 +1,7 @@
 // T010 (spec 008 US1, FR-001–FR-005, SC-001): the sectioned style panel, the
 // value distribution, the live ramp preview, and live appearance edits.
 import { test, expect, type Page } from '@playwright/test'
-import { openFile, writeParcels, writeSquares, chooseStyleType } from './helpers'
+import { openFile, writeParcels, writeSquares, chooseStyleType, setColor } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -61,7 +61,7 @@ test('ramps preview on the map while browsing; Escape restores; Enter commits', 
   await expect(legendRows(page)).toHaveCount(5)
   const original = await swatch(page, 0)
   // Save first, so "modified" shows only for real edits: a preview never marks the style modified.
-  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   await expect(panel(page).locator('.source')).not.toContainText('modified')
 
   await page.getByRole('button', { name: /^Colors:/ }).click()
@@ -115,7 +115,18 @@ test('layer opacity fades the whole layer, live, and is saved in the QML (user r
   await expect(slider).toHaveAttribute('aria-valuetext', '50%')
   // Default fill opacity 45%, times 50%: the legend swatch is about 22% opaque.
   await expect.poll(() => swatchFillOpacity(page)).toBeCloseTo(0.225, 2)
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   const fs = await import('node:fs')
   expect(fs.readFileSync(await download.path(), 'utf8')).toContain('<layerOpacity>0.5</layerOpacity>')
+})
+
+test('Reset style goes back to "Default", not "Default · modified"', async ({ page }) => {
+  await openFile(page, writeSquares())
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  const status = panel(page).getByText(/^Default/).first()
+  await expect(status).toHaveText('Default')
+  await setColor(page, 'Fill', '#ff0000')
+  await expect(status).toHaveText('Default · modified')
+  await panel(page).getByRole('button', { name: 'Reset style' }).click()
+  await expect(status).toHaveText('Default')
 })

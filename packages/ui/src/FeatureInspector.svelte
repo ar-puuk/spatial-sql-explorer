@@ -7,13 +7,16 @@
   // than following the feature, so it never covers what was clicked.
   import type { Feature } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import { valueKind, isNumericKind } from './valueKind.js'
 
   interface Props {
     feature: Feature
+    /** Declared column types by name (the layer's), when known: they tell a decimal from an integer. */
+    types?: Record<string, string>
     onZoom: () => void
     onClose: () => void
   }
-  let { feature, onZoom, onClose }: Props = $props()
+  let { feature, types, onZoom, onClose }: Props = $props()
 
   let entries = $derived(Object.entries(feature.attributes))
   // Spec 008 (user request): wide data scrolls, and many attributes get a filter.
@@ -74,7 +77,8 @@
     <dl>
       {#each shown as [key, value] (key)}
         <dt title={key}>{key}</dt>
-        <dd class:null={value === null || value === undefined} class:num={typeof value === 'number'}>{display(value)}</dd>
+        {@const kind = valueKind(value, types?.[key])}
+        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>{display(value)}</dd>
       {/each}
     </dl>
   {/if}
@@ -84,12 +88,12 @@
   .inspector {
     display: flex;
     flex-direction: column;
-    /* The search box's width (ViewerLayout sets it): the card sits right under it. */
-    width: var(--se-card-width, 300px);
+    /* The same width as the search box and the layer picker above it (--se-stack-width, MapView). */
+    width: var(--se-stack-width, 300px);
     max-width: 100%;
-    max-height: min(480px, 100%);
-    /* In a corner's stack the card is bounded by the map's height (the map view is a size container), clear of the top and bottom stacks. */
-    max-height: min(480px, calc(100cqh - 120px));
+    max-height: 480px;
+    /* In the map's left column the card gives way to the legend below it (flex shrink), and its list scrolls. */
+    min-height: 0;
     /* Borders inside that height, so the card ends where its slot does. */
     box-sizing: border-box;
     background: var(--se-bg-elevated);
@@ -187,8 +191,30 @@
     overflow-wrap: anywhere;
     padding-left: 0;
   }
-  dd.num {
-    color: var(--se-table-number-fg);
+  /* The value's type, in color (spec 015), as in the table. */
+  dd.v-text {
+    color: var(--se-type-text);
+  }
+  dd.v-integer {
+    color: var(--se-type-integer);
+  }
+  dd.v-decimal {
+    color: var(--se-type-decimal);
+  }
+  dd.v-boolean {
+    color: var(--se-type-boolean);
+  }
+  dd.v-datetime {
+    color: var(--se-type-datetime);
+  }
+  dd.v-nested {
+    color: var(--se-type-nested);
+    font-family: var(--se-font-mono);
+    font-size: 0.92em;
+  }
+  dd.v-geometry {
+    color: var(--se-type-geometry);
+    font-style: italic;
   }
   dd.null {
     color: var(--se-text-muted);

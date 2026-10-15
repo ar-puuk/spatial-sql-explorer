@@ -1,141 +1,136 @@
 /*
- * Web token file: maps the shared `--se-*` design tokens used by packages/ui
- * onto the brand palette ("Pukar Bhandari Web Tools Brand Theme",
- * webapp-theme.md in the legacy-v1 app; values copied as data). Same token
- * names as apps/vscode-ext/src/webview/theme.css, different values
- * (CLAUDE.md: "same token names, different token file"). A token added to one
- * file must be added to both.
+ * Web token file: maps the shared `--se-*` design tokens used by packages/ui onto the web shell's own identity
+ * (spec 015): "chart ink" text on a cool paper, one accent, ultramarine (a chart-ink blue, brighter than the text), and a deep navy "night chart" for dark. Same token names as apps/vscode-ext/src/webview/theme.css,
+ * different values (CLAUDE.md: "same token names, different token file"). A token added to one file must be added
+ * to both. In VS Code none of this applies: colors come from the user's theme.
  *
- * Light/dark follows the OS (`prefers-color-scheme`), with `data-theme` on
- * <html> as an explicit override (spec 008: the header's Theme menu sets it;
- * the dark token set is repeated for `[data-theme='dark']`).
+ * Light/dark follows the OS (`prefers-color-scheme`), with `data-theme` on <html> as an explicit override (the
+ * header's Theme menu sets it; the dark token set is written for both selectors).
+ *
+ * Fonts: IBM Plex Sans and Fira Code (OFL), self-hosted through @fontsource (OFL), imported in main.ts. Mono carries data only.
  */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
   color-scheme: light;
 
-  --se-bg-base: #fffbf2;
-  --se-bg-panel: #f2ece0;
+  --se-bg-base: #fcfcfd;
+  --se-bg-panel: #f3f5f8;
   --se-bg-elevated: #ffffff;
-  /* Links on the side panel's cream (spec 010): amber-800, AA there; the accent itself is not. */
-  --se-link: #92400e;
-  --se-bg-hover: #fef3c7;
-  --se-border: #e8dfc8;
-
-  --se-text-primary: #1c1208;
-  /* Data swatches (legend, class list): a neutral edge that reads on any data color. */
+  --se-link: #2f55d4;
+  --se-bg-hover: #e9edf3;
+  --se-border: #dde2ea;
+  --se-text-primary: #1c2f55;
+  --se-text-secondary: #566580;
+  --se-text-muted: #4d5b76;
+  --se-accent: #2f55d4;
+  --se-focus: #2f55d4;
+  --se-info: #1d6fa5;
   --se-swatch-border: color-mix(in srgb, var(--se-text-primary) 45%, transparent);
-  --se-text-secondary: #6b5e4a;
-  /* Muted text darkened from the brand's #a8977a to meet WCAG AA (4.5:1) on
-     white and cream (T045 axe audit). */
-  --se-text-muted: #716250;
-  --se-accent: #b45309;
-  --se-focus: #b45309;
-  --se-info: #0369a1;
-
-  --se-font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --se-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', SFMono-Regular, Menlo, monospace;
-  --se-font-data: var(--se-font-mono);
-  --se-font-size: 12px;
-  --se-section-title-font: 700 10px var(--se-font-mono);
-  --se-section-title-transform: uppercase;
-  --se-section-title-tracking: 0.12em;
-  --se-section-title-fg: #6b5e4a;
-
-  --se-radius-sm: 4px;
-  --se-radius: 6px;
-  --se-shadow-card: 0 1px 3px rgba(28, 18, 8, 0.1), 0 1px 2px rgba(28, 18, 8, 0.06);
-  --se-shadow-elevated: 0 10px 28px rgba(28, 18, 8, 0.16), 0 2px 6px rgba(28, 18, 8, 0.08);
-  --se-overlay-blur: blur(8px);
-
-  --se-progress: #b45309;
-  --se-sash-hover: #b45309;
-  --se-sash-grip-display: block;
-
-  --se-map-bg: #f5efe3;
+  --se-section-title-fg: #566580;
+  --se-shadow-card: 0 1px 2px rgba(28, 47, 85, 0.12);
+  --se-shadow-elevated: 0 16px 40px -12px rgba(28, 47, 85, 0.3), 0 2px 6px rgba(28, 47, 85, 0.08);
+  --se-progress: #2f55d4;
+  --se-sash-hover: #2f55d4;
+  --se-map-bg: #e6eef3;
   --se-map-selection: #d97706;
-  /* Spec 010: the status bar is a row under the panels, not over the map. */
-  --se-map-bottom-inset: 0px;
-
-  --se-control-bg: rgba(255, 251, 242, 0.9);
-  --se-control-border: #d4c5a9;
-  --se-control-fg: #6b5e4a;
-  --se-control-hover: #f2ece0;
-  --se-control-active-bg: #fef3c7;
-  --se-control-active-fg: #92400e;
-
-  --se-row-height: 26px;
-  --se-table-bg: #ffffff;
-  --se-table-header-bg: #f8f4ec;
-  --se-table-header-fg: #6b5e4a; /* brand spec's #a8977a fails AA contrast */
-  --se-table-header-border: 2px solid #b8a88a;
-  --se-table-header-font: 600 10px var(--se-font-mono);
-  --se-table-header-transform: uppercase;
-  --se-table-header-tracking: 0.06em;
-  --se-table-stripe: #fdf9f4;
-  --se-table-row-border: #f2ece0;
-  --se-table-number-fg: #1c1208;
-
-  --se-selected-bg: #fde68a;
-  --se-selected-fg: #1c1208;
-  --se-selected-outline: transparent;
-  --se-selected-inactive-bg: #fef3c7;
-  --se-selected-inactive-fg: #1c1208;
-  --se-selected-indicator: #b45309;
-
+  --se-control-bg: #ffffff;
+  --se-control-border: #dde2ea;
+  --se-control-fg: #566580;
+  --se-control-hover: #e9edf3;
+  --se-control-active-bg: #e8eefc;
+  --se-control-active-fg: #2f55d4;
+  --se-table-bg: #fcfcfd;
+  --se-table-header-bg: #f3f5f8;
+  --se-table-header-fg: #566580;
+  --se-table-header-border: 1px solid #c9d1de;
+  --se-table-stripe: transparent;
+  --se-table-row-border: #e8ecf2;
+  --se-table-number-fg: #1c2f55;
+  --se-type-text: #1c6b4f;
+  --se-type-integer: #1d5fa5;
+  --se-type-decimal: #0e7490;
+  --se-type-boolean: #6d28d9;
+  --se-type-datetime: #9a5200;
+  --se-type-nested: #9a3412;
+  --se-type-geometry: #5f6d86;
+  --se-selected-bg: #fde9b8;
+  --se-selected-fg: #1c2f55;
+  --se-selected-inactive-bg: #fdf3d8;
+  --se-selected-inactive-fg: #1c2f55;
+  --se-selected-indicator: #2f55d4;
   --se-input-bg: #ffffff;
-  --se-input-border: #d4c5a9;
-  --se-button-bg: #b45309;
+  --se-input-border: #c9d1de;
+  --se-button-bg: #2f55d4;
   --se-button-fg: #ffffff;
-  --se-button-hover: #92400e;
-  --se-button-border: transparent;
+  --se-button-hover: #2444b0;
   --se-button-secondary-bg: transparent;
-  --se-button-secondary-fg: #6b5e4a;
-  --se-button-secondary-hover: #f2ece0;
+  --se-button-secondary-fg: #1c2f55;
+  --se-button-secondary-hover: #e9edf3;
   --se-menu-bg: #ffffff;
-  --se-menu-border: #d4c5a9;
-  --se-menu-fg: #1c1208;
-  --se-menu-hover-bg: #fef3c7;
-  --se-menu-hover-fg: #92400e;
-
-  --se-warning: #d97706;
-  --se-warning-fg: #92400e;
-  --se-warning-bg: #fef3c7;
-  --se-warning-border: #fde68a;
-  --se-error: #dc2626;
-  --se-error-fg: #b91c1c;
-  --se-error-bg: #fef2f2;
-  --se-error-border: #fecaca;
-
-  --se-statusbar-bg: rgba(14, 23, 30, 0.74);
-  --se-statusbar-fg: #d6cfc2;
-  --se-statusbar-border: rgba(255, 255, 255, 0.1);
-  --se-statusbar-accent: #fbbf24;
-
-  /* Web-shell-only chrome */
-  --se-brand-text: #92400e; /* amber-800: the brand amber at AA contrast on the header */
-  --se-header-bg: #f2ece0;
-  --se-header-border: #d4c5a9;
-  --se-dropzone-border: #d4c5a9;
-  --se-dropzone-active-bg: #fef3c7;
-
-  /* SQL editor (spec 002): brand palette, every color AA on --se-sql-bg. */
+  --se-menu-border: #dde2ea;
+  --se-menu-fg: #1c2f55;
+  --se-menu-hover-bg: #e8eefc;
+  --se-menu-hover-fg: #2444b0;
+  --se-warning: #b7791f;
+  --se-warning-fg: #7a4a07;
+  --se-warning-bg: #fdf3d8;
+  --se-warning-border: #f2d9a0;
+  --se-error: #c0262d;
+  --se-error-fg: #a11d24;
+  --se-error-bg: #fdf0f0;
+  --se-error-border: #f3c5c7;
+  --se-statusbar-bg: #f3f5f8;
+  --se-statusbar-fg: #566580;
+  --se-statusbar-border: #dde2ea;
+  --se-statusbar-accent: #2f55d4;
+  --se-brand-text: #1c2f55;
+  --se-header-bg: #f3f5f8;
+  --se-header-border: #dde2ea;
+  --se-dropzone-border: #c9d1de;
+  --se-dropzone-active-bg: #e8eefc;
   --se-sql-bg: #ffffff;
-  --se-sql-fg: #1c1208;
-  --se-sql-selection: #fde68a;
-  --se-sql-cursor: #b45309;
-  --se-sql-gutter-fg: #716250;
-  --se-sql-gutter-active-fg: #1c1208;
-  --se-sql-gutter-bg: #f8f4ec;
-  --se-sql-active-line: #fdf9f4;
-  --se-sql-keyword: #b45309;
-  --se-sql-string: #047857;
-  --se-sql-number: #6d28d9;
-  --se-sql-function: #1d4ed8;
-  --se-sql-operator: #6b5e4a;
-  --se-sql-comment: #716250;
-  --se-sql-error: #dc2626;
+  --se-sql-fg: #1c2f55;
+  --se-sql-selection: #fde9b8;
+  --se-sql-cursor: #2f55d4;
+  --se-sql-gutter-fg: #5f6d86;
+  --se-sql-gutter-active-fg: #1c2f55;
+  --se-sql-gutter-bg: #f3f5f8;
+  --se-sql-active-line: #f6f8fb;
+  --se-sql-keyword: #2f55d4;
+  --se-sql-string: #1c6b4f;
+  --se-sql-number: #5b3fa8;
+  --se-sql-function: #0e7490;
+  --se-sql-operator: #566580;
+  --se-sql-comment: #5f6d86;
+  --se-sql-error: #c0262d;
+
+  --se-font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI Variable', 'Segoe UI', sans-serif;
+  --se-font-mono: 'Fira Code', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, monospace;
+  --se-font-data: var(--se-font-ui);
+  --se-font-size: 13px;
+  --se-section-title-font: 600 12px var(--se-font-ui);
+  --se-section-title-transform: none;
+  --se-section-title-tracking: normal;
+  --se-tab-font: 500 13px var(--se-font-ui);
+  --se-tab-transform: none;
+  --se-tab-tracking: normal;
+  --se-tab-underline-bottom: 0px;
+  --se-tab-underline-height: 2px;
+  --se-statusbar-font: 12px var(--se-font-ui);
+
+  --se-radius-sm: 3px;
+  --se-radius: 6px;
+  --se-radius-lg: 10px;
+  --se-overlay-blur: none;
+  --se-sash-grip-display: none;
+  --se-map-bottom-inset: 0px;
+  --se-row-height: 26px;
+  --se-table-header-font: 600 12px var(--se-font-ui);
+  --se-table-header-transform: none;
+  --se-table-header-tracking: normal;
+  --se-selected-outline: transparent;
+  --se-button-border: transparent;
+  --se-ease: cubic-bezier(0.3, 0.7, 0.3, 1);
   --se-sql-font-size: 12.5px;
 }
 
@@ -143,199 +138,192 @@
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    --se-bg-base: #0e171e;
-    --se-bg-panel: #131e28;
-    --se-bg-elevated: #192430;
-    --se-link: #fbbf24;
-    --se-bg-hover: #2d1c04;
-    --se-border: #1e2e3c;
-
-    --se-text-primary: #f0ebe0;
-    --se-text-secondary: #8a98a8;
-    --se-text-muted: #7f90a3;
-    --se-accent: #fbbf24;
-    --se-focus: #fbbf24;
-    --se-info: #60a5fa;
-    --se-section-title-fg: #8a98a8;
-
-    --se-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
-    --se-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-
-    --se-progress: #fbbf24;
-    --se-sash-hover: #fbbf24;
-
-    --se-map-bg: #101820;
-    --se-map-selection: #fbbf24;
-
-    --se-control-bg: rgba(19, 30, 40, 0.88);
-    --se-control-border: #253545;
-    --se-control-fg: #8a98a8;
-    --se-control-hover: #1e2e3c;
-    --se-control-active-bg: #2d1c04;
-    --se-control-active-fg: #fcd34d;
-
-    --se-table-bg: #0e171e;
-    --se-table-header-bg: #131e28;
-    --se-table-header-fg: #8a98a8;
-    --se-table-header-border: 2px solid #2f4258;
-    --se-table-stripe: #101820;
-    --se-table-row-border: #192430;
-    --se-table-number-fg: #e8c87a;
-
-    --se-selected-bg: #3a2606;
-    --se-selected-fg: #fcd34d;
-    --se-selected-inactive-bg: #2d1c04;
-    --se-selected-inactive-fg: #fcd34d;
-    --se-selected-indicator: #fbbf24;
-
-    --se-input-bg: #192430;
-    --se-input-border: #253545;
-    --se-button-bg: #fbbf24;
-    --se-button-fg: #1c1208;
-    --se-button-hover: #f59e0b;
-    --se-button-secondary-fg: #8a98a8;
-    --se-button-secondary-hover: #1e2e3c;
-    --se-menu-bg: #1f2d3a;
-    --se-menu-border: #2f4258;
-    --se-menu-fg: #f0ebe0;
-    --se-menu-hover-bg: #2d1c04;
-    --se-menu-hover-fg: #fcd34d;
-
-    --se-warning: #f59e0b;
-    --se-warning-fg: #fcd34d;
-    --se-warning-bg: #2d1c04;
-    --se-warning-border: #4a3008;
-    --se-error: #ef4444;
-    --se-error-fg: #fca5a5;
-    --se-error-bg: #2a1215;
-    --se-error-border: #5c1d22;
-
-    --se-statusbar-bg: rgba(14, 23, 30, 0.82);
-    --se-statusbar-fg: #8a98a8;
-    --se-statusbar-border: #253545;
-
-    --se-brand-text: #fbbf24;
-    --se-header-bg: #131e28;
-    --se-header-border: #253545;
-    --se-dropzone-border: #2f4258;
-    --se-dropzone-active-bg: #2d1c04;
-
-    --se-sql-bg: #0e171e;
-    --se-sql-fg: #f0ebe0;
-    --se-sql-selection: #3a2606;
-    --se-sql-cursor: #fbbf24;
-    --se-sql-gutter-fg: #7f90a3;
-    --se-sql-gutter-active-fg: #f0ebe0;
-    --se-sql-gutter-bg: #131e28;
-    --se-sql-active-line: #131e28;
-    --se-sql-keyword: #fbbf24;
-    --se-sql-string: #6ee7b7;
-    --se-sql-number: #c4b5fd;
-    --se-sql-function: #93c5fd;
-    --se-sql-operator: #a9b6c4;
-    --se-sql-comment: #7f90a3;
-    --se-sql-error: #f87171;
+    --se-bg-base: #0f1726;
+    --se-bg-panel: #141e30;
+    --se-bg-elevated: #1a2639;
+    --se-link: #8aa4ff;
+    --se-bg-hover: #202d44;
+    --se-border: #263349;
+    --se-text-primary: #e4eaf5;
+    --se-text-secondary: #93a0b8;
+    --se-text-muted: #a3aec3;
+    --se-accent: #8aa4ff;
+    --se-focus: #8aa4ff;
+    --se-info: #6cb4e6;
+    --se-section-title-fg: #93a0b8;
+    --se-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --se-shadow-elevated: 0 16px 40px -12px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --se-progress: #8aa4ff;
+    --se-sash-hover: #8aa4ff;
+    --se-map-bg: #0d2433;
+    --se-map-selection: #f59e0b;
+    --se-control-bg: #1a2639;
+    --se-control-border: #263349;
+    --se-control-fg: #93a0b8;
+    --se-control-hover: #202d44;
+    --se-control-active-bg: #1d2a52;
+    --se-control-active-fg: #8aa4ff;
+    --se-table-bg: #0f1726;
+    --se-table-header-bg: #141e30;
+    --se-table-header-fg: #93a0b8;
+    --se-table-header-border: 1px solid #33445f;
+    --se-table-stripe: transparent;
+    --se-table-row-border: #1b2638;
+    --se-table-number-fg: #e4eaf5;
+    --se-type-text: #7fd6b2;
+    --se-type-integer: #8ec5f2;
+    --se-type-decimal: #67d4e8;
+    --se-type-boolean: #c4b5fd;
+    --se-type-datetime: #f0b45a;
+    --se-type-nested: #f4a98c;
+    --se-type-geometry: #8592ab;
+    --se-selected-bg: #463b17;
+    --se-selected-fg: #f6e7b4;
+    --se-selected-inactive-bg: #2f2a17;
+    --se-selected-inactive-fg: #f6e7b4;
+    --se-selected-indicator: #8aa4ff;
+    --se-input-bg: #1a2639;
+    --se-input-border: #33445f;
+    --se-button-bg: #8aa4ff;
+    --se-button-fg: #0b1640;
+    --se-button-hover: #a6b9ff;
+    --se-button-secondary-bg: transparent;
+    --se-button-secondary-fg: #e4eaf5;
+    --se-button-secondary-hover: #202d44;
+    --se-menu-bg: #1a2639;
+    --se-menu-border: #33445f;
+    --se-menu-fg: #e4eaf5;
+    --se-menu-hover-bg: #1d2a52;
+    --se-menu-hover-fg: #c3d0ff;
+    --se-warning: #e0a63a;
+    --se-warning-fg: #f2c76e;
+    --se-warning-bg: #2f2812;
+    --se-warning-border: #54451a;
+    --se-error: #ef6b73;
+    --se-error-fg: #f59ba0;
+    --se-error-bg: #2c1519;
+    --se-error-border: #5c2229;
+    --se-statusbar-bg: #141e30;
+    --se-statusbar-fg: #93a0b8;
+    --se-statusbar-border: #263349;
+    --se-statusbar-accent: #8aa4ff;
+    --se-brand-text: #e4eaf5;
+    --se-header-bg: #141e30;
+    --se-header-border: #263349;
+    --se-dropzone-border: #33445f;
+    --se-dropzone-active-bg: #1d2a52;
+    --se-sql-bg: #0f1726;
+    --se-sql-fg: #e4eaf5;
+    --se-sql-selection: #463b17;
+    --se-sql-cursor: #8aa4ff;
+    --se-sql-gutter-fg: #8592ab;
+    --se-sql-gutter-active-fg: #e4eaf5;
+    --se-sql-gutter-bg: #141e30;
+    --se-sql-active-line: #141e30;
+    --se-sql-keyword: #8aa4ff;
+    --se-sql-string: #7fd6b2;
+    --se-sql-number: #b9a6f2;
+    --se-sql-function: #67d4e8;
+    --se-sql-operator: #93a0b8;
+    --se-sql-comment: #8592ab;
+    --se-sql-error: #f59ba0;
   }
 }
 
-/* Spec 008 FR-022: Dark chosen in the theme menu, whatever the OS says. */
+/* Dark chosen in the theme menu, whatever the OS says. */
 :root[data-theme='dark'] {
-    color-scheme: dark;
+  color-scheme: dark;
 
-    --se-bg-base: #0e171e;
-    --se-bg-panel: #131e28;
-    --se-bg-elevated: #192430;
-    --se-link: #fbbf24;
-    --se-bg-hover: #2d1c04;
-    --se-border: #1e2e3c;
-
-    --se-text-primary: #f0ebe0;
-    --se-text-secondary: #8a98a8;
-    --se-text-muted: #7f90a3;
-    --se-accent: #fbbf24;
-    --se-focus: #fbbf24;
-    --se-info: #60a5fa;
-    --se-section-title-fg: #8a98a8;
-
-    --se-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
-    --se-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-
-    --se-progress: #fbbf24;
-    --se-sash-hover: #fbbf24;
-
-    --se-map-bg: #101820;
-    --se-map-selection: #fbbf24;
-
-    --se-control-bg: rgba(19, 30, 40, 0.88);
-    --se-control-border: #253545;
-    --se-control-fg: #8a98a8;
-    --se-control-hover: #1e2e3c;
-    --se-control-active-bg: #2d1c04;
-    --se-control-active-fg: #fcd34d;
-
-    --se-table-bg: #0e171e;
-    --se-table-header-bg: #131e28;
-    --se-table-header-fg: #8a98a8;
-    --se-table-header-border: 2px solid #2f4258;
-    --se-table-stripe: #101820;
-    --se-table-row-border: #192430;
-    --se-table-number-fg: #e8c87a;
-
-    --se-selected-bg: #3a2606;
-    --se-selected-fg: #fcd34d;
-    --se-selected-inactive-bg: #2d1c04;
-    --se-selected-inactive-fg: #fcd34d;
-    --se-selected-indicator: #fbbf24;
-
-    --se-input-bg: #192430;
-    --se-input-border: #253545;
-    --se-button-bg: #fbbf24;
-    --se-button-fg: #1c1208;
-    --se-button-hover: #f59e0b;
-    --se-button-secondary-fg: #8a98a8;
-    --se-button-secondary-hover: #1e2e3c;
-    --se-menu-bg: #1f2d3a;
-    --se-menu-border: #2f4258;
-    --se-menu-fg: #f0ebe0;
-    --se-menu-hover-bg: #2d1c04;
-    --se-menu-hover-fg: #fcd34d;
-
-    --se-warning: #f59e0b;
-    --se-warning-fg: #fcd34d;
-    --se-warning-bg: #2d1c04;
-    --se-warning-border: #4a3008;
-    --se-error: #ef4444;
-    --se-error-fg: #fca5a5;
-    --se-error-bg: #2a1215;
-    --se-error-border: #5c1d22;
-
-    --se-statusbar-bg: rgba(14, 23, 30, 0.82);
-    --se-statusbar-fg: #8a98a8;
-    --se-statusbar-border: #253545;
-
-    --se-brand-text: #fbbf24;
-    --se-header-bg: #131e28;
-    --se-header-border: #253545;
-    --se-dropzone-border: #2f4258;
-    --se-dropzone-active-bg: #2d1c04;
-
-    --se-sql-bg: #0e171e;
-    --se-sql-fg: #f0ebe0;
-    --se-sql-selection: #3a2606;
-    --se-sql-cursor: #fbbf24;
-    --se-sql-gutter-fg: #7f90a3;
-    --se-sql-gutter-active-fg: #f0ebe0;
-    --se-sql-gutter-bg: #131e28;
-    --se-sql-active-line: #131e28;
-    --se-sql-keyword: #fbbf24;
-    --se-sql-string: #6ee7b7;
-    --se-sql-number: #c4b5fd;
-    --se-sql-function: #93c5fd;
-    --se-sql-operator: #a9b6c4;
-    --se-sql-comment: #7f90a3;
-    --se-sql-error: #f87171;
-  }
-
+  --se-bg-base: #0f1726;
+  --se-bg-panel: #141e30;
+  --se-bg-elevated: #1a2639;
+  --se-link: #8aa4ff;
+  --se-bg-hover: #202d44;
+  --se-border: #263349;
+  --se-text-primary: #e4eaf5;
+  --se-text-secondary: #93a0b8;
+  --se-text-muted: #a3aec3;
+  --se-accent: #8aa4ff;
+  --se-focus: #8aa4ff;
+  --se-info: #6cb4e6;
+  --se-section-title-fg: #93a0b8;
+  --se-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --se-shadow-elevated: 0 16px 40px -12px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --se-progress: #8aa4ff;
+  --se-sash-hover: #8aa4ff;
+  --se-map-bg: #0d2433;
+  --se-map-selection: #f59e0b;
+  --se-control-bg: #1a2639;
+  --se-control-border: #263349;
+  --se-control-fg: #93a0b8;
+  --se-control-hover: #202d44;
+  --se-control-active-bg: #1d2a52;
+  --se-control-active-fg: #8aa4ff;
+  --se-table-bg: #0f1726;
+  --se-table-header-bg: #141e30;
+  --se-table-header-fg: #93a0b8;
+  --se-table-header-border: 1px solid #33445f;
+  --se-table-stripe: transparent;
+  --se-table-row-border: #1b2638;
+  --se-table-number-fg: #e4eaf5;
+  --se-type-text: #7fd6b2;
+  --se-type-integer: #8ec5f2;
+  --se-type-decimal: #67d4e8;
+  --se-type-boolean: #c4b5fd;
+  --se-type-datetime: #f0b45a;
+  --se-type-nested: #f4a98c;
+  --se-type-geometry: #8592ab;
+  --se-selected-bg: #463b17;
+  --se-selected-fg: #f6e7b4;
+  --se-selected-inactive-bg: #2f2a17;
+  --se-selected-inactive-fg: #f6e7b4;
+  --se-selected-indicator: #8aa4ff;
+  --se-input-bg: #1a2639;
+  --se-input-border: #33445f;
+  --se-button-bg: #8aa4ff;
+  --se-button-fg: #0b1640;
+  --se-button-hover: #a6b9ff;
+  --se-button-secondary-bg: transparent;
+  --se-button-secondary-fg: #e4eaf5;
+  --se-button-secondary-hover: #202d44;
+  --se-menu-bg: #1a2639;
+  --se-menu-border: #33445f;
+  --se-menu-fg: #e4eaf5;
+  --se-menu-hover-bg: #1d2a52;
+  --se-menu-hover-fg: #c3d0ff;
+  --se-warning: #e0a63a;
+  --se-warning-fg: #f2c76e;
+  --se-warning-bg: #2f2812;
+  --se-warning-border: #54451a;
+  --se-error: #ef6b73;
+  --se-error-fg: #f59ba0;
+  --se-error-bg: #2c1519;
+  --se-error-border: #5c2229;
+  --se-statusbar-bg: #141e30;
+  --se-statusbar-fg: #93a0b8;
+  --se-statusbar-border: #263349;
+  --se-statusbar-accent: #8aa4ff;
+  --se-brand-text: #e4eaf5;
+  --se-header-bg: #141e30;
+  --se-header-border: #263349;
+  --se-dropzone-border: #33445f;
+  --se-dropzone-active-bg: #1d2a52;
+  --se-sql-bg: #0f1726;
+  --se-sql-fg: #e4eaf5;
+  --se-sql-selection: #463b17;
+  --se-sql-cursor: #8aa4ff;
+  --se-sql-gutter-fg: #8592ab;
+  --se-sql-gutter-active-fg: #e4eaf5;
+  --se-sql-gutter-bg: #141e30;
+  --se-sql-active-line: #141e30;
+  --se-sql-keyword: #8aa4ff;
+  --se-sql-string: #7fd6b2;
+  --se-sql-number: #b9a6f2;
+  --se-sql-function: #67d4e8;
+  --se-sql-operator: #93a0b8;
+  --se-sql-comment: #8592ab;
+  --se-sql-error: #f59ba0;
+}
 
 html,
 body {
@@ -347,7 +335,6 @@ body {
   color: var(--se-text-primary);
   font-family: var(--se-font-ui);
   font-size: var(--se-font-size);
-  font-feature-settings: 'cv02', 'cv03', 'cv04';
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -355,7 +342,7 @@ body {
   height: 100%;
 }
 
-/* Thin scrollbars, matching the legacy app. */
+/* Thin scrollbars. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--se-input-border) transparent;
