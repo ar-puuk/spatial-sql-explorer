@@ -85,6 +85,7 @@
   let firstPage = $derived(pages.get(0))
   let allColumns = $derived(firstPage && firstPage.rows.length > 0 ? Object.keys(firstPage.rows[0].attributes) : (layer?.columns.map((c) => c.name) ?? []))
   let columns = $derived(allColumns.filter((c) => !hiddenColumns.has(c)))
+  import { valueKind, isNumericKind } from './valueKind.js'
   const typeOf = (col: string): string => layer?.columns.find((c) => c.name === col)?.type ?? 'VARCHAR'
   const filterOf = (col: string): Filter | null => filters?.find((f) => f.column === col) ?? null
   const showFilters = $derived(filters !== null)
@@ -398,7 +399,8 @@
               </td>
               {#each columns as col (col)}
                 {@const v = row.attributes[col]}
-                <td role="gridcell" class:num={typeof v === 'number'} class:null={v === null || v === undefined} title={display(v)}>{display(v)}</td>
+                {@const kind = valueKind(v, typeOf(col))}
+                <td role="gridcell" class="v-{kind}" class:num={isNumericKind(kind)} class:null={kind === 'null'} title={display(v)}>{display(v)}</td>
               {/each}
               <td class="filler" aria-hidden="true"></td>
             </tr>
@@ -559,7 +561,31 @@
   }
   td.num {
     text-align: right;
-    color: var(--se-table-number-fg);
+  }
+  /* The value's type, in color (spec 015): the host's own tokens in VS Code, the web palette elsewhere. */
+  td.v-text {
+    color: var(--se-type-text);
+  }
+  td.v-integer {
+    color: var(--se-type-integer);
+  }
+  td.v-decimal {
+    color: var(--se-type-decimal);
+  }
+  td.v-boolean {
+    color: var(--se-type-boolean);
+  }
+  td.v-datetime {
+    color: var(--se-type-datetime);
+  }
+  td.v-nested {
+    color: var(--se-type-nested);
+    font-family: var(--se-font-mono);
+    font-size: 0.92em;
+  }
+  td.v-geometry {
+    color: var(--se-type-geometry);
+    font-style: italic;
   }
   td.null {
     color: var(--se-text-muted);
@@ -581,9 +607,7 @@
     outline: 1px solid var(--se-selected-outline);
     outline-offset: -1px;
   }
-  tbody tr.selected td.id,
-  tbody tr.selected td.num,
-  tbody tr.selected td.null {
+  tbody tr.selected td {
     color: inherit;
   }
   tr.spacer,

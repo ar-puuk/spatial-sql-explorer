@@ -57,17 +57,17 @@ test('the style type dropdown: each type with what it does; Heatmap only for poi
   await button.click()
   const options = page.getByRole('listbox', { name: 'Color styles' }).getByRole('option')
   await expect(options).toHaveText([
-    /^Single color\s*One color for every feature/,
-    /^Categorized\s*A color for each value of a column/,
+    /^\s*Single color\s*One color for every feature/,
+    /^\s*Categorized\s*A color for each value of a column/,
     // One numeric column: no bivariate, and the option says why.
-    /^Graduated\s*Colors by ranges of a number or an expression/,
+    /^\s*Graduated\s*Colors by ranges of a number or an expression/,
     // Spec 011 US4.
-    /^Continuous\s*Colors along a ramp, in proportion to a number/,
-    /^As is\s*Colors read from a column \(#rrggbb\)/,
-    /^Bivariate\s*Bivariate maps need two numeric columns\./,
-    /^Rules\s*SQL conditions: the first one a feature meets colors it/,
-    /^Heatmap\s*Where points cluster, as a smooth density surface/,
-    /^Clusters\s*Nearby points grouped into bubbles, sized and colored by how many/,
+    /^\s*Continuous\s*Colors along a ramp, in proportion to a number/,
+    /^\s*As is\s*Colors read from a column \(#rrggbb\)/,
+    /^\s*Bivariate\s*Bivariate maps need two numeric columns\./,
+    /^\s*Rules\s*SQL conditions: the first one a feature meets colors it/,
+    /^\s*Heatmap\s*Where points cluster, as a smooth density surface/,
+    /^\s*Clusters\s*Nearby points grouped into bubbles, sized and colored by how many/,
   ])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('listbox', { name: 'Color styles' })).toBeHidden()

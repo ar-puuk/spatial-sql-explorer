@@ -18,6 +18,7 @@
     type MapControlId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
+  import Switch from './kit/Switch.svelte'
 
   interface Props {
     prefs: MapControlsPrefs
@@ -42,23 +43,23 @@
 </script>
 
 <div class="controls-panel" role="region" aria-label="Map controls">
-  <p class="intro">Choose the controls on the map and where each one sits; each offers the places that suit it. Controls in the same place stack in the order listed. This applies to every file. The map's attribution stays at the bottom right.</p>
+  <p class="intro">Choose which controls the map shows and where each sits. This applies to every file. The attribution stays at the bottom right.</p>
   {#each groups as g (g.id)}
     <section aria-labelledby="mc-{g.id}">
       <h3 id="mc-{g.id}">{g.label}</h3>
       {#each g.controls as c (c.id)}
-        <div class="row" class:off={!isControlOn(prefs, c.id)}>
-          <input id="mc-on-{c.id}" type="checkbox" checked={isControlOn(prefs, c.id)} onchange={(e) => onChange(setControlOn(prefs, c.id, e.currentTarget.checked))} />
-          <label class="text" for="mc-on-{c.id}">
-            <span class="name">{c.label}</span>
-            <span class="hint">{c.description}</span>
-          </label>
+        <div class="row" class:off={!isControlOn(prefs, c.id)} title={c.description}>
+          <Switch checked={isControlOn(prefs, c.id)} onChange={(on) => onChange(setControlOn(prefs, c.id, on))} labelledby="mc-name-{c.id}" />
+          <span class="name" id="mc-name-{c.id}">{c.label}</span>
           {#if positionsFor(c.id).length > 0}
-            <select aria-label="{c.label} position" value={positionOf(prefs, c.id)} onchange={(e) => onChange(setControlPosition(prefs, c.id, e.currentTarget.value as ControlPosition))}>
-              {#each CONTROL_POSITIONS.filter((p) => positionsFor(c.id).includes(p.id)) as position (position.id)}
-                <option value={position.id}>{position.label}</option>
-              {/each}
-            </select>
+            <div class="where">
+              <!-- The platform's select on purpose: fifteen rows of a library select cost over 100 ms to open at 6x CPU. -->
+              <select aria-label="{c.label} position" value={positionOf(prefs, c.id) ?? ''} onchange={(e) => onChange(setControlPosition(prefs, c.id, e.currentTarget.value as ControlPosition))}>
+                {#each CONTROL_POSITIONS.filter((p) => positionsFor(c.id).includes(p.id)) as position (position.id)}
+                  <option value={position.id}>{position.label}</option>
+                {/each}
+              </select>
+            </div>
           {/if}
         </div>
         {#if c.id === 'tooltip' && isControlOn(prefs, 'tooltip') && tooltip && tooltip.available.length > 0}
@@ -97,46 +98,37 @@
   }
   section {
     display: grid;
-    gap: 6px;
+    gap: 0;
   }
   h3 {
-    margin: 0;
+    margin: 8px 0 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--se-border);
     font: var(--se-section-title-font);
     text-transform: var(--se-section-title-transform);
     letter-spacing: var(--se-section-title-tracking);
     color: var(--se-section-title-fg);
   }
-  /* switch | name and what it does | corner */
+  /* switch | name | position */
   .row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) 118px;
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+    border-bottom: 1px solid var(--se-border);
   }
-  .row input[type='checkbox'] {
-    margin: 2px 0 0;
-    accent-color: var(--se-accent);
-  }
-  .text {
-    display: grid;
-    gap: 1px;
-    min-width: 0;
-    cursor: pointer;
-  }
-  .hint {
+  .row.off .name {
     color: var(--se-text-secondary);
-    font-size: 0.92em;
   }
-  select {
+  .where {
     min-width: 0;
-    height: 24px;
-    padding: 0 4px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
-    color: var(--se-input-fg, var(--se-text-primary));
-    font: inherit;
   }
+  .where select {
+    width: 100%;
+    min-width: 0;
+  }
+
   .columns {
     display: grid;
     gap: 3px;
@@ -183,7 +175,6 @@
     cursor: default;
   }
   .footer button:focus-visible,
-  select:focus-visible,
   input:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: 1px;

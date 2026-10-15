@@ -37,7 +37,9 @@
     align-items: center;
     gap: 6px;
     height: 28px;
-    max-width: 260px;
+    width: var(--se-stack-width, auto);
+    box-sizing: border-box;
+    max-width: 100%;
     padding: 0 4px 0 8px;
     background: var(--se-control-bg);
     border: 1px solid var(--se-control-border);

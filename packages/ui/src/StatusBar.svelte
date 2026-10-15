@@ -126,8 +126,7 @@
     color: var(--se-statusbar-fg);
     border-top: 1px solid var(--se-statusbar-border);
     backdrop-filter: var(--se-overlay-blur);
-    font-family: var(--se-font-mono);
-    font-size: 11px;
+    font: var(--se-statusbar-font, 11px var(--se-font-mono));
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;

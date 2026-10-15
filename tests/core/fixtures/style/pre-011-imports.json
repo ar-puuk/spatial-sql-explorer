@@ -2923,7 +2923,7 @@
        "#00ff00",
        2,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-opacity": [
@@ -3247,7 +3247,7 @@
        "#00ff00",
        2,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-extrusion-height": 0,
@@ -3331,7 +3331,7 @@
        "#00ff00",
        2,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "circle-opacity": [
@@ -3605,7 +3605,7 @@
       "se-marker|circle|#00ff00|0.45|#ff0000|0.8|0.5|5",
       2,
       "se-marker|circle|#8c8c8c|0.45|#ff0000|0.8|0.5|5",
-      "se-marker|circle|#3b82f6|0.45|#ff0000|0.8|0.5|5"
+      "se-marker|circle|#3f8fa8|0.45|#ff0000|0.8|0.5|5"
      ]
     }
    },
@@ -3667,7 +3667,7 @@
     ]
    ],
    "icons": [
-    "se-marker|circle|#3b82f6|0.45|#ff0000|0.8|0.5|5",
+    "se-marker|circle|#3f8fa8|0.45|#ff0000|0.8|0.5|5",
     "se-marker|circle|#ff0000|0.45|#ff0000|0.8|0.5|5",
     "se-marker|circle|#00ff00|0.45|#ff0000|0.8|0.5|5",
     "se-marker|circle|#8c8c8c|0.45|#ff0000|0.8|0.5|5"
@@ -7795,7 +7795,7 @@
        "#bdbdbd",
        4,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-opacity": [
@@ -8259,7 +8259,7 @@
        "#bdbdbd",
        4,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-extrusion-height": 0,
@@ -8413,7 +8413,7 @@
        "#bdbdbd",
        4,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "circle-opacity": [
@@ -8757,13 +8757,13 @@
       "se-marker|circle|#bdbdbd|0.45|#440154|0.8|0.5|5",
       4,
       "se-marker|circle|#8c8c8c|0.45|#440154|0.8|0.5|5",
-      "se-marker|circle|#3b82f6|0.45|#440154|0.8|0.5|5"
+      "se-marker|circle|#3f8fa8|0.45|#440154|0.8|0.5|5"
      ]
     }
    },
    "filter": null,
    "icons": [
-    "se-marker|circle|#3b82f6|0.45|#440154|0.8|0.5|5",
+    "se-marker|circle|#3f8fa8|0.45|#440154|0.8|0.5|5",
     "se-marker|circle|#440154|0.45|#440154|0.8|0.5|5",
     "se-marker|circle|#ff8800|0.45|#440154|0.8|0.5|5",
     "se-marker|circle|#fde725|0.45|#440154|0.8|0.5|5",
@@ -10169,7 +10169,7 @@
        "#4daf4a",
        3,
        "#bdbdbd",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-opacity": [
@@ -10489,7 +10489,7 @@
        "#4daf4a",
        3,
        "#bdbdbd",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-extrusion-height": 0,
@@ -10571,7 +10571,7 @@
        "#4daf4a",
        3,
        "#bdbdbd",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "circle-opacity": [
@@ -10843,7 +10843,7 @@
       "se-marker|circle|#4daf4a|0.75|#4b5563|0.8|0.5|5",
       3,
       "se-marker|circle|#bdbdbd|0.75|#4b5563|0.8|0.5|5",
-      "se-marker|circle|#3b82f6|0.75|#4b5563|0.8|0.5|5"
+      "se-marker|circle|#3f8fa8|0.75|#4b5563|0.8|0.5|5"
      ]
     }
    },
@@ -10901,7 +10901,7 @@
     ]
    ],
    "icons": [
-    "se-marker|circle|#3b82f6|0.75|#4b5563|0.8|0.5|5",
+    "se-marker|circle|#3f8fa8|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#e41a1c|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#377eb8|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#4daf4a|0.75|#4b5563|0.8|0.5|5",
@@ -11469,7 +11469,7 @@
        "#693130",
        9,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-opacity": [
@@ -12261,7 +12261,7 @@
        "#693130",
        9,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "fill-extrusion-height": 0,
@@ -12579,7 +12579,7 @@
        "#693130",
        9,
        "#8c8c8c",
-       "#3b82f6"
+       "#3f8fa8"
       ]
      ],
      "circle-opacity": [
@@ -13087,7 +13087,7 @@
       "se-marker|circle|#693130|0.75|#4b5563|0.8|0.5|5",
       9,
       "se-marker|circle|#8c8c8c|0.75|#4b5563|0.8|0.5|5",
-      "se-marker|circle|#3b82f6|0.75|#4b5563|0.8|0.5|5"
+      "se-marker|circle|#3f8fa8|0.75|#4b5563|0.8|0.5|5"
      ]
     }
    },
@@ -13369,7 +13369,7 @@
     ]
    ],
    "icons": [
-    "se-marker|circle|#3b82f6|0.75|#4b5563|0.8|0.5|5",
+    "se-marker|circle|#3f8fa8|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#e8e8e8|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#f4a17d|0.75|#4b5563|0.8|0.5|5",
     "se-marker|circle|#e6550d|0.75|#4b5563|0.8|0.5|5",
@@ -18559,7 +18559,7 @@
       "key": "single",
       "kind": "single",
       "label": "All features",
-      "color": "#3b82f6",
+      "color": "#3f8fa8",
       "visible": true,
       "count": 30
      }
@@ -18574,7 +18574,7 @@
        "key": "size:__null",
        "kind": "noValue",
        "label": "No value",
-       "color": "#3b82f6",
+       "color": "#3f8fa8",
        "visible": true,
        "count": 1
       }
@@ -18637,7 +18637,7 @@
        ]
       ],
       "#f59e0b",
-      "#3b82f6"
+      "#3f8fa8"
      ],
      "fill-opacity": [
       "case",
@@ -19166,7 +19166,7 @@
        ]
       ],
       "#f59e0b",
-      "#3b82f6"
+      "#3f8fa8"
      ],
      "fill-extrusion-height": 0,
      "fill-extrusion-base": 0,
@@ -19196,7 +19196,7 @@
        ]
       ],
       "#f59e0b",
-      "#3b82f6"
+      "#3f8fa8"
      ],
      "circle-opacity": [
       "case",
@@ -19828,7 +19828,7 @@
      "line-cap": "round"
     },
     "marker": {
-     "icon-image": "se-marker|circle|#3b82f6|0.45|#1d4ed8|1|1.5|6",
+     "icon-image": "se-marker|circle|#3f8fa8|0.45|#1d4ed8|1|1.5|6",
      "icon-size": [
       "/",
       [
@@ -19937,7 +19937,7 @@
    },
    "filter": null,
    "icons": [
-    "se-marker|circle|#3b82f6|0.45|#1d4ed8|1|1.5|6"
+    "se-marker|circle|#3f8fa8|0.45|#1d4ed8|1|1.5|6"
    ]
   },
   "categorizedWithSize": {

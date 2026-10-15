@@ -75,7 +75,7 @@ test('a blocked basemap degrades to blank with a short message; data unaffected 
   const notice = page.locator('.map-notice')
   await expect(notice).toContainText('basemap unavailable', { timeout: 15000 })
   await expect(notice).toContainText('Showing a blank background')
-  await expect(page.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('title', 'Basemap: Blank')
+  await expect(page.getByRole('button', { name: 'Basemap', exact: true })).toHaveAttribute('aria-description', 'Basemap: Blank')
   await expect.poll(() => renderedFeatures(page)).toBeGreaterThan(0)
   await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.getByRole('alert')).toHaveCount(0)

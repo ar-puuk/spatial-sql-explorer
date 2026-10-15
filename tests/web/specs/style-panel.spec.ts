@@ -61,7 +61,7 @@ test('ramps preview on the map while browsing; Escape restores; Enter commits', 
   await expect(legendRows(page)).toHaveCount(5)
   const original = await swatch(page, 0)
   // Save first, so "modified" shows only for real edits: a preview never marks the style modified.
-  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   await expect(panel(page).locator('.source')).not.toContainText('modified')
 
   await page.getByRole('button', { name: /^Colors:/ }).click()
@@ -115,7 +115,7 @@ test('layer opacity fades the whole layer, live, and is saved in the QML (user r
   await expect(slider).toHaveAttribute('aria-valuetext', '50%')
   // Default fill opacity 45%, times 50%: the legend swatch is about 22% opaque.
   await expect.poll(() => swatchFillOpacity(page)).toBeCloseTo(0.225, 2)
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   const fs = await import('node:fs')
   expect(fs.readFileSync(await download.path(), 'utf8')).toContain('<layerOpacity>0.5</layerOpacity>')
 })

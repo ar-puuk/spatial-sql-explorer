@@ -128,6 +128,14 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - Shapes are scratch geometry for queries and filters, never edits to the data. The store owns them (`shapes`); they are the temp table `drawn` in SQL (`id, kind, purpose, geom, area_m2, length_m, perimeter_m`; spherical measures within about half a percent of the spheroid); the SQL button writes a query with the geometry inlined, in the layer's CRS; "As layer" runs `SELECT * FROM drawn` (so every export format applies); GeoJSON saves them. The spatial predicate (intersects, within, contains, centroid within) defaults to intersects. A shape can select rows (ids into the existing Selection) or be a standing filter (`QuerySession.setSpatialFilter`, a restriction beside the column filters). Selection runs in the engine, never on rendered features, so it covers off-screen rows and tiles mode.
 - A hover tooltip (columns chosen in the Map controls panel; tiles mode fetches the record by id) and an on-map coordinates readout (click copies lat, lon; elevation is shown, not copied).
 
+## Visual design (spec 015)
+- One icon library: Lucide (`@lucide/svelte`, ISC), behind `packages/ui/src/Icon.svelte` (our names map to Lucide components; unused icons are not bundled). Never draw an icon by hand.
+- Interactive components come from bits-ui (headless, MIT), wrapped once in `packages/ui/src/kit/` (Switch, Segmented, Slider, Select, Tip) and styled from tokens. Prefer a maintained library to writing a widget.
+- The web shell's identity lives in `apps/web/src/theme.css` (generated from one list of tokens; same token names as the VS Code file): chart ink on cool paper, chart magenta the single accent, navy for dark, a muted blue-teal as the default data fill. IBM Plex Sans (interface) and Fira Code (data only: SQL, coordinates, nested values) are web-only, self-hosted through @fontsource. In VS Code, colors and fonts are the host's: never ship the web palette there.
+- No all-caps labels, no numbered cards, no dot-joined meta strings in the web shell. One radius per role (`--se-radius-sm` controls, `--se-radius` floating groups, `--se-radius-lg` dialogs and the hero), hairline rules for docked panels, shadows only on floating things. Motion answers an action, apart from the landing demo; always honor reduced motion.
+- Values are colored by type (`--se-type-*`, `valueKind.ts`): the host's debug-variable tokens in VS Code. Color is never the only cue.
+- The layer picker and the selected feature's card are not map controls: they show wherever needed (top left).
+
 ## Query UX
 Embedded SQL editor first (a native .sql document is a later option). Results become map layers.
 Autocomplete from the DuckDB catalog. Docked, resizable panel.

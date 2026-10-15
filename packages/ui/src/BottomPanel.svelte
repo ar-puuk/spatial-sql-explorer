@@ -120,9 +120,9 @@
     border: 0;
     background: transparent;
     color: var(--se-panel-tab-inactive-fg, var(--se-text-secondary));
-    font: 11px var(--se-font-ui);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font: var(--se-tab-font, 11px var(--se-font-ui));
+    text-transform: var(--se-tab-transform, uppercase);
+    letter-spacing: var(--se-tab-tracking, 0.04em);
     cursor: pointer;
   }
   [role='tab']:hover,
@@ -134,8 +134,8 @@
     position: absolute;
     left: 10px;
     right: 10px;
-    bottom: 4px;
-    height: 1px;
+    bottom: var(--se-tab-underline-bottom, 4px);
+    height: var(--se-tab-underline-height, 1px);
     background: var(--se-panel-tab-border, var(--se-accent));
   }
   [role='tab']:focus-visible {

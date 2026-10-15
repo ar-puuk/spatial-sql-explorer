@@ -144,7 +144,8 @@
     type Encoding,
     type ScaleKind,
   } from '@spatial-explorer/core'
-  import Icon from './Icon.svelte'
+  import Icon, { type IconName } from './Icon.svelte'
+  import Tip from './kit/Tip.svelte'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
@@ -278,7 +279,7 @@
     { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
     { kind: 'clusters', label: 'Clusters', hint: 'Nearby points grouped into bubbles, sized and colored by how many' },
   ]
-  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, unavailable: unavailable(r.kind) })))
+  const typeOptions = $derived(RENDERERS.map((r) => ({ ...r, icon: `style-${r.kind}` as IconName, unavailable: unavailable(r.kind) })))
   const renderer = $derived(rendererOf(style))
   const colorEnc = $derived(style.renderer === undefined ? style.channels?.color : undefined)
   const colorType = $derived<ColorType>(renderer.kind === 'single' && (colorEnc?.scale.kind === 'continuous' || colorEnc?.scale.kind === 'identity') ? colorEnc.scale.kind : renderer.kind)
@@ -831,11 +832,13 @@
             checked={renderer.autoIntensity === true}
             onchange={(e) => apply(setHeatmapAutoIntensity(style, e.currentTarget.checked, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))}
           />
-          <span>Automatic: the densest spot takes the last color</span>
+          <span>Automatic</span>
+          <Tip text="The densest spot takes the last color. Worked out from all the points, so it holds at every zoom (it needs the radius in meters)." side="top">
+            {#snippet trigger(props)}
+              <button type="button" class="info" {...props} aria-label="About automatic intensity"><Icon name="info" size={13} /></button>
+            {/snippet}
+          </Tip>
         </label>
-        {#if renderer.autoIntensity}
-          <p class="hint">Worked out from all the points, so it holds at every zoom (it needs the radius in meters).</p>
-        {/if}
         <RampPicker
           value={renderer.ramp}
           renderer="graduated"
@@ -1593,6 +1596,22 @@
     gap: 6px;
     color: var(--se-text-primary);
     cursor: pointer;
+  }
+  .check .info {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: help;
+  }
+  .check .info:hover,
+  .check .info:focus-visible {
+    color: var(--se-text-primary);
   }
   .check input {
     margin: 0;

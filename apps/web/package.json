@@ -12,6 +12,8 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@fontsource/fira-code": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
     "@spatial-explorer/core": "*",
     "@spatial-explorer/ui": "*",
     "svelte": "^5.0.0"

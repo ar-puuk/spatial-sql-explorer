@@ -522,14 +522,14 @@ export function rendererTitle(renderer: Renderer): string {
 }
 
 /**
- * Data colors are fixed and theme-independent (CLAUDE.md): a mid blue that
- * reads on light and dark basemaps alike, with a darker outline, following
- * GeoLibre's default single-symbol treatment.
+ * Data colors are fixed and theme-independent (CLAUDE.md): the "tide" blue-teal
+ * (spec 015, the fourth step of the landing page's ramp), muted enough to sit on
+ * light, dark and satellite basemaps alike, with a darker outline.
  */
 export const DEFAULT_LAYER_STYLE: Readonly<LayerStyle> = Object.freeze({
-  fillColor: '#3b82f6',
+  fillColor: '#3f8fa8',
   fillOpacity: 0.45,
-  strokeColor: '#1d4ed8',
+  strokeColor: '#1b5470',
   strokeOpacity: 1,
   strokeWidth: 1.5,
   pointRadius: 5,

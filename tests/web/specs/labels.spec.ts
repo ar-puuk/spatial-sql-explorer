@@ -54,7 +54,7 @@ test('points: the Labels button turns labels on from a column; size changes the 
   await blank(page)
   // The rail button is named and keyboard reachable; off by default.
   const button = page.getByRole('button', { name: 'Labels', exact: true })
-  await expect(button).toHaveAttribute('title', 'Labels')
+  await expect(button).toHaveAttribute('aria-description', 'Labels')
   await openLabels(page)
   await expect(button).toHaveAttribute('aria-pressed', 'true')
   const show = side(page).getByRole('checkbox', { name: 'Show labels' })
@@ -63,7 +63,7 @@ test('points: the Labels button turns labels on from a column; size changes the 
 
   await show.check()
   await expect(side(page).getByLabel('From')).toHaveValue('name')
-  await expect(button).toHaveAttribute('title', 'Labels: on (name)')
+  await expect(button).toHaveAttribute('aria-description', 'Labels: on (name)')
   await page.getByRole('button', { name: 'Zoom to layer' }).click()
   await expect.poll(() => labels(page), { timeout: 20000 }).toBeGreaterThan(5)
   // Not every crash is labeled: labels that would overlap are left out.
@@ -103,7 +103,7 @@ test('lines follow the line; an expression labels; a bad expression shows its er
   await expr.press('Enter')
   await expect(side(page).getByRole('alert')).toHaveCount(0)
   await expect.poll(() => labels(page), { timeout: 20000 }).toBeGreaterThan(0)
-  await expect(page.getByRole('button', { name: 'Labels', exact: true })).toHaveAttribute('title', 'Labels: on (expression)')
+  await expect(page.getByRole('button', { name: 'Labels', exact: true })).toHaveAttribute('aria-description', 'Labels: on (expression)')
   await page.screenshot({ path: info.outputPath('lines-expression.png') })
 
   await expr.fill('nam || los')

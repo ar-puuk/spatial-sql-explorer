@@ -1,8 +1,7 @@
 <script lang="ts">
-  // Visually distinct from ErrorBanner — a skipped-geometry count is a
-  // successful load with a caveat (FR-014), not a failure. Since spec 002
-  // those rows stay in the table and are only left off the map. Dismissible,
-  // since it stays true for as long as the result is shown.
+  // A skipped-geometry count is a successful load with a caveat (FR-014), not a failure, so it is a notice over
+  // the map, not a bar that pushes the app down (spec 015). Those rows stay in the table and are only left off
+  // the map. Dismissible, since it stays true for as long as the result is shown.
   import Icon from './Icon.svelte'
 
   interface Props {
@@ -13,38 +12,47 @@
 </script>
 
 {#if invalidGeometryCount > 0 && !dismissed}
-  <div class="banner" role="status">
+  <div class="notice" role="status">
     <Icon name="warning" />
     <span class="message">
       {invalidGeometryCount.toLocaleString()}
-      {invalidGeometryCount === 1 ? 'row has' : 'rows have'} invalid or missing geometry: listed in the table, not drawn on the map.
+      {invalidGeometryCount === 1 ? 'row has' : 'rows have'} no usable geometry. {invalidGeometryCount === 1 ? 'It is' : 'They are'} in the table, not on the map.
     </span>
-    <button type="button" aria-label="Dismiss" title="Dismiss" onclick={() => (dismissed = true)}><Icon name="close" size={14} /></button>
+    <button type="button" aria-label="Dismiss" onclick={() => (dismissed = true)}><Icon name="close" size={14} /></button>
   </div>
 {/if}
 
 <style>
-  .banner {
+  .notice {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 9;
+    transform: translateX(-50%);
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 6px 4px 12px;
+    max-width: min(560px, calc(100% - 24px));
+    padding: 5px 6px 5px 10px;
     background: var(--se-warning-bg);
-    border-left: 3px solid var(--se-warning);
-    border-bottom: 1px solid var(--se-warning-border);
+    border: 1px solid var(--se-warning-border);
+    border-radius: var(--se-radius);
+    box-shadow: var(--se-shadow-card);
     color: var(--se-text-primary);
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
   }
-  .banner > :global(.icon) {
+  .notice > :global(.icon) {
     color: var(--se-warning);
   }
   .message {
     flex: 1;
+    min-width: 0;
   }
   button {
     display: grid;
     place-items: center;
+    flex: none;
     width: 22px;
     height: 22px;
     padding: 0;
@@ -59,6 +67,6 @@
     color: var(--se-text-primary);
   }
   button:focus-visible {
-    outline: 1px solid var(--se-focus);
+    outline: 2px solid var(--se-focus);
   }
 </style>

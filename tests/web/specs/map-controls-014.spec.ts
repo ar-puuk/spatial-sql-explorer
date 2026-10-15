@@ -24,90 +24,90 @@ test('the rail has a Map controls button that opens the panel with every control
   await open(page)
   await openPanel(page)
   for (const name of ['Search', 'Zoom in and out', 'Zoom to layer', 'Reset view', 'Globe view', 'Terrain', 'Draw shapes', 'Measure', 'Select by shape', 'Export map image', 'Legend', 'MapLibre logo', 'Scale bar']) {
-    await expect(panel(page).getByRole('checkbox', { name: new RegExp(`^${name}`) })).toBeChecked()
+    await expect(panel(page).getByRole('switch', { name: new RegExp(`^${name}`) })).toBeChecked()
   }
   await expect(panel(page).getByRole('button', { name: 'Reset to defaults' })).toBeDisabled()
 })
 
 test('unchecking a control removes it from the map, and the choice survives a reload', async ({ page }) => {
   await open(page)
-  await expect(page.getByRole('button', { name: 'Globe view' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Globe view', exact: true })).toBeVisible()
   await openPanel(page)
-  await panel(page).getByRole('checkbox', { name: /^Globe view/ }).uncheck()
-  await expect(page.getByRole('button', { name: 'Globe view' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  await panel(page).getByRole('switch', { name: /^Globe view/ }).uncheck()
+  await expect(page.getByRole('button', { name: 'Globe view', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible()
 
   await page.reload()
   await open(page)
-  await expect(page.getByRole('button', { name: 'Globe view' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Globe view', exact: true })).toHaveCount(0)
   await openPanel(page)
   await panel(page).getByRole('button', { name: 'Reset to defaults' }).click()
-  await expect(page.getByRole('button', { name: 'Globe view' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Globe view', exact: true })).toBeVisible()
 })
 
 test('the scale bar can be turned off and on', async ({ page }) => {
   await open(page)
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(1)
   await openPanel(page)
-  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).uncheck()
+  await panel(page).getByRole('switch', { name: /^Scale bar/ }).uncheck()
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(0)
-  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).check()
+  await panel(page).getByRole('switch', { name: /^Scale bar/ }).check()
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(1)
 })
 
 test('each control has its own corner: moving one leaves the rest', async ({ page }) => {
   await open(page)
   // By default the buttons are top right, the search top left, the scale bar and logo bottom left.
-  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
-  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view', exact: true })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible()
   await expect(corner(page, 'top-left').getByRole('search')).toBeVisible()
   await expect(corner(page, 'bottom-left').locator('.maplibregl-ctrl-scale')).toHaveCount(1)
   await expect(corner(page, 'bottom-left').locator('.maplibregl-ctrl-logo')).toHaveCount(1)
 
   await openPanel(page)
-  await panel(page).getByLabel('Globe view position').selectOption('bottom-right')
-  await expect(corner(page, 'bottom-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
-  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toHaveCount(0)
-  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  await panel(page).getByLabel('Globe view position').selectOption({ label: 'Bottom right' })
+  await expect(corner(page, 'bottom-right').getByRole('button', { name: 'Globe view', exact: true })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view', exact: true })).toHaveCount(0)
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible()
   // It sits at the bottom, above the attribution.
   const view = (await page.locator('.map-view').boundingBox())!
-  const box = (await corner(page, 'bottom-right').getByRole('button', { name: 'Globe view' }).boundingBox())!
+  const box = (await corner(page, 'bottom-right').getByRole('button', { name: 'Globe view', exact: true }).boundingBox())!
   expect(view.y + view.height - (box.y + box.height)).toBeLessThan(80)
 
   // Even zoom, which is one box of two buttons, can go: the search moves in with it.
-  await panel(page).getByLabel('Search position').selectOption('top-right')
+  await panel(page).getByLabel('Search position').selectOption({ label: 'Top right' })
   await expect(corner(page, 'top-right').getByRole('search')).toBeVisible()
-  await expect(corner(page, 'top-left')).toHaveCount(0)
+  await expect(corner(page, 'top-left').getByRole('search')).toHaveCount(0)
   // The search stacks above the buttons in the same corner (registry order).
   const s = (await corner(page, 'top-right').getByRole('search').boundingBox())!
-  const z = (await corner(page, 'top-right').getByRole('button', { name: 'Zoom in' }).boundingBox())!
+  const z = (await corner(page, 'top-right').getByRole('button', { name: 'Zoom in', exact: true }).boundingBox())!
   expect(s.y).toBeLessThan(z.y)
 
   // Reset puts everything back.
   await panel(page).getByRole('button', { name: 'Reset to defaults' }).click()
   await expect(corner(page, 'top-left').getByRole('search')).toBeVisible()
-  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view', exact: true })).toBeVisible()
 })
 
 test('the MapLibre logo is on by default; it can be turned off and moved', async ({ page }) => {
   await open(page)
   await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(1)
   await openPanel(page)
-  await panel(page).getByLabel('MapLibre logo position').selectOption('top-left')
+  await panel(page).getByLabel('MapLibre logo position').selectOption({ label: 'Top left' })
   await expect(corner(page, 'top-left').locator('.maplibregl-ctrl-logo')).toHaveCount(1)
-  await panel(page).getByRole('checkbox', { name: /^MapLibre logo/ }).uncheck()
+  await panel(page).getByRole('switch', { name: /^MapLibre logo/ }).uncheck()
   await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(0)
-  await panel(page).getByRole('checkbox', { name: /^MapLibre logo/ }).check()
+  await panel(page).getByRole('switch', { name: /^MapLibre logo/ }).check()
   await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(1)
 })
 
 test('a control that is switched off keeps its position for when it comes back', async ({ page }) => {
   await open(page)
   await openPanel(page)
-  await panel(page).getByLabel('Scale bar position').selectOption('top-left')
-  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).uncheck()
+  await panel(page).getByLabel('Scale bar position').selectOption({ label: 'Top left' })
+  await panel(page).getByRole('switch', { name: /^Scale bar/ }).uncheck()
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(0)
-  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).check()
+  await panel(page).getByRole('switch', { name: /^Scale bar/ }).check()
   await expect(corner(page, 'top-left').locator('.maplibregl-ctrl-scale')).toHaveCount(1)
 })
 
@@ -120,9 +120,9 @@ test('each control offers only the positions that suit it: the readout, the top 
   // The hover tooltip has no place on the map, so no position.
   await expect(panel(page).getByLabel('Hover tooltip position')).toHaveCount(0)
 
-  await panel(page).getByRole('checkbox', { name: /^Coordinates/ }).check()
+  await panel(page).getByRole('switch', { name: /^Coordinates/ }).check()
   await expect(corner(page, 'bottom-center').locator('.coords')).toHaveCount(1)
-  await panel(page).getByLabel('Coordinates position').selectOption('top-center')
+  await panel(page).getByLabel('Coordinates position').selectOption({ label: 'Top center' })
   await expect(corner(page, 'top-center').locator('.coords')).toHaveCount(1)
   await expect(corner(page, 'bottom-center')).toHaveCount(0)
   // Centered along the top edge.
@@ -132,24 +132,41 @@ test('each control offers only the positions that suit it: the readout, the top 
   expect(box.y - view.y).toBeLessThan(20)
 })
 
-test('coordinates: off by default; on, they follow the cursor and a click copies them', async ({ page }) => {
+test('coordinates: off by default; on, they follow the cursor; a right-click keeps a position to copy', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await open(page)
   await expect(page.locator('.map-view .coords')).toHaveCount(0)
   await openPanel(page)
-  await panel(page).getByRole('checkbox', { name: /^Coordinates/ }).check()
+  await panel(page).getByRole('switch', { name: /^Coordinates/ }).check()
   const readout = page.locator('.map-view .coords')
-  await expect(readout).toBeDisabled()
   const box = (await page.locator('.canvas-host').boundingBox())!
-  await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2)
-  await page.mouse.move(box.x + box.width / 3 + 5, box.y + box.height / 2 + 5)
-  await expect(readout).toBeEnabled()
+  const at = { x: box.x + box.width / 3, y: box.y + box.height / 2 }
+  await page.mouse.move(at.x, at.y)
+  await page.mouse.move(at.x + 5, at.y + 5)
   await expect(readout).toContainText(/-?\d+\.\d{5}, -?\d+\.\d{5}/)
-  const shown = (await readout.innerText()).trim()
-  // Moving onto the readout keeps the last position.
-  await readout.click()
-  expect((await readout.innerText()).trim()).toBe(shown)
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shown)
+
+  // The readout is live. The position you pointed at stays in the right-click menu while the cursor moves away.
+  await page.mouse.click(at.x + 5, at.y + 5, { button: 'right' })
+  const menu = page.getByRole('menu', { name: 'Position' })
+  await expect(menu).toBeVisible()
+  const pointed = (await menu.locator('.point-coords').innerText()).trim()
+  expect(pointed).toMatch(/^-?\d+\.\d{5}, -?\d+\.\d{5}$/)
+  await page.mouse.move(at.x + 120, at.y + 90)
+  await expect(menu.locator('.point-coords')).toHaveText(pointed)
+  await menu.getByRole('menuitem', { name: 'Copy lat, lon' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(pointed)
+  await expect(menu).toHaveCount(0)
+
+  // The other forms: lon, lat and a WKT point.
+  await page.mouse.click(at.x, at.y, { button: 'right' })
+  await page.getByRole('menuitem', { name: 'Copy as WKT' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^POINT\(-?\d+\.\d{6} -?\d+\.\d{6}\)$/)
+
+  // Esc closes it without copying.
+  await page.mouse.click(at.x, at.y, { button: 'right' })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
 })
 
 test('the panel has no axe violations', async ({ page }) => {
@@ -177,7 +194,7 @@ test('hover tooltip: off by default; on, it shows chosen columns, hides while dr
   await expect(tooltip(page)).toHaveCount(0)
 
   await openPanel(page)
-  await panel(page).getByRole('checkbox', { name: /^Hover tooltip/ }).check()
+  await panel(page).getByRole('switch', { name: /^Hover tooltip/ }).check()
   const columns = panel(page).getByRole('group', { name: /Tooltip columns/ }).getByRole('checkbox')
   await expect(columns.first()).toBeVisible()
   const chosen = await columns.evaluateAll((els) => els.filter((e) => (e as HTMLInputElement).checked).length)
@@ -210,7 +227,7 @@ test('hover tooltip in engine tiles mode: the chosen columns come by id', async 
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
   await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
   await openPanel(page)
-  await panel(page).getByRole('checkbox', { name: /^Hover tooltip/ }).check()
+  await panel(page).getByRole('switch', { name: /^Hover tooltip/ }).check()
   // A drawn feature's screen position, from the map itself (test hooks).
   const at = await page.evaluate(() => {
     const m = (document.querySelector('.canvas-host') as unknown as { seMap: import('maplibre-gl').Map }).seMap

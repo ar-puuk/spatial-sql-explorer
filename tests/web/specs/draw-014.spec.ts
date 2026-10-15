@@ -2,7 +2,7 @@
 // scratch geometry for queries and filters (never edits to the data).
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { fixture, grid, openFile, rowCount, runQuery } from './helpers'
+import { fixture, grid, openFile, rowCount, runQuery, choose } from './helpers'
 
 type E2E = { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }
 
@@ -105,7 +105,7 @@ test('Select by shape: a rectangle selects the rows it covers; the predicate mat
   expect(intersecting).toBeLessThan(60)
 
   // Rows entirely inside the rectangle are fewer than rows that touch it.
-  await bar(page).getByLabel('Rows that').selectOption('within')
+  await choose(page, bar(page).getByRole('button', { name: 'Rows that' }), 'Within')
   await bar(page).getByRole('button', { name: 'Select rows' }).click()
   await expect.poll(count).toBeLessThan(intersecting)
   expect(await count()).toBeGreaterThan(0)

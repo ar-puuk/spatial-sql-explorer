@@ -5,7 +5,10 @@
   import ArrowDown from '@lucide/svelte/icons/arrow-down'
   import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import Blend from '@lucide/svelte/icons/blend'
   import Box from '@lucide/svelte/icons/box'
+  import Bubbles from '@lucide/svelte/icons/bubbles'
+  import ChartNoAxesColumn from '@lucide/svelte/icons/chart-no-axes-column'
   import Check from '@lucide/svelte/icons/check'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
@@ -17,14 +20,17 @@
   import Eye from '@lucide/svelte/icons/eye'
   import EyeOff from '@lucide/svelte/icons/eye-off'
   import File from '@lucide/svelte/icons/file'
+  import Flame from '@lucide/svelte/icons/flame'
   import Funnel from '@lucide/svelte/icons/funnel'
   import Globe from '@lucide/svelte/icons/globe'
+  import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Image from '@lucide/svelte/icons/image'
   import Info from '@lucide/svelte/icons/info'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import Layers from '@lucide/svelte/icons/layers'
   import Link from '@lucide/svelte/icons/link'
   import List from '@lucide/svelte/icons/list'
+  import ListChecks from '@lucide/svelte/icons/list-checks'
   import MapIcon from '@lucide/svelte/icons/map'
   import MapPin from '@lucide/svelte/icons/map-pin'
   import Maximize2 from '@lucide/svelte/icons/maximize-2'
@@ -35,10 +41,12 @@
   import MountainSnow from '@lucide/svelte/icons/mountain-snow'
   import MousePointer2 from '@lucide/svelte/icons/mouse-pointer-2'
   import Paintbrush from '@lucide/svelte/icons/paintbrush'
+  import Palette from '@lucide/svelte/icons/palette'
   import Pencil from '@lucide/svelte/icons/pencil'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import PenTool from '@lucide/svelte/icons/pen-tool'
   import Pentagon from '@lucide/svelte/icons/pentagon'
+  import Pipette from '@lucide/svelte/icons/pipette'
   import Plus from '@lucide/svelte/icons/plus'
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
   import RotateCcwClock from '@lucide/svelte/icons/rotate-ccw-clock'
@@ -46,6 +54,7 @@
   import Save from '@lucide/svelte/icons/save'
   import Scan from '@lucide/svelte/icons/scan'
   import Search from '@lucide/svelte/icons/search'
+  import Shapes from '@lucide/svelte/icons/shapes'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Spline from '@lucide/svelte/icons/spline'
   import Square from '@lucide/svelte/icons/square'
@@ -114,7 +123,17 @@
     'shape-circle': Circle,
     'shape-freehand': PencilLine,
     pointer: MousePointer2,
-    undo: Undo2
+    undo: Undo2,
+    // The color styles (single, categorized, graduated, continuous, as is, bivariate, rules, heatmap, clusters).
+    'style-single': Palette,
+    'style-categorized': Shapes,
+    'style-graduated': ChartNoAxesColumn,
+    'style-continuous': Blend,
+    'style-identity': Pipette,
+    'style-bivariate': Grid3x3,
+    'style-rules': ListChecks,
+    'style-heatmap': Flame,
+    'style-clusters': Bubbles
   }
 
   export type IconName = keyof typeof ICONS

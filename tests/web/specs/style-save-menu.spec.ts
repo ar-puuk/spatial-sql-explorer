@@ -14,7 +14,7 @@ async function open(page: Page): Promise<void> {
 
 test('the main action downloads the QML sidecar; there is no separate Export button', async ({ page }) => {
   await open(page)
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   expect(download.suggestedFilename()).toBe('squares.qml')
   await expect(panel(page).getByRole('button', { name: /^Export/ })).toHaveCount(0)
 })

@@ -9,7 +9,7 @@ const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legendRows = (page: Page) => page.getByRole('region', { name: 'Legend' }).locator('li')
 const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
 const savedQml = async (page: Page): Promise<string> => {
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   return fs.readFileSync(await download.path(), 'utf8')
 }
 

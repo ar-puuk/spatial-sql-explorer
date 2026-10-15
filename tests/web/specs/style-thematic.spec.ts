@@ -199,7 +199,7 @@ test.describe('styles follow query results (US5)', () => {
     await chooseStyleType(page, 'Graduated')
     await page.getByLabel('Column', { exact: true }).selectOption('value')
     // Web Save is a download: keep it next to the data, as a QGIS sidecar.
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download style (QML)' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
     const sidecar = path.join(path.dirname(data), 'parcels-2000.qml')
     await download.saveAs(sidecar)
     expect(fs.readFileSync(sidecar, 'utf8')).toContain('type="graduatedSymbol"')

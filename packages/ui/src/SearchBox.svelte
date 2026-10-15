@@ -302,7 +302,9 @@
   .search-box {
     pointer-events: auto;
     position: relative;
-    width: fit-content;
+    /* The search box, the layer picker and the feature card share one width (--se-stack-width, MapView). */
+    width: var(--se-stack-width, fit-content);
+    box-sizing: border-box;
     max-width: 100%;
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
@@ -414,8 +416,8 @@
     color: var(--se-text-secondary);
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: var(--se-section-title-transform, uppercase);
+    letter-spacing: var(--se-section-title-tracking, 0.04em);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **A new look** (spec 015). Every icon is now Lucide (one icon library, replacing the hand-drawn set). The web app has its own
+  identity: chart-ink text on a cool paper, chart magenta as the one accent, a deep navy for dark, IBM Plex Sans and Fira Code
+  (self-hosted); the cream and amber palette, uppercase labels and numbered cards are gone. The landing page shows the idea in
+  one short animation: a query is typed and a map colors in. In VS Code the colors still come from your theme.
+- Switches, segmented controls, sliders, selects and tooltips are bits-ui components, themed from the same tokens; map and rail
+  buttons have tooltips. The warning about rows without geometry is a notice over the map. The default fill is a muted blue-teal.
+- The Color style list shows an icon for each type and marks the chosen one clearly. Heatmap "Automatic" has an info icon with
+  the explanation. "Save style" is one label (it downloads in the browser). Values in the table and the feature card are
+  colored by type (text, whole number, decimal, true/false, date and time, nested, geometry).
+- The layer picker and the selected feature's card are no longer part of the Search control: they show whenever they are needed.
+
 ### Added
 
 - **Map controls** (a new right-rail tab, sliders icon): a row per control with

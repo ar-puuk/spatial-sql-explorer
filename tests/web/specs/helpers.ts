@@ -1,5 +1,5 @@
 // Shared helpers for spec 002's query specs. Not a spec file itself.
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -198,4 +198,10 @@ export async function chooseStyleType(page: Page, name: string): Promise<void> {
   await page.getByRole('button', { name: /^Color: / }).click()
   await page.getByRole('listbox', { name: 'Color styles' }).getByRole('option', { name, exact: true }).click()
   await expect(page.getByRole('button', { name: `Color: ${name}` })).toBeVisible()
+}
+
+/** Pick an option in the kit's Select (a combobox that opens a themed list), by the option's visible name. */
+export async function choose(page: Page, combobox: Locator, option: string): Promise<void> {
+  await combobox.click()
+  await page.getByRole('option', { name: option, exact: true }).click()
 }

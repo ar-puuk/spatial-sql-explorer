@@ -78,7 +78,7 @@ const control = (
 ): MapControlDef => ({ id, group, label, description, defaultOn, positions, defaultPosition })
 
 export const MAP_CONTROLS: readonly MapControlDef[] = [
-  control('search', 'navigation', 'Search', 'Finds values in the layer, coordinates and places; shows the selected feature under it.', true, CORNERS, 'top-left'),
+  control('search', 'navigation', 'Search', 'Finds values in the layer, coordinates and places.', true, CORNERS, 'top-left'),
   control('zoom', 'navigation', 'Zoom in and out', 'The + and − buttons.', true, CORNERS, 'top-right'),
   control('zoomToLayer', 'navigation', 'Zoom to layer', 'Fits the map to the data.', true, CORNERS, 'top-right'),
   control('resetView', 'navigation', 'Reset view', 'Appears when the map is tilted or rotated; brings it back flat and north-up.', true, CORNERS, 'top-right'),
@@ -90,7 +90,7 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   control('exportImage', 'tools', 'Export map image', 'Saves the map as a PNG.', true, CORNERS, 'top-right'),
   control('legend', 'display', 'Legend', 'What the colors, sizes and shapes mean.', true, CORNERS, 'bottom-left'),
   // A wide, short readout: along the top or the bottom edge.
-  control('coordinates', 'display', 'Coordinates', 'Shows the cursor position (and elevation); click it to copy.', false, EDGES, 'bottom-center'),
+  control('coordinates', 'display', 'Coordinates', 'Shows the cursor position (and elevation). To copy a position, right-click the map.', false, EDGES, 'bottom-center'),
   control('logo', 'display', 'MapLibre logo', "MapLibre's mark, which links to maplibre.org.", true, CORNERS, 'bottom-left'),
   control('scale', 'display', 'Scale bar', 'Shows distances.', true, CORNERS, 'bottom-left'),
   control('tooltip', 'display', 'Hover tooltip', 'Shows a few columns of the feature under the cursor.', false, [], null),

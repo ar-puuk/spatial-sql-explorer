@@ -76,7 +76,7 @@ test('Reset restores the original view: query, rows, extent and style (US3, FR-0
   await expect(page.locator('.drawer-header .count')).toHaveText('180 rows · 179 mapped')
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveText(initialScale ?? '')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await expect(page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3b82f6')
+  await expect(page.getByRole('region', { name: 'Layer style' }).locator('input[type="color"]').first()).toHaveValue('#3f8fa8')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
 
   // Edited text: Reset asks first, and "Keep" keeps it.

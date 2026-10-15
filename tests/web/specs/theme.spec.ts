@@ -4,7 +4,7 @@ import { fixture, openFile } from './helpers'
 
 const themeButton = (page: Page) => page.getByRole('button', { name: /^Theme: / })
 const bg = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-const basemapName = (page: Page) => page.getByRole('button', { name: 'Basemap', exact: true }).getAttribute('title')
+const basemapName = (page: Page) => page.getByRole('button', { name: 'Basemap', exact: true }).getAttribute('aria-description')
 
 test('System follows the OS live; Light and Dark override it and are remembered', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
