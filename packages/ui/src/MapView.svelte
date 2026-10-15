@@ -1714,50 +1714,53 @@
       <div class="corner {corner}">
         {#each segments as seg (seg.key)}
           {#if seg.kind === 'buttons'}
-            <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
-              {#each seg.ids as id (id)}
-                {#if id === 'zoom'}
-                  {@render mapButton('Zoom in', 'Zoom in', 'plus', corner, { onclick: () => map?.zoomIn() })}
-                  {@render mapButton('Zoom out', 'Zoom out', 'minus', corner, { onclick: () => map?.zoomOut() })}
-                {:else if id === 'zoomToLayer'}
-                  {@render mapButton('Zoom to layer', 'Zoom to layer', 'fit', corner, { disabled: !layer?.extent, onclick: () => fitExtent(true) })}
-                {:else if id === 'globe'}
-                  {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
-                {:else if id === 'terrain'}
-                  {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
-                {:else if id === 'draw' || id === 'measure' || id === 'select'}
-                  {@const purpose: ShapePurpose = id}
-                  {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape', corner, {
-                    pressed: drawTool?.purpose === purpose,
-                    onclick: () => onToggleDrawPurpose(purpose),
-                  })}
-                {:else if id === 'exportImage'}
-                  {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
-                {:else if id === 'resetView'}
-                  <!-- Spec 008 FR-026: back to flat and north-up. -->
-                  {@render mapButton('Reset view', 'Reset view (flat, north up)', 'reset', corner, { onclick: resetView })}
-                {/if}
-              {/each}
-            </div>
-            {#if drawTool && seg.ids.includes(PURPOSE_CONTROL[drawTool.purpose])}
-              <!-- The open tool's palette, under the box holding its button. -->
-                <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
-                  {#each PALETTE[drawTool.purpose] as t (t)}
-                    {@render mapButton(TOOL_LABEL[t], `${TOOL_LABEL[t]}: ${TOOL_HINT[t]}`, TOOL_ICON[t], corner, { pressed: drawTool.tool === t, onclick: () => onSetDrawTool(t) })}
-                  {/each}
-                  {#if drawTool.purpose === 'draw'}
-                    {@render mapButton('Delete selected shape', 'Delete the selected shape (edit mode)', 'trash', corner, { disabled: drawTool.tool !== 'edit' || !selectedShape, onclick: () => drawController?.deleteSelected() })}
-                    {@render mapButton('Undo', 'Undo', 'undo', corner, { onclick: () => drawController?.undo() })}
-                  {/if}
-                  {#if drawTool.purpose === 'measure'}
-                    {@render mapButton(`Units: ${drawUnits}`, `Units: ${drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch.`, null, corner, {
-                      text: drawUnits === 'metric' ? 'km' : 'mi',
-                      onclick: () => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric'),
+                    <!-- The tools of an open purpose (draw, measure, select) form a second column beside the buttons, on the side away from the map's edge. -->
+            <div class="pair">
+      <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
+                {#each seg.ids as id (id)}
+                  {#if id === 'zoom'}
+                    {@render mapButton('Zoom in', 'Zoom in', 'plus', corner, { onclick: () => map?.zoomIn() })}
+                    {@render mapButton('Zoom out', 'Zoom out', 'minus', corner, { onclick: () => map?.zoomOut() })}
+                  {:else if id === 'zoomToLayer'}
+                    {@render mapButton('Zoom to layer', 'Zoom to layer', 'fit', corner, { disabled: !layer?.extent, onclick: () => fitExtent(true) })}
+                  {:else if id === 'globe'}
+                    {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
+                  {:else if id === 'terrain'}
+                    {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
+                  {:else if id === 'draw' || id === 'measure' || id === 'select'}
+                    {@const purpose: ShapePurpose = id}
+                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape', corner, {
+                      pressed: drawTool?.purpose === purpose,
+                      onclick: () => onToggleDrawPurpose(purpose),
                     })}
+                  {:else if id === 'exportImage'}
+                    {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
+                  {:else if id === 'resetView'}
+                    <!-- Spec 008 FR-026: back to flat and north-up. -->
+                    {@render mapButton('Reset view', 'Reset view (flat, north up)', 'reset', corner, { onclick: resetView })}
                   {/if}
-                  {@render mapButton('Close drawing tools', 'Close the tools (the shapes stay)', 'check', corner, { onclick: () => onSetDrawTool(null) })}
-                </div>
-            {/if}
+                {/each}
+              </div>
+              {#if drawTool && seg.ids.includes(PURPOSE_CONTROL[drawTool.purpose])}
+                <!-- The open tool's palette, under the box holding its button. -->
+                  <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
+                    {#each PALETTE[drawTool.purpose] as t (t)}
+                      {@render mapButton(TOOL_LABEL[t], `${TOOL_LABEL[t]}: ${TOOL_HINT[t]}`, TOOL_ICON[t], corner, { pressed: drawTool.tool === t, onclick: () => onSetDrawTool(t) })}
+                    {/each}
+                    {#if drawTool.purpose === 'draw'}
+                      {@render mapButton('Delete selected shape', 'Delete the selected shape (edit mode)', 'trash', corner, { disabled: drawTool.tool !== 'edit' || !selectedShape, onclick: () => drawController?.deleteSelected() })}
+                      {@render mapButton('Undo', 'Undo', 'undo', corner, { onclick: () => drawController?.undo() })}
+                    {/if}
+                    {#if drawTool.purpose === 'measure'}
+                      {@render mapButton(`Units: ${drawUnits}`, `Units: ${drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch.`, null, corner, {
+                        text: drawUnits === 'metric' ? 'km' : 'mi',
+                        onclick: () => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric'),
+                      })}
+                    {/if}
+                    {@render mapButton('Close drawing tools', 'Close the tools (the shapes stay)', 'check', corner, { onclick: () => onSetDrawTool(null) })}
+                  </div>
+              {/if}
+            </div>
           {:else if seg.id === 'coordinates'}
             <output class="coords" title="Right-click the map to copy a position">
               <span class="pos">{cursorText ?? 'lat, lon'}</span>
@@ -2077,6 +2080,22 @@
     background: var(--se-menu-hover-bg);
     color: var(--se-menu-hover-fg);
     outline: none;
+  }
+  .pair {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  /* Against the right edge the second column opens toward the map (to the left of the buttons). */
+  .corner.top-right .pair,
+  .corner.bottom-right .pair {
+    flex-direction: row-reverse;
+  }
+  /* Centered stacks have no side to open toward: the tools sit under the buttons. */
+  .corner.top-center .pair,
+  .corner.bottom-center .pair {
+    flex-direction: column;
+    align-items: center;
   }
   .group {
     display: flex;
