@@ -73,7 +73,7 @@
   import type { DrawController, DrawTool } from './draw/controller.js'
   import ProgressBar from './ProgressBar.svelte'
   import Tip from './kit/Tip.svelte'
-  import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
+  import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
   import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
@@ -1715,7 +1715,10 @@
     if (!map || !mapReady) return
     if (map.getProjection()?.type !== type) map.setProjection({ type })
     map.setSky(type === 'globe' ? GLOBE_SKY : FLAT_SKY)
-    if (type === 'globe') void tick().then(scheduleSky)
+    if (type === 'globe') {
+      loadSky(scheduleSky)
+      void tick().then(scheduleSky)
+    }
   })
 
   let appliedFit = 0

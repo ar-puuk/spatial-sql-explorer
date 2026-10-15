@@ -2,6 +2,70 @@
   // Fixed data colors (theme-independent, like every data ramp): the "tide" ramp, pale to deep blue-teal, the same seven
   // steps the hexagon map (src/landing/world-population.svg, scripts/landing-world.mjs) is drawn in.
   const TIDE = ['#d9e9ef', '#a9cfdb', '#74b0c4', '#3f8fa8', '#26708b', '#1b5470', '#123b52']
+  // --- Background: contours of a smooth synthetic terrain (marching squares)
+  const W = 1200
+  const H = 800
+  const hill = (x: number, y: number, cx: number, cy: number, sx: number, sy: number, a: number): number =>
+    a * Math.exp(-(((x - cx) / sx) ** 2 + ((y - cy) / sy) ** 2))
+  const terrain = (x: number, y: number): number =>
+    hill(x, y, 180, 160, 260, 200, 1) +
+    hill(x, y, 1040, 640, 300, 220, 1.1) +
+    hill(x, y, 1010, 140, 180, 150, 0.7) +
+    hill(x, y, 160, 690, 220, 170, 0.75) +
+    hill(x, y, 620, 420, 420, 260, 0.35) +
+    0.08 * Math.sin(x / 70) * Math.cos(y / 90) +
+    0.05 * Math.sin((x + y) / 45)
+
+  function contours(levels: number[]): string[] {
+    const step = 30
+    const nx = W / step + 1
+    const ny = H / step + 1
+    const v = new Float64Array(nx * ny)
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = terrain(i * step, j * step)
+    const f = (n: number): string => n.toFixed(1)
+    return levels.map((t) => {
+      let d = ''
+      for (let j = 0; j < ny - 1; j++)
+        for (let i = 0; i < nx - 1; i++) {
+          const a = v[j * nx + i]
+          const b = v[j * nx + i + 1]
+          const c = v[(j + 1) * nx + i + 1]
+          const e = v[(j + 1) * nx + i]
+          const x = i * step
+          const y = j * step
+          const pts: Array<[number, number]> = []
+          if (a < t !== b < t) pts.push([x + ((t - a) / (b - a)) * step, y])
+          if (b < t !== c < t) pts.push([x + step, y + ((t - b) / (c - b)) * step])
+          if (e < t !== c < t) pts.push([x + ((t - e) / (c - e)) * step, y + step])
+          if (a < t !== e < t) pts.push([x, y + ((t - a) / (e - a)) * step])
+          for (let k = 0; k + 1 < pts.length; k += 2) d += `M${f(pts[k][0])} ${f(pts[k][1])}L${f(pts[k + 1][0])} ${f(pts[k + 1][1])}`
+        }
+      return d
+    })
+  }
+  const LEVELS = Array.from({ length: 12 }, (_, k) => 0.08 + k * 0.09)
+  const contourPaths = contours(LEVELS)
+
+  /**
+   * The sheet as one static image (contours over a graticule), per theme:
+   * rasterized once, unlike live SVG or repeating gradients, which cost far
+   * more to paint (the browser tests' software renderer showed it).
+   */
+  function sheetImage(stroke: string, grid: string, strength: number): string {
+    const lines: string[] = []
+    for (let k = 1; k < 12; k++) lines.push(`M${(k * W) / 12} 0V${H}`)
+    for (let k = 1; k < 6; k++) lines.push(`M0 ${(k * H) / 6}H${W}`)
+    const paths = contourPaths
+      .map((d, k) => `<path d="${d}" stroke="${stroke}" stroke-opacity="${((k % 4 === 3 ? 0.9 : 0.5) * strength * 2).toFixed(3)}" stroke-width="${k % 4 === 3 ? 1.4 : 1}"/>`)
+      .join('')
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" fill="none"><path d="${lines.join('')}" stroke="${grid}" stroke-opacity="${(strength * 0.6).toFixed(3)}"/>${paths}</svg>`
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+  }
+  // Fixed colors for an image (it cannot read CSS variables): the ink blue on paper, a pale blue on the night. Faint on purpose:
+  // the sheet is a texture behind the words, not a picture.
+  const SHEET_LIGHT = sheetImage('#1c2f55', '#1c2f55', 0.1)
+  const SHEET_DARK = sheetImage('#9db4e8', '#9db4e8', 0.13)
+
   const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'Excel', 'GML', 'PMTiles']
 </script>
 
@@ -9,6 +73,7 @@
   // The web app's empty state (no file open). One memorable thing: a short demo of the whole idea, a query typed
   // and a map colored by it, played once (still, when the person prefers reduced motion). Everything is drawn
   // locally: no network and no map engine before a file is chosen. VS Code never renders this.
+  import { onMount } from 'svelte'
   import { Icon } from '@spatial-explorer/ui'
   // Inline, so each class of hexagons can be colored on its own as the query "runs" (an <img> cannot be animated inside).
   import worldSvg from './landing/world-population.svg?raw'
@@ -23,9 +88,28 @@
     chooseButton?: HTMLButtonElement
   }
   let { isDragOver, sharedFileName, engine, onChoose, onSample, chooseButton = $bindable() }: Props = $props()
+
+  // The sheet is decoration: drawn after first paint and the engine's warm-up have started, so it never delays either.
+  let showSheet = $state(false)
+  onMount(() => {
+    const show = (): void => void (showSheet = true)
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(show, { timeout: 1500 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = setTimeout(show, 300)
+    return () => clearTimeout(id)
+  })
 </script>
 
-<div class="landing" class:drag-over={isDragOver}>
+<div class="landing" class:drag-over={isDragOver} style="--sheet-light: {SHEET_LIGHT}; --sheet-dark: {SHEET_DARK}">
+  {#if showSheet}
+    <!-- A map sheet behind the words: contours of a made-up terrain over a graticule. -->
+    <div class="sheet" aria-hidden="true">
+      <div class="topo"></div>
+      <div class="fade"></div>
+    </div>
+  {/if}
   <div class="scroll">
     <div class="layout">
       <section class="copy" aria-labelledby="landing-title">
@@ -97,7 +181,38 @@
     background: color-mix(in srgb, var(--se-dropzone-active-bg) 55%, transparent);
     pointer-events: none;
   }
+  /* The sheet: one static image per theme (rasterized once: live SVG costs far more to paint), receding behind the words. */
+  .sheet {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    animation: sheet-in 0.8s ease-out both;
+  }
+  @keyframes sheet-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .topo {
+    position: absolute;
+    inset: 0;
+    background: var(--sheet-light) center / cover no-repeat;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .topo {
+      background-image: var(--sheet-dark);
+    }
+  }
+  :global(:root[data-theme='dark']) .topo {
+    background-image: var(--sheet-dark);
+  }
+  .fade {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 55% at 40% 50%, color-mix(in srgb, var(--se-bg-base) 70%, transparent), transparent 100%);
+  }
   .scroll {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -391,6 +506,9 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
+    .sheet {
+      animation: none;
+    }
     .line,
     .world :global(path),
     .caret {
