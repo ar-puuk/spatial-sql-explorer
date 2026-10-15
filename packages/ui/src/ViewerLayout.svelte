@@ -29,6 +29,7 @@
   import LabelsPanel from './LabelsPanel.svelte'
   import MapControlsPanel from './MapControlsPanel.svelte'
   import TerrainSection from './TerrainSection.svelte'
+  import ShapesBar from './ShapesBar.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -361,6 +362,15 @@
           controls={store.mapControls}
           tooltipColumns={store.tooltipColumns}
           terrain={store.terrain}
+          drawTool={store.drawTool}
+          shapes={store.shapes}
+          shapesRequest={store.shapesRequest}
+          drawUnits={store.drawUnits}
+          onToggleDrawPurpose={(purpose) => store.toggleDrawPurpose(purpose)}
+          onSetDrawTool={(tool) => store.setDrawTool(tool)}
+          onSetDrawUnits={(units) => store.setDrawUnits(units)}
+          onShapes={(shapes) => store.setShapes(shapes)}
+          onShapeDrawn={(shape, additive) => store.onShapeDrawn(shape, additive)}
           onToggleTerrain={() => store.setTerrain(!store.terrain.on)}
           onTerrainFailure={() => store.reportTerrainFailure()}
           tooltipRecord={(id) => store.tooltipRecord(id)}
@@ -393,6 +403,9 @@
             <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
           {/if}
         </div>
+        {#if store.shapes.length > 0}
+          <div class="shapes-slot"><ShapesBar {store} /></div>
+        {/if}
         {#if inspected && !inspectorClosed}
           <!-- The selected feature's attributes, under the search box, beside whatever panel is open. -->
           <div class="map-ov inspector-slot" style:--se-card-width={searchWidth ? `${searchWidth}px` : null}>
@@ -766,6 +779,16 @@
   }
   .search-slot {
     min-width: 0;
+  }
+  /* Spec 014: the drawn shapes' actions, at the bottom centre (clear of the toolbars, the legend and the attribution). */
+  .shapes-slot {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
+    z-index: 6;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100% - 140px);
   }
   .map-ov.tl {
     position: absolute;

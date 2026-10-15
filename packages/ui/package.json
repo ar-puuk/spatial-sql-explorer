@@ -22,7 +22,9 @@
     "@spatial-explorer/core": "*",
     "maplibre-gl": "^6.13.0",
     "pmtiles": "^4.5.0",
-    "svelte": "^5.0.0"
+    "svelte": "^5.0.0",
+    "terra-draw": "1.37.0",
+    "terra-draw-maplibre-gl-adapter": "1.5.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

@@ -52,6 +52,7 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
+import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
@@ -271,6 +272,8 @@ export class QuerySession {
   }
   /** Spec 008 FR-013 "Show selected only": the selection's predicate, or null. */
   private selectedOnlyWhere: string | null = null
+  /** Spec 014: the condition from "filter by the drawn shapes", on top of the column filters. */
+  private spatialWhere: string | null = null
 
   constructor(
     private readonly db: AsyncDuckDB,
@@ -470,7 +473,7 @@ export class QuerySession {
   /** Names users can't replace or drop (statement policy). */
   get protectedNames(): string[] {
     const alias = this.table.alias && !this.table.schema ? [this.table.alias.replace(/^"|"$/g, '')] : []
-    return ['layer', ...alias]
+    return ['layer', DRAWN_TABLE, ...alias]
   }
 
   get running(): boolean {
@@ -556,7 +559,7 @@ export class QuerySession {
 
   /** The WHERE body narrowing the displayed result, or null. */
   private restriction(): string | null {
-    const parts = [this.filterWhere, this.selectedOnlyWhere].filter((p): p is string => !!p)
+    const parts = [this.filterWhere, this.spatialWhere, this.selectedOnlyWhere].filter((p): p is string => !!p)
     return parts.length ? parts.map((p) => `(${p})`).join(' AND ') : null
   }
 
@@ -581,6 +584,63 @@ export class QuerySession {
       this.pages.clear()
       this.dataVersion++
     }
+  }
+
+  // --- Spec 014: shapes drawn on the map ----------------------------------------
+
+  /** The CRS of the displayed rows' geometry (null: WGS84). */
+  private displayedSrid(): number | null {
+    return this.facts?.defaultView ? this.table.srid : (this.facts?.resultCrs?.srid ?? null)
+  }
+
+  /**
+   * Publishes the shapes as the `drawn` table (empty when there are none), so a query can use them. Background
+   * work: a query in flight wins, and the caller asks again.
+   */
+  async setDrawnShapes(shapes: readonly DrawnShape[]): Promise<void> {
+    await this.exclusive(async () => {
+      for (const sql of drawnTableSql(shapes)) await this.conn.query(sql)
+    }, 'background')
+  }
+
+  /**
+   * Narrows the displayed rows to those meeting `predicate` against the shapes (on top of the column filters), or
+   * shows them all again with null. Returns whether a condition is in force (false: no shapes, or no geometry).
+   */
+  setSpatialFilter(spec: { shapes: readonly DrawnShape[]; predicate: SpatialPredicate } | null): boolean {
+    const target = this.pageTarget()
+    const where = spec && spec.shapes.length > 0 && target?.geom ? spatialPredicateSql(spec.predicate, target.geom, shapesInCrsSql(spec.shapes, this.displayedSrid())) : null
+    if (where !== this.spatialWhere) {
+      this.spatialWhere = where
+      this.matchingRows = null
+      this.pages.clear()
+      this.dataVersion++
+    }
+    return where !== null
+  }
+
+  /**
+   * A query a user can read, run and edit: the layer's rows meeting `predicate` against the shapes, the geometry
+   * inlined (the shapes themselves are gone after a reload), in the layer's CRS. Null: no shapes, or no geometry.
+   */
+  shapesQuerySql(shapes: readonly DrawnShape[], predicate: SpatialPredicate): string | null {
+    const lv = this.layerView
+    if (!lv || shapes.length === 0) return null
+    return `SELECT *\nFROM layer\nWHERE ${spatialPredicateSql(predicate, lv.geom, shapesInCrsSql(shapes, this.table.srid))}`
+  }
+
+  /** Row ids of the displayed rows meeting `predicate` against the shapes (the map's "select by shape"). */
+  async idsInShapes(shapes: readonly DrawnShape[], predicate: SpatialPredicate): Promise<number[]> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.pageTarget()
+      if (!target?.geom || shapes.length === 0) return []
+      const where = spatialPredicateSql(predicate, target.geom, shapesInCrsSql(shapes, this.displayedSrid()))
+      const ids: number[] = []
+      await streamRows(this.conn, `SELECT __se_rowid FROM ${this.narrowed(target.relation)} WHERE ${where}`, isCancelled, (batch) => {
+        for (const row of batch) ids.push(Number(row.__se_rowid))
+      })
+      return ids
+    })
   }
 
   /**
@@ -1434,6 +1494,7 @@ export class QuerySession {
     this.filterWhere = null
     this.matchingRows = null
     this.selectedOnlyWhere = null
+    this.spatialWhere = null
     if (this.facts?.exportable !== false) this.utilityRows = null
     this.loadAll = false
     this.dataVersion++
@@ -1578,6 +1639,7 @@ export class QuerySession {
     await drop(`DROP TABLE IF EXISTS ${RESULT_STAGING}`)
     if (this.table.schema) await drop(`DROP SCHEMA IF EXISTS ${this.table.schema} CASCADE`)
     else if (this.table.alias) await drop(`DROP VIEW IF EXISTS ${this.table.alias}`)
+    await drop(`DROP TABLE IF EXISTS ${DRAWN_TABLE}`)
     await drop('DROP VIEW IF EXISTS layer')
     await drop('DROP VIEW IF EXISTS __se_layer')
     await drop('DROP TABLE IF EXISTS __se_bbox')

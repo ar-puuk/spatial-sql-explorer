@@ -4,7 +4,7 @@
 // group sits. Pure and platform-free; the choice is remembered through
 // HostAdapter.saveState('mapControls').
 
-export type MapControlId = 'zoom' | 'zoomToLayer' | 'resetView' | 'globe' | 'exportImage' | 'scale' | 'coordinates' | 'tooltip' | 'terrain'
+export type MapControlId = 'zoom' | 'zoomToLayer' | 'resetView' | 'globe' | 'exportImage' | 'scale' | 'coordinates' | 'tooltip' | 'terrain' | 'draw' | 'measure' | 'select'
 
 /** A set of buttons that sit together and move together. */
 export type ControlGroupId = 'navigation' | 'tools' | 'display'
@@ -49,6 +49,9 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   { id: 'resetView', group: 'navigation', label: 'Reset view', description: 'Appears when the map is tilted or rotated; brings it back flat and north-up.', defaultOn: true },
   { id: 'globe', group: 'navigation', label: 'Globe view', description: 'Switches between the flat map and the globe.', defaultOn: true },
   { id: 'terrain', group: 'navigation', label: 'Terrain', description: 'Switches 3D terrain on and off (set it up in the Basemap panel).', defaultOn: true },
+  { id: 'draw', group: 'tools', label: 'Draw shapes', description: 'Points, lines and shapes to use in queries and filters. They are scratch geometry, never edits to the data.', defaultOn: true },
+  { id: 'measure', group: 'tools', label: 'Measure', description: 'Distances and areas, live while you draw.', defaultOn: true },
+  { id: 'select', group: 'tools', label: 'Select by shape', description: 'Draw a shape to select the rows inside it.', defaultOn: true },
   { id: 'exportImage', group: 'tools', label: 'Export map image', description: 'Saves the map as a PNG.', defaultOn: true },
   { id: 'scale', group: 'display', label: 'Scale bar', description: 'Shows distances at the bottom left.', defaultOn: true },
   { id: 'tooltip', group: 'display', label: 'Hover tooltip', description: 'Shows a few columns of the feature under the cursor.', defaultOn: false },

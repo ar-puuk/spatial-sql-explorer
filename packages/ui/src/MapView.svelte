@@ -2,6 +2,7 @@
   import {
     AttributionControl,
     Map as MapLibreMap,
+    Marker,
     ScaleControl,
     getWorkerCount,
     setWorkerCount,
@@ -42,6 +43,10 @@
     type ResolvedStyle,
     EXTRUSION_PITCH,
     DEFAULT_MAP_CONTROLS,
+    shapeLabel,
+    type DrawnShape,
+    type ShapePurpose,
+    type UnitSystem,
     formatElevation,
     TERRAIN_HILLSHADE_ID,
     TERRAIN_SOURCE_ID,
@@ -53,7 +58,8 @@
     type MapControlId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
-  import Icon from './Icon.svelte'
+  import Icon, { type IconName } from './Icon.svelte'
+  import type { DrawController, DrawTool } from './draw/controller.js'
   import ProgressBar from './ProgressBar.svelte'
   import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle } from './globeSky.js'
   import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
@@ -109,6 +115,16 @@
     terrain?: { on: boolean; exaggeration: number }
     onToggleTerrain?: () => void
     onTerrainFailure?: () => void
+    /** Spec 014: the open drawing tool, the finished shapes (the store owns them), and what changes them. */
+    drawTool?: { purpose: ShapePurpose; tool: DrawTool } | null
+    shapes?: readonly DrawnShape[]
+    shapesRequest?: { seq: number; clear?: boolean; remove?: string[] } | null
+    drawUnits?: UnitSystem
+    onToggleDrawPurpose?: (purpose: ShapePurpose) => void
+    onSetDrawTool?: (tool: DrawTool | null) => void
+    onSetDrawUnits?: (units: UnitSystem) => void
+    onShapes?: (shapes: DrawnShape[]) => void
+    onShapeDrawn?: (shape: DrawnShape, additive: boolean) => void
     tooltipRecord?: (id: number) => Promise<Record<string, unknown> | null>
     /** Spec 008: the camera after each move (center, zoom, pitch, bearing), and (spec 010) the WGS84 bounds. */
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
@@ -153,6 +169,15 @@
     terrain = { on: false, exaggeration: 1 },
     onToggleTerrain = () => {},
     onTerrainFailure = () => {},
+    drawTool = null,
+    shapes = [],
+    shapesRequest = null,
+    drawUnits = 'metric',
+    onToggleDrawPurpose = () => {},
+    onSetDrawTool = () => {},
+    onSetDrawUnits = () => {},
+    onShapes = () => {},
+    onShapeDrawn = () => {},
     tooltipRecord,
     onCameraChange = () => {},
     onCursorMove,
@@ -644,6 +669,8 @@
     if (!map) return
     const m = map
     m.on('click', (e: MapMouseEvent) => {
+      // A drawing tool is open: the click belongs to it.
+      if (drawingOn) return
       if (!onSurface(e.point)) {
         if (styledTiles) onInspectTileFeature?.(null)
         else onSelectFeature(null)
@@ -680,7 +707,10 @@
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
       else setHover(featureId(hit))
       if (!hit && onSurface(e.point) && clusterAt(e.point)) m.getCanvas().style.cursor = 'pointer'
-      updateTooltip(e, hit)
+      if (drawingOn) hideTip()
+      else updateTooltip(e, hit)
+      lastPoint = e.point
+      if (progressText) placeLive()
     })
     m.on('moveend', () => {
       const c = m.getCenter()
@@ -993,6 +1023,8 @@
     // Test hooks only: the tests read the style itself (spec 010: exactly one basemap in it).
     if (document.documentElement.dataset.seTestHooks !== undefined) (container as unknown as { seMap: MapLibreMap }).seMap = map
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
+    // Ctrl or Cmd held as a shape is finished adds its rows to the selection.
+    container.addEventListener('pointerup', (e) => (additiveFinish = e.ctrlKey || e.metaKey), true)
     // Shaped marker icons, on demand (also after a basemap switch replaces the style's images).
     map.on('styleimagemissing', (e: { id: string }) => {
       if (map && isMarkerIconId(e.id)) addMarkerIcon(map, e.id)
@@ -1012,6 +1044,8 @@
     if (skyFrame) cancelAnimationFrame(skyFrame)
     if (cursorFrame) cancelAnimationFrame(cursorFrame)
     if (copiedTimer) clearTimeout(copiedTimer)
+    drawController?.destroy()
+    for (const marker of labelMarkers.values()) marker.remove()
     map?.remove()
     map = null
   })
@@ -1296,6 +1330,177 @@
     }
   }
 
+  // Spec 014: the drawing tools (Terra Draw, loaded the first time one is opened). Shapes are scratch geometry for
+  // queries and filters, never edits to the data. The store owns the finished shapes; this file draws them,
+  // labels them with their measurements, and reports changes.
+  let drawController: DrawController | null = null
+  let drawStarting: Promise<DrawController | null> | null = null
+  /** A tool is open: the map's own click, hover and tooltip stand aside. */
+  let drawingOn = false
+  /** Ctrl or Cmd was held when the last shape was finished (adds to the selection instead of replacing it). */
+  let additiveFinish = false
+  let selectedShape = $state<string | null>(null)
+  /** Measurement of the shape being drawn right now. */
+  let progressText = $state<string | null>(null)
+  let liveEl = $state<HTMLDivElement>()
+  let lastPoint = { x: 0, y: 0 }
+
+  function setProgress(geometry: DrawnShape['geometry'] | null): void {
+    progressText = geometry ? shapeLabel({ geometry }, untrack(() => drawUnits)) : null
+    if (progressText) void tick().then(placeLive)
+  }
+  function placeLive(): void {
+    if (liveEl) liveEl.style.transform = `translate(${lastPoint.x + 16}px, ${lastPoint.y + 18}px)`
+  }
+
+  async function ensureDraw(): Promise<DrawController | null> {
+    if (drawController) return drawController
+    if (drawStarting) return drawStarting
+    const m = map
+    if (!m) return null
+    drawStarting = (async () => {
+      try {
+        const { createDrawController, readDrawColors } = await import('./draw/controller.js')
+        const made = await createDrawController(m, readDrawColors(container), {
+          onShapes: (shapes) => onShapes(shapes),
+          onFinish: (shape) => onShapeDrawn(shape, additiveFinish),
+          onProgress: setProgress,
+          onSelect: (id) => (selectedShape = id),
+        })
+        if (map !== m) {
+          made.destroy()
+          return null
+        }
+        drawController = made
+        return made
+      } catch (err) {
+        console.warn('Spatial Explorer: the drawing tools could not start', err)
+        return null
+      } finally {
+        drawStarting = null
+      }
+    })()
+    return drawStarting
+  }
+
+  async function applyDrawTool(): Promise<void> {
+    if (!drawTool && !drawController) return
+    const c = await ensureDraw()
+    if (!c) return
+    // The newest choice, whatever it was when this started.
+    const now = untrack(() => drawTool)
+    c.setTool(now ? now.tool : null, now ? now.purpose : 'draw')
+    if (!now) selectedShape = null
+  }
+  $effect(() => {
+    drawingOn = !!drawTool
+    void drawTool
+    if (!mapReady) return
+    untrack(() => void applyDrawTool())
+  })
+
+  let appliedShapesRequest = 0
+  $effect(() => {
+    const req = shapesRequest
+    if (!req || req.seq === appliedShapesRequest) return
+    appliedShapesRequest = req.seq
+    untrack(() => {
+      const c = drawController
+      if (!c) return
+      if (req.clear) c.clear()
+      if (req.remove?.length) c.remove(req.remove)
+    })
+  })
+
+  // A new theme: the shapes' colors are canvas colors, read again; the shapes carry over.
+  async function rebuildDraw(): Promise<void> {
+    const old = drawController
+    if (!old || !map) return
+    const keep = old.shapes()
+    old.destroy()
+    drawController = null
+    const made = await ensureDraw()
+    if (!made) return
+    made.load(keep)
+    const now = untrack(() => drawTool)
+    made.setTool(now ? now.tool : null, now ? now.purpose : 'draw')
+  }
+  $effect(() => {
+    void themeRevision
+    untrack(() => void rebuildDraw())
+  })
+
+  // Each shape's measurement, on the map at the shape's label point.
+  // A plain registry of DOM markers, not reactive state.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const labelMarkers = new Map<string, Marker>()
+  function labelPoint(g: DrawnShape['geometry']): [number, number] | null {
+    if (g.type === 'Point') return null
+    if (g.type === 'LineString') {
+      const c = g.coordinates
+      const i = Math.floor((c.length - 1) / 2)
+      const a = c[i]
+      const b = c[Math.min(i + 1, c.length - 1)]
+      return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+    }
+    const ring = g.coordinates[0] ?? []
+    if (ring.length === 0) return null
+    const xs = ring.map((p) => p[0])
+    const ys = ring.map((p) => p[1])
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]
+  }
+  function syncLabels(list: readonly DrawnShape[], units: UnitSystem): void {
+    const m = map
+    if (!m) return
+    // A local lookup, not reactive state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const keep = new Set<string>()
+    for (const s of list) {
+      const text = shapeLabel(s, units)
+      const at = labelPoint(s.geometry)
+      if (!text || !at) continue
+      keep.add(s.id)
+      let marker = labelMarkers.get(s.id)
+      if (!marker) {
+        const el = document.createElement('div')
+        el.className = 'shape-label'
+        marker = new Marker({ element: el, anchor: 'center' }).setLngLat(at).addTo(m)
+        labelMarkers.set(s.id, marker)
+      }
+      marker.setLngLat(at)
+      marker.getElement().textContent = text
+    }
+    for (const [id, marker] of labelMarkers) {
+      if (keep.has(id)) continue
+      marker.remove()
+      labelMarkers.delete(id)
+    }
+  }
+  $effect(() => {
+    const list = shapes
+    const units = drawUnits
+    if (!map || !mapReady) return
+    untrack(() => syncLabels(list, units))
+  })
+
+  const PALETTE: Record<ShapePurpose, DrawTool[]> = {
+    draw: ['point', 'line', 'polygon', 'rectangle', 'circle', 'freehand', 'edit'],
+    measure: ['line', 'polygon', 'rectangle', 'circle'],
+    select: ['rectangle', 'polygon', 'circle', 'freehand'],
+  }
+  const TOOL_ICON: Record<DrawTool, IconName> = { point: 'shape-point', line: 'shape-line', polygon: 'shape-polygon', rectangle: 'shape-rect', circle: 'shape-circle', freehand: 'shape-freehand', edit: 'pointer' }
+  const TOOL_LABEL: Record<DrawTool, string> = { point: 'Point', line: 'Line', polygon: 'Polygon', rectangle: 'Rectangle', circle: 'Circle', freehand: 'Freehand', edit: 'Edit shapes' }
+  const TOOL_HINT: Record<DrawTool, string> = {
+    point: 'Click to place a point',
+    line: 'Click to add points; double-click or Enter to finish; Esc to cancel',
+    polygon: 'Click to add corners; double-click or Enter to finish; Esc to cancel',
+    rectangle: 'Click and drag, or click two corners',
+    circle: 'Click the center, then click or drag out the radius',
+    freehand: 'Press and drag to draw a free shape',
+    edit: 'Click a shape to select it: drag it or its corners; Delete removes it',
+  }
+  const PURPOSE_LABEL: Record<ShapePurpose, string> = { draw: 'Draw', measure: 'Measure', select: 'Select by shape' }
+
   // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
   let lastCursor = $state<{ lon: number; lat: number; elevation?: number | null } | null>(null)
@@ -1441,6 +1646,18 @@
                 >
                   <Icon name="mountain" />
                 </button>
+              {:else if id === 'draw' || id === 'measure' || id === 'select'}
+                {@const purpose: ShapePurpose = id}
+                <button
+                  type="button"
+                  title={PURPOSE_LABEL[purpose]}
+                  aria-label={PURPOSE_LABEL[purpose]}
+                  aria-pressed={drawTool?.purpose === purpose}
+                  class:active={drawTool?.purpose === purpose}
+                  onclick={() => onToggleDrawPurpose(purpose)}
+                >
+                  <Icon name={id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape'} />
+                </button>
               {:else if id === 'exportImage'}
                 <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
               {:else if id === 'resetView'}
@@ -1450,9 +1667,34 @@
             {/each}
           </div>
         {/each}
+        {#if drawTool && groupsInCorner(controls, corner).includes('tools')}
+          <!-- The open tool's palette, under the buttons in the same corner. -->
+          <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
+            {#each PALETTE[drawTool.purpose] as t (t)}
+              <button type="button" title="{TOOL_LABEL[t]}: {TOOL_HINT[t]}" aria-label={TOOL_LABEL[t]} aria-pressed={drawTool.tool === t} class:active={drawTool.tool === t} onclick={() => onSetDrawTool(t)}>
+                <Icon name={TOOL_ICON[t]} />
+              </button>
+            {/each}
+            {#if drawTool.purpose === 'draw'}
+              <button type="button" title="Delete the selected shape (edit mode)" aria-label="Delete selected shape" disabled={drawTool.tool !== 'edit' || !selectedShape} onclick={() => drawController?.deleteSelected()}>
+                <Icon name="trash" />
+              </button>
+              <button type="button" title="Undo" aria-label="Undo" onclick={() => drawController?.undo()}><Icon name="undo" /></button>
+            {/if}
+            {#if drawTool.purpose === 'measure'}
+              <button type="button" class="text" title="Units: {drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch." aria-label="Units: {drawUnits}" onclick={() => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric')}>
+                {drawUnits === 'metric' ? 'km' : 'mi'}
+              </button>
+            {/if}
+            <button type="button" title="Close the tools (the shapes stay)" aria-label="Close drawing tools" onclick={() => onSetDrawTool(null)}><Icon name="check" /></button>
+          </div>
+        {/if}
       </div>
     {/if}
   {/each}
+  {#if progressText}
+    <div class="live-label" bind:this={liveEl}>{progressText}</div>
+  {/if}
   {#if tip}
     <div class="tip" bind:this={tipEl} role="tooltip">
       {#each tip.lines as [name, value] (name)}
@@ -1504,6 +1746,39 @@
     flex-direction: column;
     gap: 8px;
     z-index: 5;
+  }
+  .group button.text {
+    width: 28px;
+    font: 600 11px/1 var(--se-font-mono);
+  }
+  .group.palette {
+    border-color: var(--se-focus);
+  }
+  .live-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 7;
+    padding: 1px 6px;
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius-sm);
+    color: var(--se-text-primary);
+    font: 11px/1.6 var(--se-font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .map-view :global(.shape-label) {
+    padding: 0 5px;
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius-sm);
+    color: var(--se-text-primary);
+    font: 11px/1.6 var(--se-font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .tip {
     position: absolute;

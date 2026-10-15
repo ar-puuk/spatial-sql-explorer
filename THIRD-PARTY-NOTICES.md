@@ -3105,6 +3105,31 @@ SOFTWARE.
 
 ---
 
+## Terra Draw 1.37.0 and its MapLibre adapter 1.5.0
+
+The drawing tools (spec 014) use Terra Draw (https://github.com/JamesLMilner/terra-draw)
+and `terra-draw-maplibre-gl-adapter`, © James Milner and contributors, MIT
+License (the packages' stated license). Loaded only when a drawing tool is
+first opened.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## Octicons (GitHub mark)
 
 The web app's header links to the source code with GitHub's mark, the
@@ -3145,3 +3170,8 @@ Code: the extension's storage; web: the browser's Cache Storage).
 - **Fonts, web app only:** Inter and JetBrains Mono (SIL Open Font License
   1.1), served by Google Fonts. The VS Code extension uses the editor's own
   fonts.
+- **Terrain elevation tiles** (optional, when the user turns 3D terrain on):
+  Terrarium tiles from `s3.amazonaws.com/elevation-tiles-prod` (Mapzen / Tilezen
+  "Terrain Tiles" on AWS Open Data), built from SRTM, GMTED, NED and other
+  national elevation models. The map's attribution links to the full source
+  list (https://github.com/tilezen/joerd/blob/master/docs/attribution.md).

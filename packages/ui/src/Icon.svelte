@@ -49,6 +49,17 @@
     | 'restore'
     | 'sliders'
     | 'mountain'
+    | 'draw'
+    | 'ruler'
+    | 'select-shape'
+    | 'shape-point'
+    | 'shape-line'
+    | 'shape-polygon'
+    | 'shape-rect'
+    | 'shape-circle'
+    | 'shape-freehand'
+    | 'pointer'
+    | 'undo'
 
   const PATHS: Record<IconName, string> = {
     plus: 'M8 3.5v9M3.5 8h9',
@@ -99,6 +110,18 @@
     sun: 'M8 5a3 3 0 110 6 3 3 0 010-6zM8 1v1.75M8 13.25V15M1 8h1.75M13.25 8H15M3 3l1.25 1.25M11.75 11.75L13 13M3 13l1.25-1.25M11.75 4.25L13 3',
     moon: 'M13.25 9.5A5.5 5.5 0 016.5 2.75a5.5 5.5 0 106.75 6.75z',
     monitor: 'M2 2.5h12v8.5H2zM5.5 14h5M8 11v3',
+    // Spec 014: the drawing tools.
+    draw: 'M3 12.5l-.5-6 5-3.5 5.5 4-1.5 5.5zM2.5 6.5h.01M7.5 3h.01M13 7h.01M11.5 12.5h.01M3 12.5h.01',
+    ruler: 'M2 11.5l9.5-9.5 2.5 2.5-9.5 9.5zM5 8.5l1.5 1.5M7.25 6.25l1.5 1.5M9.5 4l1.5 1.5',
+    'select-shape': 'M2.5 5V2.5H5M8 2.5h2.5M13 2.5h.5V5M2.5 8v2.5H5M7 7l6.5 2.5-3 1-1 3z',
+    'shape-point': 'M8 5.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z',
+    'shape-line': 'M2.5 12.5l4-6 3 3 4-6M2.5 12.5h.01M6.5 6.5h.01M9.5 9.5h.01M13.5 3.5h.01',
+    'shape-polygon': 'M3 12l-.5-6 5.5-3.5 5.5 4-1.5 6z',
+    'shape-rect': 'M2.5 4.5h11v7h-11z',
+    'shape-circle': 'M8 2.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11z',
+    'shape-freehand': 'M2.5 11c2-5 3-6 4.5-3s3 3 6.5-4',
+    pointer: 'M4 2.5l8 4.5-3.5 1-1 3.5z',
+    undo: 'M4 6.5h5.5a3 3 0 010 6H6M6.5 3.5L3.5 6.5l3 3',
     // Spec 014: two peaks (Terrain).
     mountain: 'M1.5 13.5l4.5-8 3 5 2-3 3.5 6zM5.25 8.5l1 1.5 1-1',
     // Spec 014: two sliders (Map controls).
