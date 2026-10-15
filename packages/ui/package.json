@@ -26,7 +26,8 @@
     "pmtiles": "^4.5.0",
     "svelte": "^5.0.0",
     "terra-draw": "1.37.0",
-    "terra-draw-maplibre-gl-adapter": "1.5.0"
+    "terra-draw-maplibre-gl-adapter": "1.5.0",
+    "vanilla-colorful": "0.7.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

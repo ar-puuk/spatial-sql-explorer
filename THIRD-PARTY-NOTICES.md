@@ -2999,11 +2999,33 @@ The color ramps in `packages/core/src/style/ramps.ts` are data, not code.
   Mark Harrower, and The Pennsylvania State University. Licensed under the
   Apache License, Version 2.0 (the full text appears above, under Apache
   Arrow). Used: Blues, Greens, Oranges, Reds, Purples, YlOrRd, YlGnBu,
-  RdBu, RdYlBu, BrBG, PiYG, Spectral, Set1, Set2, Dark2, Paired.
-  https://colorbrewer2.org
-- **Viridis, Magma and Plasma** colormaps, by Stéfan van der Walt and
-  Nathaniel Smith. Released to the public domain under CC0 1.0.
+  RdBu, RdYlBu, BrBG, PiYG, Spectral, Set1, Set2, Dark2, Paired, and (spec
+  015, read from d3-scale-chromatic, ISC) BuGn, BuPu, GnBu, OrRd, PuBu,
+  PuBuGn, PuRd, RdPu, YlGn, YlOrBr, Greys, PRGn, PuOr, RdGy, RdYlGn, Set3,
+  Accent, Pastel1 and Pastel2. https://colorbrewer2.org
+- **Viridis, Magma, Plasma, Inferno and Cividis** colormaps, by Stéfan van der
+  Walt and Nathaniel Smith (Cividis: Jamie Nuñez, Christopher Anderton and
+  Ryan Renslow). Released to the public domain under CC0 1.0.
   https://bids.github.io/colormap/
+- **Turbo**, by Anton Mikhailov (Google), Apache License 2.0 (sampled from
+  d3-scale-chromatic).
+- **Mako and Rocket**, from seaborn (https://seaborn.pydata.org), sampled from
+  its lookup tables. BSD 3-Clause License, Copyright (c) 2012-2023, Michael L.
+  Waskom. All rights reserved. Redistribution and use in source and binary
+  forms, with or without modification, are permitted provided that the
+  copyright notice, this list of conditions and the disclaimer in seaborn's
+  LICENSE.md are retained; the name of the copyright holder and its
+  contributors may not be used to endorse or promote products derived from
+  this software without specific prior written permission. THIS SOFTWARE IS
+  PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND (see seaborn's LICENSE.md
+  for the full text).
+- **Tableau 10**, as listed in d3-scale-chromatic (ISC), and the color-blind
+  safe palette of Masataka Okabe and Kei Ito ("Color Universal Design", 2008),
+  as published.
+- **Bivariate palettes** "Blue – Pink" (Joshua Stevens' scheme), "Blue – Red",
+  "Green – Blue", "Purple – Orange" and "Brown – Green" are the built-in
+  palettes of the mapgl R package (https://github.com/walkerke/mapgl), MIT
+  License, Copyright (c) Kyle Walker, kept as they are.
 
 ---
 

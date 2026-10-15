@@ -137,6 +137,7 @@
     'style-categorized': Shapes,
     'style-graduated': ChartNoAxesColumn,
     'style-continuous': Blend,
+    pipette: Pipette,
     'style-identity': Pipette,
     'style-bivariate': Grid3x3,
     'style-rules': ListChecks,

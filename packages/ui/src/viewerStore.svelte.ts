@@ -2488,9 +2488,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     resetStyle() {
       previewBase = null
       style = { ...DEFAULT_LAYER_STYLE }
-      styleSource = null
       styleNotice = null
-      styleDirty = true
+      // Back to the default there is nothing left to save: "Default" says so. A style that came from (or was saved to) a
+      // file is still that file's name, marked modified, since the file no longer matches what is shown.
+      styleDirty = styleSource !== null
     },
     saveStyle,
     saveStyleAs: (format) => (format === 'qml' ? saveStyle() : exportStyleAs(format)),

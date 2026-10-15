@@ -111,7 +111,7 @@
     onclick={() => (open ? close() : openList())}
     onkeydown={onButtonKeydown}
   >
-    {#if current?.icon}<span class="glyph"><Icon name={current.icon} size={16} /></span>{/if}
+    {#if current?.icon}<span class="glyph"><Icon name={current.icon} size={22} /></span>{/if}
     <span class="text">
       <span class="name">{current?.label}</span>
       <span class="hint" id={`${id}-hint`}>{current?.hint}</span>
@@ -138,7 +138,7 @@
           }}
           onclick={() => choose(i)}
         >
-          {#if o.icon}<span class="glyph"><Icon name={o.icon} size={16} /></span>{/if}
+          {#if o.icon}<span class="glyph"><Icon name={o.icon} size={22} /></span>{/if}
           <span class="text">
             <span class="name" id={`${id}-${i}-name`}>{o.label}</span>
             <span class="hint" id={`${id}-${i}-hint`}>{o.unavailable ?? o.hint}</span>
@@ -216,8 +216,8 @@
     display: grid;
     place-items: center;
     flex: none;
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     border-radius: var(--se-radius-sm);
     color: var(--se-text-secondary);
   }

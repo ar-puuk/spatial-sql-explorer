@@ -61,6 +61,8 @@
           <div class="row last" style="--n: 21; --at: 2.2s"><span class="line"><span class="k">ORDER BY</span> density <span class="k">DESC</span></span><i class="caret"></i></div>
         </div>
         <div class="map" aria-hidden="true">
+          <!-- A static SVG that ships with the app (src/landing), never user input. -->
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           <div class="world">{@html worldSvg}</div>
           <span class="key"><span class="ramp">{#each TIDE as c (c)}<i style="background: {c}"></i>{/each}</span>density</span>
         </div>

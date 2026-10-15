@@ -1,7 +1,7 @@
 // T010 (spec 008 US1, FR-001–FR-005, SC-001): the sectioned style panel, the
 // value distribution, the live ramp preview, and live appearance edits.
 import { test, expect, type Page } from '@playwright/test'
-import { openFile, writeParcels, writeSquares, chooseStyleType } from './helpers'
+import { openFile, writeParcels, writeSquares, chooseStyleType, setColor } from './helpers'
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Layer style' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
@@ -118,4 +118,15 @@ test('layer opacity fades the whole layer, live, and is saved in the QML (user r
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
   const fs = await import('node:fs')
   expect(fs.readFileSync(await download.path(), 'utf8')).toContain('<layerOpacity>0.5</layerOpacity>')
+})
+
+test('Reset style goes back to "Default", not "Default · modified"', async ({ page }) => {
+  await openFile(page, writeSquares())
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  const status = panel(page).getByText(/^Default/).first()
+  await expect(status).toHaveText('Default')
+  await setColor(page, 'Fill', '#ff0000')
+  await expect(status).toHaveText('Default · modified')
+  await panel(page).getByRole('button', { name: 'Reset style' }).click()
+  await expect(status).toHaveText('Default')
 })

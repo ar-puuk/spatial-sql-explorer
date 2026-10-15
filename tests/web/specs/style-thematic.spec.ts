@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle, chooseStyleType } from './helpers'
+import { setColor, fixture, openFile, openQueryPanel, runQuery, writeParcels, writeSquares, showSql, openStyle, chooseStyleType } from './helpers'
 
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const legendRows = (page: Page) => legend(page).locator('li')
@@ -148,7 +148,7 @@ test.describe('ramps and class edits (US3)', () => {
     const listbox = page.getByRole('listbox', { name: 'Color ramps' })
     await expect(listbox).toBeFocused()
     await page.keyboard.press('End')
-    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp')
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowUp')
     await expect(page.getByRole('option', { name: 'Red–blue, diverging' })).toHaveClass(/active/)
     await page.keyboard.press('Enter')
     await expect(listbox).toHaveCount(0)
@@ -158,7 +158,7 @@ test.describe('ramps and class edits (US3)', () => {
     await expect.poll(() => swatchColor(page, 0)).toBe('#0571b0')
 
     // One class's color; the method stays Quantile.
-    await page.getByLabel('Color of 6,273 – 9,801').fill('#ff00ff')
+    await setColor(page, 'Color of 6,273 – 9,801', '#ff00ff')
     await expect.poll(() => swatchColor(page, 4)).toBe('#ff00ff')
     await expect(page.getByLabel('Method', { exact: true })).toHaveValue('quantile')
 

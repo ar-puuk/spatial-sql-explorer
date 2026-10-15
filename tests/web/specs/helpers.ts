@@ -205,3 +205,12 @@ export async function choose(page: Page, combobox: Locator, option: string): Pro
   await combobox.click()
   await page.getByRole('option', { name: option, exact: true }).click()
 }
+
+/** Sets a color through the color field's popup: open the button, type the hex, Enter, close. */
+export async function setColor(page: Page, name: string | RegExp, hex: string): Promise<void> {
+  await page.getByRole('button', { name }).click()
+  const box = page.getByLabel('Hex color')
+  await box.fill(hex)
+  await box.press('Enter')
+  await page.keyboard.press('Escape')
+}

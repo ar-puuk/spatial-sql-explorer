@@ -22,6 +22,8 @@
     { key: 'y', label: 'Axis 2', hint: 'Vertical in the legend, low to high' },
   ] as const
 
+  const chosen = $derived(BIVARIATE_PALETTES.find((p) => p.id === renderer.palette) ?? BIVARIATE_PALETTES[0])
+
   function paletteKeydown(e: KeyboardEvent): void {
     const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
     if (!dir) return
@@ -53,6 +55,9 @@
 {/each}
 <button type="button" class="swap" onclick={onSwap} title="Swap axis 1 and axis 2"><Icon name="swap" size={14} />Swap axes</button>
 
+{#if chosen}
+  <p class="palette-name">{chosen.name}{#if chosen.note}<span class="note">{chosen.note}</span>{/if}</p>
+{/if}
 <div class="palettes" role="radiogroup" aria-label="Bivariate palette">
   {#each BIVARIATE_PALETTES as p (p.id)}
     <button
@@ -66,13 +71,15 @@
       onclick={() => onPalette(p.id)}
       onkeydown={paletteKeydown}
     >
-      <svg width="27" height="27" viewBox="0 0 27 27" aria-hidden="true">
+      <!-- The same grid as the legend: touching cells, a hairline between them (spec 015). -->
+      <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
         {#each [2, 1, 0] as j, r (j)}
           {#each [0, 1, 2] as i (i)}
-            <rect x={i * 9} y={r * 9} width="9" height="9" fill={p.cells[i + 3 * j]} />
+            <rect x={i * 12} y={r * 12} width="12" height="12" fill={p.cells[i + 3 * j]} stroke="rgba(255,255,255,0.55)" stroke-width="1" />
           {/each}
         {/each}
       </svg>
+      {#if renderer.palette === p.id}<span class="tick"><Icon name="check" size={11} /></span>{/if}
     </button>
   {/each}
 </div>
@@ -115,24 +122,55 @@
   .swap:hover {
     background: var(--se-button-secondary-hover);
   }
+  .palette-name {
+    margin: 2px 0 0;
+    font-weight: 600;
+  }
+  .note {
+    margin-left: 8px;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+    font-weight: 400;
+  }
   .palettes {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 44px);
     gap: 6px;
   }
   .palettes button {
+    position: relative;
     display: grid;
     place-items: center;
-    width: 35px;
-    height: 35px;
+    width: 44px;
+    height: 44px;
     padding: 0;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
+    border: 1px solid transparent;
+    border-radius: var(--se-radius);
     background: transparent;
     cursor: pointer;
   }
+  .palettes button:hover {
+    background: var(--se-control-hover);
+  }
+  .palettes svg {
+    display: block;
+    border: 1px solid color-mix(in srgb, var(--se-text-primary) 20%, transparent);
+  }
   .palettes button[aria-checked='true'] {
-    border: 2px solid var(--se-selected-indicator, var(--se-focus));
+    border-color: var(--se-accent);
+    box-shadow: 0 0 0 1px var(--se-accent);
+  }
+  .tick {
+    position: absolute;
+    right: -4px;
+    top: -4px;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--se-accent);
+    color: var(--se-button-fg);
   }
   select:focus-visible,
   .swap:focus-visible,

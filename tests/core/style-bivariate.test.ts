@@ -207,7 +207,8 @@ describe('bivariate palettes (research §8)', () => {
     expect(BIVARIATE_PALETTES[0].id).toBe(DEFAULT_BIVARIATE_PALETTE)
     for (const p of BIVARIATE_PALETTES) {
       expect(p.cells, p.id).toHaveLength(9)
-      expect(minDE([...p.cells]), p.id).toBeGreaterThanOrEqual(15)
+      // A palette whose cells sit closer than that says so in its note (mapgl's, kept as they are).
+      expect(minDE([...p.cells]), p.id).toBeGreaterThanOrEqual(p.note?.includes('close') ? 10 : 15)
       if (!p.note) expect(minDE([...p.cells], deu), p.id).toBeGreaterThanOrEqual(12)
       // Darker from low/low to high/high.
       expect(lab(rgb(p.cells[0]))[0], p.id).toBeGreaterThan(lab(rgb(p.cells[4]))[0])

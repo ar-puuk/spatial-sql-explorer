@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import ColorField from './kit/ColorField.svelte'
   import type { Encoding as SetAsideEncoding } from '@spatial-explorer/core'
   /** Spec 011 FR-007: properties removed from Vary by attribute, per layer and property, for the session. */
   // Not reactive on purpose: only read when a property is added again.
@@ -898,7 +899,7 @@
           {#each renderer.steps as st, i (i)}
             {@const label = resolved.clusters?.steps[i]?.label ?? `${st.from}+ points`}
             <li>
-              <input type="color" aria-label="Color for {label}" value={st.color} oninput={(e) => apply(setClusters(style, { steps: withStep(renderer.steps, i, { color: e.currentTarget.value }) }))} />
+              <ColorField label="Color for {label}" value={st.color} apply="live" size="md" onChange={(v) => apply(setClusters(style, { steps: withStep(renderer.steps, i, { color: v }) }))} />
               {#if i === 0}
                 <span class="from">From 2</span>
               {:else}
@@ -960,7 +961,7 @@
         </div>
         <div class="row">
           <span class="label" id="cluster-text-label">Count color</span>
-          <input type="color" aria-labelledby="cluster-text-label" value={renderer.textColor} oninput={(e) => apply(setClusters(style, { textColor: e.currentTarget.value }))} />
+          <ColorField labelledby="cluster-text-label" value={renderer.textColor} apply="live" size="md" onChange={(v) => apply(setClusters(style, { textColor: v }))} />
         </div>
         <div class="row">
           <span class="label" id="cluster-opacity-label">Opacity</span>
@@ -979,7 +980,7 @@
         </div>
         <div class="row">
           <span class="label" id="cluster-outline-label">Outline</span>
-          <input type="color" aria-labelledby="cluster-outline-label" value={renderer.strokeColor} oninput={(e) => apply(setClusters(style, { strokeColor: e.currentTarget.value }))} />
+          <ColorField labelledby="cluster-outline-label" value={renderer.strokeColor} apply="live" size="md" onChange={(v) => apply(setClusters(style, { strokeColor: v }))} />
           <input
             type="range"
             aria-label="Outline width"
@@ -1038,7 +1039,7 @@
           {#if thematic}
             <span class="by-class" title="Class colors come from the classes above">·</span>
           {:else}
-            <input type="color" aria-labelledby="fill-label" value={style.fillColor} oninput={(e) => onChange({ fillColor: e.currentTarget.value })} />
+            <ColorField labelledby="fill-label" value={style.fillColor} apply="live" size="md" onChange={(v) => onChange({ fillColor: v })} />
           {/if}
           <input
             type="range"
@@ -1056,7 +1057,7 @@
 
       <div class="row">
         <span class="label" id="stroke-label">{strokeLabel}</span>
-        <input type="color" aria-labelledby="stroke-label" value={style.strokeColor} oninput={(e) => onChange({ strokeColor: e.currentTarget.value })} />
+        <ColorField labelledby="stroke-label" value={style.strokeColor} apply="live" size="md" onChange={(v) => onChange({ strokeColor: v })} />
         <input
           type="range"
           aria-label="{strokeLabel} opacity"
@@ -1858,22 +1859,6 @@
     font-size: 0.9em;
     font-variant-numeric: tabular-nums;
     color: var(--se-text-secondary);
-  }
-  input[type='color'] {
-    width: 28px;
-    height: 22px;
-    padding: 1px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
-    cursor: pointer;
-  }
-  input[type='color']::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  input[type='color']::-webkit-color-swatch {
-    border: 0;
-    border-radius: calc(var(--se-radius-sm) - 1px);
   }
   input[type='range'] {
     width: 100%;

@@ -6,6 +6,7 @@
 // - Blocked basemap requests degrade to blank + a short message; data unaffected.
 import { test, expect, type Page } from '@playwright/test'
 import path from 'node:path'
+import { setColor } from './helpers'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -53,7 +54,7 @@ test('Blank keeps the data drawn, and a custom blank color is remembered', async
   await expect(page.getByRole('radio', { name: /Blank/ })).toContainText('Theme color')
   await expect.poll(() => renderedFeatures(page)).toBeGreaterThan(0)
 
-  await page.locator('.color-input').fill('#123456')
+  await setColor(page, 'Choose blank background color', '#123456')
   await expect(page.locator('.map-view')).toHaveCSS('background-color', 'rgb(18, 52, 86)')
   await expect(page.getByRole('radio', { name: /Blank/ })).toContainText('#123456')
 
