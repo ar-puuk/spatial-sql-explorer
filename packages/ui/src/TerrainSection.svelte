@@ -20,7 +20,7 @@
       <span class="hint">Lifts the map and your data onto the ground, with relief shading. Tilt the map to see it; the status bar shows elevation.</span>
     </span>
   </label>
-  <label class="slider" class:off={!on}>
+  <label class="slider">
     <span class="label">Exaggeration</span>
     <input
       type="range"
@@ -29,6 +29,7 @@
       step={TERRAIN_EXAGGERATION.step}
       value={exaggeration}
       aria-label="Terrain exaggeration"
+      disabled={!on}
       oninput={(e) => onExaggeration(e.currentTarget.valueAsNumber)}
     />
     <span class="value">{exaggeration.toFixed(1)}×</span>
@@ -71,9 +72,6 @@
     align-items: center;
     gap: 8px;
     padding-left: 24px;
-  }
-  .slider.off {
-    opacity: 0.55;
   }
   .label {
     color: var(--se-text-secondary);

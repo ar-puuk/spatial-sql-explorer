@@ -21,14 +21,29 @@ const selection = (page: Page) => page.getByRole('group', { name: 'Selection' })
 const labels = (page: Page) => page.locator('.map-view .shape-label')
 
 async function pickTool(page: Page, purposeButton: string, tool: string): Promise<void> {
-  await page.locator('.map-view .controls').getByRole('button', { name: purposeButton, exact: true }).click()
+  await page.locator('.map-view .corner').getByRole('button', { name: purposeButton, exact: true }).click()
   await palette(page, purposeButton).getByRole('button', { name: tool, exact: true }).click()
 }
 
 /** Click the corners, then Enter. */
 async function drawPolygon(page: Page, points: Array<[number, number]>): Promise<void> {
-  for (const [x, y] of points) await page.mouse.click(x, y)
+  // A moment between the clicks: under load (parallel workers) Terra Draw can still be taking one when the next arrives.
+  for (const [x, y] of points) {
+    await page.mouse.move(x, y)
+    await page.mouse.click(x, y)
+    await page.waitForTimeout(80)
+  }
   await page.keyboard.press('Enter')
+}
+
+/** Corner, move, corner: a rectangle (the second click finishes it). */
+async function drawRectangle(page: Page, from: [number, number], to: [number, number]): Promise<void> {
+  await page.mouse.move(from[0], from[1])
+  await page.mouse.click(from[0], from[1])
+  await page.waitForTimeout(80)
+  await page.mouse.move(to[0], to[1], { steps: 6 })
+  await page.waitForTimeout(80)
+  await page.mouse.click(to[0], to[1])
 }
 
 const around = (m: { x: number; y: number; w: number; h: number }, dx: number, dy: number): Array<[number, number]> => {
@@ -44,7 +59,7 @@ const around = (m: { x: number; y: number; w: number; h: number }, dx: number, d
 
 test('the Draw button opens a palette; a polygon is drawn, measured on the map, and the bar offers its actions', async ({ page }) => {
   const m = await open(page)
-  await expect(page.locator('.map-view .controls').getByRole('button', { name: 'Draw', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator('.map-view .corner').getByRole('button', { name: 'Draw', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await pickTool(page, 'Draw', 'Polygon')
   await expect(palette(page, 'Draw').getByRole('button', { name: 'Polygon', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await drawPolygon(page, around(m, 120, 80))
@@ -82,9 +97,7 @@ test('Select by shape: a rectangle selects the rows it covers; the predicate mat
   await pickTool(page, 'Select by shape', 'Rectangle')
   const cx = m.x + m.w / 2
   const cy = m.y + m.h / 2
-  await page.mouse.click(cx - 200, cy - 120)
-  await page.mouse.move(cx + 200, cy + 120, { steps: 5 })
-  await page.mouse.click(cx + 200, cy + 120)
+  await drawRectangle(page, [cx - 200, cy - 120], [cx + 200, cy + 120])
   await expect(selection(page)).toContainText('selected')
   const count = async (): Promise<number> => Number(/([\d,]+) selected/.exec(await selection(page).innerText())?.[1].replace(/,/g, ''))
   await expect.poll(count).toBeGreaterThan(3)
@@ -103,9 +116,7 @@ test('Filter keeps only the rows meeting the condition, and lifts when turned of
   await pickTool(page, 'Draw', 'Rectangle')
   const cx = m.x + m.w / 2
   const cy = m.y + m.h / 2
-  await page.mouse.click(cx - 200, cy - 120)
-  await page.mouse.move(cx + 200, cy + 120, { steps: 5 })
-  await page.mouse.click(cx + 200, cy + 120)
+  await drawRectangle(page, [cx - 200, cy - 120], [cx + 200, cy + 120])
   const filter = bar(page).getByRole('button', { name: 'Filter' })
   const count = page.locator('.drawer-header > .count')
   await filter.click()
@@ -193,9 +204,7 @@ test('select by shape on a projected layer (UTM 12N) agrees with an independent 
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
   await pickTool(page, 'Select by shape', 'Rectangle')
-  await page.mouse.click(cx - 120, cy - 70)
-  await page.mouse.move(cx + 120, cy + 70, { steps: 5 })
-  await page.mouse.click(cx + 120, cy + 70)
+  await drawRectangle(page, [cx - 120, cy - 70], [cx + 120, cy + 70])
   await expect(selection(page)).toContainText('selected')
   const picked = Number(/([\d,]+) selected/.exec(await selection(page).innerText())?.[1].replace(/,/g, ''))
   expect(picked).toBeGreaterThan(0)
@@ -230,6 +239,6 @@ test('the palette and the shapes bar have no axe violations', async ({ page }) =
   await pickTool(page, 'Draw', 'Polygon')
   await drawPolygon(page, around(m, 100, 60))
   await expect(bar(page)).toBeVisible()
-  const results = await new AxeBuilder({ page }).include('.map-view .controls').include('[aria-label="Drawn shapes"]').analyze()
+  const results = await new AxeBuilder({ page }).include('.map-view .corner').include('[aria-label="Drawn shapes"]').analyze()
   expect(results.violations).toEqual([])
 })

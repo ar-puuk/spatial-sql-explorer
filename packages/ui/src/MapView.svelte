@@ -3,6 +3,7 @@
     AttributionControl,
     Map as MapLibreMap,
     Marker,
+    LogoControl,
     ScaleControl,
     getWorkerCount,
     setWorkerCount,
@@ -51,13 +52,16 @@
     TERRAIN_HILLSHADE_ID,
     TERRAIN_SOURCE_ID,
     terrainSource,
-    groupsInCorner,
+    controlsAt,
+    CONTROL_GROUPS,
+    MAP_CONTROLS,
     isControlOn,
-    shownControls,
-    type ControlCorner,
+    type ControlPosition,
+    type ControlGroupId,
     type MapControlId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
+  import type { Snippet } from 'svelte'
   import Icon, { type IconName } from './Icon.svelte'
   import type { DrawController, DrawTool } from './draw/controller.js'
   import ProgressBar from './ProgressBar.svelte'
@@ -109,6 +113,8 @@
     onToggleProjection?: () => void
     /** Spec 014: which buttons show, and in which corner each group sits. */
     controls?: MapControlsPrefs
+    /** The controls that live outside the map (search, legend), drawn where the user put them. */
+    extra?: Snippet<[MapControlId, ControlPosition]>
     /** Spec 014: the columns the hover tooltip shows, and (engine tiles, which carry only the style's columns) a by-id lookup of the rest. */
     tooltipColumns?: string[]
     /** Spec 014: 3D terrain (a DEM the map is lifted onto), and what to do when its tiles fail. */
@@ -165,6 +171,7 @@
     projection = 'mercator',
     onToggleProjection = () => {},
     controls = DEFAULT_MAP_CONTROLS,
+    extra,
     tooltipColumns = [],
     terrain = { on: false, exaggeration: 1 },
     onToggleTerrain = () => {},
@@ -1238,17 +1245,29 @@
     })
   })
 
-  // Spec 014: the scale bar is one of the controls the user can turn off.
-  let scaleControl: ScaleControl | null = null
+  // Spec 014: MapLibre's own scale bar and logo, mounted where the user put them: their elements go into our corner stacks.
+  let scaleHost = $state<HTMLDivElement>()
+  let logoHost = $state<HTMLDivElement>()
   $effect(() => {
-    const on = isControlOn(controls, 'scale')
-    if (!map || !mapReady) return
-    if (on && !scaleControl) {
-      scaleControl = new ScaleControl({ unit: 'metric', maxWidth: 96 })
-      map.addControl(scaleControl, 'bottom-left')
-    } else if (!on && scaleControl) {
-      map.removeControl(scaleControl)
-      scaleControl = null
+    const host = scaleHost
+    if (!map || !mapReady || !host) return
+    const control = new ScaleControl({ unit: 'metric', maxWidth: 96 })
+    const element = control.onAdd(map)
+    host.appendChild(element)
+    return () => {
+      control.onRemove()
+      element.remove()
+    }
+  })
+  $effect(() => {
+    const host = logoHost
+    if (!map || !mapReady || !host) return
+    const control = new LogoControl()
+    const element = control.onAdd(map)
+    host.appendChild(element)
+    return () => {
+      control.onRemove()
+      element.remove()
     }
   })
 
@@ -1538,12 +1557,26 @@
     copiedTimer = setTimeout(() => (copied = false), 1200)
   }
 
-  const CORNERS: ControlCorner[] = ['top-right', 'bottom-right', 'top-left']
-  /** The groups to draw in a corner, each with the buttons shown (an empty group draws nothing). */
-  function cornerGroups(corner: ControlCorner): Array<{ group: string; ids: MapControlId[] }> {
-    return groupsInCorner(controls, corner)
-      .map((group) => ({ group, ids: shownControls(controls, group, (id) => id !== 'resetView' || tilted) }))
-      .filter((g) => g.ids.length > 0)
+  const POSITIONS: ControlPosition[] = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
+  /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'exportImage'])
+  const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
+  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
+  type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapControlId }
+  /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
+  function cornerSegments(corner: ControlPosition): Segment[] {
+    const out: Segment[] = []
+    for (const id of controlsAt(controls, corner, (c) => c !== 'resetView' || tilted)) {
+      if (!BUTTONS.has(id)) {
+        out.push({ kind: 'item', key: `i:${id}`, id })
+        continue
+      }
+      const group = MAP_CONTROLS.find((c) => c.id === id)?.group ?? 'navigation'
+      const last = out[out.length - 1]
+      if (last && last.kind === 'buttons' && last.group === group) last.ids.push(id)
+      else out.push({ kind: 'buttons', key: `b:${id}`, group, ids: [id] })
+    }
+    return out
   }
 
   // Spec 008 FR-023: switching keeps the camera (center and zoom).
@@ -1612,83 +1645,96 @@
   {#if drawLoading}
     <ProgressBar label="Loading the features" />
   {/if}
-  {#each CORNERS as corner (corner)}
-    {@const groups = cornerGroups(corner)}
-    {#if groups.length > 0}
-      <div class="controls {corner}" role="toolbar" aria-label="Map controls">
-        {#each groups as g (g.group)}
-          <div class="group">
-            {#each g.ids as id (id)}
-              {#if id === 'zoom'}
-                <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
-                <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
-              {:else if id === 'zoomToLayer'}
-                <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
-              {:else if id === 'globe'}
-                <button
-                  type="button"
-                  title={projection === 'globe' ? 'Flat map' : 'Globe view'}
-                  aria-label="Globe view"
-                  aria-pressed={projection === 'globe'}
-                  class:active={projection === 'globe'}
-                  onclick={onToggleProjection}
-                >
-                  <Icon name="globe" />
-                </button>
-              {:else if id === 'terrain'}
-                <button
-                  type="button"
-                  title={terrain.on ? 'Terrain off' : 'Terrain on'}
-                  aria-label="Terrain"
-                  aria-pressed={terrain.on}
-                  class:active={terrain.on}
-                  onclick={onToggleTerrain}
-                >
-                  <Icon name="mountain" />
-                </button>
-              {:else if id === 'draw' || id === 'measure' || id === 'select'}
-                {@const purpose: ShapePurpose = id}
-                <button
-                  type="button"
-                  title={PURPOSE_LABEL[purpose]}
-                  aria-label={PURPOSE_LABEL[purpose]}
-                  aria-pressed={drawTool?.purpose === purpose}
-                  class:active={drawTool?.purpose === purpose}
-                  onclick={() => onToggleDrawPurpose(purpose)}
-                >
-                  <Icon name={id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape'} />
-                </button>
-              {:else if id === 'exportImage'}
-                <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
-              {:else if id === 'resetView'}
-                <!-- Spec 008 FR-026: back to flat and north-up. -->
-                <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
-              {/if}
-            {/each}
-          </div>
+  {#each POSITIONS as corner (corner)}
+    {@const segments = cornerSegments(corner)}
+    {#if segments.length > 0}
+      <div class="corner {corner}">
+        {#each segments as seg (seg.key)}
+          {#if seg.kind === 'buttons'}
+            <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
+              {#each seg.ids as id (id)}
+                {#if id === 'zoom'}
+                  <button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => map?.zoomIn()}><Icon name="plus" /></button>
+                  <button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => map?.zoomOut()}><Icon name="minus" /></button>
+                {:else if id === 'zoomToLayer'}
+                  <button type="button" title="Zoom to layer" aria-label="Zoom to layer" disabled={!layer?.extent} onclick={() => fitExtent(true)}><Icon name="fit" /></button>
+                {:else if id === 'globe'}
+                  <button
+                    type="button"
+                    title={projection === 'globe' ? 'Flat map' : 'Globe view'}
+                    aria-label="Globe view"
+                    aria-pressed={projection === 'globe'}
+                    class:active={projection === 'globe'}
+                    onclick={onToggleProjection}
+                  >
+                    <Icon name="globe" />
+                  </button>
+                {:else if id === 'terrain'}
+                  <button
+                    type="button"
+                    title={terrain.on ? 'Terrain off' : 'Terrain on'}
+                    aria-label="Terrain"
+                    aria-pressed={terrain.on}
+                    class:active={terrain.on}
+                    onclick={onToggleTerrain}
+                  >
+                    <Icon name="mountain" />
+                  </button>
+                {:else if id === 'draw' || id === 'measure' || id === 'select'}
+                  {@const purpose: ShapePurpose = id}
+                  <button
+                    type="button"
+                    title={PURPOSE_LABEL[purpose]}
+                    aria-label={PURPOSE_LABEL[purpose]}
+                    aria-pressed={drawTool?.purpose === purpose}
+                    class:active={drawTool?.purpose === purpose}
+                    onclick={() => onToggleDrawPurpose(purpose)}
+                  >
+                    <Icon name={id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape'} />
+                  </button>
+                {:else if id === 'exportImage'}
+                  <button type="button" title="Export map image…" aria-label="Export map image…" disabled={!layer || !onExportImage} onclick={() => onExportImage?.()}><Icon name="image" /></button>
+                {:else if id === 'resetView'}
+                  <!-- Spec 008 FR-026: back to flat and north-up. -->
+                  <button type="button" title="Reset view (flat, north up)" aria-label="Reset view" onclick={resetView}><Icon name="reset" /></button>
+                {/if}
+              {/each}
+            </div>
+            {#if drawTool && seg.ids.includes(PURPOSE_CONTROL[drawTool.purpose])}
+              <!-- The open tool's palette, under the box holding its button. -->
+                <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
+                  {#each PALETTE[drawTool.purpose] as t (t)}
+                    <button type="button" title="{TOOL_LABEL[t]}: {TOOL_HINT[t]}" aria-label={TOOL_LABEL[t]} aria-pressed={drawTool.tool === t} class:active={drawTool.tool === t} onclick={() => onSetDrawTool(t)}>
+                      <Icon name={TOOL_ICON[t]} />
+                    </button>
+                  {/each}
+                  {#if drawTool.purpose === 'draw'}
+                    <button type="button" title="Delete the selected shape (edit mode)" aria-label="Delete selected shape" disabled={drawTool.tool !== 'edit' || !selectedShape} onclick={() => drawController?.deleteSelected()}>
+                      <Icon name="trash" />
+                    </button>
+                    <button type="button" title="Undo" aria-label="Undo" onclick={() => drawController?.undo()}><Icon name="undo" /></button>
+                  {/if}
+                  {#if drawTool.purpose === 'measure'}
+                    <button type="button" class="text" title="Units: {drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch." aria-label="Units: {drawUnits}" onclick={() => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric')}>
+                      {drawUnits === 'metric' ? 'km' : 'mi'}
+                    </button>
+                  {/if}
+                  <button type="button" title="Close the tools (the shapes stay)" aria-label="Close drawing tools" onclick={() => onSetDrawTool(null)}><Icon name="check" /></button>
+                </div>
+            {/if}
+          {:else if seg.id === 'coordinates'}
+            <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
+              <span class="value">{cursorShown ?? 'lat, lon'}</span>
+              <Icon name={copied ? 'check' : 'copy'} size={12} />
+            </button>
+          {:else if seg.id === 'scale'}
+            <div class="native" bind:this={scaleHost}></div>
+          {:else if seg.id === 'logo'}
+            <div class="native" bind:this={logoHost}></div>
+          {:else}
+            {@render extra?.(seg.id, corner)}
+          {/if}
         {/each}
-        {#if drawTool && groupsInCorner(controls, corner).includes('tools')}
-          <!-- The open tool's palette, under the buttons in the same corner. -->
-          <div class="group palette" role="group" aria-label="{PURPOSE_LABEL[drawTool.purpose]} tools">
-            {#each PALETTE[drawTool.purpose] as t (t)}
-              <button type="button" title="{TOOL_LABEL[t]}: {TOOL_HINT[t]}" aria-label={TOOL_LABEL[t]} aria-pressed={drawTool.tool === t} class:active={drawTool.tool === t} onclick={() => onSetDrawTool(t)}>
-                <Icon name={TOOL_ICON[t]} />
-              </button>
-            {/each}
-            {#if drawTool.purpose === 'draw'}
-              <button type="button" title="Delete the selected shape (edit mode)" aria-label="Delete selected shape" disabled={drawTool.tool !== 'edit' || !selectedShape} onclick={() => drawController?.deleteSelected()}>
-                <Icon name="trash" />
-              </button>
-              <button type="button" title="Undo" aria-label="Undo" onclick={() => drawController?.undo()}><Icon name="undo" /></button>
-            {/if}
-            {#if drawTool.purpose === 'measure'}
-              <button type="button" class="text" title="Units: {drawUnits === 'metric' ? 'metric (km, m)' : 'imperial (mi, ft)'}. Click to switch." aria-label="Units: {drawUnits}" onclick={() => onSetDrawUnits(drawUnits === 'metric' ? 'imperial' : 'metric')}>
-                {drawUnits === 'metric' ? 'km' : 'mi'}
-              </button>
-            {/if}
-            <button type="button" title="Close the tools (the shapes stay)" aria-label="Close drawing tools" onclick={() => onSetDrawTool(null)}><Icon name="check" /></button>
-          </div>
-        {/if}
       </div>
     {/if}
   {/each}
@@ -1702,12 +1748,6 @@
       {/each}
     </div>
   {/if}
-  {#if isControlOn(controls, 'coordinates')}
-    <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
-      <span class="value">{cursorShown ?? 'lat, lon'}</span>
-      <Icon name={copied ? 'check' : 'copy'} size={12} />
-    </button>
-  {/if}
 </div>
 
 <style>
@@ -1715,6 +1755,8 @@
     position: relative;
     width: 100%;
     height: 100%;
+    /* Cards in the corners are sized against the map's own height (cqh). */
+    container-type: size;
     background: var(--se-map-bg);
     /* A stray text selection elsewhere must not turn a map drag into a
        selection drag (GeoLibre #2734). */
@@ -1740,12 +1782,63 @@
   .canvas-host.dimmed {
     opacity: 0.35;
   }
-  .controls {
+  /* Spec 014: a corner's stack of controls, top to bottom; the corner itself lets the map through. */
+  .corner {
     position: absolute;
+    z-index: 6;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    z-index: 5;
+    max-width: calc(50% - 15px);
+    max-height: calc(100% - 20px);
+    pointer-events: none;
+  }
+  .corner > :global(*) {
+    pointer-events: auto;
+  }
+  .corner.top-left {
+    top: 10px;
+    left: 10px;
+    align-items: flex-start;
+    /* Search results open over the other corners. */
+    z-index: 7;
+  }
+  .corner.top-right {
+    top: 10px;
+    right: 10px;
+    align-items: flex-end;
+  }
+  .corner.bottom-left {
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px);
+    left: 10px;
+    align-items: flex-start;
+  }
+  /* Above the compact attribution, which stays here. */
+  .corner.bottom-right {
+    right: 10px;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 38px);
+    align-items: flex-end;
+  }
+  /* Along an edge, centered (a wide, short readout); clear of the corners' stacks on both sides. */
+  .corner.top-center,
+  .corner.bottom-center {
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+    max-width: calc(100% - 360px);
+  }
+  .corner.top-center {
+    top: 10px;
+  }
+  .corner.bottom-center {
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px);
+  }
+  .native {
+    display: flex;
+  }
+  .native :global(.maplibregl-ctrl) {
+    margin: 0;
+    float: none;
   }
   .group button.text {
     width: 28px;
@@ -1811,15 +1904,10 @@
     white-space: nowrap;
   }
   .coords {
-    position: absolute;
-    left: 50%;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px);
-    z-index: 5;
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 2px 8px;
-    transform: translateX(-50%);
     background: var(--se-control-bg);
     border: 1px solid var(--se-control-border);
     border-radius: var(--se-radius-sm);
@@ -1839,20 +1927,6 @@
   .coords:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: 1px;
-  }
-  .controls.top-right {
-    top: 10px;
-    right: 10px;
-  }
-  /* Above the compact attribution button (spec 014). */
-  .controls.bottom-right {
-    right: 10px;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
-  }
-  /* Under the search box, where the feature card is; the card moves over by --se-ctl-left. */
-  .controls.top-left {
-    top: 48px;
-    left: 10px;
   }
   .group {
     display: flex;

@@ -1,18 +1,20 @@
 <script lang="ts">
-  // Spec 014: the "Map controls" side panel. One checkbox per map button (rendered from the core
-  // registry, so a new control is a new row there), grouped as they sit on the map, and a corner
-  // choice for each group that can move. The choice is the user's, for every file.
+  // Spec 014: the "Map controls" side panel. One row per control (rendered from the core registry, so a new
+  // control is a new row there): an on/off switch, its name, and the corner it sits in. The user is treated as
+  // the developer of the map (after mapgl, which gives every control a `position`). The choice is the user's,
+  // for every file. Controls in a corner stack in the order listed here.
   import {
-    CONTROL_CORNERS,
+    CONTROL_POSITIONS,
     CONTROL_GROUPS,
+    DEFAULT_MAP_CONTROLS,
     isControlOn,
     isDefaultMapControls,
+    positionOf,
+    positionsFor,
     MAP_CONTROLS,
+    setControlPosition,
     setControlOn,
-    setGroupCorner,
-    DEFAULT_MAP_CONTROLS,
-    type ControlCorner,
-    type ControlGroupId,
+    type ControlPosition,
     type MapControlId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
@@ -37,25 +39,28 @@
   const groups = $derived(
     CONTROL_GROUPS.map((g) => ({ ...g, controls: MAP_CONTROLS.filter((c) => c.group === g.id && available(c.id)) })).filter((g) => g.controls.length > 0)
   )
-
-  function moveGroup(group: ControlGroupId, corner: ControlCorner): void {
-    onChange(setGroupCorner(prefs, group, corner))
-  }
 </script>
 
 <div class="controls-panel" role="region" aria-label="Map controls">
-  <p class="intro">Choose the buttons on the map, and the corner each group sits in. This applies to every file.</p>
+  <p class="intro">Choose the controls on the map and where each one sits; each offers the places that suit it. Controls in the same place stack in the order listed. This applies to every file. The map's attribution stays at the bottom right.</p>
   {#each groups as g (g.id)}
     <section aria-labelledby="mc-{g.id}">
       <h3 id="mc-{g.id}">{g.label}</h3>
       {#each g.controls as c (c.id)}
-        <label class="check">
-          <input type="checkbox" checked={isControlOn(prefs, c.id)} onchange={(e) => onChange(setControlOn(prefs, c.id, e.currentTarget.checked))} />
-          <span class="text">
+        <div class="row" class:off={!isControlOn(prefs, c.id)}>
+          <input id="mc-on-{c.id}" type="checkbox" checked={isControlOn(prefs, c.id)} onchange={(e) => onChange(setControlOn(prefs, c.id, e.currentTarget.checked))} />
+          <label class="text" for="mc-on-{c.id}">
             <span class="name">{c.label}</span>
             <span class="hint">{c.description}</span>
-          </span>
-        </label>
+          </label>
+          {#if positionsFor(c.id).length > 0}
+            <select aria-label="{c.label} position" value={positionOf(prefs, c.id)} onchange={(e) => onChange(setControlPosition(prefs, c.id, e.currentTarget.value as ControlPosition))}>
+              {#each CONTROL_POSITIONS.filter((p) => positionsFor(c.id).includes(p.id)) as position (position.id)}
+                <option value={position.id}>{position.label}</option>
+              {/each}
+            </select>
+          {/if}
+        </div>
         {#if c.id === 'tooltip' && isControlOn(prefs, 'tooltip') && tooltip && tooltip.available.length > 0}
           <fieldset class="columns">
             <legend>Tooltip columns (up to 5 are shown)</legend>
@@ -68,17 +73,6 @@
           </fieldset>
         {/if}
       {/each}
-      {#if g.defaultCorner !== null}
-        <div class="corners" role="radiogroup" aria-label="{g.label} position">
-          <span class="label">Position</span>
-          {#each CONTROL_CORNERS as corner (corner.id)}
-            <label class="radio">
-              <input type="radio" name="mc-corner-{g.id}" value={corner.id} checked={prefs.corners[g.id] === corner.id} onchange={() => moveGroup(g.id, corner.id)} />
-              <span>{corner.label}</span>
-            </label>
-          {/each}
-        </div>
-      {/if}
     </section>
   {/each}
   <div class="footer">
@@ -103,7 +97,7 @@
   }
   section {
     display: grid;
-    gap: 8px;
+    gap: 6px;
   }
   h3 {
     margin: 0;
@@ -112,13 +106,14 @@
     letter-spacing: var(--se-section-title-tracking);
     color: var(--se-section-title-fg);
   }
-  .check {
-    display: flex;
-    align-items: flex-start;
+  /* switch | name and what it does | corner */
+  .row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
     gap: 8px;
-    cursor: pointer;
   }
-  .check input {
+  .row input[type='checkbox'] {
     margin: 2px 0 0;
     accent-color: var(--se-accent);
   }
@@ -126,30 +121,21 @@
     display: grid;
     gap: 1px;
     min-width: 0;
+    cursor: pointer;
   }
   .hint {
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }
-  .corners {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 12px;
-    padding-top: 2px;
-  }
-  .label {
-    color: var(--se-text-secondary);
-  }
-  .radio {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-  }
-  .radio input {
-    margin: 0;
-    accent-color: var(--se-accent);
+  select {
+    min-width: 0;
+    height: 24px;
+    padding: 0 4px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-input-fg, var(--se-text-primary));
+    font: inherit;
   }
   .columns {
     display: grid;
@@ -163,6 +149,16 @@
   .columns legend {
     padding: 0 0 3px;
     color: var(--se-text-secondary);
+  }
+  .radio {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .radio input {
+    margin: 0;
+    accent-color: var(--se-accent);
   }
   .col-name {
     min-width: 0;
@@ -187,6 +183,7 @@
     cursor: default;
   }
   .footer button:focus-visible,
+  select:focus-visible,
   input:focus-visible {
     outline: 1px solid var(--se-focus);
     outline-offset: 1px;

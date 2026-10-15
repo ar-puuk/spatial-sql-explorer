@@ -11,9 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Map controls** (a new right-rail tab, sliders icon): choose which buttons
-  show on the map and the corner each group sits in (top right, bottom right,
-  top left). A user preference, for every file. The scale bar can be hidden.
+- **Map controls** (a new right-rail tab, sliders icon): a row per control with
+  an on/off switch, its name and where it sits. Each control offers the
+  positions that suit it: the four corners for buttons, search, legend, scale
+  bar and logo; the middle of the top or bottom edge for the coordinates
+  readout. Search, zoom, zoom to layer, reset view, globe,
+  terrain, the drawing tools, export image, legend, coordinates, the scale bar
+  and the MapLibre logo (on by default) can each go anywhere; controls in a
+  corner stack in the order listed. A user preference, for every file.
 - **Draw, Measure and Select by shape.** Point, line, polygon, rectangle,
   circle and freehand tools, and an edit tool, on Terra Draw (loaded the first
   time a tool is opened). Distances, and areas with perimeters, show live and

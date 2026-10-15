@@ -15,8 +15,11 @@ Research: the mapgl R package (MIT) and GeoLibre's Controls menu and terrain dia
   predicate defaults to *intersects*; the user can change it (within, contains, centroid within).
 - The controls panel is a fourth right-rail tab with a sliders icon ("Map controls"), not a gear. The choice is global
   (a user preference through `HostAdapter.saveState`), not per file.
-- A position control: the user picks the corner for each group of map buttons, with defaults that avoid the search box,
-  the legend and the attribution.
+- A position control, per control (user decision 2026-10-15, after looking at how mapgl does it): every control has an
+  on/off switch and its own position, in a row of the panel, from the positions that suit that control (the four
+  corners for buttons; the middle of the top or bottom edge for the coordinates readout); the user is treated as the developer of the
+  map. Search, the legend, the scale bar, the coordinates readout and the MapLibre logo (on by default) are controls too.
+  The attribution stays at the bottom right (licences). A first version had one corner per group; it is migrated.
 - Terrain: an on/off switch with hillshade shading, a vertical exaggeration slider, and a cursor elevation readout.
   A DEM is a height source, not a second basemap: exactly one basemap is still drawn (CLAUDE.md amended).
 - Defaults on: zoom, zoom to layer, reset view (shown when the map is tilted or rotated, as today), globe, terrain

@@ -88,6 +88,8 @@
     width: var(--se-card-width, 300px);
     max-width: 100%;
     max-height: min(480px, 100%);
+    /* In a corner's stack the card is bounded by the map's height (the map view is a size container), clear of the top and bottom stacks. */
+    max-height: min(480px, calc(100cqh - 120px));
     /* Borders inside that height, so the card ends where its slot does. */
     box-sizing: border-box;
     background: var(--se-bg-elevated);

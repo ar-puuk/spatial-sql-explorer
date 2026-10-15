@@ -1,5 +1,5 @@
-// Spec 014: the Map controls side panel. Which map buttons show, and the corner
-// each group sits in, remembered for the user (not per file).
+// Spec 014: the Map controls side panel. Which controls show, and the corner each one
+// sits in (a row per control: switch, name, position), remembered for the user (not per file).
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { fixture } from './helpers'
@@ -11,8 +11,7 @@ async function open(page: Page): Promise<void> {
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Map controls', exact: true })
 const rail = (page: Page) => page.getByRole('button', { name: 'Map controls', exact: true }).first()
-// The toolbar holding the Navigation group (the Tools group stays where it is).
-const toolbar = (page: Page) => page.locator('.map-view .controls').filter({ has: page.getByRole('button', { name: 'Zoom in' }) })
+const corner = (page: Page, name: string) => page.locator(`.map-view .corner.${name}`)
 
 async function openPanel(page: Page): Promise<void> {
   // The layout is remembered: after a reload the panel may already be open (the rail button would close it).
@@ -24,7 +23,7 @@ async function openPanel(page: Page): Promise<void> {
 test('the rail has a Map controls button that opens the panel with every control listed', async ({ page }) => {
   await open(page)
   await openPanel(page)
-  for (const name of ['Zoom in and out', 'Zoom to layer', 'Reset view', 'Globe view', 'Export map image', 'Scale bar']) {
+  for (const name of ['Search', 'Zoom in and out', 'Zoom to layer', 'Reset view', 'Globe view', 'Terrain', 'Draw shapes', 'Measure', 'Select by shape', 'Export map image', 'Legend', 'MapLibre logo', 'Scale bar']) {
     await expect(panel(page).getByRole('checkbox', { name: new RegExp(`^${name}`) })).toBeChecked()
   }
   await expect(panel(page).getByRole('button', { name: 'Reset to defaults' })).toBeDisabled()
@@ -56,23 +55,81 @@ test('the scale bar can be turned off and on', async ({ page }) => {
   await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(1)
 })
 
-test('a group can move to another corner', async ({ page }) => {
+test('each control has its own corner: moving one leaves the rest', async ({ page }) => {
   await open(page)
-  const view = (await page.locator('.map-view').boundingBox())!
-  const top = (await toolbar(page).boundingBox())!
-  expect(top.y - view.y).toBeLessThan(20)
-  expect(view.x + view.width - (top.x + top.width)).toBeLessThan(20)
+  // By default the buttons are top right, the search top left, the scale bar and logo bottom left.
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  await expect(corner(page, 'top-left').getByRole('search')).toBeVisible()
+  await expect(corner(page, 'bottom-left').locator('.maplibregl-ctrl-scale')).toHaveCount(1)
+  await expect(corner(page, 'bottom-left').locator('.maplibregl-ctrl-logo')).toHaveCount(1)
 
   await openPanel(page)
-  await panel(page).getByRole('radiogroup', { name: 'Navigation position' }).getByLabel('Bottom right').check()
-  await expect.poll(async () => { const b = (await toolbar(page).boundingBox())!; return view.y + view.height - (b.y + b.height) }).toBeLessThan(80)
+  await panel(page).getByLabel('Globe view position').selectOption('bottom-right')
+  await expect(corner(page, 'bottom-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toHaveCount(0)
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  // It sits at the bottom, above the attribution.
+  const view = (await page.locator('.map-view').boundingBox())!
+  const box = (await corner(page, 'bottom-right').getByRole('button', { name: 'Globe view' }).boundingBox())!
+  expect(view.y + view.height - (box.y + box.height)).toBeLessThan(80)
 
-  await panel(page).getByRole('radiogroup', { name: 'Navigation position' }).getByLabel('Top left').check()
-  await expect.poll(async () => (await toolbar(page).boundingBox())!.x - view.x).toBeLessThan(20)
-  // Under the search box, not over it.
-  const search = (await page.locator('.search-slot').boundingBox())!
-  const box = (await toolbar(page).boundingBox())!
-  expect(box.y).toBeGreaterThanOrEqual(search.y + search.height)
+  // Even zoom, which is one box of two buttons, can go: the search moves in with it.
+  await panel(page).getByLabel('Search position').selectOption('top-right')
+  await expect(corner(page, 'top-right').getByRole('search')).toBeVisible()
+  await expect(corner(page, 'top-left')).toHaveCount(0)
+  // The search stacks above the buttons in the same corner (registry order).
+  const s = (await corner(page, 'top-right').getByRole('search').boundingBox())!
+  const z = (await corner(page, 'top-right').getByRole('button', { name: 'Zoom in' }).boundingBox())!
+  expect(s.y).toBeLessThan(z.y)
+
+  // Reset puts everything back.
+  await panel(page).getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(corner(page, 'top-left').getByRole('search')).toBeVisible()
+  await expect(corner(page, 'top-right').getByRole('button', { name: 'Globe view' })).toBeVisible()
+})
+
+test('the MapLibre logo is on by default; it can be turned off and moved', async ({ page }) => {
+  await open(page)
+  await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(1)
+  await openPanel(page)
+  await panel(page).getByLabel('MapLibre logo position').selectOption('top-left')
+  await expect(corner(page, 'top-left').locator('.maplibregl-ctrl-logo')).toHaveCount(1)
+  await panel(page).getByRole('checkbox', { name: /^MapLibre logo/ }).uncheck()
+  await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(0)
+  await panel(page).getByRole('checkbox', { name: /^MapLibre logo/ }).check()
+  await expect(page.locator('.maplibregl-ctrl-logo')).toHaveCount(1)
+})
+
+test('a control that is switched off keeps its position for when it comes back', async ({ page }) => {
+  await open(page)
+  await openPanel(page)
+  await panel(page).getByLabel('Scale bar position').selectOption('top-left')
+  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).uncheck()
+  await expect(page.locator('.maplibregl-ctrl-scale')).toHaveCount(0)
+  await panel(page).getByRole('checkbox', { name: /^Scale bar/ }).check()
+  await expect(corner(page, 'top-left').locator('.maplibregl-ctrl-scale')).toHaveCount(1)
+})
+
+test('each control offers only the positions that suit it: the readout, the top or bottom edge', async ({ page }) => {
+  await open(page)
+  await openPanel(page)
+  const options = (name: string) => panel(page).getByLabel(`${name} position`).locator('option').allTextContents()
+  expect(await options('Zoom in and out')).toEqual(['Top left', 'Top right', 'Bottom left', 'Bottom right'])
+  expect(await options('Coordinates')).toEqual(['Top center', 'Bottom center'])
+  // The hover tooltip has no place on the map, so no position.
+  await expect(panel(page).getByLabel('Hover tooltip position')).toHaveCount(0)
+
+  await panel(page).getByRole('checkbox', { name: /^Coordinates/ }).check()
+  await expect(corner(page, 'bottom-center').locator('.coords')).toHaveCount(1)
+  await panel(page).getByLabel('Coordinates position').selectOption('top-center')
+  await expect(corner(page, 'top-center').locator('.coords')).toHaveCount(1)
+  await expect(corner(page, 'bottom-center')).toHaveCount(0)
+  // Centered along the top edge.
+  const view = (await page.locator('.map-view').boundingBox())!
+  const box = (await corner(page, 'top-center').locator('.coords').boundingBox())!
+  expect(Math.abs(box.x + box.width / 2 - (view.x + view.width / 2))).toBeLessThan(4)
+  expect(box.y - view.y).toBeLessThan(20)
 })
 
 test('coordinates: off by default; on, they follow the cursor and a click copies them', async ({ page }) => {

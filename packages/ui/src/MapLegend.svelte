@@ -201,17 +201,14 @@
 </section>
 
 <style>
+  /* Spec 014: a stack item in whichever corner the user put it; the corner bounds its height. */
   .legend {
-    position: absolute;
-    left: 10px;
-    /* 8 px above the scale bar (10 px margin + 11px * 1.6 line + 1 px border). */
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px + 11px * 1.6 + 1px + 8px);
-    z-index: 5;
     display: flex;
     flex-direction: column;
     min-width: 160px;
-    max-width: min(300px, calc(100% - 20px));
-    max-height: calc(100% - 90px - var(--se-map-bottom-inset, 0px));
+    max-width: min(300px, 100%);
+    max-height: 100%;
+    min-height: 0;
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
