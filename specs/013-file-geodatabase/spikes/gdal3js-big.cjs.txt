@@ -1,0 +1,20 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+const mb = () => Math.round(process.memoryUsage().rss / 1048576)
+;(async () => {
+  const Gdal = await initGdalJs()
+  let t = Date.now()
+  const ds = (await Gdal.open(path.resolve('big.gdb'))).datasets[0]
+  const info = await Gdal.getInfo(ds)
+  console.log('open+info ms', Date.now() - t, JSON.stringify(info.layers), 'rss', mb())
+  for (const [layer, extra] of [['parcels_460k', []], ['parcels_460k', ['-t_srs', 'EPSG:4326']], ['parcels_4m', []]]) {
+    t = Date.now()
+    try {
+      const o = await Gdal.ogr2ogr(ds, ['-f', 'FlatGeobuf', ...extra, layer], layer)
+      const b = await Gdal.getFileBytes(o)
+      console.log(layer, extra.join(' '), 'FGB', (b.length / 1048576).toFixed(0), 'MB in', Date.now() - t, 'ms rss', mb())
+      fs.writeFileSync(layer + (extra.length ? '-4326' : '') + '.fgb', b)
+      await Gdal.close?.(o).catch?.(() => {})
+    } catch (e) { console.log(layer, 'ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 300), 'rss', mb()) }
+  }
+})().catch((e) => console.error('FAIL', e))

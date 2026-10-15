@@ -1,0 +1,19 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+;(async () => {
+  const t0 = Date.now()
+  const Gdal = await initGdalJs()
+  console.log('init ms', Date.now() - t0, 'GDAL', Gdal.drivers && Object.keys(Gdal.drivers.vector).includes('OpenFileGDB'))
+  const r = await Gdal.open(path.resolve('two.gdb'))
+  console.log('opened', r.datasets.length, r.errors)
+  const ds = r.datasets[0]
+  console.log(JSON.stringify(await Gdal.getInfo(ds)).slice(0, 1500))
+  for (const fmt of [['Parquet', 'out.parquet'], ['FlatGeobuf', 'out.fgb'], ['GPKG', 'out.gpkg'], ['Arrow', 'out.arrow']]) {
+    try {
+      const o = await Gdal.ogr2ogr(ds, ['-f', fmt[0], '-t_srs', 'EPSG:4326', 'countries'], fmt[1].split('.')[0])
+      const b = await Gdal.getFileBytes(o)
+      console.log(fmt[0], 'ok', b.length)
+      fs.writeFileSync(fmt[1], b)
+    } catch (e) { console.log(fmt[0], 'ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 200)) }
+  }
+})().catch((e) => console.error('FAIL', e))

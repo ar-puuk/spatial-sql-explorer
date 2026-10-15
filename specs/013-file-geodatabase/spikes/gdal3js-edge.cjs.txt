@@ -1,0 +1,10 @@
+const initGdalJs = require('gdal3.js/node.js'), path = require('path')
+;(async () => {
+  const Gdal = await initGdalJs()
+  const ds = (await Gdal.open(path.resolve('edge.gdb'))).datasets[0]
+  console.log(JSON.stringify((await Gdal.getInfo(ds)).layers))
+  for (const l of ['pro32_int64', 'curves', 'points_z']) {
+    try { const o = await Gdal.ogr2ogr(ds, ['-f', 'GeoJSON', '-limit', '1', l], l); const b = await Gdal.getFileBytes(o); console.log(l, new TextDecoder().decode(b).replace(/\s+/g, ' ').slice(0, 400)) }
+    catch (e) { console.log(l, 'ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 200)) }
+  }
+})()

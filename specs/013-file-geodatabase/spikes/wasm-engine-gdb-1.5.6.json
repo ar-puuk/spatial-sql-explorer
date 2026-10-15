@@ -1,0 +1,308 @@
+[
+ {
+  "sql": "SELECT library_version FROM pragma_version()",
+  "ms": 1,
+  "n": 1,
+  "rows": [
+   {
+    "library_version": "v1.5.6"
+   }
+  ]
+ },
+ {
+  "sql": "SELECT extension_name, extension_version FROM duckdb_extensions() WHERE loaded",
+  "ms": 2,
+  "n": 6,
+  "rows": [
+   {
+    "extension_name": "core_functions",
+    "extension_version": "v1.5.6"
+   },
+   {
+    "extension_name": "excel",
+    "extension_version": ""
+   },
+   {
+    "extension_name": "json",
+    "extension_version": ""
+   },
+   {
+    "extension_name": "parquet",
+    "extension_version": ""
+   },
+   {
+    "extension_name": "spatial",
+    "extension_version": ""
+   },
+   {
+    "extension_name": "sqlite_scanner",
+    "extension_version": ""
+   }
+  ]
+ },
+ {
+  "sql": "SELECT short_name FROM ST_Drivers() ORDER BY 1",
+  "ms": 9,
+  "n": 45,
+  "rows": [
+   {
+    "short_name": "AVCBin"
+   },
+   {
+    "short_name": "AVCE00"
+   },
+   {
+    "short_name": "CAD"
+   },
+   {
+    "short_name": "CSV"
+   },
+   {
+    "short_name": "DGN"
+   },
+   {
+    "short_name": "DXF"
+   },
+   {
+    "short_name": "EDIGEO"
+   },
+   {
+    "short_name": "ESRI Shapefile"
+   },
+   {
+    "short_name": "ESRIJSON"
+   },
+   {
+    "short_name": "FlatGeobuf"
+   },
+   {
+    "short_name": "GML"
+   },
+   {
+    "short_name": "GPKG"
+   },
+   {
+    "short_name": "GPSBabel"
+   },
+   {
+    "short_name": "GPX"
+   },
+   {
+    "short_name": "GTFS"
+   },
+   {
+    "short_name": "GeoJSON"
+   },
+   {
+    "short_name": "GeoJSONSeq"
+   },
+   {
+    "short_name": "GeoRSS"
+   },
+   {
+    "short_name": "Geoconcept"
+   },
+   {
+    "short_name": "JML"
+   },
+   {
+    "short_name": "JSONFG"
+   },
+   {
+    "short_name": "KML"
+   },
+   {
+    "short_name": "LVBAG"
+   },
+   {
+    "short_name": "MVT"
+   },
+   {
+    "short_name": "MapInfo File"
+   },
+   {
+    "short_name": "MapML"
+   },
+   {
+    "short_name": "Memory"
+   },
+   {
+    "short_name": "ODS"
+   },
+   {
+    "short_name": "OGR_GMT"
+   },
+   {
+    "short_name": "OGR_VRT"
+   },
+   {
+    "short_name": "OSM"
+   },
+   {
+    "short_name": "PGDUMP"
+   },
+   {
+    "short_name": "PMTiles"
+   },
+   {
+    "short_name": "S57"
+   },
+   {
+    "short_name": "SQLite"
+   },
+   {
+    "short_name": "SVG"
+   },
+   {
+    "short_name": "SXF"
+   },
+   {
+    "short_name": "Selafin"
+   },
+   {
+    "short_name": "TIGER"
+   },
+   {
+    "short_name": "TopoJSON"
+   },
+   {
+    "short_name": "UK .NTF"
+   },
+   {
+    "short_name": "VDV"
+   },
+   {
+    "short_name": "VFK"
+   },
+   {
+    "short_name": "WAsP"
+   },
+   {
+    "short_name": "XLSX"
+   }
+  ]
+ },
+ {
+  "sql": "SELECT short_name, can_open, can_create FROM ST_Drivers() WHERE short_name ILIKE '%gdb%' OR short_name ILIKE '%esri%' OR short_name ILIKE '%arrow%' OR short_nam",
+  "ms": 3,
+  "n": 3,
+  "rows": [
+   {
+    "short_name": "ESRI Shapefile",
+    "can_open": true,
+    "can_create": true
+   },
+   {
+    "short_name": "ESRIJSON",
+    "can_open": true,
+    "can_create": false
+   },
+   {
+    "short_name": "SQLite",
+    "can_open": true,
+    "can_create": true
+   }
+  ]
+ },
+ {
+  "sql": "SELECT * FROM glob('/se-source/s/two.gdb/*')",
+  "ms": 3,
+  "n": 24,
+  "rows": [
+   {
+    "file": "/se-source/s/two.gdb/a00000001.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000001.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000002.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000002.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000003.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000003.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000004.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000004.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000005.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000005.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000006.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000006.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000007.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000007.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000009.gdbindexes"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000009.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000009.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a00000009.spx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a0000000a.gdbindexes"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a0000000a.gdbtable"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a0000000a.gdbtablx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/a0000000a.spx"
+   },
+   {
+    "file": "/se-source/s/two.gdb/gdb"
+   },
+   {
+    "file": "/se-source/s/two.gdb/timestamps"
+   }
+  ]
+ },
+ {
+  "sql": "SELECT * FROM ST_Read_Meta('/se-source/s/two.gdb')",
+  "ms": 2,
+  "n": 0,
+  "rows": []
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/two.gdb', layer = 'countries')",
+  "error": "IO Error: Could not open GDAL dataset at: /se-source/s/two.gdb\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/two.gdb', layer = 'countries')\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/two.gdb/a00000009.gdbtable')",
+  "error": "IO Error: Could not open GDAL dataset at: /se-source/s/two.gdb/a00000009.gdbtable\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/two.gdb/a00000009.gdbtable')\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip/two.gdb', layer = 'countries')",
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/two.gdb.zip/two.gdb\n\nLINE 1: SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip/two.gdb', layer...\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip')",
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/two.gdb.zip\n\nLINE 1: SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip')\n                             ^"
+ }
+]

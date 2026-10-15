@@ -1,0 +1,29 @@
+// SPIKE (GDB research, temporary): does the current WASM engine read a File Geodatabase?
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { zipSync } from 'fflate'
+
+const fx = path.resolve('../vscode-ext/fixtures/two.gdb')
+test('gdb in the WASM engine', async ({ page }) => {
+  test.setTimeout(300000)
+  await page.goto('/?e2e=1')
+  const names = fs.readdirSync(fx)
+  const files = names.map((n) => ({ path: `/se-source/s/two.gdb/${n}`, base64: fs.readFileSync(path.join(fx, n)).toString('base64') }))
+  const zip = zipSync(Object.fromEntries(names.map((n) => [`two.gdb/${n}`, new Uint8Array(fs.readFileSync(path.join(fx, n)))])))
+  files.push({ path: '/se-source/s/two.gdb.zip', base64: Buffer.from(zip).toString('base64') })
+  const sqls = [
+    `SELECT library_version FROM pragma_version()`,
+    `SELECT extension_name, extension_version FROM duckdb_extensions() WHERE loaded`,
+    `SELECT short_name FROM ST_Drivers() ORDER BY 1`,
+    `SELECT short_name, can_open, can_create FROM ST_Drivers() WHERE short_name ILIKE '%gdb%' OR short_name ILIKE '%esri%' OR short_name ILIKE '%arrow%' OR short_name ILIKE '%sqlite%'`,
+    `SELECT * FROM glob('/se-source/s/two.gdb/*')`,
+    `SELECT * FROM ST_Read_Meta('/se-source/s/two.gdb')`,
+    `SELECT count(*) FROM ST_Read('/se-source/s/two.gdb', layer = 'countries')`,
+    `SELECT count(*) FROM ST_Read('/se-source/s/two.gdb/a00000009.gdbtable')`,
+    `SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip/two.gdb', layer = 'countries')`,
+    `SELECT count(*) FROM ST_Read('/vsizip//se-source/s/two.gdb.zip')`,
+  ]
+  const out = await page.evaluate(([f, s]) => (window as unknown as { __spatialExplorerE2E: { spike(f: unknown, s: string[]): Promise<unknown> } }).__spatialExplorerE2E.spike(f, s), [files, sqls] as const)
+  fs.writeFileSync(path.resolve('../../specs/_gdb-spike.json'), JSON.stringify(out, null, 1))
+})
