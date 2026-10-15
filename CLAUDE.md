@@ -11,11 +11,11 @@ Use it only as a feature reference (`git show legacy-v1:js/app.js`, or check out
 
 ## Explicitly out of scope
 Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb
-integration, plugin system, 3D tiles/terrain/planets, raster analysis, stacked
+integration, plugin system, 3D tiles/planets, raster analysis, stacked
 basemaps, multiple map layers. Say no to scope creep and flag it instead.
 Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection toggle
 (MapLibre's built-in globe, no terrain), and polygon extrusion as a style option
-(height from a column). Nothing else 3D, except (user decision 2026-10-13) the map can always be tilted and rotated, so a basemap's own 3D layers (Liberty's buildings) show. Also allowed (2026-10-11): an opt-out place search
+(height from a column). Nothing else 3D, except (user decision 2026-10-13) the map can always be tilted and rotated, so a basemap's own 3D layers (Liberty's buildings) show. Allowed by user decision (2026-10-15, spec 014, constitution v1.3.0): a terrain on/off switch (a DEM is a height source the one basemap and the data are lifted onto, not a second basemap; with hillshade, an exaggeration slider and a cursor elevation readout), and scratch shapes drawn on the map to measure, select and filter (never edits to the data). Also allowed (2026-10-11): an opt-out place search
 (OpenStreetMap Nominatim) that sends only the typed text, disclosed before first use (constitution v1.1.0).
 
 ## Product decisions (already made)
@@ -94,6 +94,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   script-src 'wasm-unsafe-eval'.
 - Spec 010: a short featured list in the Basemap panel, plus "More basemaps…": a searchable modal, grouped by provider, over the maplibre-gl-basemap-control catalog plus keyless CARTO GL and VersaTiles styles (generated into packages/core by scripts/basemap-catalog.mjs). Every provider is offered (user decision 2026-10-13: Google with an optional key and Map Tiles API sessions, Mapbox with its mapbox:// URLs rewritten, Amazon with key and AWS region, Chinese providers with their datum warnings). Still excluded: overlays meant to stack (labels-only, traffic) and 3D styles. Keys: VS Code SecretStorage, web localStorage; the AWS region is a saved setting. Rerun scripts/basemap-catalog.mjs after upgrading maplibre-gl-basemap-control.
 - Exactly one basemap is drawn at a time; switching replaces it and never touches the data source.
+- Terrain (spec 014, user decision 2026-10-15) is the one exception that sits next to a basemap, and it is not a basemap: a `raster-dem` source (keyless Terrarium tiles from AWS Open Data, packages/core/src/terrain.ts) plus a hillshade layer under the data, lifted with `setTerrain`. Off at every start; exaggeration remembered. A tile failure turns it off with a message. Its ids are `terrain-dem` and `terrain-hillshade` (no `se-` prefix: `replaceDataSource` drops those, and `swapBasemap` puts the new basemap under the shading).
 
 ## Scale and performance rules
 - Map drawing (spec 010, GeoLibre's model): results under 100,000 rows (and files under 100 MiB) are converted to GeoJSON once and drawn from memory; larger ones are drawn from vector tiles DuckDB builds per tile (ST_AsMVT through MapLibre addProtocol), silently, with a "Load all" link. No per-pan re-queries.
@@ -120,6 +121,12 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   (`<basename>.qml` next to the data, which QGIS auto-loads too). Export and import QML, OGC SLD and Mapbox GL style JSON.
   Serializers live in packages/core/src/style/.
 - Export: via DuckDB COPY/ST_Write: GeoJSON, GeoParquet, CSV, and others only if the WASM build supports them.
+
+## Map controls and quality-of-life tools (spec 014)
+- The map's buttons are a registry (packages/core/src/mapControls.ts): id, group, label, default. A fourth right-rail tab, "Map controls" (sliders icon), chooses which show and the corner each group sits in (top right, bottom right, top left; bottom left is the legend and scale). A global user preference through `HostAdapter.saveState('mapControls')`. Adding a control is adding a row, plus its button in MapView.
+- Drawing is Terra Draw (MIT) with its MapLibre adapter, lazy-loaded (packages/ui/src/draw/controller.ts). Tools: point, line, polygon, rectangle, circle, freehand, edit. Three purposes share one palette: Draw, Measure (labels with length, or area and perimeter, metric or imperial) and Select by shape (a finished shape selects the rows it covers; Ctrl or Cmd adds).
+- Shapes are scratch geometry for queries and filters, never edits to the data. The store owns them (`shapes`); they are the temp table `drawn` in SQL (`id, kind, purpose, geom, area_m2, length_m, perimeter_m`; spherical measures within about half a percent of the spheroid); the SQL button writes a query with the geometry inlined, in the layer's CRS; "As layer" runs `SELECT * FROM drawn` (so every export format applies); GeoJSON saves them. The spatial predicate (intersects, within, contains, centroid within) defaults to intersects. A shape can select rows (ids into the existing Selection) or be a standing filter (`QuerySession.setSpatialFilter`, a restriction beside the column filters). Selection runs in the engine, never on rendered features, so it covers off-screen rows and tiles mode.
+- A hover tooltip (columns chosen in the Map controls panel; tiles mode fetches the record by id) and an on-map coordinates readout (click copies lat, lon; elevation is shown, not copied).
 
 ## Query UX
 Embedded SQL editor first (a native .sql document is a later option). Results become map layers.

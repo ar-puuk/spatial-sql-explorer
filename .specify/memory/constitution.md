@@ -1,6 +1,20 @@
 <!--
 Sync Impact Report
-Version change: 1.2.0 → 1.2.1 (clarification: the engine's code is kept as a local
+Version change: 1.2.1 → 1.3.0 (spec 014, user decisions 2026-10-15)
+Modified principles:
+  - I. Scope Discipline: a terrain on/off switch is allowed: a DEM is a height source the
+    one basemap and the data are lifted onto, not a second basemap (so "stacked basemaps"
+    stays out). Scratch shapes drawn on the map for measuring, selecting and filtering are
+    allowed: they are never edits to the data. Tilt and rotate were already allowed
+    (CLAUDE.md, 2026-10-13). Planets, 3D tiles and every other 3D stay out.
+  - IV. Local-First and Private: the optional terrain elevation tiles are one more
+    fetched-at-runtime resource (AWS Open Data Terrarium tiles; no user data is sent).
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: none
+
+Previous: 1.2.0 → 1.2.1 (clarification: the engine's code is kept as a local
 copy after the first download, still hash-checked on every start)
 
 Previous: 1.1.0 → 1.2.0
@@ -37,10 +51,12 @@ Follow-up TODOs: none
 ### I. Scope Discipline
 The product does LOOK, QUERY, STYLE and EXPORT only — nothing else. Feature editing,
 georeferencing, the processing toolbox, print layouts, notebook/ipynb integration, a
-plugin system, 3D tiles/terrain/planets, raster analysis, and stacked basemaps are
-explicitly out of scope. Two 3D-adjacent map options are in scope as part of LOOK
-and STYLE: a Mercator/Globe projection toggle (no terrain) and polygon extrusion
-by a column. No other 3D. Any proposal to add scope beyond LOOK/QUERY/STYLE/EXPORT MUST
+plugin system, 3D tiles/planets, raster analysis, and stacked basemaps are
+explicitly out of scope. Three 3D-adjacent map options are in scope as part of LOOK
+and STYLE: a Mercator/Globe projection toggle, polygon extrusion by a column, and a
+terrain on/off switch (a height source the one basemap and the data are lifted onto,
+never a second basemap). Shapes the user draws on the map to measure, select and filter
+are in scope as scratch geometry, never as edits to the data. No other 3D. Any proposal to add scope beyond LOOK/QUERY/STYLE/EXPORT MUST
 be rejected at review time and raised as a constitution amendment instead of being
 absorbed silently into a feature.
 **Rationale**: the product's value is being the fast "never open QGIS" tool; unbounded
@@ -182,4 +198,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.2.1 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-11
+**Version**: 1.3.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-15

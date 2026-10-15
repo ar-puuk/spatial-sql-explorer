@@ -9,6 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Map controls** (a new right-rail tab, sliders icon): choose which buttons
+  show on the map and the corner each group sits in (top right, bottom right,
+  top left). A user preference, for every file. The scale bar can be hidden.
+- **Draw, Measure and Select by shape.** Point, line, polygon, rectangle,
+  circle and freehand tools, and an edit tool, on Terra Draw (loaded the first
+  time a tool is opened). Distances, and areas with perimeters, show live and
+  stay on the map (metric or imperial).
+  - A finished shape in Select by shape selects the rows it covers (Ctrl or
+    Cmd adds). The condition is intersects, within, contains or centroid
+    within, in the engine, so it covers rows off screen and in tiles mode.
+  - A bar offers what to do with the shapes: select rows, keep the rows
+    narrowed to them (a standing filter), write a query for them in the SQL
+    editor, show them as a layer (every export format applies), save them as
+    GeoJSON, or clear them.
+  - The shapes are the table `drawn` in SQL (kind, geometry, area, length,
+    perimeter). They are scratch geometry, never edits to the data.
+- **Terrain** on and off, with relief shading and an exaggeration slider
+  (Basemap panel, and a button on the map). The cursor readout and the status
+  bars show elevation in meters. Keyless Terrarium tiles; if they can't load,
+  terrain turns itself off with a message.
+- Optional **hover tooltip** with a choice of columns, and an optional on-map
+  **coordinates** readout that copies lat, lon on click.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

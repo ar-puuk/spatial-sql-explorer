@@ -1,6 +1,6 @@
 # Spec 014: Map controls and quality-of-life tools
 
-**Status:** in progress, branch `014-map-controls` (started 2026-10-15).
+**Status:** built (2026-10-15), branch `014-map-controls`. Spike outcomes: research.md.
 **Request (user, 2026-10-15):** mapgl-style quality-of-life improvements: select by polygon, a measure tool, draw
 tools; a right-rail panel to choose which map buttons show; a position control for the buttons; a terrain on/off
 switch with an exaggeration slider and a cursor elevation readout. Not feature enhancements: no flow maps, no `.gdb`.
@@ -19,8 +19,9 @@ Research: the mapgl R package (MIT) and GeoLibre's Controls menu and terrain dia
   the legend and the attribution.
 - Terrain: an on/off switch with hillshade shading, a vertical exaggeration slider, and a cursor elevation readout.
   A DEM is a height source, not a second basemap: exactly one basemap is still drawn (CLAUDE.md amended).
-- Defaults on: zoom, zoom to layer, reset view (shown when the map is tilted or rotated, as today), globe, export
-  image, scale bar (as today), draw, measure, select by shape. Off: coordinates, terrain.
+- Defaults on: zoom, zoom to layer, reset view (shown when the map is tilted or rotated, as today), globe, terrain
+  (the button; terrain itself is off at every start), export image, scale bar (as today), draw, measure, select by
+  shape. Off: coordinates, hover tooltip.
 
 ## Order of work (least complicated first; similar features together)
 
