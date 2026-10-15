@@ -338,6 +338,12 @@ export interface ViewerStore {
   /** Spec 014: which map buttons show and where, a user preference remembered through HostAdapter state. */
   readonly mapControls: MapControlsPrefs
   setMapControls(prefs: MapControlsPrefs): void
+  /** Spec 014: the columns a layer's hover tooltip can show, the ones it shows (the user's choice, else the first three), and the setter. */
+  readonly tooltipAvailable: string[]
+  readonly tooltipColumns: string[]
+  setTooltipColumns(columns: string[]): void
+  /** Spec 014: a feature's attributes by its stable id (the tooltip in tiles mode, where a tile carries only the style's columns). Cached. */
+  tooltipRecord(id: number): Promise<Record<string, unknown> | null>
   readonly basemap: BasemapCatalogEntry
   /** Short FR-016 message after a basemap failure; null when fine. */
   readonly basemapNotice: string | null
@@ -482,6 +488,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     .catch(() => {})
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
+  // Spec 014: the hover tooltip's columns. A choice belongs to the layer's column set (a new layer starts over), not to the file.
+  let tooltipChoice = $state<{ signature: string; columns: string[] } | null>(null)
+  // A plain cache, not reactive state.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  let tooltipCache: { qs: unknown; rows: Map<number, Record<string, unknown>> } = { qs: null, rows: new Map() }
   const MAP_CONTROLS_KEY = 'mapControls'
   let mapControls = $state<MapControlsPrefs>(DEFAULT_MAP_CONTROLS)
   let mapControlsTouched = false
@@ -1255,6 +1266,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     return { id: f.id as number, geometry: f.geometry, attributes }
   }
 
+  /** Spec 014: columns a tooltip can show: the layer's own, not geometry, blob or the app's `__se_` helpers. */
+  const tooltipAvailable = $derived((displayedLayer?.columns ?? []).filter((c) => !c.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(c.type)).map((c) => c.name))
+  const tooltipColumns = $derived(
+    tooltipChoice && tooltipChoice.signature === tooltipAvailable.join('\u0001') ? tooltipChoice.columns.filter((c) => tooltipAvailable.includes(c)) : tooltipAvailable.slice(0, 3)
+  )
+
   const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
@@ -1992,6 +2009,28 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get mapControls() {
       return mapControls
+    },
+    get tooltipAvailable() {
+      return tooltipAvailable
+    },
+    get tooltipColumns() {
+      return tooltipColumns
+    },
+    setTooltipColumns(columns) {
+      tooltipChoice = { signature: tooltipAvailable.join('\u0001'), columns }
+    },
+    async tooltipRecord(id) {
+      const qs = querySession
+      if (!qs) return null
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      if (tooltipCache.qs !== qs) tooltipCache = { qs, rows: new Map() }
+      const cached = tooltipCache.rows.get(id)
+      if (cached) return cached
+      const f = await retryWhenBusy(qs, () => qs.featureById(id)).catch(() => null)
+      if (!f) return null
+      if (tooltipCache.rows.size > 200) tooltipCache.rows.clear()
+      tooltipCache.rows.set(id, f.attributes)
+      return f.attributes
     },
     setMapControls(prefs) {
       mapControlsTouched = true

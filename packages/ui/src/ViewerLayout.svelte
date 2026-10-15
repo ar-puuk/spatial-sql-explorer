@@ -358,6 +358,8 @@
           fitRequest={store.fitRequest}
           projection={store.projection}
           controls={store.mapControls}
+          tooltipColumns={store.tooltipColumns}
+          tooltipRecord={(id) => store.tooltipRecord(id)}
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
           onCursorMove={(c) => store.setCursor(c)}
@@ -626,7 +628,11 @@
             />
           {/if}
         {:else if layout.sideTab === 'controls'}
-          <MapControlsPanel prefs={store.mapControls} onChange={(prefs) => store.setMapControls(prefs)} />
+          <MapControlsPanel
+            prefs={store.mapControls}
+            onChange={(prefs) => store.setMapControls(prefs)}
+            tooltip={layer ? { available: store.tooltipAvailable, chosen: store.tooltipColumns, onChange: (cols) => store.setTooltipColumns(cols) } : null}
+          />
         {:else}
           <BasemapPicker
             activeId={store.basemap.id}

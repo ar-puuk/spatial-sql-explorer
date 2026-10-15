@@ -101,3 +101,73 @@ test('the panel has no axe violations', async ({ page }) => {
   const results = await new AxeBuilder({ page }).include('[aria-label="Map controls"][role="region"]').analyze()
   expect(results.violations).toEqual([])
 })
+
+// Spec 014: the hover tooltip.
+type E2E = { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }
+const tooltip = (page: Page) => page.getByRole('tooltip')
+
+test('hover tooltip: off by default; on, it shows chosen columns, hides while dragging, and follows the column choice', async ({ page }) => {
+  await page.goto('/?e2e=1')
+  await page.locator('input[type="file"]').setInputFiles(fixture('world-boundaries.geojson'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await page.evaluate(() => (window as unknown as E2E).__spatialExplorerE2E.jumpTo(-100, 40, 3))
+  await page.waitForTimeout(1500)
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.move(cx + 3, cy + 3)
+  await expect(tooltip(page)).toHaveCount(0)
+
+  await openPanel(page)
+  await panel(page).getByRole('checkbox', { name: /^Hover tooltip/ }).check()
+  const columns = panel(page).getByRole('group', { name: /Tooltip columns/ }).getByRole('checkbox')
+  await expect(columns.first()).toBeVisible()
+  const chosen = await columns.evaluateAll((els) => els.filter((e) => (e as HTMLInputElement).checked).length)
+  expect(chosen).toBeGreaterThan(0)
+
+  await page.mouse.move(cx, cy)
+  await page.mouse.move(cx + 4, cy + 4)
+  await expect(tooltip(page)).toBeVisible()
+  await expect(tooltip(page).locator('.tip-row')).toHaveCount(chosen)
+
+  // Dragging the map shows no tooltip.
+  await page.mouse.down()
+  await page.mouse.move(cx + 40, cy + 20, { steps: 4 })
+  await expect(tooltip(page)).toHaveCount(0)
+  await page.mouse.up()
+
+  // Unchecking every column leaves nothing to show.
+  const n = await columns.count()
+  for (let i = 0; i < n; i++) if (await columns.nth(i).isChecked()) await columns.nth(i).uncheck()
+  await page.mouse.move(cx, cy)
+  await page.mouse.move(cx + 4, cy + 4)
+  await page.waitForTimeout(300)
+  await expect(tooltip(page)).toHaveCount(0)
+})
+
+test('hover tooltip in engine tiles mode: the chosen columns come by id', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.goto('/?e2e=1&tileRows=1000')
+  await page.locator('input[type="file"]').setInputFiles(fixture('parcels-10k.parquet'))
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-features'))).toBeGreaterThan(0)
+  await openPanel(page)
+  await panel(page).getByRole('checkbox', { name: /^Hover tooltip/ }).check()
+  // A drawn feature's screen position, from the map itself (test hooks).
+  const at = await page.evaluate(() => {
+    const m = (document.querySelector('.canvas-host') as unknown as { seMap: import('maplibre-gl').Map }).seMap
+    const f = m.queryRenderedFeatures().find((x) => x.source.startsWith('se-') && x.geometry.type !== 'GeometryCollection')
+    if (!f) return null
+    const g = f.geometry as GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon | GeoJSON.LineString
+    const first = (c: unknown): number[] => (Array.isArray(c) && typeof c[0] === 'number' ? (c as number[]) : first((c as unknown[])[0]))
+    const p = m.project(first((g as { coordinates: unknown }).coordinates) as [number, number])
+    return { x: p.x, y: p.y }
+  })
+  expect(at).not.toBeNull()
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.move(box.x + at!.x + 6, box.y + at!.y + 6)
+  await page.mouse.move(box.x + at!.x, box.y + at!.y)
+  await expect(tooltip(page)).toBeVisible({ timeout: 15000 })
+  await expect(tooltip(page).locator('.tip-row').first()).toBeVisible()
+})

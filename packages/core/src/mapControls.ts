@@ -4,7 +4,7 @@
 // group sits. Pure and platform-free; the choice is remembered through
 // HostAdapter.saveState('mapControls').
 
-export type MapControlId = 'zoom' | 'zoomToLayer' | 'resetView' | 'globe' | 'exportImage' | 'scale' | 'coordinates'
+export type MapControlId = 'zoom' | 'zoomToLayer' | 'resetView' | 'globe' | 'exportImage' | 'scale' | 'coordinates' | 'tooltip'
 
 /** A set of buttons that sit together and move together. */
 export type ControlGroupId = 'navigation' | 'tools' | 'display'
@@ -50,6 +50,7 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   { id: 'globe', group: 'navigation', label: 'Globe view', description: 'Switches between the flat map and the globe.', defaultOn: true },
   { id: 'exportImage', group: 'tools', label: 'Export map image', description: 'Saves the map as a PNG.', defaultOn: true },
   { id: 'scale', group: 'display', label: 'Scale bar', description: 'Shows distances at the bottom left.', defaultOn: true },
+  { id: 'tooltip', group: 'display', label: 'Hover tooltip', description: 'Shows a few columns of the feature under the cursor.', defaultOn: false },
   { id: 'coordinates', group: 'display', label: 'Coordinates', description: 'Shows the cursor position at the bottom; click it to copy.', defaultOn: false },
 ]
 

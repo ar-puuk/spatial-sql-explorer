@@ -22,8 +22,17 @@
     /** Controls this host or layer cannot offer are not listed. */
     available?: (id: MapControlId) => boolean
     onChange: (prefs: MapControlsPrefs) => void
+    /** The hover tooltip's columns for this layer (a chooser shows while the tooltip is on). */
+    tooltip?: { available: string[]; chosen: string[]; onChange: (columns: string[]) => void } | null
   }
-  let { prefs, available = () => true, onChange }: Props = $props()
+  let { prefs, available = () => true, onChange, tooltip = null }: Props = $props()
+
+  function toggleColumn(name: string, on: boolean): void {
+    if (!tooltip) return
+    const next = on ? [...tooltip.chosen, name] : tooltip.chosen.filter((c) => c !== name)
+    // Keep the layer's column order, not the order of clicking.
+    tooltip.onChange(tooltip.available.filter((c) => next.includes(c)))
+  }
 
   const groups = $derived(
     CONTROL_GROUPS.map((g) => ({ ...g, controls: MAP_CONTROLS.filter((c) => c.group === g.id && available(c.id)) })).filter((g) => g.controls.length > 0)
@@ -47,6 +56,17 @@
             <span class="hint">{c.description}</span>
           </span>
         </label>
+        {#if c.id === 'tooltip' && isControlOn(prefs, 'tooltip') && tooltip && tooltip.available.length > 0}
+          <fieldset class="columns">
+            <legend>Tooltip columns (up to 5 are shown)</legend>
+            {#each tooltip.available as name (name)}
+              <label class="radio">
+                <input type="checkbox" checked={tooltip.chosen.includes(name)} onchange={(e) => toggleColumn(name, e.currentTarget.checked)} />
+                <span class="col-name">{name}</span>
+              </label>
+            {/each}
+          </fieldset>
+        {/if}
       {/each}
       {#if g.defaultCorner !== null}
         <div class="corners" role="radiogroup" aria-label="{g.label} position">
@@ -130,6 +150,25 @@
   .radio input {
     margin: 0;
     accent-color: var(--se-accent);
+  }
+  .columns {
+    display: grid;
+    gap: 3px;
+    max-height: 168px;
+    margin: 0 0 0 24px;
+    padding: 0;
+    border: 0;
+    overflow-y: auto;
+  }
+  .columns legend {
+    padding: 0 0 3px;
+    color: var(--se-text-secondary);
+  }
+  .col-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .footer button {
     padding: 3px 10px;

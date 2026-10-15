@@ -99,6 +99,9 @@
     onToggleProjection?: () => void
     /** Spec 014: which buttons show, and in which corner each group sits. */
     controls?: MapControlsPrefs
+    /** Spec 014: the columns the hover tooltip shows, and (engine tiles, which carry only the style's columns) a by-id lookup of the rest. */
+    tooltipColumns?: string[]
+    tooltipRecord?: (id: number) => Promise<Record<string, unknown> | null>
     /** Spec 008: the camera after each move (center, zoom, pitch, bearing), and (spec 010) the WGS84 bounds. */
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
     onCursorMove: (coords: { lon: number; lat: number } | null) => void
@@ -138,6 +141,8 @@
     projection = 'mercator',
     onToggleProjection = () => {},
     controls = DEFAULT_MAP_CONTROLS,
+    tooltipColumns = [],
+    tooltipRecord,
     onCameraChange = () => {},
     onCursorMove,
     tiles = null,
@@ -662,6 +667,7 @@
       if (styledTiles) m.getCanvas().style.cursor = hit ? 'pointer' : ''
       else setHover(featureId(hit))
       if (!hit && onSurface(e.point) && clusterAt(e.point)) m.getCanvas().style.cursor = 'pointer'
+      updateTooltip(e, hit)
     })
     m.on('moveend', () => {
       const c = m.getCenter()
@@ -674,7 +680,11 @@
       const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
       if (t !== tilted) tilted = t
     })
-    m.on('mouseout', () => onCursorMove(null))
+    m.on('mouseout', () => {
+      onCursorMove(null)
+      hideTip()
+    })
+    m.on('movestart', hideTip)
     m.on('movestart', (e: { originalEvent?: unknown }) => {
       if (!e.originalEvent) programmaticMoveAt = performance.now()
     })
@@ -1139,6 +1149,84 @@
     }
   })
 
+  // Spec 014: the hover tooltip. The text changes only when the feature under the cursor does; the box follows the
+  // pointer by moving the element directly (no re-render per mouse move).
+  let tip = $state<{ id: string | number; lines: Array<[string, string]> } | null>(null)
+  let tipEl = $state<HTMLDivElement>()
+  let tipId: string | number | null = null
+  const TIP_MAX_LINES = 5
+  const TIP_MAX_CHARS = 60
+
+  function tipLines(props: Record<string, unknown> | null | undefined, columns: string[]): Array<[string, string]> {
+    if (!props) return []
+    const lines: Array<[string, string]> = []
+    for (const name of columns) {
+      if (lines.length >= TIP_MAX_LINES) break
+      const v = props[name]
+      if (v === undefined) continue
+      const text = v === null ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+      lines.push([name, text.length > TIP_MAX_CHARS ? `${text.slice(0, TIP_MAX_CHARS - 1)}…` : text])
+    }
+    return lines
+  }
+
+  function placeTip(x: number, y: number): void {
+    if (!tipEl || !container) return
+    const w = tipEl.offsetWidth
+    const h = tipEl.offsetHeight
+    const room = container.getBoundingClientRect()
+    // Below and right of the pointer; flipped when it would leave the map.
+    const left = x + 14 + w > room.width ? Math.max(0, x - 14 - w) : x + 14
+    const top = y + 16 + h > room.height ? Math.max(0, y - 12 - h) : y + 16
+    tipEl.style.transform = `translate(${left}px, ${top}px)`
+  }
+
+  function hideTip(): void {
+    tipId = null
+    if (tip) tip = null
+  }
+
+  function updateTooltip(e: MapMouseEvent, hit: MapGeoJSONFeature | undefined): void {
+    if (!untrack(() => isControlOn(controls, 'tooltip'))) {
+      if (tip) hideTip()
+      return
+    }
+    // Dragging the map, or nothing under the pointer: no tooltip.
+    if (!hit || e.originalEvent.buttons !== 0) {
+      hideTip()
+      return
+    }
+    const id = featureId(hit) ?? `${hit.sourceLayer ?? ''}:${hit.id ?? ''}`
+    if (id === tipId) {
+      placeTip(e.point.x, e.point.y)
+      return
+    }
+    tipId = id
+    // A PMTiles archive has no column list: its first few properties.
+    const columns = styledTiles ? Object.keys(hit.properties ?? {}).filter((k) => k !== ID_PROP).slice(0, 3) : untrack(() => tooltipColumns)
+    const lines = tipLines(hit.properties, columns)
+    const byId = !!untrack(() => tileUrl) && typeof id === 'number' && !!tooltipRecord
+    if (lines.length === 0 && !byId) {
+      hideTip()
+      return
+    }
+    tip = { id, lines }
+    const { x, y } = e.point
+    void tick().then(() => placeTip(x, y))
+    // Engine tiles carry only the style's columns: the rest come by id.
+    if (byId && tooltipRecord) {
+      void tooltipRecord(id as number).then((record) => {
+        if (tipId !== id || !record) return
+        const full = tipLines(record, untrack(() => tooltipColumns))
+        if (full.length === 0) hideTip()
+        else {
+          tip = { id, lines: full }
+          void tick().then(() => placeTip(x, y))
+        }
+      })
+    }
+  }
+
   // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
   let lastCursor = $state<{ lon: number; lat: number } | null>(null)
@@ -1283,6 +1371,13 @@
       </div>
     {/if}
   {/each}
+  {#if tip}
+    <div class="tip" bind:this={tipEl} role="tooltip">
+      {#each tip.lines as [name, value] (name)}
+        <div class="tip-row"><span class="tip-name">{name}</span><span class="tip-value">{value}</span></div>
+      {/each}
+    </div>
+  {/if}
   {#if isControlOn(controls, 'coordinates')}
     <button type="button" class="coords" title="Copy the cursor position (lat, lon)" aria-label={cursorText ? `Copy coordinates ${cursorText}` : 'Copy coordinates'} disabled={!cursorText} onclick={() => void copyCursor()}>
       <span class="value">{cursorText ?? 'lat, lon'}</span>
@@ -1327,6 +1422,36 @@
     flex-direction: column;
     gap: 8px;
     z-index: 5;
+  }
+  .tip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 6;
+    max-width: 280px;
+    padding: 4px 8px;
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius-sm);
+    box-shadow: var(--se-shadow-card);
+    color: var(--se-text-primary);
+    font: var(--se-font-size) var(--se-font-ui);
+    pointer-events: none;
+  }
+  .tip-row {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+  }
+  .tip-name {
+    flex: none;
+    color: var(--se-text-secondary);
+  }
+  .tip-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .coords {
     position: absolute;
