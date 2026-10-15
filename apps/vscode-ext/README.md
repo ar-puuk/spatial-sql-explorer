@@ -30,14 +30,33 @@ Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
   you pick one, and searches all 129 basemaps from 26 providers. **More
   basemaps…** opens the full gallery, grouped by provider. Keyed providers
   (MapTiler, Stadia, Protomaps, Google, Mapbox and others) use your own key,
-  kept in VS Code's secret storage. Switch to a **globe**, set in a night
-  sky; tilt and rotate with a right-drag, so a basemap's 3D buildings show.
+  kept in VS Code's secret storage. Switch to a **globe**, set against the
+  real stars; tilt and rotate with a right-drag, so a basemap's 3D buildings show.
 - **One search box** on the map: values in the layer (choose one to select
   and zoom to its feature), coordinates (`-111.9, 40.7`), and places.
+- **Map tools.**
+  - **Map controls** (the sliders button on the right rail): switch each map
+    control on or off and choose where it sits (a corner, or the middle of the
+    top or bottom edge for the coordinates readout). Search, zoom, zoom to
+    layer, reset view, globe, terrain, the drawing tools, export image, legend,
+    coordinates, scale bar and the MapLibre logo are all yours to place.
+  - **Draw, Measure and Select by shape**: points, lines, polygons,
+    rectangles, circles and freehand shapes. Distances (along the great
+    circle) and areas show live, in metric or imperial. A finished shape
+    selects the rows it covers, narrows the table to them as a standing filter,
+    or becomes the SQL table `drawn`. They are scratch geometry: save them as
+    GeoJSON or show them as a layer to export them, and the data is never
+    edited.
+  - **Terrain** on and off, with relief shading and an exaggeration slider;
+    the status bar shows the elevation under the cursor.
+  - An optional **hover tooltip**, an on-map **coordinates** readout, and a
+    right-click menu that copies the position you pointed at (lat, lon, lon,
+    lat or WKT).
 - **Thematic maps that QGIS understands.**
   - Single, categorized or graduated (equal interval, quantile, natural
     breaks), with a chart of the column's values and ramps previewed on the
-    map as you browse them.
+    map as you browse them: about 50 ramps (Viridis and its kin, ColorBrewer,
+    color-blind-safe sets), searchable, and a themed color picker.
   - **Graduated by expression**: classify a SQL expression such as
     `gdp_md * 1e6 / pop_est` instead of a column.
   - **Rules**: color by SQL conditions (`continent = 'Africa'`), the first

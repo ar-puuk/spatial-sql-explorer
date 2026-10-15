@@ -3154,8 +3154,9 @@ SOFTWARE.
 
 ## d3-celestial (the stars behind the globe)
 
-The night sky behind the globe projection (spec 015) is the real one: about 2,100 stars brighter than magnitude 5.2 and the
-constellations' stick figures, from the data of d3-celestial (https://github.com/ofrohn/d3-celestial, BSD 3-Clause
+The night sky behind the globe projection (spec 015) is the real one, where it is tonight: about 2,000 stars brighter than
+magnitude 5.2, the stick figures of the 88 constellations, and the Milky Way's outlines (the Milky Way Outline
+Catalog, Jose R. Vieira, http://www.skymap.com/milkyway_cat.htm), from the data of d3-celestial (https://github.com/ofrohn/d3-celestial, BSD 3-Clause
 License, Copyright (c) 2015, Olaf Frohn), packed into `packages/ui/src/skyData.ts` by `scripts/sky-data.mjs`. Its stars come
 from the XHIP catalogue, an extended Hipparcos compilation (Anderson E., Francis C., 2012, VizieR V/137D); its figures follow
 the IAU constellations. Only the data is used, loaded the first time the globe is shown. The licence text follows.
@@ -3223,6 +3224,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+
+## vanilla-colorful 0.7.2
+
+The saturation and hue area of the color picker is the `hex-color-picker` web component of vanilla-colorful
+(https://github.com/web-padawan/vanilla-colorful), MIT License. The licence text of the package follows.
+
+MIT License
+
+Copyright (c) 2020 Serhii Kulykov <iamkulykov@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## bits-ui 2.19.5
 
