@@ -1,0 +1,16 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+const mb = () => Math.round(process.memoryUsage().rss / 1048576)
+;(async () => {
+  const Gdal = await initGdalJs()
+  console.log('Module?', !!Gdal.Module, Gdal.Module && !!Gdal.Module.FS)
+  const FS = Gdal.Module.FS
+  FS.mkdir('/disk'); FS.mount(FS.filesystems.NODEFS, { root: path.resolve('out') }, '/disk')
+  const ds = (await Gdal.open(path.resolve('big.gdb'))).datasets[0]
+  const t = Date.now()
+  try {
+    const o = await Gdal.ogr2ogr(ds, ['-f', 'FlatGeobuf', 'parcels_4m'], '../disk/parcels_4m')
+    console.log('out', JSON.stringify(o).slice(0, 200), Date.now() - t, 'ms rss', mb())
+  } catch (e) { console.log('ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 300)) }
+  console.log(fs.readdirSync('out').map((f) => f + ' ' + (fs.statSync('out/' + f).size / 1048576).toFixed(0) + 'MB'))
+})().catch((e) => console.error('FAIL', e))

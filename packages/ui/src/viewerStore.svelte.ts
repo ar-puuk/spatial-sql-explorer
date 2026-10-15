@@ -78,9 +78,10 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
+import type { DrawTool } from './draw/controller.js'
 import { registerTileProvider } from './engineTiles.js'
 
 /** Each store's tile URLs are its own (several viewers share the protocol in one page). */
@@ -135,7 +136,7 @@ export type MapImageOutcome =
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
 
 /** Spec 010 layout (Option A): the side panel and the bottom panel, shared by both shells and remembered. */
-export type SideTab = 'style' | 'labels' | 'basemap'
+export type SideTab = 'style' | 'labels' | 'basemap' | 'controls'
 export interface LayoutState {
   sideOpen: boolean
   sideTab: SideTab
@@ -154,7 +155,7 @@ export function readLayout(saved: unknown): LayoutState {
   const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d)
   return {
     sideOpen: typeof s.sideOpen === 'boolean' ? s.sideOpen : DEFAULT_LAYOUT.sideOpen,
-    sideTab: s.sideTab === 'style' || s.sideTab === 'labels' || s.sideTab === 'basemap' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
+    sideTab: s.sideTab === 'style' || s.sideTab === 'labels' || s.sideTab === 'basemap' || s.sideTab === 'controls' ? s.sideTab : DEFAULT_LAYOUT.sideTab,
     sideWidth: num(s.sideWidth, 240, 560, DEFAULT_LAYOUT.sideWidth),
     bottomTab: s.bottomTab === 'sql' ? 'sql' : 'table',
     bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,
@@ -335,6 +336,51 @@ export interface ViewerStore {
   /** User-chosen blank background color; null = match the host theme (the default). Remembered via HostAdapter.saveState. */
   readonly blankColor: string | null
   setBlankColor(color: string | null): void
+  /** Spec 014: which map buttons show and where, a user preference remembered through HostAdapter state. */
+  readonly mapControls: MapControlsPrefs
+  setMapControls(prefs: MapControlsPrefs): void
+  /** Spec 014: the columns a layer's hover tooltip can show, the ones it shows (the user's choice, else the first three), and the setter. */
+  readonly tooltipAvailable: string[]
+  readonly tooltipColumns: string[]
+  setTooltipColumns(columns: string[]): void
+  /** Spec 014: a feature's attributes by its stable id (the tooltip in tiles mode, where a tile carries only the style's columns). Cached. */
+  tooltipRecord(id: number): Promise<Record<string, unknown> | null>
+  /** Spec 014: 3D terrain. On or off for this session (the map opens flat); the exaggeration is remembered for the user. */
+  readonly terrain: { on: boolean; exaggeration: number }
+  setTerrain(on: boolean): void
+  setTerrainExaggeration(value: number): void
+  /** The tiles failed: terrain goes off and this says why (null: nothing to say). */
+  readonly terrainNotice: string | null
+  reportTerrainFailure(): void
+  dismissTerrainNotice(): void
+  /** Spec 014: shapes drawn on the map: scratch geometry for queries and filters (never edits to the data). */
+  readonly shapes: readonly DrawnShape[]
+  /** The open drawing tool (null: none): what it is for, and which tool. */
+  readonly drawTool: { purpose: ShapePurpose; tool: DrawTool } | null
+  /** Opens a purpose's tools (draw, measure, select by shape); the same purpose again closes them. */
+  toggleDrawPurpose(purpose: ShapePurpose): void
+  setDrawTool(tool: DrawTool | null): void
+  readonly drawUnits: UnitSystem
+  setDrawUnits(units: UnitSystem): void
+  /** The map reports its finished shapes (the `drawn` table follows). */
+  setShapes(shapes: DrawnShape[]): void
+  /** A shape was just drawn: one drawn to select rows selects them (`additive`: Ctrl or Cmd, adds). */
+  onShapeDrawn(shape: DrawnShape, additive: boolean): void
+  readonly shapesRequest: { seq: number; clear?: boolean; remove?: string[] } | null
+  clearShapes(): void
+  readonly shapePredicate: SpatialPredicate
+  setShapePredicate(predicate: SpatialPredicate): void
+  /** The rows are narrowed to those meeting the predicate against the shapes. */
+  readonly shapeFilterOn: boolean
+  setShapeFilter(on: boolean): void
+  /** Selects the rows meeting the predicate against all the shapes; resolves to how many. */
+  selectInShapes(additive?: boolean): Promise<number>
+  /** Puts a query for the shapes into the SQL editor. */
+  insertShapesQuery(): boolean
+  /** Shows the shapes as a layer (`SELECT * FROM drawn`), so every export format applies. */
+  showShapesAsLayer(): Promise<void>
+  exportShapes(): Promise<void>
+  readonly shapesNotice: string | null
   readonly basemap: BasemapCatalogEntry
   /** Short FR-016 message after a basemap failure; null when fine. */
   readonly basemapNotice: string | null
@@ -432,7 +478,7 @@ export interface ViewerStore {
   readonly openedSize: number | null
   selectFeature(id: string | number | null): void
   zoomToFeature(id: string | number): void
-  setCursor(coords: { lon: number; lat: number } | null): void
+  setCursor(coords: { lon: number; lat: number; elevation?: number | null } | null): void
   setStyle(patch: Partial<LayerStyle>): void
   /**
    * Spec 008 FR-004: shows `next` on the map and legend without committing it
@@ -479,6 +525,48 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     .catch(() => {})
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
+  // Spec 014: the hover tooltip's columns. A choice belongs to the layer's column set (a new layer starts over), not to the file.
+  let tooltipChoice = $state<{ signature: string; columns: string[] } | null>(null)
+  // A plain cache, not reactive state.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  let tooltipCache: { qs: unknown; rows: Map<number, Record<string, unknown>> } = { qs: null, rows: new Map() }
+  // Spec 014: terrain. Off at every start (as the globe); the exaggeration is the user's.
+  const TERRAIN_EXAGGERATION_KEY = 'terrain.exaggeration'
+  let terrainOn = $state(false)
+  let terrainExaggeration = $state<number>(TERRAIN_EXAGGERATION.default)
+  let terrainNotice = $state<string | null>(null)
+  void hostAdapter
+    .loadState<unknown>(TERRAIN_EXAGGERATION_KEY)
+    .then((saved) => {
+      if (saved !== undefined) terrainExaggeration = readExaggeration(saved)
+    })
+    .catch(() => {})
+  const MAP_CONTROLS_KEY = 'mapControls'
+  // Spec 014: drawn shapes. Scratch geometry for this viewer; the unit system is the user's.
+  const DRAW_UNITS_KEY = 'draw.units'
+  let shapes = $state.raw<DrawnShape[]>([])
+  let drawTool = $state.raw<{ purpose: ShapePurpose; tool: DrawTool } | null>(null)
+  let shapesRequest = $state.raw<{ seq: number; clear?: boolean; remove?: string[] } | null>(null)
+  let drawUnits = $state<UnitSystem>('metric')
+  let shapePredicate = $state<SpatialPredicate>('intersects')
+  let shapeFilterOn = $state(false)
+  let shapesNotice = $state<string | null>(null)
+  let drawnTimer: ReturnType<typeof setTimeout> | null = null
+  void hostAdapter
+    .loadState<unknown>(DRAW_UNITS_KEY)
+    .then((saved) => {
+      if (saved === 'metric' || saved === 'imperial') drawUnits = saved
+    })
+    .catch(() => {})
+  let mapControls = $state<MapControlsPrefs>(DEFAULT_MAP_CONTROLS)
+  let mapControlsTouched = false
+  void hostAdapter
+    .loadState<unknown>(MAP_CONTROLS_KEY)
+    .then((saved) => {
+      // A change made before the saved choices arrived wins.
+      if (saved !== undefined && !mapControlsTouched) mapControls = readMapControls(saved)
+    })
+    .catch(() => {})
   let legendCollapsed = $state(false)
   const LAYOUT_KEY = 'layout'
   let layout = $state<LayoutState>({ ...DEFAULT_LAYOUT })
@@ -653,6 +741,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     filterCounts = null
     selection = EMPTY_SELECTION
     showSelectedOnly = false
+    shapeFilterOn = false
     resultHidden = []
   }
 
@@ -709,13 +798,54 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     void qs?.setShowSelectedOnly(showSelectedOnly ? selection : null).then(() => narrowed())
   }
 
+  /** Spec 014: the `drawn` table follows the shapes (and a standing shape filter follows them too), after a moment of quiet. */
+  function scheduleShapeSync(): void {
+    if (drawnTimer) clearTimeout(drawnTimer)
+    drawnTimer = setTimeout(() => {
+      drawnTimer = null
+      void syncShapes()
+    }, 250)
+  }
+  async function syncShapes(): Promise<void> {
+    const qs = querySession
+    if (!qs) return
+    await retryWhenBusy(qs, () => qs.setDrawnShapes(shapes)).catch(() => {})
+    if (shapeFilterOn) applyShapeFilter()
+  }
+  /** Spec 014: selects the rows meeting the predicate against `list` (`additive`: on top of the current selection). */
+  async function selectShapes(list: readonly DrawnShape[], additive: boolean): Promise<number> {
+    const qs = querySession
+    if (!qs || list.length === 0) return 0
+    try {
+      const ids = await retryWhenBusy(qs, () => qs.idsInShapes(list, shapePredicate))
+      // Selections are immutable values, replaced whole ($state.raw): a plain Set is right here.
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const next = new Set<number>(additive && selection.kind === 'ids' ? selection.ids : [])
+      for (const id of ids) next.add(id)
+      selection = { kind: 'ids', ids: next }
+      followSelection()
+      shapesNotice = ids.length === 0 ? 'No rows meet the condition against the shape.' : null
+      return ids.length
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) shapesNotice = `Selecting by shape failed: ${err instanceof Error ? err.message : String(err)}`
+      return 0
+    }
+  }
+
+  function applyShapeFilter(): void {
+    const qs = querySession
+    if (!qs) return
+    qs.setSpatialFilter(shapeFilterOn && shapes.length > 0 ? { shapes, predicate: shapePredicate } : null)
+    void narrowed()
+  }
+
   /** After the rows were narrowed: new pages, a new view, the style and the count. */
   async function narrowed(): Promise<void> {
     const qs = querySession
     tableRevision++
     narrowRevision++
     void refreshDraw()
-    if (!qs || (!filters.some((f) => f.valid) && !showSelectedOnly)) {
+    if (!qs || (!filters.some((f) => f.valid) && !showSelectedOnly && !shapeFilterOn)) {
       filterCounts = null
       filtering = false
       return
@@ -1242,6 +1372,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     return { id: f.id as number, geometry: f.geometry, attributes }
   }
 
+  /** Spec 014: columns a tooltip can show: the layer's own, not geometry, blob or the app's `__se_` helpers. */
+  const tooltipAvailable = $derived((displayedLayer?.columns ?? []).filter((c) => !c.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(c.type)).map((c) => c.name))
+  const tooltipColumns = $derived(
+    tooltipChoice && tooltipChoice.signature === tooltipAvailable.join('\u0001') ? tooltipChoice.columns.filter((c) => tooltipAvailable.includes(c)) : tooltipAvailable.slice(0, 3)
+  )
+
   const viewNotice = $derived.by((): { text: string; kind: 'info' | 'warning'; dismissible: boolean } | null => {
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
@@ -1374,6 +1510,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       openPhase = null
       openStartedAt = null
       querySession = opened.session
+      // The `drawn` table exists from the start (empty until a shape is drawn).
+      void syncShapes()
       // Spec 010 phase 9: a query may name other workspace files.
       const resolveWorkspace = hostAdapter.resolveWorkspaceFiles?.bind(hostAdapter)
       opened.session.setWorkspace(resolveWorkspace ?? null)
@@ -1976,6 +2114,143 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setBlankColor(color) {
       blankColor = color
       void hostAdapter.saveState(BLANK_COLOR_KEY, color).catch(() => {})
+    },
+    get mapControls() {
+      return mapControls
+    },
+    get tooltipAvailable() {
+      return tooltipAvailable
+    },
+    get tooltipColumns() {
+      return tooltipColumns
+    },
+    setTooltipColumns(columns) {
+      tooltipChoice = { signature: tooltipAvailable.join('\u0001'), columns }
+    },
+    get shapes() {
+      return shapes
+    },
+    get drawTool() {
+      return drawTool
+    },
+    toggleDrawPurpose(purpose) {
+      if (drawTool?.purpose === purpose) {
+        drawTool = null
+        return
+      }
+      // The first tool of each purpose: a rectangle selects, a line measures, a polygon draws.
+      drawTool = { purpose, tool: purpose === 'select' ? 'rectangle' : purpose === 'measure' ? 'line' : 'polygon' }
+    },
+    setDrawTool(tool) {
+      drawTool = tool === null ? null : { purpose: drawTool?.purpose ?? 'draw', tool }
+    },
+    get drawUnits() {
+      return drawUnits
+    },
+    setDrawUnits(units) {
+      drawUnits = units
+      void hostAdapter.saveState(DRAW_UNITS_KEY, units).catch(() => {})
+    },
+    setShapes(next) {
+      shapes = next
+      shapesNotice = null
+      scheduleShapeSync()
+    },
+    onShapeDrawn(shape, additive) {
+      if (shape.purpose === 'select') void selectShapes([shape], additive)
+    },
+    get shapesRequest() {
+      return shapesRequest
+    },
+    clearShapes() {
+      shapesRequest = { seq: (shapesRequest?.seq ?? 0) + 1, clear: true }
+      shapes = []
+      shapesNotice = null
+      if (shapeFilterOn) shapeFilterOn = false
+      scheduleShapeSync()
+      applyShapeFilter()
+    },
+    get shapePredicate() {
+      return shapePredicate
+    },
+    setShapePredicate(predicate) {
+      shapePredicate = predicate
+      if (shapeFilterOn) applyShapeFilter()
+    },
+    get shapeFilterOn() {
+      return shapeFilterOn
+    },
+    setShapeFilter(on) {
+      if (on === shapeFilterOn || (on && shapes.length === 0)) return
+      shapeFilterOn = on
+      // The `drawn` table is only needed by queries; the filter reads the shapes themselves.
+      applyShapeFilter()
+    },
+    async selectInShapes(additive = false) {
+      return selectShapes(shapes, additive)
+    },
+    insertShapesQuery() {
+      const sql = querySession?.shapesQuerySql(shapes, shapePredicate)
+      if (!sql) return false
+      queryText = sql
+      layout = { ...layout, bottomTab: 'sql', bottomCollapsed: false }
+      return true
+    },
+    async showShapesAsLayer() {
+      const qs = querySession
+      if (!qs || shapes.length === 0) return
+      if (drawnTimer) clearTimeout(drawnTimer)
+      drawnTimer = null
+      await retryWhenBusy(qs, () => qs.setDrawnShapes(shapes))
+      queryText = DRAWN_QUERY
+      await runQuery({ from: 0, to: queryText.length })
+    },
+    async exportShapes() {
+      if (shapes.length === 0) return
+      const result = await hostAdapter.saveFile('drawn-shapes.geojson', JSON.stringify(shapesGeoJson(shapes), null, 2), { kind: 'data' })
+      shapesNotice = result.saved ? `Saved ${result.location ?? 'drawn-shapes.geojson'}` : null
+    },
+    get shapesNotice() {
+      return shapesNotice
+    },
+    get terrain() {
+      return { on: terrainOn, exaggeration: terrainExaggeration }
+    },
+    setTerrain(on) {
+      terrainOn = on
+      if (on) terrainNotice = null
+    },
+    setTerrainExaggeration(value) {
+      terrainExaggeration = clampExaggeration(value)
+      void hostAdapter.saveState(TERRAIN_EXAGGERATION_KEY, terrainExaggeration).catch(() => {})
+    },
+    get terrainNotice() {
+      return terrainNotice
+    },
+    reportTerrainFailure() {
+      terrainOn = false
+      terrainNotice = TERRAIN_FAILURE_MESSAGE
+    },
+    dismissTerrainNotice() {
+      terrainNotice = null
+    },
+    async tooltipRecord(id) {
+      const qs = querySession
+      if (!qs) return null
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      if (tooltipCache.qs !== qs) tooltipCache = { qs, rows: new Map() }
+      const cached = tooltipCache.rows.get(id)
+      if (cached) return cached
+      const f = await retryWhenBusy(qs, () => qs.featureById(id)).catch(() => null)
+      if (!f) return null
+      if (tooltipCache.rows.size > 200) tooltipCache.rows.clear()
+      tooltipCache.rows.set(id, f.attributes)
+      return f.attributes
+    },
+    setMapControls(prefs) {
+      mapControlsTouched = true
+      mapControls = prefs
+      void hostAdapter.saveState(MAP_CONTROLS_KEY, prefs).catch(() => {})
     },
     get basemap() {
       return basemap

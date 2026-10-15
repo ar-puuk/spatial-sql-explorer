@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, type ControlPosition, type MapControlId, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
@@ -27,6 +27,9 @@
   import SelectionBar from './SelectionBar.svelte'
   import ActivityRail from './ActivityRail.svelte'
   import LabelsPanel from './LabelsPanel.svelte'
+  import MapControlsPanel from './MapControlsPanel.svelte'
+  import TerrainSection from './TerrainSection.svelte'
+  import ShapesBar from './ShapesBar.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -238,7 +241,7 @@
   })
 
   // --- Side panel ----------------------------------------------------------------
-  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', basemap: 'Basemap' }
+  const SIDE_TITLES: Record<SideTab, string> = { style: 'Style', labels: 'Labels', basemap: 'Basemap', controls: 'Map controls' }
   /** Spec 011 US6: what labels show, for the rail button's tooltip (null: off). */
   const labelsOn = $derived.by(() => {
     const l = store.style.labels
@@ -307,6 +310,52 @@
   const queryFiles = $derived(store.workspaceFiles.length ? store.workspaceFiles : [{ path: fileName ?? 'layer', size: 0, open: true }])
 </script>
 
+{#snippet mapExtra(id: MapControlId, corner: ControlPosition)}
+  {#if id === 'search'}
+    {@const up = corner.startsWith('bottom')}
+    <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. The selected feature's card goes with it. -->
+    <div class="search-stack" class:up>
+      <div class="search-row">
+        <div class="search-slot" bind:offsetWidth={searchWidth}>
+          <SearchBox
+            {store}
+            layerName={fileName ?? 'layer'}
+            dropUp={up}
+            onChooseFeature={(id) => {
+              handleMapSelect(id)
+              store.zoomToFeature(id)
+            }}
+          />
+        </div>
+        {#if store.fileLayers.length > 1}
+          <!-- Spec 008 US3: the file's layers. -->
+          <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+        {/if}
+      </div>
+      {#if inspected && !inspectorClosed}
+        <div class="inspector-slot" style:--se-card-width={searchWidth ? `${searchWidth}px` : null}>
+          <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+        </div>
+      {/if}
+    </div>
+  {:else if id === 'legend' && layer && showLegend}
+        <MapLegend
+          resolved={store.resolvedStyle}
+          title={legendTitle}
+          geometryType={layer.geometryType}
+          collapsed={store.legendCollapsed}
+          onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
+          onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
+          symbols={legendSymbols}
+          groups={legend}
+          onToggleEntry={toggleEntry}
+          proportional={legendProportional}
+          {clusterRows}
+        />
+      
+  {/if}
+{/snippet}
+
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="viewer-layout" class:dragging bind:clientWidth={layoutWidth}>
@@ -354,6 +403,22 @@
           tickedIds={store.selection.kind === 'all-matching' ? 'all' : store.selection.ids}
           fitRequest={store.fitRequest}
           projection={store.projection}
+          controls={store.mapControls}
+          extra={mapExtra}
+          tooltipColumns={store.tooltipColumns}
+          terrain={store.terrain}
+          drawTool={store.drawTool}
+          shapes={store.shapes}
+          shapesRequest={store.shapesRequest}
+          drawUnits={store.drawUnits}
+          onToggleDrawPurpose={(purpose) => store.toggleDrawPurpose(purpose)}
+          onSetDrawTool={(tool) => store.setDrawTool(tool)}
+          onSetDrawUnits={(units) => store.setDrawUnits(units)}
+          onShapes={(shapes) => store.setShapes(shapes)}
+          onShapeDrawn={(shape, additive) => store.onShapeDrawn(shape, additive)}
+          onToggleTerrain={() => store.setTerrain(!store.terrain.on)}
+          onTerrainFailure={() => store.reportTerrainFailure()}
+          tooltipRecord={(id) => store.tooltipRecord(id)}
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
           onCursorMove={(c) => store.setCursor(c)}
@@ -366,28 +431,8 @@
           onCaptureReady={(capture) => store.setMapCapture(capture)}
           onExportImage={() => store.openMapImage()}
         />
-        <div class="map-ov tl">
-          <!-- Spec 010 phase 10: layer values and coordinates always; places when allowed. -->
-          <div class="search-slot" bind:offsetWidth={searchWidth}>
-            <SearchBox
-              {store}
-              layerName={fileName ?? 'layer'}
-              onChooseFeature={(id) => {
-                handleMapSelect(id)
-                store.zoomToFeature(id)
-              }}
-            />
-          </div>
-          {#if store.fileLayers.length > 1}
-            <!-- Spec 008 US3: the file's layers. -->
-            <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
-          {/if}
-        </div>
-        {#if inspected && !inspectorClosed}
-          <!-- The selected feature's attributes, under the search box, beside whatever panel is open. -->
-          <div class="map-ov inspector-slot" style:--se-card-width={searchWidth ? `${searchWidth}px` : null}>
-            <FeatureInspector feature={inspected} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
-          </div>
+        {#if store.shapes.length > 0}
+          <div class="shapes-slot"><ShapesBar {store} /></div>
         {/if}
         {#if store.mapDimmed}
           <div class="map-notice no-geometry" role="status">
@@ -402,27 +447,18 @@
               <button type="button" aria-label="Dismiss" onclick={() => store.dismissViewNotice()}><Icon name="close" size={14} /></button>
             {/if}
           </div>
+        {:else if store.terrainNotice}
+          <div class="map-notice" role="status">
+            <Icon name="warning" size={14} />
+            <span>{store.terrainNotice}</span>
+            <button type="button" aria-label="Dismiss" onclick={() => store.dismissTerrainNotice()}><Icon name="close" size={14} /></button>
+          </div>
         {:else if store.basemapNotice && sideActive !== 'basemap'}
           <div class="map-notice" role="status">
             <Icon name="warning" size={14} />
             <span>{store.basemapNotice}</span>
             <button type="button" aria-label="Dismiss" onclick={() => store.dismissBasemapNotice()}><Icon name="close" size={14} /></button>
           </div>
-        {/if}
-        {#if layer && showLegend}
-          <MapLegend
-            resolved={store.resolvedStyle}
-            title={legendTitle}
-            geometryType={layer.geometryType}
-            collapsed={store.legendCollapsed}
-            onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
-            onToggleClass={(key, visible) => store.setClassVisible(key, visible)}
-            symbols={legendSymbols}
-            groups={legend}
-            onToggleEntry={toggleEntry}
-            proportional={legendProportional}
-            {clusterRows}
-          />
         {/if}
         {@render mapOverlay?.()}
       </div>
@@ -621,7 +657,14 @@
               onChange={(patch) => store.setStyle({ labels: setLabels(store.style, patch, store.styleInput?.columns ?? []).labels })}
             />
           {/if}
+        {:else if layout.sideTab === 'controls'}
+          <MapControlsPanel
+            prefs={store.mapControls}
+            onChange={(prefs) => store.setMapControls(prefs)}
+            tooltip={layer ? { available: store.tooltipAvailable, chosen: store.tooltipColumns, onChange: (cols) => store.setTooltipColumns(cols) } : null}
+          />
         {:else}
+          <TerrainSection on={store.terrain.on} exaggeration={store.terrain.exaggeration} onToggle={(on) => store.setTerrain(on)} onExaggeration={(v) => store.setTerrainExaggeration(v)} />
           <BasemapPicker
             activeId={store.basemap.id}
             followingTheme={store.basemapChoice === 'auto'}
@@ -724,37 +767,42 @@
     flex: 0 0 0;
     overflow: hidden;
   }
-  /* Below the search box (10 px + 30 px + 8 px), down to the bottom controls. */
-  .map-ov.inspector-slot {
-    position: absolute;
-    top: 48px;
-    left: 10px;
-    /* 8 px above the scale bar (10 px margin + 11px * 1.6 line + 1 px border), the gap under the search box. */
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 10px + 11px * 1.6 + 1px + 8px);
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    max-width: calc(100% - 64px);
-    pointer-events: none;
-  }
-  .map-ov.inspector-slot > :global(*) {
-    pointer-events: auto;
-  }
   .search-slot {
     min-width: 0;
   }
-  .map-ov.tl {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    /* Above the feature card: search results drop down over it. */
-    z-index: 7;
+  /* Spec 014: the search box and, under it, the selected feature's card, wherever the search sits. */
+  .search-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    min-height: 0;
+    max-width: 100%;
+  }
+  .search-stack.up {
+    flex-direction: column-reverse;
+  }
+  .search-row {
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    max-width: calc(100% - 64px);
-    pointer-events: none;
+    max-width: 100%;
+  }
+  .inspector-slot {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-width: 100%;
+  }
+  /* Spec 014: the drawn shapes' actions, at the bottom centre (clear of the toolbars, the legend and the attribution). */
+  .shapes-slot {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
+    z-index: 6;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100% - 140px);
   }
   .map-notice {
     position: absolute;

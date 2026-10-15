@@ -17,8 +17,10 @@
     layerName: string
     /** A value was chosen: select its row (and show its details). */
     onChooseFeature: (id: number) => void
+    /** The box sits in a bottom corner: the results open upward. */
+    dropUp?: boolean
   }
-  let { store, layerName, onChooseFeature }: Props = $props()
+  let { store, layerName, onChooseFeature, dropUp = false }: Props = $props()
 
   type Option =
     | { key: string; kind: 'coord'; c: CoordinateCandidate; swapped: boolean }
@@ -186,7 +188,7 @@
   const placeholderText = $derived(store.placeSearchEnabled ? 'Search layer, coordinates or places' : 'Search layer or coordinates')
 </script>
 
-<div class="search-box">
+<div class="search-box" class:up={dropUp}>
   <div role="search">
     <form
       onsubmit={(e) => {
@@ -370,7 +372,12 @@
     background: var(--se-bg-hover);
   }
   .drop {
-    /* As wide as the box: the results never widen it. */
+    /* Over what is next to the box (the feature card), as wide as the box: the results never widen it. */
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 8;
     contain: inline-size;
     display: grid;
     gap: 6px;
@@ -382,6 +389,12 @@
     border: 1px solid var(--se-control-border);
     border-radius: var(--se-radius-sm);
     box-shadow: var(--se-shadow-elevated);
+  }
+  .up .drop {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
   }
   [role='listbox'] {
     display: grid;
