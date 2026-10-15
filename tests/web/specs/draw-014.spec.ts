@@ -81,6 +81,9 @@ test('Measure: a line shows its length; the units switch', async ({ page }) => {
   const cy = m.y + m.h / 2
   await page.mouse.click(cx - 100, cy)
   await page.mouse.move(cx + 100, cy, { steps: 4 })
+  // Under load the first moves can arrive before Terra Draw has the first corner: move again.
+  await page.waitForTimeout(150)
+  await page.mouse.move(cx + 101, cy + 1, { steps: 2 })
   // Live, while drawing.
   await expect(page.locator('.map-view .live-label')).toHaveText(/\d.* km/)
   await page.mouse.click(cx + 100, cy)

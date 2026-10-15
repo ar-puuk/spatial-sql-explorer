@@ -3,7 +3,7 @@
 // GeoJSON (`DrawnShape`) and reports them; Terra Draw's own helper features (closing points, midpoints,
 // coordinate points) never leave this file. Shapes are scratch geometry for queries, never edits to the data.
 import type { Map as MapLibreMap } from 'maplibre-gl'
-import type { DrawnShape, ShapeKind, ShapePurpose } from '@spatial-explorer/core'
+import { greatCirclePath, type DrawnShape, type ShapeKind, type ShapePurpose } from '@spatial-explorer/core'
 
 /** Terra Draw's color type. */
 type Hex = `#${string}`
@@ -65,7 +65,9 @@ export async function createDrawController(map: MapLibreMap, colors: DrawColors,
     adapter: new TerraDrawMapLibreGLAdapter({ map }),
     modes: [
       new td.TerraDrawPointMode({ styles: { pointColor: stroke, pointOutlineColor: WHITE, pointWidth: 7, pointOutlineWidth: 2 } }),
-      new td.TerraDrawLineStringMode({ styles: { lineStringColor: stroke, lineStringWidth: 3, closingPointColor: WHITE, closingPointOutlineColor: stroke, closingPointWidth: 6, closingPointOutlineWidth: 2 } }),
+      // The line itself is drawn by the great-circle layer below (a straight segment on a flat map is not the shortest
+      // path), so Terra Draw's own stroke is zero width; its points and handles still show.
+      new td.TerraDrawLineStringMode({ styles: { lineStringColor: stroke, lineStringWidth: 0, closingPointColor: WHITE, closingPointOutlineColor: stroke, closingPointWidth: 6, closingPointOutlineWidth: 2 } }),
       new td.TerraDrawPolygonMode({ styles: polygonStyles }),
       new td.TerraDrawRectangleMode({ styles: common }),
       new td.TerraDrawCircleMode({ styles: common }),
@@ -76,6 +78,7 @@ export async function createDrawController(map: MapLibreMap, colors: DrawColors,
           selectedPointColor: active,
           selectedPointOutlineColor: WHITE,
           selectedLineStringColor: active,
+          selectedLineStringWidth: 0,
           selectedPolygonColor: active,
           selectedPolygonOutlineColor: active,
           selectedPolygonFillOpacity: 0.25,
@@ -143,11 +146,44 @@ export async function createDrawController(map: MapLibreMap, colors: DrawColors,
     if (edited) emit()
   })
 
+  // --- Lines on their great circles -----------------------------------------------------------------------------
+  // On a flat map the shortest path between two places is a curve, and a length measured on the globe should be the
+  // length of the line you see. Terra Draw keeps the vertices you placed; this layer draws the path between them
+  // (live while drawing, too: the line being drawn includes the cursor).
+  const GEODESIC = 'draw-geodesic'
+  let geodesicFrame = 0
+  function refreshGeodesic(): void {
+    geodesicFrame = 0
+    const features: GeoJSON.Feature[] = []
+    for (const f of draw.getSnapshot()) {
+      if (f.properties.mode !== 'linestring' || f.geometry.type !== 'LineString') continue
+      features.push({ type: 'Feature', properties: { selected: f.properties.selected === true }, geometry: { type: 'LineString', coordinates: greatCirclePath(f.geometry.coordinates) } })
+    }
+    ;(map.getSource(GEODESIC) as { setData?: (d: GeoJSON.FeatureCollection) => void } | undefined)?.setData?.({ type: 'FeatureCollection', features })
+  }
+  const scheduleGeodesic = (): void => {
+    if (!geodesicFrame) geodesicFrame = requestAnimationFrame(refreshGeodesic)
+  }
+  draw.on('change', scheduleGeodesic)
+
   draw.on('select', (id) => handlers.onSelect(String(id)))
   draw.on('deselect', () => handlers.onSelect(null))
 
   draw.start()
   draw.setMode('static')
+  // After Terra Draw's own layers exist: the line goes under its point handles.
+  map.addSource(GEODESIC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  const firstHelper = map.getStyle().layers.find((l) => l.id.startsWith('td-') && l.type === 'circle')?.id
+  map.addLayer(
+    {
+      id: GEODESIC,
+      type: 'line',
+      source: GEODESIC,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['case', ['==', ['get', 'selected'], true], active, stroke], 'line-width': 3 },
+    },
+    firstHelper
+  )
 
   return {
     setTool(tool, p) {
@@ -181,6 +217,13 @@ export async function createDrawController(map: MapLibreMap, colors: DrawColors,
       if (draw.canRedo()) draw.redo()
     },
     destroy() {
+      if (geodesicFrame) cancelAnimationFrame(geodesicFrame)
+      try {
+        if (map.getLayer(GEODESIC)) map.removeLayer(GEODESIC)
+        if (map.getSource(GEODESIC)) map.removeSource(GEODESIC)
+      } catch {
+        // The map may be gone already.
+      }
       try {
         draw.stop()
       } catch {
