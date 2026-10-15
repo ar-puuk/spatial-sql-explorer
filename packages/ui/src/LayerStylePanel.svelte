@@ -1020,7 +1020,7 @@
         {#if resolved.status === 'fallback'}
           <p class="inline-note warning" role="status"><Icon name="warning" size={14} />{resolved.reason} Showing the single symbol.</p>
         {:else}
-          <BivariateLegend {resolved} cell={28} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
+          <BivariateLegend {resolved} cell={32} onToggle={(key, visible) => apply(setCellVisible(style, key, visible))} />
           {#each resolved.notes as note (note)}
             <p class="inline-note" role="status"><Icon name="info" size={14} />{note}</p>
           {/each}
