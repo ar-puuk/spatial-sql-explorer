@@ -10,6 +10,7 @@
   import type { ViewerStore } from '../viewerStore.svelte.js'
   import { PrintComposer } from './composer.svelte.js'
   import Controls from './Controls.svelte'
+  import LegendEditor from './LegendEditor.svelte'
   import ScaleExtent from './ScaleExtent.svelte'
   import { drawLayout, resolvePageSize } from './layout.js'
 
@@ -107,6 +108,7 @@
       <div class="controls-pane">
         <Controls {c}>
           {#snippet scale()}<ScaleExtent {c} />{/snippet}
+          {#snippet legendEditor()}<LegendEditor {c} />{/snippet}
         </Controls>
       </div>
       <div class="preview-pane">

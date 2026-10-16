@@ -5,6 +5,7 @@
 // the captured map, progress, notices.
 import { createDefaultPrintLayout, rampColors, type PrintLayoutConfig } from '@spatial-explorer/core'
 import type { LegendSpec } from '../mapImage.js'
+import { applyLegendEdits, editRow, legendEditorRows, moveRow, NO_LEGEND_EDITS, type LegendEdits } from './legendEdit.js'
 import type { ViewerStore } from '../viewerStore.svelte.js'
 import { copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type CapturedMap, type PageFile } from './export.js'
 import type { PrintExtent } from './extent.js'
@@ -41,6 +42,8 @@ export class PrintComposer {
   drawingExtent = $state(false)
   /** Set when a typed scale is out of the map's zoom range. */
   scaleNotice = $state<string | null>(null)
+  /** The legend's edits: renames, hidden and moved classes, a title. Session only: the map's own legend is untouched. */
+  legendEdits = $state<LegendEdits>(NO_LEGEND_EDITS)
   /** The draft of the map background's hex field: only a complete color is committed. */
   mapBackgroundDraft = $state('')
 
@@ -83,9 +86,28 @@ export class PrintComposer {
     if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) this.set({ mapBackground: value.trim() })
   }
 
-  /** The legend as the map shows it, or null. */
-  get legend(): LegendSpec | null {
-    return this.#legend()
+  /** The legend as the page shows it: the map's, with the edits. */
+  legend = $derived(applyLegendEdits(this.#legend(), this.legendEdits))
+  /** What the legend editor lists. */
+  editorRows = $derived(legendEditorRows(this.#legend(), this.legendEdits))
+  /** The map's own legend title, the editor's placeholder. */
+  get mapLegendTitle(): string {
+    return this.#legend()?.title ?? ''
+  }
+  renameLegendRow(key: string, original: string, label: string): void {
+    this.legendEdits = editRow(this.legendEdits, key, original, { label })
+  }
+  toggleLegendRow(key: string, original: string, hidden: boolean): void {
+    this.legendEdits = editRow(this.legendEdits, key, original, { hidden })
+  }
+  moveLegendRow(group: number, original: string, direction: -1 | 1): void {
+    this.legendEdits = moveRow(this.#legend(), this.legendEdits, group, original, direction)
+  }
+  setLegendTitle(title: string): void {
+    this.legendEdits = { ...this.legendEdits, title: title.trim() ? title : null }
+  }
+  resetLegend(): void {
+    this.legendEdits = NO_LEGEND_EDITS
   }
 
   /** The page as the export pipeline takes it: the settings resolved against the open file, the legend and the captured map. */
@@ -140,7 +162,7 @@ export class PrintComposer {
       projectNumber: l.projectNumber,
       crs: l.crs,
       revision: l.revision,
-      legend: this.#legend(),
+      legend: this.legend,
       metersPerPixel: c?.metersPerPixel ?? 0,
       mapPixelRatio: c?.pixelRatio ?? 1,
       bearingDeg: c?.bearingDeg ?? 0,
