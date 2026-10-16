@@ -66,6 +66,12 @@
     if (size?.status !== 'ok' || size.mode !== 'proportional' || legendRenderer.kind === 'bivariate' || legendRenderer.kind === 'heatmap' || legendRenderer.kind === 'clusters') return null
     return { channel: size, symbols: sizeSymbols(store.style, store.resolvedStyle) }
   })
+  /** The lowest and highest value of a bivariate axis, short (12K, 5.9). */
+  const axisEnds = (ranges: Array<{ lower: number; upper: number }>): [string, string] | undefined => {
+    if (!ranges.length) return undefined
+    const f = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 })
+    return [f.format(ranges[0].lower), f.format(ranges[ranges.length - 1].upper)]
+  }
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
       legend.length > 0 ||
@@ -110,7 +116,8 @@
     const colorGroup = legend[0]?.channels[0] === 'color' && !legend[0].gradient && !legend[0].note ? legend[0] : null
     const others = colorGroup ? legend.slice(1) : legend
     return {
-      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
+      // A bivariate legend names its axes itself: its title is the layer, not "a × b · Quantile".
+      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.grid ? (fileName ?? 'Layer') : r.caption || (fileName ?? 'Layer'),
       shape: colorGroup ? shapeOf(colorGroup) : base,
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
       rows: r.clusters && r.status === 'ok'
@@ -125,6 +132,8 @@
             y: r.grid.y.column,
             nx: r.grid.x.ranges.length,
             ny: r.grid.y.ranges.length,
+            xRange: axisEnds(r.grid.x.ranges),
+            yRange: axisEnds(r.grid.y.ranges),
             cells: r.classes.filter((c) => c.kind === 'cell').map((c) => ({ color: c.color, visible: c.visible })),
             noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
           }

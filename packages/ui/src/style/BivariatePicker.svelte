@@ -3,7 +3,7 @@
   // Spec 009 US4 (contracts/ui.md "Style panel"): the bivariate axes (a
   // numeric column and a method each), swapping them, and the palette, shown
   // as 3x3 previews. Palette colors are fixed data colors.
-  import { BIVARIATE_PALETTES, METHOD_NAMES, type BivariateAxis, type BivariateMethod, type BivariateRenderer } from '@spatial-explorer/core'
+  import { BIVARIATE_CLASS_COUNTS, BIVARIATE_PALETTES, METHOD_NAMES, type BivariateAxis, type BivariateMethod, type BivariateRenderer } from '@spatial-explorer/core'
   import Icon from '../Icon.svelte'
 
   interface Props {
@@ -53,6 +53,18 @@
     </select>
   </div>
 {/each}
+<div class="axis counts">
+  <span class="label" title="How many classes each axis has: the grid is axis 1 by axis 2. Unequal counts (2 by 3, 3 by 4) suit measures of different character.">Classes</span>
+  <span class="count-pair">
+    {#each AXES as a (a.key)}
+      <select aria-label="{a.label} classes" value={String(renderer[a.key].classes ?? 3)} onchange={(e) => onAxis(a.key, { classes: Number(e.currentTarget.value) })}>
+        {#each BIVARIATE_CLASS_COUNTS as n (n)}
+          <option value={String(n)}>{a.label}: {n}</option>
+        {/each}
+      </select>
+    {/each}
+  </span>
+</div>
 <button type="button" class="swap" onclick={onSwap} title="Swap axis 1 and axis 2"><Icon name="swap" size={14} />Swap axes</button>
 
 {#if chosen}
@@ -93,6 +105,14 @@
   }
   .label {
     color: var(--se-text-secondary);
+  }
+  .counts {
+    grid-template-columns: 72px 1fr;
+  }
+  .count-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
   }
   select {
     min-width: 0;

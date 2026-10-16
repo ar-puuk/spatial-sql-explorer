@@ -23,6 +23,11 @@ export interface LegendGroup {
 export interface LegendBivariate {
   x: string
   y: string
+  /** Each axis's lowest and highest value, as text (the ends of the axis). */
+  xRange?: [string, string]
+  yRange?: [string, string]
+  /** Drawn as a diamond: the square turned a quarter-turn and a half, its axes along the two lower edges. */
+  tilted?: boolean
   nx: number
   ny: number
   cells: Array<{ color: string; visible: boolean }>
@@ -103,6 +108,7 @@ export function drawLegendAt(ctx: CanvasRenderingContext2D, legend: LegendSpec, 
 }
 
 function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number, origin: (boxH: number) => { x: number; y: number }): number {
+  if (legend.bivariate) return paintBivariate(ctx, legend, legend.bivariate, origin)
   // Whatever the page drew before left its alignment: the legend's text starts at its left.
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
@@ -116,7 +122,6 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
     | { kind: 'row'; group: LegendGroup; row: LegendGroup['rows'][number]; scale: number }
     | { kind: 'more'; n: number }
     | { kind: 'axis'; text: string }
-    | { kind: 'cells'; j: number }
     | { kind: 'gradient'; colors: string[]; transparentStart?: boolean }
   const all: Line[] = []
   // A heatmap: the title, the ramp, and its ends.
@@ -125,17 +130,8 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
     all.push({ kind: 'gradient', colors: legend.gradient, transparentStart: true })
     all.push({ kind: 'axis', text: 'Sparse → Dense' })
   }
-  // Spec 009 US6: the bivariate square, one 18 px line per row (high to low), with the axis labels.
-  const biv = legend.bivariate
-  if (biv) {
-    if (legend.title) all.push({ kind: 'title', text: legend.title, main: true })
-    all.push({ kind: 'axis', text: `↑ ${biv.y}` })
-    for (let j = biv.ny - 1; j >= 0; j--) all.push({ kind: 'cells', j })
-    all.push({ kind: 'axis', text: `${biv.x} →` })
-    if (biv.noValue?.visible) all.push({ kind: 'row', group: { title: '', shape: 'area', alpha: 1, rows: [] }, row: { color: biv.noValue.color, label: biv.noValue.label, count: biv.noValue.count }, scale: 1 })
-  }
   groups.forEach((g, i) => {
-    if ((biv || legend.gradient?.length) && i === 0) return
+    if (legend.gradient?.length && i === 0) return
     if (i === 0 ? g.title : true) all.push({ kind: 'title', text: g.title, main: i === 0 })
     // Spec 011 US4: a continuous color's ramp and ends; an as-is property's line.
     if (g.ramp) {
@@ -161,11 +157,9 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
           ? ctx.measureText(`+${l.n} more`).width
           : l.kind === 'axis'
             ? ctx.measureText(l.text).width - sw - 8
-            : l.kind === 'cells' && biv
-              ? biv.nx * 18 - sw - 8
-              : l.kind === 'gradient'
-                ? 120 - sw - 8
-                : 0
+            : l.kind === 'gradient'
+              ? 120 - sw - 8
+              : 0
     )
   )
   ctx.font = TITLE_FONT
@@ -191,23 +185,6 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
       ctx.font = FONT
       ctx.fillStyle = '#57606a'
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
-    } else if (l.kind === 'cells') {
-      for (let i = 0; i < (biv?.nx ?? 0); i++) {
-        if (!biv) break
-        const c = biv.cells[i + biv.nx * l.j]
-        if (!c) continue
-        const cx = x + pad + i * 18
-        const cy = ty - 13
-        if (c.visible) {
-          ctx.fillStyle = c.color
-          ctx.fillRect(cx, cy, 16, 16)
-        } else {
-          // Hidden: hollow, the color kept as its outline.
-          ctx.strokeStyle = c.color
-          ctx.lineWidth = 2
-          ctx.strokeRect(cx + 1, cy + 1, 14, 14)
-        }
-      }
     } else if (l.kind === 'gradient') {
       const gx = x + pad
       const gw = boxW - pad * 2
@@ -265,6 +242,183 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
       }
     }
     ty += row
+  }
+  return boxH
+}
+
+
+const SMALL_FONT = '10px system-ui, -apple-system, "Segoe UI", sans-serif'
+
+/**
+ * The bivariate legend: the layer's name, the grid of cells with each axis named and its ends marked, and "No value".
+ * The cells grow to fill the width the longest name asks for (up to a limit), so a long column name does not leave
+ * the box empty on the right. `biv.tilted` turns the grid into a diamond with the axes along its lower edges.
+ */
+function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: LegendBivariate, origin: (boxH: number) => { x: number; y: number }): number {
+  // Whatever the page drew before left its alignment: the legend's text starts at its left.
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  const pad = 8
+  const gap = 2
+  const { nx, ny } = biv
+  const xTitle = `${biv.x} →`
+  const yTitle = `${biv.y} →`
+  ctx.font = TITLE_FONT
+  const titleW = Math.min(190, ctx.measureText(legend.title).width)
+  ctx.font = FONT
+  const xTitleW = ctx.measureText(xTitle).width
+  const noValue = biv.noValue?.visible ? biv.noValue : null
+  const noValueW = noValue ? 14 + 8 + ctx.measureText(noValue.label).width + (ctx.measureText(new Intl.NumberFormat('en-US').format(noValue.count)).width + 12) : 0
+  const tilted = !!biv.tilted
+  // The rotated labels of the y axis: its ends nearest the grid, its name beyond.
+  const yEnds = 12
+  const yName = 15
+  const yCol = tilted ? 0 : yEnds + yName + 3
+
+  // Cell size: wide enough for the widest of the title and the x axis name, within 24..44 (a diamond is smaller: it is as wide as both sides).
+  const wanted = Math.max(titleW, noValueW, xTitleW) - yCol
+  const cell = tilted
+    ? Math.max(18, Math.min(26, Math.floor((wanted * 0.7) / Math.max(nx, ny) - gap)))
+    : Math.max(24, Math.min(44, Math.floor((170 + gap) / ny - gap), Math.floor((wanted + gap) / nx - gap)))
+  const W = nx * (cell + gap) - gap
+  const H = ny * (cell + gap) - gap
+  const side = tilted ? (W + H) / Math.SQRT2 : 0
+  // The diamond has its labels along the lower edges, which stick out a little.
+  const diaLeft = 22
+  const diaRight = 22
+  const gridW = tilted ? side + diaLeft + diaRight : W
+  const innerW = Math.max(yCol + gridW, titleW, noValueW, tilted ? 0 : xTitleW)
+  const boxW = Math.ceil(innerW + pad * 2)
+  const titleBlock = 12 + 8
+  const gridH = tilted ? side + 26 : H
+  const belowGrid = tilted ? 0 : 4 + 10 + 4 + 12
+  const noValueBlock = noValue ? 8 + 14 : 0
+  const boxH = Math.ceil(pad + titleBlock + gridH + belowGrid + noValueBlock + pad - 2)
+  const { x, y } = origin(boxH)
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)'
+  ctx.lineWidth = 1
+  roundRect(ctx, x + 0.5, y + 0.5, boxW, boxH, 4)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.fillStyle = '#1f2328'
+  ctx.font = TITLE_FONT
+  ctx.fillText(clip(ctx, legend.title, boxW - pad * 2), x + pad, y + pad + 12)
+
+  /** One cell, in the frame the grid is drawn in: (0, 0) the grid's top-left corner. */
+  const drawCell = (i: number, j: number): void => {
+    const c = biv.cells[i + nx * j]
+    if (!c) return
+    const cx = i * (cell + gap)
+    const cy = (ny - 1 - j) * (cell + gap)
+    if (c.visible) {
+      ctx.fillStyle = c.color
+      ctx.fillRect(cx, cy, cell, cell)
+    } else {
+      // Hidden: hollow, the color kept as its outline.
+      ctx.strokeStyle = c.color
+      ctx.lineWidth = 2
+      ctx.strokeRect(cx + 1, cy + 1, cell - 2, cell - 2)
+    }
+  }
+  const gridTop = y + pad + titleBlock
+  let bottom = gridTop
+  if (!tilted) {
+    const gx = x + pad + yCol
+    ctx.save()
+    ctx.translate(gx, gridTop)
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) drawCell(i, j)
+    ctx.restore()
+    ctx.fillStyle = '#57606a'
+    // The x axis: its ends under the grid's ends, its name centered below.
+    ctx.font = SMALL_FONT
+    const valuesY = gridTop + H + 4 + 9
+    if (biv.xRange) {
+      ctx.textAlign = 'left'
+      ctx.fillText(biv.xRange[0], gx, valuesY)
+      ctx.textAlign = 'right'
+      ctx.fillText(biv.xRange[1], gx + W, valuesY)
+    }
+    ctx.font = FONT
+    ctx.fillStyle = '#1f2328'
+    ctx.textAlign = 'center'
+    ctx.fillText(clip(ctx, xTitle, Math.max(W, innerW - yCol)), gx + W / 2, valuesY + 4 + 12)
+    ctx.textAlign = 'left'
+    // The y axis, reading upward: its ends along the grid, its name beyond them.
+    const labelX = (offset: number): number => x + pad + offset
+    ctx.font = SMALL_FONT
+    ctx.fillStyle = '#57606a'
+    if (biv.yRange) {
+      ctx.save()
+      ctx.translate(labelX(yName + 9), gridTop + H)
+      ctx.rotate(-Math.PI / 2)
+      ctx.textAlign = 'left'
+      ctx.fillText(biv.yRange[0], 0, 0)
+      ctx.textAlign = 'right'
+      ctx.fillText(biv.yRange[1], H, 0)
+      ctx.restore()
+    }
+    ctx.font = FONT
+    ctx.fillStyle = '#1f2328'
+    ctx.save()
+    ctx.translate(labelX(11), gridTop + H / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.textAlign = 'center'
+    ctx.fillText(clip(ctx, yTitle, H), 0, 0)
+    ctx.restore()
+    ctx.textAlign = 'left'
+    bottom = gridTop + H + belowGrid
+  } else {
+    // A diamond: the grid turned a quarter-turn and a half counter-clockwise about its center, low/low at the bottom.
+    const half = side / 2
+    const cx = x + pad + diaLeft + half
+    const cy = gridTop + half
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(-Math.PI / 4)
+    ctx.translate(-W / 2, -H / 2)
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) drawCell(i, j)
+    ctx.restore()
+    // The axes run along the two lower edges: x from the bottom corner up to the right (its edge W long), y from the
+    // left corner down to the bottom one (H long). Each has its ends close to the edge and its name beyond them, a
+    // name that begins with (y) or ends in (x) an arrow toward "more".
+    const k = Math.SQRT1_2
+    const edge = (axis: 'x' | 'y', offset: number, text: string, font: string, color: string, length: number): void => {
+      ctx.save()
+      const mx = axis === 'x' ? cx + (k * H) / 2 + offset * k : cx - (k * W) / 2 - offset * k
+      const my = axis === 'x' ? cy + (k * H) / 2 + offset * k : cy + (k * W) / 2 + offset * k
+      ctx.translate(mx, my)
+      ctx.rotate(axis === 'x' ? -Math.PI / 4 : Math.PI / 4)
+      ctx.textAlign = 'center'
+      ctx.font = font
+      ctx.fillStyle = color
+      ctx.fillText(clip(ctx, text, Math.max(length, 80) + 30), 0, 0)
+      ctx.restore()
+    }
+    const ends = (r: [string, string] | undefined): string => (r ? `${r[0]} → ${r[1]}` : '')
+    edge('x', 11, ends(biv.xRange), SMALL_FONT, '#57606a', W)
+    edge('x', 24, `${biv.x} →`, FONT, '#1f2328', W)
+    edge('y', 11, ends(biv.yRange), SMALL_FONT, '#57606a', H)
+    edge('y', 24, `← ${biv.y}`, FONT, '#1f2328', H)
+    bottom = gridTop + gridH
+  }
+  if (noValue) {
+    const ny0 = bottom + 8
+    ctx.font = FONT
+    ctx.textAlign = 'left'
+    ctx.fillStyle = noValue.color
+    ctx.fillRect(x + pad, ny0, 14, 12)
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + pad + 0.5, ny0 + 0.5, 13, 11)
+    ctx.fillStyle = '#1f2328'
+    ctx.fillText(noValue.label, x + pad + 22, ny0 + 10)
+    ctx.fillStyle = '#57606a'
+    ctx.textAlign = 'right'
+    ctx.fillText(new Intl.NumberFormat('en-US').format(noValue.count), x + boxW - pad, ny0 + 10)
+    ctx.textAlign = 'left'
   }
   return boxH
 }

@@ -333,9 +333,14 @@ export const DEFAULT_CLUSTERS: Readonly<ClusterSettings> = Object.freeze({
 
 export type BivariateMethod = Exclude<GraduatedMethod, 'manual'>
 
+/** Classes along a bivariate axis: 2, 3 (the default) or 4. The two axes may differ (2 x 3, 3 x 4, ...). */
+export const BIVARIATE_CLASS_COUNTS = [2, 3, 4] as const
+
 export interface BivariateAxis {
   column: string
   method: BivariateMethod
+  /** Absent: 3. An axis with fewer distinct values has fewer. */
+  classes?: number
 }
 
 export interface BivariateRenderer {
@@ -855,6 +860,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
     const axis = (a: Partial<BivariateAxis> | undefined): BivariateAxis => ({
       column: typeof a?.column === 'string' ? a.column : '',
       method: a?.method === 'equal' || a?.method === 'jenks' || a?.method === 'quantile' ? a.method : 'quantile',
+      ...(a?.classes === 2 || a?.classes === 4 ? { classes: a.classes } : {}),
     })
     const noValue = sanitizeOverride(b.noValue)
     delete noValue.color
@@ -863,7 +869,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
       x: axis(b.x),
       y: axis(b.y),
       palette: typeof b.palette === 'string' && b.palette ? b.palette : DEFAULT_BIVARIATE_PALETTE,
-      hidden: (Array.isArray(b.hidden) ? b.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-2]-[0-2]$/.test(k)),
+      hidden: (Array.isArray(b.hidden) ? b.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-3]-[0-3]$/.test(k)),
       noValue,
     }
   }

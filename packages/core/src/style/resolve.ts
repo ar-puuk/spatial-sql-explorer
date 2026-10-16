@@ -817,7 +817,7 @@ function graduated(style: LayerStyle, r: GraduatedRenderer, layer: ResolveInput 
 
 /**
  * Spec 009 US4: bivariate. Each axis is classified like a graduated column
- * (3 classes, fewer when it has fewer distinct values: FR-015); cells are the
+ * (3 classes by default, 2 or 4 by choice, fewer when it has fewer distinct values: FR-015); cells are the
  * pairs, row-major from low/low (i + nx * j), then "No value" (either value
  * missing). Counts are joint: from the rows (small results), or filled in by
  * QuerySession from one GROUP BY (big ones).
@@ -827,8 +827,8 @@ function bivariate(style: LayerStyle, r: BivariateRenderer, layer: ResolveInput 
   if (r.x.column && r.x.column === r.y.column) return fallback(style, layer, 'Choose two different numeric columns.')
   const why = notNumeric(layer, r.x.column) ?? notNumeric(layer, r.y.column)
   if (why) return fallback(style, layer, why)
-  const cx = classifyRanges(r.x.column, r.x.method, 3, [], layer)
-  const cy = classifyRanges(r.y.column, r.y.method, 3, [], layer)
+  const cx = classifyRanges(r.x.column, r.x.method, r.x.classes ?? 3, [], layer)
+  const cy = classifyRanges(r.y.column, r.y.method, r.y.classes ?? 3, [], layer)
   if (!cx.ranges.length || !cy.ranges.length) return fallback(style, layer, `Column "${!cx.ranges.length ? r.x.column : r.y.column}" has no numeric values in this result.`)
   const nx = cx.ranges.length
   const ny = cy.ranges.length

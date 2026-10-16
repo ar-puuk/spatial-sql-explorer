@@ -475,6 +475,9 @@ export function setBivariateAxis(style: LayerStyle, axis: 'x' | 'y', patch: Part
   return withBivariate(style, (r) => {
     const other = axis === 'x' ? 'y' : 'x'
     const next = { ...r, [axis]: { ...r[axis], ...patch } }
+    // Other class counts make other cells: the hidden ones no longer mean the same.
+    if (patch.classes !== undefined && patch.classes !== (r[axis].classes ?? 3)) next.hidden = []
+    if (patch.classes === 3) delete next[axis].classes
     if (patch.column !== undefined && patch.column === r[other].column && patch.column !== r[axis].column) next[other] = { ...r[other], column: r[axis].column }
     return next
   })

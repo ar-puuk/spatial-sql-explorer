@@ -14,6 +14,7 @@ import {
   exportStyle,
   importStyle,
   paintFor,
+  sanitizeStyle,
   previewExportNotice,
   resolveStyle,
   rendererOf,
@@ -137,6 +138,34 @@ describe('bivariate classes (US4)', () => {
     // Smaller grids use the palette's corner and middle columns.
     const palette = BIVARIATE_PALETTES[0]
     expect(bivariateColor(palette, 1, 0, 2, 3)).toBe(palette.cells[2])
+  })
+
+  it('classes per axis: 2 by 4 makes 8 cells, the lattice colors are read at even places, hidden cells reset', () => {
+    const palette = BIVARIATE_PALETTES[0]
+    // 3 classes are the lattice; 2 its ends; 1 its middle.
+    expect(bivariateColor(palette, 2, 1, 3, 3)).toBe(palette.cells[2 + 3])
+    expect(bivariateColor(palette, 0, 0, 2, 2)).toBe(palette.cells[0])
+    expect(bivariateColor(palette, 1, 1, 2, 2)).toBe(palette.cells[8])
+    expect(bivariateColor(palette, 0, 0, 1, 1)).toBe(palette.cells[4])
+    // 4 classes: the ends are the lattice's ends, the middle two lie between its steps (not on them).
+    expect(bivariateColor(palette, 0, 0, 4, 4)).toBe(palette.cells[0])
+    expect(bivariateColor(palette, 3, 3, 4, 4)).toBe(palette.cells[8])
+    const mid = bivariateColor(palette, 1, 0, 4, 4)
+    expect(palette.cells).not.toContain(mid)
+    const style = setBivariateAxis(setBivariateAxis(setCellVisible(bivariate(), 'cell:0-0', false), 'x', { classes: 2 }), 'y', { classes: 4 })
+    const r = rendererOf(style)
+    expect(r.kind === 'bivariate' && [r.x.classes, r.y.classes, r.hidden]).toEqual([2, 4, []])
+    // The app keeps styles through sanitizeStyle: the class counts and a hidden 3-class cell survive it.
+    const kept = rendererOf(sanitizeStyle(style))
+    expect(kept.kind === 'bivariate' && [kept.x.classes, kept.y.classes]).toEqual([2, 4])
+    expect(rendererOf(sanitizeStyle(setCellVisible(style, 'cell:1-3', false))).kind === 'bivariate' && (rendererOf(sanitizeStyle(setCellVisible(style, 'cell:1-3', false))) as { hidden: string[] }).hidden).toEqual(['1-3'])
+    const resolved = resolveStyle(style, counties)
+    expect(resolved.grid?.x.ranges).toHaveLength(2)
+    expect(resolved.grid?.y.ranges).toHaveLength(4)
+    expect(resolved.classes.filter((c) => c.kind === 'cell')).toHaveLength(8)
+    // Back to 3: the setting is dropped, not kept as a 3.
+    const back = rendererOf(setBivariateAxis(style, 'x', { classes: 3 }))
+    expect(back.kind === 'bivariate' && back.x.classes).toBeUndefined()
   })
 
   it('the same column twice, or a text column, is refused; picking the other axis column swaps them', () => {

@@ -1151,7 +1151,7 @@ export class QuerySession {
       for (const [k, axis] of [r.x, r.y].entries()) {
         const count = Number(totals[`n_${k}`])
         const even = evenPositions(count, cap)
-        const around = axis.method === 'quantile' ? quantilePositions(count, 3) : []
+        const around = axis.method === 'quantile' ? quantilePositions(count, axis.classes ?? 3) : []
         const atPos = new Map<number, number>()
         if (count > 0) {
           await streamRows(this.conn, orderStatisticsSql(relation, axis.column, [...even, ...around]), isCancelled, (batch) => {

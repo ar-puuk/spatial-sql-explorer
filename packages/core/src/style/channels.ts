@@ -115,8 +115,8 @@ export interface IdentityScale {
 export interface BivariateScale {
   kind: 'bivariate'
   /** Classification of the source pair's x and y columns. */
-  x: { method: BivariateMethod }
-  y: { method: BivariateMethod }
+  x: { method: BivariateMethod; classes?: number }
+  y: { method: BivariateMethod; classes?: number }
   /** A palette id (./bivariateData.ts). */
   palette: string
   /** Hidden cells, `'<i>-<j>'`. */
@@ -404,16 +404,17 @@ function sanitizeScale(channel: ChannelId, raw: unknown): Scale | null {
         noValue: sanitizeClassDef(channel, raw.noValue),
       }
     case 'bivariate': {
-      const axis = (a: unknown): { method: BivariateMethod } => {
+      const axis = (a: unknown): { method: BivariateMethod; classes?: number } => {
         const m = isObj(a) ? a.method : undefined
-        return { method: m === 'equal' || m === 'jenks' || m === 'quantile' ? m : 'quantile' }
+        const n = isObj(a) ? a.classes : undefined
+        return { method: m === 'equal' || m === 'jenks' || m === 'quantile' ? m : 'quantile', ...(n === 2 || n === 4 ? { classes: n } : {}) }
       }
       return {
         kind: 'bivariate',
         x: axis(raw.x),
         y: axis(raw.y),
         palette: typeof raw.palette === 'string' && raw.palette ? raw.palette : 'orange-blue',
-        hidden: (Array.isArray(raw.hidden) ? raw.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-2]-[0-2]$/.test(k)),
+        hidden: (Array.isArray(raw.hidden) ? raw.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-3]-[0-3]$/.test(k)),
         noValue: sanitizeClassDef(channel, raw.noValue),
       }
     }

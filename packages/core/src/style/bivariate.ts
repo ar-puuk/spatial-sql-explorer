@@ -6,6 +6,7 @@
 import { BIVARIATE_PALETTES, type BivariatePalette } from './bivariateData.js'
 import { DEFAULT_BIVARIATE_PALETTE, type LayerStyle, type ResolvedStyle } from './model.js'
 import { rendererOf } from './legacy.js'
+import { fromLab, toLab } from './ramps.js'
 
 export { BIVARIATE_PALETTES, type BivariatePalette }
 
@@ -14,14 +15,28 @@ export function bivariatePalette(id: string | undefined): BivariatePalette {
   return BIVARIATE_PALETTES.find((p) => p.id === id) ?? BIVARIATE_PALETTES.find((p) => p.id === DEFAULT_BIVARIATE_PALETTE) ?? BIVARIATE_PALETTES[0]
 }
 
+/** Where class k of n sits on the palette's 3-step axis (0 to 2): the ends for 2 classes, the middle for 1. */
+const along = (k: number, n: number): number => (n > 1 ? (k * 2) / (n - 1) : 1)
+
 /**
- * The color of cell (i, j) of an nx x ny grid. Smaller grids (an axis with
- * fewer distinct values, FR-015) use the palette's low and high columns or
- * rows (2 classes), or its middle one (1 class).
+ * The color of cell (i, j) of an nx x ny grid. The palette is a 3 x 3 lattice of colors; a grid of another size reads
+ * it at evenly spaced places, mixing the four colors around each in CIELAB. 3 classes land on the lattice itself,
+ * 2 classes (or an axis with fewer distinct values, FR-015) on its low and high rows or columns, 1 class on its
+ * middle one, and 4 classes between.
  */
 export function bivariateColor(palette: BivariatePalette, i: number, j: number, nx: number, ny: number): string {
-  const at = (k: number, n: number) => (n >= 3 ? k : n === 2 ? (k === 0 ? 0 : 2) : 1)
-  return palette.cells[at(i, nx) + 3 * at(j, ny)]
+  const u = along(i, nx)
+  const v = along(j, ny)
+  const exact = (a: number) => Math.abs(a - Math.round(a)) < 1e-9
+  if (exact(u) && exact(v)) return palette.cells[Math.round(u) + 3 * Math.round(v)]
+  const u0 = Math.min(1, Math.floor(u + 1e-9))
+  const v0 = Math.min(1, Math.floor(v + 1e-9))
+  const fu = u - u0
+  const fv = v - v0
+  const lab = (a: number, b: number) => toLab(palette.cells[a + 3 * b])
+  const corners = [lab(u0, v0), lab(u0 + 1, v0), lab(u0, v0 + 1), lab(u0 + 1, v0 + 1)]
+  const weights = [(1 - fu) * (1 - fv), fu * (1 - fv), (1 - fu) * fv, fu * fv]
+  return fromLab([0, 1, 2].map((c) => corners.reduce((sum, lab3, n) => sum + lab3[c] * weights[n], 0)))
 }
 
 /** `to-number` fallback for text: far outside any real value, caught with the non-finite guard. */

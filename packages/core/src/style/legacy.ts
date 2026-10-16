@@ -88,7 +88,7 @@ export function colorEncodingOf(r: Renderer): Encoding | undefined {
     case 'bivariate':
       return {
         source: { kind: 'pair', x: r.x.column, y: r.y.column },
-        scale: { kind: 'bivariate', x: { method: r.x.method }, y: { method: r.y.method }, palette: r.palette, hidden: [...r.hidden], noValue: toClassDef(r.noValue) },
+        scale: { kind: 'bivariate', x: { method: r.x.method, ...(r.x.classes ? { classes: r.x.classes } : {}) }, y: { method: r.y.method, ...(r.y.classes ? { classes: r.y.classes } : {}) }, palette: r.palette, hidden: [...r.hidden], noValue: toClassDef(r.noValue) },
       }
     default:
       return undefined
@@ -140,8 +140,8 @@ export function rendererFromEncoding(enc: Encoding | undefined): Renderer {
     case 'bivariate': {
       const r: BivariateRenderer = {
         kind: 'bivariate',
-        x: { column: src.kind === 'pair' ? src.x : '', method: s.x.method },
-        y: { column: src.kind === 'pair' ? src.y : '', method: s.y.method },
+        x: { column: src.kind === 'pair' ? src.x : '', method: s.x.method, ...(s.x.classes ? { classes: s.x.classes } : {}) },
+        y: { column: src.kind === 'pair' ? src.y : '', method: s.y.method, ...(s.y.classes ? { classes: s.y.classes } : {}) },
         palette: s.palette,
         hidden: [...s.hidden],
         noValue: toOverride(s.noValue, false),

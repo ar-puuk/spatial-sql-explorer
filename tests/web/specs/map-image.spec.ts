@@ -157,31 +157,49 @@ test('the size channel group is drawn into the page, under the color group', asy
   expect(red[0]).toBeGreaterThan(200)
 })
 
-// Spec 009 T049 (US6): the bivariate square is drawn into the page: axis 2's label, the cells
-// (rows high to low), axis 1's label, No value; a hidden cell is hollow.
-test('the bivariate square is drawn into the page, hidden cells hollow', async ({ page }) => {
+// Spec 009 T049 (US6): the bivariate grid is drawn into the page, every cell in its color; a hidden cell is hollow.
+test('the bivariate grid is drawn into the page, hidden cells hollow', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#800000', '#008000', '#000080']
   const legend = {
-    title: 'a × b · Quantile',
+    title: 'a × b',
     shape: 'area',
     alpha: 1,
     rows: [],
-    bivariate: { x: 'a', y: 'b', nx: 3, ny: 3, cells: colors.map((color, k) => ({ color, visible: k !== 4 })), noValue: { color: '#8c8c8c', label: 'No value', count: 3, visible: true } },
+    bivariate: { x: 'a', y: 'b', xRange: ['1', '9'], yRange: ['2', '8'], nx: 3, ny: 3, cells: colors.map((color, k) => ({ color, visible: k !== 4 })), noValue: { color: '#8c8c8c', label: 'No value', count: 3, visible: true } },
   }
   const shot = await capture(page, 1, legend)
-  // Lines: title, axis 2, three cell rows (j = 2, 1, 0), axis 1, No value.
-  const at = legendAt(shot, 7)
-  const hex = async (i: number, j: number) => {
-    const p = at(16 + 18 * i, 15 + 18 * (2 + (2 - j)))
-    const [r, g, b] = await pixel(page, shot.base64, p.x, p.y)
-    return [r, g, b].map((v) => (v > 200 ? 'ff' : v < 60 ? '00' : 'xx')).join('')
-  }
-  expect(await hex(0, 0)).toBe('ff0000') // low/low: bottom-left
-  expect(await hex(2, 0)).toBe('0000ff')
-  expect(await hex(1, 2)).toBe('00xx00') // #008000: dark green, top row
-  expect(await hex(1, 1)).toBe('ffffff') // hidden: hollow (the light legend box shows through)
+  // Pixels near each color in the legend's corner (the bottom left).
+  const counts = await page.evaluate(
+    async ([b64, cols, w, h]) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const cv = document.createElement('canvas')
+      cv.width = img.width
+      cv.height = img.height
+      const ctx = cv.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const x1 = Math.floor((w as number) * 0.4)
+      const y0 = Math.floor((h as number) * 0.4)
+      const d = ctx.getImageData(0, y0, x1, (h as number) - y0).data
+      return (cols as string[]).map((hex) => {
+        const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+        let n = 0
+        for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - c[0]) < 24 && Math.abs(d[i + 1] - c[1]) < 24 && Math.abs(d[i + 2] - c[2]) < 24) n++
+        return n
+      })
+    },
+    [shot.base64, colors, shot.width, shot.height] as const
+  )
+  counts.forEach((n, k) => {
+    if (k === 4) return
+    expect(n, `cell ${k} (${colors[k]}) is filled: ${counts.join(', ')}`).toBeGreaterThan(150)
+  })
+  // The hidden cell keeps only its outline: a fraction of a filled cell.
+  expect(counts[4], counts.join(', ')).toBeGreaterThan(20)
+  expect(counts[4], counts.join(', ')).toBeLessThan(Math.min(...counts.filter((_, k) => k !== 4)) * 0.6)
 })
 
 // Spec 011 T049/T068 (US5, US8): the saved page has the labels as drawn and every legend group:
@@ -545,4 +563,30 @@ test('the composer is centered on the map area', async ({ page }) => {
   const main = (await page.locator('.main').first().boundingBox())!
   expect(Math.abs(box.x + box.width / 2 - (main.x + main.width / 2))).toBeLessThan(2)
   expect(Math.abs(box.y + box.height / 2 - (main.y + main.height / 2))).toBeLessThan(2)
+})
+
+// A bivariate map's page legend: titled by the layer (not "a × b · Quantile"), each axis named, and the grid tilted on request.
+test('a bivariate legend on the page: the layer is its title, the axes are named, and it can be tilted', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('counties-bivariate.geojson'), '?e2e=1')
+  await openStyle(page)
+  await chooseStyleType(page, 'Bivariate')
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  // Unequal class counts: 2 along the first axis, 4 along the second.
+  await panel.getByLabel('Axis 1 classes').selectOption('2')
+  await panel.getByLabel('Axis 2 classes').selectOption('4')
+  await expect(page.getByRole('region', { name: 'Legend' }).getByRole('grid', { name: 'Bivariate cells' }).getByRole('gridcell')).toHaveCount(8)
+  await openComposer(page)
+  const texts = async () => [...(await exportAs(page, 'SVG')).bytes.toString('utf8').matchAll(/<text[^>]*>([^<]*)</g)].map((m) => m[1])
+  const square = await texts()
+  expect(square).toContain('counties-bivariate.geojson')
+  expect(square).toContain('poverty_rate →')
+  expect(square).toContain('obesity_rate →')
+  expect(square.some((t) => /Quantile/.test(t))).toBe(false)
+  await dialog(page).getByRole('radio', { name: 'Tilted' }).click()
+  const tilted = await texts()
+  expect(tilted).toContain('← obesity_rate')
+  expect(tilted.some((t) => t.startsWith('poverty_rate →'))).toBe(true)
 })

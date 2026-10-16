@@ -2,6 +2,7 @@
   // Spec 016: the page's legend (GeoLibre's legend editor): its title, and each class of the map's legend: rename it,
   // hide it, move it up or down. The edits are the page's: the legend on the map is untouched.
   import Icon from '../Icon.svelte'
+  import Segmented from '../kit/Segmented.svelte'
   import type { PrintComposer } from './composer.svelte.js'
 
   interface Props {
@@ -18,6 +19,12 @@
       <button type="button" class="icon" aria-label="Reset the legend" title="Back to the map's legend" disabled={!edited} onclick={() => c.resetLegend()}><Icon name="reset" size={14} /></button>
     </div>
     <label class="row"><span>Legend title</span><input type="text" value={c.legendEdits.title ?? ''} placeholder={c.mapLegendTitle} oninput={(e) => c.setLegendTitle(e.currentTarget.value)} /></label>
+    {#if c.legend?.bivariate}
+      <div class="row">
+        <span>Grid shape</span>
+        <Segmented label="Bivariate legend shape" value={c.layout.bivariateTilted ? 'tilted' : 'square'} onChange={(v) => c.set({ bivariateTilted: v === 'tilted' })} options={[{ value: 'square', label: 'Square', title: 'Easy to read exactly' }, { value: 'tilted', label: 'Tilted', title: 'A diamond: the two axes meet at the bottom corner' }]} />
+      </div>
+    {/if}
     {#if c.editorRows.length}
       <ul>
         {#each c.editorRows as r (r.key)}

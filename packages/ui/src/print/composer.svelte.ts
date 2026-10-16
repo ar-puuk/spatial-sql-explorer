@@ -109,7 +109,10 @@ export class PrintComposer {
   }
 
   /** The legend as the page shows it: the map's, with the edits. */
-  legend = $derived.by(() => applyLegendEdits(this.#legend(), this.legendEdits))
+  legend = $derived.by(() => {
+    const spec = applyLegendEdits(this.#legend(), this.legendEdits)
+    return spec?.bivariate && this.layout.bivariateTilted ? { ...spec, bivariate: { ...spec.bivariate, tilted: true } } : spec
+  })
   /** What the legend editor lists. */
   editorRows = $derived.by(() => legendEditorRows(this.#legend(), this.legendEdits))
   /** The map's own legend title, the editor's placeholder. */
