@@ -12,14 +12,18 @@
     label: string
     /** Fit the trigger to its content instead of filling its cell. */
     compact?: boolean
+    /** Shown, muted, when no option is the value (a list of presets that picks and does not hold a choice). */
+    placeholder?: string
+    disabled?: boolean
   }
-  let { options, value, onChange, label, compact = false }: Props = $props()
-  const current = $derived(options.find((o) => o.value === value)?.label ?? '')
+  let { options, value, onChange, label, compact = false, placeholder = '', disabled = false }: Props = $props()
+  const chosen = $derived(options.find((o) => o.value === value)?.label)
+  const current = $derived(chosen ?? placeholder)
 </script>
 
-<Select.Root type="single" {value} onValueChange={(v) => v && onChange(v)} items={options}>
+<Select.Root type="single" {value} {disabled} onValueChange={(v) => v && onChange(v)} items={options}>
   <Select.Trigger class="se-select{compact ? ' compact' : ''}" aria-label={label}>
-    <span class="se-select-value">{current}</span>
+    <span class="se-select-value" class:placeholder={chosen === undefined}>{current}</span>
     <Icon name="chevron-down" size={14} />
   </Select.Trigger>
   <Select.Portal>
@@ -77,6 +81,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .se-select-value.placeholder {
+    color: var(--se-text-secondary);
   }
   :global(.se-select-pop) {
     z-index: 1000;
