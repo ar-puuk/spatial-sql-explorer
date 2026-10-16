@@ -5,14 +5,19 @@
   // (roving tabindex); "No value" below. Palette colors are fixed data colors;
   // the chrome follows the theme.
   import type { ResolvedStyle } from '@spatial-explorer/core'
+  import { axisEnds } from './axisEnds.js'
 
   interface Props {
     resolved: ResolvedStyle
     onToggle: (key: string, visible: boolean) => void
     /** Cell size, px. */
     cell?: number
+    /** Drawn as a diamond: the grid turned a quarter-turn and a half, its axes along the two lower edges. */
+    tilted?: boolean
+    /** Offers the choice between the square and the diamond. */
+    onTilt?: (tilted: boolean) => void
   }
-  let { resolved, onToggle, cell = 32 }: Props = $props()
+  let { resolved, onToggle, cell = 32, tilted = false, onTilt }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const grid = $derived(resolved.grid)
@@ -23,6 +28,24 @@
   /** Rows top to bottom: the highest axis 2 class first. */
   const rows = $derived(Array.from({ length: ny }, (_, r) => ny - 1 - r))
   const cellAt = (i: number, j: number) => cells.find((c) => c.col === i && c.row === j)
+  const xEnds = $derived(grid ? axisEnds(grid.x.ranges) : undefined)
+  const yEnds = $derived(grid ? axisEnds(grid.y.ranges) : undefined)
+  /** A diamond's cells are smaller: it is as wide as both sides of the grid together. */
+  const size = $derived(tilted ? Math.max(18, Math.round(cell * 0.72)) : cell)
+  const W = $derived(nx * size + 2)
+  const H = $derived(ny * size + 2)
+  /** The diamond's side-to-side extent, and its center in the box that holds it (room for the labels along the lower edges). */
+  const ROOM = 24
+  const side = $derived((W + H) / Math.SQRT2)
+  const K = Math.SQRT1_2
+  /** An axis label along a lower edge: `offset` px out from the edge, turned to run along it. */
+  function along(axis: 'x' | 'y', offset: number): string {
+    const cx = ROOM + side / 2
+    const cy = side / 2
+    const x = axis === 'x' ? cx + (K * H) / 2 + offset * K : cx - (K * W) / 2 - offset * K
+    const y = axis === 'x' ? cy + (K * H) / 2 + offset * K : cy + (K * W) / 2 + offset * K
+    return `left:${x}px;top:${y}px;transform:translate(-50%,-50%) rotate(${axis === 'x' ? -45 : 45}deg)`
+  }
   const features = (n: number) => `${nf.format(n)} ${n === 1 ? 'feature' : 'features'}`
   const name = (c: (typeof cells)[number]) =>
     `${grid?.x.column} ${grid?.x.ranges[c.col ?? 0]?.label}, ${grid?.y.column} ${grid?.y.ranges[c.row ?? 0]?.label}: ${features(c.count)}`
@@ -46,38 +69,55 @@
   }
 </script>
 
+{#snippet gridOfCells()}
+  <div class="square" role="grid" aria-label="Bivariate cells">
+    {#each rows as j (j)}
+      <div class="row" role="row">
+        {#each Array.from({ length: nx }, (_, i) => i) as i (i)}
+          {@const c = cellAt(i, j)}
+          {#if c}
+            <div role="gridcell">
+              <button
+                type="button"
+                class="cell"
+                class:hidden={!c.visible}
+                data-cell={c.key}
+                style:background-color={c.visible ? c.color : 'transparent'}
+                style:border-color={c.visible ? undefined : c.color}
+                tabindex={c.key === tabKey ? 0 : -1}
+                aria-pressed={!c.visible}
+                aria-label={name(c)}
+                title={name(c)}
+                onfocus={() => (focusKey = c.key)}
+                onclick={() => onToggle(c.key, !c.visible)}
+                onkeydown={(e) => keydown(e, i, j)}
+              ></button>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/each}
+  </div>
+{/snippet}
+
 {#if grid}
-  <div class="bivariate" bind:this={root} style:--cell="{cell}px">
-    <span class="y-axis" title={grid.y.column}><span aria-hidden="true">↑</span> {grid.y.column}</span>
-    <div class="square" role="grid" aria-label="Bivariate cells">
-      {#each rows as j (j)}
-        <div class="row" role="row">
-          {#each Array.from({ length: nx }, (_, i) => i) as i (i)}
-            {@const c = cellAt(i, j)}
-            {#if c}
-              <div role="gridcell">
-                <button
-                  type="button"
-                  class="cell"
-                  class:hidden={!c.visible}
-                  data-cell={c.key}
-                  style:background-color={c.visible ? c.color : 'transparent'}
-                  style:border-color={c.visible ? undefined : c.color}
-                  tabindex={c.key === tabKey ? 0 : -1}
-                  aria-pressed={!c.visible}
-                  aria-label={name(c)}
-                  title={name(c)}
-                  onfocus={() => (focusKey = c.key)}
-                  onclick={() => onToggle(c.key, !c.visible)}
-                  onkeydown={(e) => keydown(e, i, j)}
-                ></button>
-              </div>
-            {/if}
-          {/each}
-        </div>
-      {/each}
-    </div>
-    <span class="x-axis" title={grid.x.column}>{grid.x.column} <span aria-hidden="true">→</span></span>
+  <div class="bivariate" class:tilted bind:this={root} style:--cell="{size}px" style:--cols={nx} style:--rows={ny}>
+    {#if tilted}
+      <!-- The diamond: the grid turned, with each axis named along a lower edge (its ends close to the edge, its name beyond). -->
+      <div class="diamond" style:width="{side + ROOM * 2}px" style:height="{side + 30}px">
+        <div class="turned" style:left="{ROOM + side / 2 - W / 2}px" style:top="{side / 2 - H / 2}px">{@render gridOfCells()}</div>
+        {#if xEnds}<span class="edge small" style={along('x', 11)}>{xEnds[0]} → {xEnds[1]}</span>{/if}
+        <span class="edge" style={along('x', 24)} title={grid.x.column}>{grid.x.column} →</span>
+        {#if yEnds}<span class="edge small" style={along('y', 11)}>{yEnds[0]} → {yEnds[1]}</span>{/if}
+        <span class="edge" style={along('y', 24)} title={grid.y.column}>← {grid.y.column}</span>
+      </div>
+    {:else}
+      <span class="y-axis" title={grid.y.column}>{grid.y.column} <span aria-hidden="true">→</span></span>
+      {#if yEnds}<span class="y-ends" aria-hidden="true"><span>{yEnds[0]}</span><span>{yEnds[1]}</span></span>{/if}
+      {@render gridOfCells()}
+      {#if xEnds}<span class="x-ends" aria-hidden="true"><span>{xEnds[0]}</span><span>{xEnds[1]}</span></span>{/if}
+      <span class="x-axis" title={grid.x.column}>{grid.x.column} <span aria-hidden="true">→</span></span>
+    {/if}
     {#if noValue}
       <button
         type="button"
@@ -93,6 +133,9 @@
         <span class="count">{nf.format(noValue.count)}</span>
       </button>
     {/if}
+    {#if onTilt}
+      <button type="button" class="tilt" aria-pressed={tilted} title={tilted ? 'Draw the legend as a square' : 'Draw the legend as a diamond, its axes along the lower edges'} onclick={() => onTilt(!tilted)}>{tilted ? 'Square' : 'Tilt'}</button>
+    {/if}
   </div>
 {/if}
 
@@ -103,11 +146,13 @@
   .bivariate {
     --line: color-mix(in srgb, var(--se-bg-elevated) 55%, transparent);
     display: grid;
-    grid-template-columns: auto auto;
+    grid-template-columns: auto auto auto;
     grid-template-areas:
-      'y square'
-      '. x'
-      'nv nv';
+      'y ye square'
+      '. . xe'
+      '. . x'
+      'nv nv nv'
+      'tilt tilt tilt';
     justify-content: start;
     align-items: center;
     justify-items: center;
@@ -117,7 +162,7 @@
   }
   .y-axis {
     grid-area: y;
-    max-height: calc(var(--cell) * 3 + 2px);
+    max-height: calc(var(--cell) * var(--rows) + 2px);
     overflow: hidden;
     color: var(--se-text-secondary);
     font-size: 11px;
@@ -129,13 +174,75 @@
   }
   .x-axis {
     grid-area: x;
-    max-width: calc(var(--cell) * 3 + 2px);
+    max-width: calc(var(--cell) * var(--cols) + 2px);
     overflow: hidden;
     color: var(--se-text-secondary);
     font-size: 11px;
     text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The ends of each axis, small, along the grid: the lowest value first (at the left, and at the bottom). */
+  .x-ends {
+    grid-area: xe;
+    display: flex;
+    justify-content: space-between;
+    width: calc(var(--cell) * var(--cols) + 2px);
+    margin-top: -3px;
+    color: var(--se-text-secondary);
+    font-size: 10px;
+  }
+  .y-ends {
+    grid-area: ye;
+    display: flex;
+    justify-content: space-between;
+    height: calc(var(--cell) * var(--rows) + 2px);
+    color: var(--se-text-secondary);
+    font-size: 10px;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+  .diamond {
+    grid-column: 1 / -1;
+    grid-row: 1 / 4;
+    position: relative;
+    justify-self: start;
+  }
+  .turned {
+    position: absolute;
+    transform: rotate(-45deg);
+  }
+  .edge {
+    position: absolute;
+    white-space: nowrap;
+    color: var(--se-text-primary);
+    font-size: 11px;
+  }
+  .edge.small {
+    color: var(--se-text-secondary);
+    font-size: 10px;
+  }
+  .tilt {
+    grid-area: tilt;
+    justify-self: start;
+    margin-top: 2px;
+    padding: 0 6px;
+    height: 20px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .tilt:hover {
+    background: var(--se-bg-hover);
+    color: var(--se-text-primary);
+  }
+  .tilt:focus-visible {
+    outline: 2px solid var(--se-focus);
+    outline-offset: 1px;
   }
   .square {
     grid-area: square;

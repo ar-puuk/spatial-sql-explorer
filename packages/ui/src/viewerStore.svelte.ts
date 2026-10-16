@@ -332,6 +332,9 @@ export interface ViewerStore {
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
   readonly legendCollapsed: boolean
+  /** A bivariate legend on the map drawn as a diamond (a setting, for every file). */
+  readonly legendTilted: boolean
+  setLegendTilted(tilted: boolean): void
   setLegendCollapsed(collapsed: boolean): void
   /** Spec 010: the panels' arrangement, remembered through HostAdapter.saveState('layout'). */
   readonly layout: LayoutState
@@ -544,6 +547,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     .catch(() => {})
   let basemapSeq = 0
   const LEGEND_COLLAPSED_KEY = 'legend.collapsed'
+  const LEGEND_TILTED_KEY = 'legend.tilted'
   // Spec 014: the hover tooltip's columns. A choice belongs to the layer's column set (a new layer starts over), not to the file.
   let tooltipChoice = $state<{ signature: string; columns: string[] } | null>(null)
   // A plain cache, not reactive state.
@@ -589,6 +593,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     })
     .catch(() => {})
   let legendCollapsed = $state(false)
+  let legendTilted = $state(false)
+  void hostAdapter
+    .loadState<boolean>(LEGEND_TILTED_KEY)
+    .then((saved) => {
+      if (typeof saved === 'boolean') legendTilted = saved
+    })
+    .catch(() => {})
   const LAYOUT_KEY = 'layout'
   let layout = $state<LayoutState>({ ...DEFAULT_LAYOUT })
   let layoutTouched = false
@@ -2114,6 +2125,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get legendCollapsed() {
       return legendCollapsed
+    },
+    get legendTilted() {
+      return legendTilted
+    },
+    setLegendTilted(tilted) {
+      legendTilted = tilted
+      void hostAdapter.saveState(LEGEND_TILTED_KEY, tilted).catch(() => {})
     },
     get layout() {
       return layout

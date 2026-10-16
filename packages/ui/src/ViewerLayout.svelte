@@ -14,6 +14,7 @@
   import LayerWarningBanner from './LayerWarningBanner.svelte'
   import LayerStylePanel from './LayerStylePanel.svelte'
   import MapLegend from './MapLegend.svelte'
+  import { axisEnds } from './style/axisEnds.js'
   import BasemapPicker from './BasemapPicker.svelte'
   import BasemapGallery from './BasemapGallery.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
@@ -66,12 +67,6 @@
     if (size?.status !== 'ok' || size.mode !== 'proportional' || legendRenderer.kind === 'bivariate' || legendRenderer.kind === 'heatmap' || legendRenderer.kind === 'clusters') return null
     return { channel: size, symbols: sizeSymbols(store.style, store.resolvedStyle) }
   })
-  /** The lowest and highest value of a bivariate axis, short (12K, 5.9). */
-  const axisEnds = (ranges: Array<{ lower: number; upper: number }>): [string, string] | undefined => {
-    if (!ranges.length) return undefined
-    const f = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 })
-    return [f.format(ranges[0].lower), f.format(ranges[ranges.length - 1].upper)]
-  }
   const showLegend = $derived(
     legendRenderer.kind !== 'single' ||
       legend.length > 0 ||
@@ -363,6 +358,9 @@
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
+          layerName={fileName ?? 'Layer'}
+          tilted={store.legendTilted}
+          onTilt={(v) => store.setLegendTilted(v)}
           geometryType={layer.geometryType}
           collapsed={store.legendCollapsed || shortMap}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}

@@ -27,6 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bivariate legend on the page.** Titled by the layer (not "a × b · Quantile"), cells that grow to fill the box, each axis named
   with its lowest and highest value at the ends, and a **Tilted** option: the grid as a diamond with its axes along the lower edges.
 
+- **Bivariate legend on the map.** Headed by the layer (the method is in the Style panel), each axis with its lowest and highest
+  value marked, and a **Tilt** button that draws it as a diamond, axes along the lower edges (a setting for every file; square
+  is the default). The cells still hide their features, by click and by keyboard.
+
 ### Changed
 
 - **The PDF is vector.** The page is drawn into the PDF as text, shapes, tables, charts and legends, with the map as the one
