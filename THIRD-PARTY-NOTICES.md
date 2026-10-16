@@ -3154,8 +3154,8 @@ SOFTWARE.
 
 ## d3-celestial (the stars behind the globe)
 
-The night sky behind the globe projection (spec 015) is the real one, where it is tonight: about 2,000 stars brighter than
-magnitude 5.2, the stick figures of the 88 constellations, and the Milky Way's outlines (the Milky Way Outline
+The night sky behind the globe projection (spec 015) is the real one, where it is tonight: about 5,000 stars (every one brighter than
+magnitude 6), the stick figures of the 88 constellations (not drawn by default), and the Milky Way's outlines (the Milky Way Outline
 Catalog, Jose R. Vieira, http://www.skymap.com/milkyway_cat.htm), from the data of d3-celestial (https://github.com/ofrohn/d3-celestial, BSD 3-Clause
 License, Copyright (c) 2015, Olaf Frohn), packed into `packages/ui/src/skyData.ts` by `scripts/sky-data.mjs`. Its stars come
 from the XHIP catalogue, an extended Hipparcos compilation (Anderson E., Francis C., 2012, VizieR V/137D); its figures follow

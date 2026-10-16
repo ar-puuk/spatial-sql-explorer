@@ -1,5 +1,5 @@
 // Spec 015: the real sky behind the globe, generated into packages/ui/src/skyData.ts. Nothing is invented:
-//   - the stars brighter than magnitude 5.2 (about 2,000) with their color index, from d3-celestial's stars.6.json, which is
+//   - the stars brighter than magnitude 6 (about 5,000: every star the eye can see) with their color index, from d3-celestial's stars.6.json, which is
 //     built from the XHIP catalogue (an extended Hipparcos compilation; Anderson & Francis 2012, VizieR V/137D);
 //   - the stick figures of the 88 IAU constellations from d3-celestial's constellations.lines.json (lines by Olaf Frohn);
 //   - the Milky Way's five brightness outlines from d3-celestial's milkyway.json (the Milky Way Outline Catalog, Jose R.
@@ -17,7 +17,7 @@ if (!src) throw new Error('Usage: node scripts/sky-data.mjs <folder with node_mo
 const data = path.join(path.resolve(src), 'node_modules', 'd3-celestial', 'data')
 const read = (f) => JSON.parse(fs.readFileSync(path.join(data, f), 'utf8'))
 
-const MAG_LIMIT = 5.2
+const MAG_LIMIT = 6.0
 const r1 = (v) => Math.round(v * 10) / 10
 
 // Right ascension in degrees, 0..360 (the data holds -180..180).

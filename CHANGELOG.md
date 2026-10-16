@@ -43,7 +43,7 @@ Map controls and drawing tools, terrain, and a new look.
   picker everywhere: a themed popup with a saturation and hue area, a hex box, the eyedropper where the browser has one,
   suggested colors and the ones used lately.
 - A feature picked on the map **scrolls the table to its row**, even on a page the table has not loaded.
-- The globe's sky is the real one, where it is tonight (the device's clock gives the sidereal time): about 2,000 stars and the Milky Way, seen
+- The globe's sky is the real one, where it is tonight (the device's clock gives the sidereal time): every star the eye can see (about 5,000) and the Milky Way, seen
   as the globe's camera would see them beyond the Earth (no lines join the stars; the constellation figures are in the data, switched off). So Polaris and the Big
   Dipper appear behind the Earth only when you look from the southern hemisphere, never with the Arctic in view.
 
