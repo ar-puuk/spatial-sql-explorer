@@ -68,4 +68,45 @@ suite('Spec 008 US7: map image in VS Code', () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  // Spec 016: a page on paper, as a PDF and as an editable SVG, through the same host save.
+  test('Print map saves a PDF and an SVG of an A4 page through the host', async function () {
+    this.timeout(120000)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-print-'))
+    const file = path.join(dir, 'world.geojson')
+    fs.copyFileSync(path.resolve(__dirname, '../../fixtures/world-boundaries.geojson'), file)
+    try {
+      await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'spatialExplorer.editorOption')
+      const deadline = Date.now() + 45000
+      for (;;) {
+        const s = (await vscode.commands.executeCommand('spatialExplorer._getLoadState')) as { loadState: string } | null
+        if (s?.loadState === 'ready') break
+        assert.ok(Date.now() < deadline, 'world.geojson did not load')
+        await sleep(200)
+      }
+      await sleep(1500)
+      const save = async (name: string, ...args: unknown[]): Promise<Buffer> => {
+        const out = path.join(dir, name)
+        await vscode.commands.executeCommand('spatialExplorer._saveNextExportTo', out)
+        await vscode.commands.executeCommand('spatialExplorer._exportMapImage', ...args)
+        const until = Date.now() + 40000
+        while (!fs.existsSync(out) || fs.statSync(out).size === 0) {
+          assert.ok(Date.now() < until, `${name} was not written`)
+          await sleep(200)
+        }
+        await sleep(300)
+        return fs.readFileSync(out)
+      }
+      const pdf = await save('page.pdf', 1, 'pdf', 'a4')
+      assert.strictEqual(pdf.subarray(0, 5).toString('latin1'), '%PDF-')
+      const svg = (await save('page.svg', 1, 'svg', 'a4', 'Every country', true)).toString('utf8')
+      assert.ok(svg.startsWith('<?xml'), 'an SVG document')
+      assert.ok(svg.includes('Every country'), 'the title is text in the SVG')
+      const texts = [...svg.matchAll(/<text[^>]*>([^<]*)</g)].map((m) => m[1])
+      assert.ok(texts.includes('N'), `the north arrow is in the SVG; the texts are: ${texts.join(' | ')}`)
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

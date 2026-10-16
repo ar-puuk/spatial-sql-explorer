@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
@@ -6,6 +7,11 @@ export default defineConfig({
   // BASE_PATH); local dev, preview and tests use the root.
   base: process.env.BASE_PATH || '/',
   plugins: [svelte()],
+
+  // jsPDF's optional HTML and SVG converters are not used (see packages/ui/src/print/emptyModule.ts).
+  resolve: {
+    alias: Object.fromEntries(['html2canvas', 'canvg', 'dompurify'].map((name) => [name, fileURLToPath(new URL('../../packages/ui/src/print/emptyModule.ts', import.meta.url))]))
+  },
   worker: {
     format: 'es'
   },
