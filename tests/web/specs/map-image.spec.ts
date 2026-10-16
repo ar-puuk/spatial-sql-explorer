@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import { fixture, openFile, chooseStyleType, openStyle, varyBy } from './helpers'
 
-const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export map image' })
+const dialog = (page: Page) => page.getByRole('dialog', { name: 'Print map' })
 /** PNG width and height from the IHDR chunk. */
 const pngSize = (b: Buffer) => ({ width: b.readUInt32BE(16), height: b.readUInt32BE(20), png: b.subarray(1, 4).toString('latin1') === 'PNG' })
 
@@ -32,7 +32,7 @@ test('Export map image: 1x and 2x PNGs of the map, through the dialog, in under 
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const map = (await page.locator('.canvas-host').boundingBox())!
-  const open = page.getByRole('button', { name: 'Export map image…' })
+  const open = page.getByRole('button', { name: 'Print map…' })
   await open.click()
   await expect(dialog(page)).toBeVisible()
   await expect(dialog(page).getByRole('radio', { name: '2×' })).toHaveAttribute('aria-checked', 'true')
@@ -40,7 +40,7 @@ test('Export map image: 1x and 2x PNGs of the map, through the dialog, in under 
   for (const scale of [1, 2] as const) {
     await dialog(page).getByRole('radio', { name: `${scale}×` }).click()
     const started = Date.now()
-    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Save' }).click()])
     expect(download.suggestedFilename()).toBe('world-boundaries-map.png')
     const size = pngSize(fs.readFileSync((await download.path())!))
     expect(Date.now() - started).toBeLessThan(5000) // SC-007
@@ -73,13 +73,13 @@ test('the legend is drawn into the image', async ({ page }) => {
 test('the dialog offers the legend only when one is shown', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  await page.getByRole('button', { name: 'Export map image…' }).click()
+  await page.getByRole('button', { name: 'Print map…' }).click()
   await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeDisabled()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   await chooseStyleType(page, 'Categorized')
   await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('button', { name: 'Export map image…' }).click()
+  await page.getByRole('button', { name: 'Print map…' }).click()
   await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeChecked()
 })
 
@@ -93,8 +93,8 @@ test('a raster basemap whose tiles can not be read: the image is still made, and
   await page.getByRole('region', { name: 'Basemap' }).getByRole('radio', { name: /^Satellite/ }).click()
   await page.keyboard.press('Escape')
   await expect(page.locator('.map-notice')).toContainText(/Satellite basemap unavailable/, { timeout: 30000 })
-  await page.getByRole('button', { name: 'Export map image…' }).click()
-  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
+  await page.getByRole('button', { name: 'Print map…' }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Save' }).click()])
   expect(pngSize(fs.readFileSync((await download.path())!)).png).toBe(true)
   await expect(dialog(page)).toContainText('basemap could not be loaded')
 })
@@ -179,9 +179,9 @@ test('labels and the merged, bar and sample groups are in the saved image', asyn
 
   /** Saves the image through the dialog (with its legend) and returns it as base64. */
   const save = async (): Promise<string> => {
-    await page.getByRole('button', { name: 'Export map image…' }).click()
+    await page.getByRole('button', { name: 'Print map…' }).click()
     await dialog(page).getByRole('radio', { name: '1×' }).click()
-    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Save' }).click()])
     const b64 = fs.readFileSync((await download.path())!).toString('base64')
     await dialog(page).getByRole('button', { name: 'Done' }).click()
     return b64
@@ -220,4 +220,84 @@ test('labels and the merged, bar and sample groups are in the saved image', asyn
   expect(await near(after, [0x44, 0x01, 0x54], box)).toBeGreaterThan(5)
   expect(await near(after, [0xfd, 0xe7, 0x25], box)).toBeGreaterThan(5)
   fs.writeFileSync(test.info().outputPath('map-image-011.png'), Buffer.from(after, 'base64'))
+})
+
+// Spec 016 (GeoLibre's Print options): PNG, PDF and SVG, on the map's size or on paper.
+async function saveAs(page: Page, setup: (d: ReturnType<typeof dialog>) => Promise<void>) {
+  await page.getByRole('button', { name: 'Print map…' }).click()
+  await setup(dialog(page))
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Save' }).click()])
+  return { name: download.suggestedFilename(), bytes: fs.readFileSync((await download.path())!) }
+}
+const chooseFormat = (d: ReturnType<typeof dialog>, name: string) => d.getByRole('radio', { name, exact: true }).click()
+const choosePage = async (page: Page, d: ReturnType<typeof dialog>, option: string) => {
+  await d.getByRole('button', { name: 'Page', exact: true }).click()
+  await page.getByRole('option', { name: option, exact: false }).first().click()
+}
+
+test('a PNG on A4, landscape for a wide map, at 150 dpi, with a title', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const out = await saveAs(page, async (d) => {
+    await choosePage(page, d, 'A4')
+    await d.getByLabel('Title').fill('World boundaries')
+  })
+  expect(out.name).toBe('world-boundaries-map.png')
+  const size = pngSize(out.bytes)
+  expect(size.png).toBe(true)
+  // The map pane is wider than tall: A4 turned to landscape, 297 x 210 mm at 150 dpi.
+  expect(size.width).toBe(1754)
+  expect(size.height).toBe(1240)
+  await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toContainText('1754 × 1240 px')
+})
+
+test('a PDF: one page of the chosen paper', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const out = await saveAs(page, async (d) => {
+    await chooseFormat(d, 'PDF')
+    await choosePage(page, d, 'Letter')
+    await d.getByRole('radio', { name: 'Portrait' }).click()
+  })
+  expect(out.name).toBe('world-boundaries-map.pdf')
+  const text = out.bytes.toString('latin1')
+  expect(text.startsWith('%PDF-')).toBe(true)
+  // Letter portrait is 612 x 792 points.
+  expect(text).toMatch(/\/MediaBox\s*\[\s*0\s+0\s+612(\.\d*)?\s+792(\.\d*)?\s*\]/)
+  expect(text.match(/\/Type\s*\/Page\b/g)?.length).toBe(1)
+})
+
+test('an SVG: the title, scale bar and north arrow are real text and shapes, the map one picture', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const out = await saveAs(page, async (d) => {
+    await chooseFormat(d, 'SVG')
+    await choosePage(page, d, 'A4')
+    await d.getByLabel('Title').fill('Every country')
+  })
+  expect(out.name).toBe('world-boundaries-map.svg')
+  const svg = out.bytes.toString('utf8')
+  expect(svg.startsWith('<?xml')).toBe(true)
+  expect(svg).toMatch(/width="297mm"/)
+  expect(svg).toMatch(/height="210mm"/)
+  expect(svg).toContain('Every country')
+  expect(svg).toMatch(/<text[^>]*>[^<]*\bN\b/) // the north arrow's letter
+  expect(svg).toMatch(/\d+ (km|m|cm)\b/) // the scale bar's length
+  expect(svg.match(/<image\b/g)?.length).toBe(1) // the map, and nothing else is a picture
+})
+
+test('the paper options are only offered for a page, and a map-size page keeps 1x and 2x', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await page.getByRole('button', { name: 'Print map…' }).click()
+  await expect(dialog(page).getByRole('radio', { name: '2×' })).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: 'Portrait' })).toHaveCount(0)
+  await choosePage(page, dialog(page), 'A3')
+  await expect(dialog(page).getByRole('radio', { name: 'Portrait' })).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: '2×' })).toHaveCount(0)
+  await chooseFormat(dialog(page), 'SVG')
+  await expect(dialog(page).getByRole('radio', { name: '300 dpi' })).toHaveCount(0)
 })

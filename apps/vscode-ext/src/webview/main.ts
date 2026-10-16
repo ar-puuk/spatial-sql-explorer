@@ -114,7 +114,9 @@ async function main(): Promise<void> {
     } else if (msg.type === 'testSaveStyleAs' && (msg.format === 'qml' || msg.format === 'sld' || msg.format === 'mapbox')) {
       void store.saveStyleAs(msg.format)
     } else if (msg.type === 'testExportMapImage') {
-      void store.exportMapImage({ scale: msg.scale === 2 ? 2 : 1, legend: null })
+      const format = msg.format === 'pdf' || msg.format === 'svg' ? msg.format : 'png'
+      const paper = msg.paper === 'a4' ? 'a4' : 'map'
+      void store.exportMapImage({ format, paper, orientation: 'auto', title: typeof msg.title === 'string' ? msg.title : '', legend: null, scaleBar: msg.furniture === true, northArrow: msg.furniture === true, units: 'metric', scale: msg.scale === 2 ? 2 : 1, dpi: 150 })
     } else if (msg.type === 'testCancelOpen') {
       void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {

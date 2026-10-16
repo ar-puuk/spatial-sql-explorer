@@ -713,7 +713,7 @@
       legend={legendSpec}
       onClose={() => {
         store.closeMapImage()
-        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Export map image…"]')?.focus())
+        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Print map…"]')?.focus())
       }}
     />
   {/if}

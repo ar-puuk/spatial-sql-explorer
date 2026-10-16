@@ -22,9 +22,11 @@
     "@lucide/svelte": "1.57.0",
     "@spatial-explorer/core": "*",
     "bits-ui": "2.19.5",
+    "jspdf": "4.2.1",
     "maplibre-gl": "^6.13.0",
     "pmtiles": "^4.5.0",
     "svelte": "^5.0.0",
+    "svgcanvas": "2.6.0",
     "terra-draw": "1.37.0",
     "terra-draw-maplibre-gl-adapter": "1.5.0",
     "vanilla-colorful": "0.7.2"

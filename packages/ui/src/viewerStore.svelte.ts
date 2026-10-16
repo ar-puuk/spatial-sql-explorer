@@ -81,6 +81,7 @@ import {
 import { DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { LegendSpec, MapCapture } from './mapImage.js'
+import type { PrintOptions } from './printMap.js'
 import type { DrawTool } from './draw/controller.js'
 import { registerTileProvider } from './engineTiles.js'
 
@@ -128,9 +129,12 @@ export interface QueryTableInfo {
 
 /** Spec 008 US7: what a map image export did. */
 export type MapImageOutcome =
-  | { kind: 'saved'; location: string; width: number; height: number; notes: string[] }
+  | { kind: 'saved'; location: string; size: string; notes: string[] }
   | { kind: 'cancelled' }
   | { kind: 'failed'; message: string }
+
+/** The test hook's page: the map's size, a PNG, nothing but the map (and the legend it is given). */
+const PLAIN_PRINT: PrintOptions = { format: 'png', paper: 'map', orientation: 'auto', title: '', legend: null, scaleBar: false, northArrow: false, units: 'metric', scale: 1, dpi: 150 }
 
 /** Spec 008: the engine's check of a typed EPSG code. */
 export type ExportCrsCheck = { code: number; state: 'checking' } | { code: number; state: 'ok'; name: string } | { code: number; state: 'invalid'; reason: string }
@@ -252,8 +256,8 @@ export interface ViewerStore {
   closeMapImage(): void
   /** MapView hands over its capture once the map is ready. */
   setMapCapture(capture: MapCapture): void
-  /** Captures the view (1x or 2x, with the legend or not) and saves it through the host as `<file>-map.png`. */
-  exportMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<MapImageOutcome>
+  /** Spec 016: captures the view, lays out the page and saves it through the host as `<file>-map.png`, `.pdf` or `.svg`. */
+  exportMapImage(opts: PrintOptions): Promise<MapImageOutcome>
   /** Test hook: the capture only, no save. */
   captureMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<{ bytes: Uint8Array; width: number; height: number; notes: string[] } | null>
   openExport(): void
@@ -1901,21 +1905,28 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       mapCapture = capture
     },
     async captureMapImage(opts) {
-      return mapCapture ? mapCapture(opts) : null
+      if (!mapCapture) return null
+      const { printPage } = await import('./printMap.js')
+      const shot = await mapCapture({ ratio: opts.scale })
+      const page = await printPage(shot, { ...PLAIN_PRINT, ...opts, legend: opts.legend })
+      const png = page.bytes
+      return { bytes: png, width: new DataView(png.buffer, png.byteOffset).getUint32(16), height: new DataView(png.buffer, png.byteOffset).getUint32(20), notes: page.notes }
     },
     async exportMapImage(opts) {
       if (!mapCapture) return { kind: 'failed', message: 'The map is not ready yet.' }
       try {
-        const shot = await mapCapture(opts)
-        const notes = [...shot.notes]
-        // A basemap that already failed (blank fallback) isn't in the image either.
-        if (basemapFailed && basemapNotice) notes.push('The basemap could not be loaded and is not in the image.')
-        const base = (currentFileName ?? 'map').replace(/\.[^.]+$/, '')
-        const saved = await hostAdapter.saveFile(`${base}-map.png`, shot.bytes, { kind: 'image' })
+        const { printPage } = await import('./printMap.js')
+        const shot = await mapCapture({ ratio: opts.paper === 'map' ? opts.scale : 2 })
+        const page = await printPage(shot, opts)
+        const notes = [...page.notes]
+        // A basemap that already failed (blank fallback) isn't in the file either.
+        if (basemapFailed && basemapNotice) notes.push('The basemap could not be loaded and is not in the file.')
+        const name = `${(currentFileName ?? 'map').replace(/\.[^.]+$/, '')}-map.${opts.format}`
+        const saved = await hostAdapter.saveFile(name, page.bytes, { kind: 'image' })
         if (!saved.saved) return { kind: 'cancelled' }
-        return { kind: 'saved', location: saved.location ?? `${base}-map.png`, width: shot.width, height: shot.height, notes }
+        return { kind: 'saved', location: saved.location ?? name, size: page.size, notes }
       } catch (err) {
-        return { kind: 'failed', message: `The map image could not be made: ${err instanceof Error ? err.message : String(err)}` }
+        return { kind: 'failed', message: `The map could not be saved: ${err instanceof Error ? err.message : String(err)}` }
       }
     },
     get exportOpen() {

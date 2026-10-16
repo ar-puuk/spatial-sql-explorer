@@ -74,7 +74,7 @@
   import ProgressBar from './ProgressBar.svelte'
   import Tip from './kit/Tip.svelte'
   import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
-  import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
+  import { plainAttribution, type MapCapture, type MapShot } from './mapImage.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
@@ -974,7 +974,16 @@
       m.triggerRepaint()
     })
   }
-  const captureMap: MapCapture = async ({ scale, legend }) => {
+  /** Ground meters per CSS pixel at the center, from two points 100 px apart (right on a globe too). */
+  function centerMetersPerPixel(m: MapLibreMap): number {
+    const { x, y } = m.project(m.getCenter())
+    const a = m.unproject([x - 50, y])
+    const b = m.unproject([x + 50, y])
+    const rad = Math.PI / 180
+    const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2
+    return (2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)))) / 100
+  }
+  const captureMap: MapCapture = async ({ ratio: wanted }) => {
     const m = map
     if (!m) throw new Error('The map is not ready.')
     const notes: string[] = []
@@ -982,10 +991,10 @@
     const cssH = container.clientHeight
     const gl = (m.getCanvas().getContext('webgl2') ?? m.getCanvas().getContext('webgl')) as WebGLRenderingContext | null
     const max = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number) : 4096
-    let ratio: number = scale
+    let ratio = wanted
     if (Math.max(cssW, cssH) * ratio > max) {
       ratio = 1
-      notes.push(`2× would be larger than this device can draw (${max} px): saved at 1×.`)
+      notes.push(`${wanted}× would be larger than this device can draw (${max} px): the map is at 1×.`)
     }
     const previous = m.getPixelRatio()
     const background = blankBackground()
@@ -996,11 +1005,22 @@
         m.setPixelRatio(ratio)
         await idle(m)
       }
-      const compose = (frame: HTMLCanvasElement, withAttribution: boolean) =>
-        composeMapImage({ map: frame, under: sky, background, ratio, legend, attribution: withAttribution ? attribution : '' })
+      // The frame over its background (and the globe's sky), so a transparent part is not black in the file.
+      const flatten = (grabbed: HTMLCanvasElement): HTMLCanvasElement => {
+        const out = document.createElement('canvas')
+        out.width = grabbed.width
+        out.height = grabbed.height
+        const ctx = out.getContext('2d')
+        if (!ctx) throw new Error('No 2D canvas is available for the map image.')
+        ctx.fillStyle = background
+        ctx.fillRect(0, 0, out.width, out.height)
+        if (sky && sky.width) ctx.drawImage(sky, 0, 0, out.width, out.height)
+        ctx.drawImage(grabbed, 0, 0)
+        return out
+      }
+      const shot = (frame: HTMLCanvasElement, credit: string): MapShot => ({ frame, ratio, width: cssW, height: cssH, attribution: credit, bearing: m.getBearing(), metersPerPixel: centerMetersPerPixel(m), notes })
       try {
-        const out = compose(await grabFrame(m), true)
-        return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+        return shot(flatten(await grabFrame(m)), attribution)
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'SecurityError')) throw err
         // A basemap whose server doesn't allow reading its tiles taints the
@@ -1009,9 +1029,9 @@
         const hidden = (m.getStyle().layers ?? []).filter((l) => !ours.has(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none').map((l) => l.id)
         for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'none')
         try {
-          const out = compose(await grabFrame(m), false)
+          const out = shot(flatten(await grabFrame(m)), '')
           notes.push(`The ${activeBasemap?.name ?? ''} basemap could not be captured (its server doesn't allow it) and was left out.`.replace('The  basemap', 'The basemap'))
-          return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+          return out
         } finally {
           for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'visible')
         }
@@ -1795,7 +1815,7 @@
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
                   {:else if id === 'exportImage'}
-                    {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
+                    {@render mapButton('Print map…', 'Print map…', 'printer', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}
                     <!-- Spec 008 FR-026: back to flat and north-up. -->
                     {@render mapButton('Reset view', 'Reset view (flat, north up)', 'north', corner, { rotate: -mapBearing, onclick: resetView })}

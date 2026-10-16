@@ -27,6 +27,7 @@
   import Globe from '@lucide/svelte/icons/globe'
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Image from '@lucide/svelte/icons/image'
+  import Printer from '@lucide/svelte/icons/printer'
   import Info from '@lucide/svelte/icons/info'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import Layers from '@lucide/svelte/icons/layers'
@@ -111,6 +112,7 @@
     cube: Box,
     tag: Tag,
     image: Image,
+    printer: Printer,
     search: Search,
     link: Link,
     sun: Sun,

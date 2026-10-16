@@ -79,6 +79,8 @@ const DATA_FILTERS: Record<string, Record<string, string[]>> = {
   '.xlsx': { 'Excel workbook': ['xlsx'] },
   '.json': { JSON: ['json'] },
   '.png': { 'PNG image': ['png'] },
+  '.pdf': { 'PDF document': ['pdf'] },
+  '.svg': { 'SVG image': ['svg'] },
 }
 
 /**
@@ -531,7 +533,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       } else {
         const ext = path.posix.extname(msg.name).toLowerCase()
         target = await vscode.window.showSaveDialog({
-          title: msg.kind === 'image' ? 'Export map image' : 'Export data',
+          title: msg.kind === 'image' ? 'Save map' : 'Export data',
           defaultUri: vscode.Uri.joinPath(documentUri, '..', msg.name),
           filters: DATA_FILTERS[ext] ?? { 'All files': ['*'] },
         })
@@ -1002,7 +1004,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // Spec 008 T012: the Save button's menu (pair with _saveNextExportTo for formats other than the sidecar).
     vscode.commands.registerCommand('spatialExplorer._saveStyleAs', (format: string) => provider.postToActive({ type: 'testSaveStyleAs', format })),
     // Spec 008 US7 T081: export the map image (pair with _saveNextExportTo).
-    vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number) => provider.postToActive({ type: 'testExportMapImage', scale })),
+    vscode.commands.registerCommand('spatialExplorer._exportMapImage', (scale: number, format?: string, paper?: string, title?: string, furniture?: boolean) =>
+      provider.postToActive({ type: 'testExportMapImage', scale, format, paper, title, furniture })
+    ),
     vscode.commands.registerCommand('spatialExplorer._getLogLines', () => [...recentLogLines]),
     // Spec 008 research §15: where the engine's local copy lives, and what was downloaded this session.
     vscode.commands.registerCommand('spatialExplorer._getEngineDownloads', () => ({ dir: engineDir(context).fsPath, downloaded: [...engineDownloadLog] })),

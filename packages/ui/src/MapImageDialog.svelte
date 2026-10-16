@@ -1,11 +1,15 @@
 <script lang="ts">
-  // Spec 008 US7 (FR-030, contracts/ui.md "Map image dialog"): the current
-  // map view as a PNG, at 1x or 2x, with the legend (when one is shown) and
-  // the basemap's attribution. Saved through the host (VS Code: a save
-  // dialog next to the data; web: a download).
+  // Spec 008 US7 (FR-030) and spec 016: the current map view as a page, saved
+  // as a PNG, a PDF or an SVG (GeoLibre's Print options): the size of the map
+  // on screen or a sheet of paper, with a title, the legend (when one is
+  // shown), a north arrow, a scale bar and the basemap's attribution. Saved
+  // through the host (VS Code: a save dialog next to the data; web: a download).
   import { onMount, tick } from 'svelte'
   import Icon from './Icon.svelte'
-  import type { LegendSpec } from './mapImage.js'
+  import Segmented from './kit/Segmented.svelte'
+  import Select from './kit/Select.svelte'
+  import { legendHasContent, type LegendSpec } from './mapImage.js'
+  import { PAPERS, type PageOrientation, type PaperId, type PrintFormat } from './printMap.js'
   import type { MapImageOutcome, ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -16,19 +20,40 @@
   }
   let { store, legend, onClose }: Props = $props()
 
+  const hasLegend = $derived(legendHasContent(legend))
+  let format = $state<PrintFormat>('png')
+  let paper = $state<PaperId>('map')
+  let orientation = $state<PageOrientation>('auto')
   let scale = $state<1 | 2>(2)
+  let dpi = $state<150 | 300>(150)
+  let title = $state('')
   // svelte-ignore state_referenced_locally
-  let withLegend = $state(legend !== null)
+  let withLegend = $state(hasLegend)
+  let scaleBar = $state(true)
+  let northArrow = $state(true)
   let running = $state(false)
   let outcome = $state.raw<MapImageOutcome | null>(null)
   let dialog = $state<HTMLDivElement>()
 
-  async function exportImage(): Promise<void> {
+  const onPaper = $derived(paper !== 'map')
+
+  async function save(): Promise<void> {
     if (running) return
     running = true
     outcome = null
     try {
-      outcome = await store.exportMapImage({ scale, legend: withLegend ? legend : null })
+      outcome = await store.exportMapImage({
+        format,
+        paper,
+        orientation,
+        title,
+        legend: withLegend && hasLegend ? legend : null,
+        scaleBar,
+        northArrow,
+        units: store.drawUnits,
+        scale,
+        dpi,
+      })
     } finally {
       running = false
     }
@@ -69,37 +94,93 @@
 </script>
 
 <div class="backdrop" role="presentation" onkeydown={onKeydown}>
-  <div class="dialog" role="dialog" aria-modal="true" aria-label="Export map image" bind:this={dialog}>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Print map" bind:this={dialog}>
     <header>
-      <h2>Export map image</h2>
+      <h2>Print map</h2>
       <button type="button" class="icon-button" aria-label="Close" title="Close" disabled={running} onclick={onClose}><Icon name="close" /></button>
     </header>
     <div class="body">
       <div class="field">
-        <span class="label" id="image-size">Size</span>
-        <div class="options" role="radiogroup" aria-labelledby="image-size">
-          {#each [1, 2] as s (s)}
-            <button
-              type="button"
-              role="radio"
-              data-scale={s}
-              aria-checked={scale === s}
-              tabindex={scale === s ? 0 : -1}
-              disabled={running}
-              onclick={() => (scale = s as 1 | 2)}
-              onkeydown={scaleKeys}>{s}×</button
-            >
-          {/each}
-        </div>
-        <span class="hint">{scale === 2 ? 'Twice the map’s size on screen: sharp in print and slides.' : 'The map’s size on screen.'}</span>
+        <span class="label">Format</span>
+        <Segmented
+          label="Format"
+          value={format}
+          onChange={(v) => (format = v as PrintFormat)}
+          options={[
+            { value: 'png', label: 'PNG', title: 'A picture' },
+            { value: 'pdf', label: 'PDF', title: 'A document to print or share' },
+            { value: 'svg', label: 'SVG', title: 'Text, legend and scale stay editable in Inkscape or Illustrator' },
+          ]}
+        />
+        <span class="hint">{format === 'svg' ? 'The title, legend and scale bar stay editable; the map is a picture in it.' : format === 'pdf' ? 'One page, ready to print or share.' : 'A picture, sharp in print and slides.'}</span>
       </div>
-      <label class="check" class:disabled={!legend}>
-        <input type="checkbox" bind:checked={withLegend} disabled={!legend || running} />
-        <span>Include legend</span>
-        {#if !legend}<span class="hint">(no legend is shown)</span>{/if}
-      </label>
+      <div class="field">
+        <span class="label">Page</span>
+        <div class="control"><Select label="Page" value={paper} onChange={(v) => (paper = v as PaperId)} options={PAPERS.map((p) => ({ value: p.id, label: p.label }))} /></div>
+      </div>
+      {#if onPaper}
+        <div class="field">
+          <span class="label">Turned</span>
+          <Segmented
+            label="Orientation"
+            value={orientation}
+            onChange={(v) => (orientation = v as PageOrientation)}
+            options={[
+              { value: 'auto', label: 'Fit the map', title: 'Portrait for a tall map, landscape for a wide one' },
+              { value: 'portrait', label: 'Portrait' },
+              { value: 'landscape', label: 'Landscape' },
+            ]}
+          />
+        </div>
+        {#if format !== 'svg'}
+          <div class="field">
+            <span class="label">Detail</span>
+            <Segmented
+              label="Detail"
+              value={String(dpi)}
+              onChange={(v) => (dpi = v === '300' ? 300 : 150)}
+              options={[
+                { value: '150', label: '150 dpi', title: 'Screen and office printers' },
+                { value: '300', label: '300 dpi', title: 'Print shop quality; a bigger file' },
+              ]}
+            />
+          </div>
+        {/if}
+      {:else}
+        <div class="field">
+          <span class="label" id="image-size">Size</span>
+          <div class="options" role="radiogroup" aria-labelledby="image-size">
+            {#each [1, 2] as s (s)}
+              <button
+                type="button"
+                role="radio"
+                data-scale={s}
+                aria-checked={scale === s}
+                tabindex={scale === s ? 0 : -1}
+                disabled={running}
+                onclick={() => (scale = s as 1 | 2)}
+                onkeydown={scaleKeys}>{s}×</button
+              >
+            {/each}
+          </div>
+          <span class="hint">{scale === 2 ? 'Twice the map’s size on screen: sharp in print and slides.' : 'The map’s size on screen.'}</span>
+        </div>
+      {/if}
+      <div class="field">
+        <label class="label" for="print-title">Title</label>
+        <input id="print-title" class="text" type="text" placeholder="None" bind:value={title} disabled={running} />
+      </div>
+      <div class="checks">
+        <label class="check" class:disabled={!hasLegend}>
+          <input type="checkbox" bind:checked={withLegend} disabled={!hasLegend || running} />
+          <span>Include legend</span>
+          {#if !hasLegend}<span class="hint">(no legend is shown)</span>{/if}
+        </label>
+        <label class="check"><input type="checkbox" bind:checked={scaleBar} disabled={running} /><span>Scale bar</span></label>
+        <label class="check"><input type="checkbox" bind:checked={northArrow} disabled={running} /><span>North arrow</span></label>
+      </div>
       {#if outcome?.kind === 'saved'}
-        <p class="result ok" role="status"><Icon name="check" size={14} />Saved {outcome.location} ({outcome.width} × {outcome.height} px).</p>
+        <p class="result ok" role="status"><Icon name="check" size={14} />Saved {outcome.location} ({outcome.size}).</p>
       {:else if outcome?.kind === 'failed'}
         <p class="result error" role="alert"><Icon name="error" size={14} />{outcome.message}</p>
       {/if}
@@ -110,10 +191,10 @@
       {/if}
     </div>
     <footer>
-      {#if running}<span class="progress" role="status">Making the image…</span>{/if}
+      {#if running}<span class="progress" role="status">Making the {format.toUpperCase()}…</span>{/if}
       <span class="spacer"></span>
       <button type="button" class="secondary" disabled={running} onclick={onClose}>{outcome?.kind === 'saved' ? 'Done' : 'Cancel'}</button>
-      <button type="button" class="primary" disabled={running} onclick={() => void exportImage()}><Icon name="image" size={14} />Export</button>
+      <button type="button" class="primary" disabled={running} onclick={() => void save()}><Icon name="printer" size={14} />Save</button>
     </footer>
   </div>
 </div>
@@ -131,7 +212,7 @@
   .dialog {
     display: flex;
     flex-direction: column;
-    width: min(400px, 100%);
+    width: min(460px, 100%);
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
@@ -167,12 +248,34 @@
     gap: 8px;
   }
   .label {
-    width: 64px;
+    width: 56px;
     color: var(--se-text-secondary);
+  }
+  .control {
+    flex: 1;
+    min-width: 0;
+  }
+  .text {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    color: var(--se-text-primary);
+    font: inherit;
+  }
+  .text:focus-visible {
+    outline: 1px solid var(--se-focus);
+  }
+  .checks {
+    display: grid;
+    gap: 6px;
   }
   .hint {
     flex-basis: 100%;
-    padding-left: 72px;
+    padding-left: 64px;
     color: var(--se-text-secondary);
     font-size: 0.92em;
   }
@@ -208,7 +311,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-left: 72px;
+    padding-left: 64px;
     cursor: pointer;
   }
   .check.disabled {

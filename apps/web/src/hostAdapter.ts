@@ -113,6 +113,8 @@ function groupSource(path: string, group: File[]): FileSource {
 /** e2e (spec 007 T053): range reads served, to show PMTiles is never read whole. */
 export const rangeReads = { count: 0, bytes: 0, largest: 0 }
 
+const IMAGE_TYPES: Record<string, string> = { png: 'image/png', pdf: 'application/pdf', svg: 'image/svg+xml' }
+
 // Spec 008 research §15: the SQL engine's local copy, in Cache Storage (not
 // the HTTP cache, which the browser evicts freely). Keyed by content hash.
 const ENGINE_CACHE = 'spatial-explorer-engine'
@@ -229,7 +231,7 @@ export function createWebHostAdapter(): HostAdapter {
     async saveFile(name: string, content: Uint8Array | string, options?: SaveOptions): Promise<SaveResult> {
       // The browser cannot write next to a picked file, so every save is a
       // download (HostAdapter.saveSidecar is intentionally not implemented).
-      const blob = new Blob([content as BlobPart], { type: options?.kind === 'image' ? 'image/png' : 'application/octet-stream' })
+      const blob = new Blob([content as BlobPart], { type: options?.kind === 'image' ? (IMAGE_TYPES[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? 'image/png') : 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
