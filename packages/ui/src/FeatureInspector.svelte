@@ -13,10 +13,12 @@
     feature: Feature
     /** Declared column types by name (the layer's), when known: they tell a decimal from an integer. */
     types?: Record<string, string>
+    /** The map is too short for the attributes: only the header shows, and stays so until the map is taller. */
+    collapsed?: boolean
     onZoom: () => void
     onClose: () => void
   }
-  let { feature, types, onZoom, onClose }: Props = $props()
+  let { feature, types, collapsed = false, onZoom, onClose }: Props = $props()
 
   let entries = $derived(Object.entries(feature.attributes))
   // Spec 008 (user request): wide data scrolls, and many attributes get a filter.
@@ -38,6 +40,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="inspector"
+  class:collapsed
   aria-label="Feature attributes"
   tabindex="-1"
   onkeydown={(e) => {
@@ -61,7 +64,9 @@
     {/if}
     <button type="button" class="icon-button" title="Close" aria-label="Close" onclick={onClose}><Icon name="close" /></button>
   </header>
-  {#if entries.length === 0}
+  {#if collapsed}
+    <!-- Nothing: the header alone, until the map has room. -->
+  {:else if entries.length === 0}
     <p class="empty">This feature has no attributes.</p>
   {:else}
     {#if entries.length > FILTER_FROM}
@@ -105,6 +110,9 @@
     font-size: var(--se-font-size);
     outline: none;
     user-select: text;
+  }
+  .inspector.collapsed header {
+    border-bottom: 0;
   }
   header {
     display: flex;

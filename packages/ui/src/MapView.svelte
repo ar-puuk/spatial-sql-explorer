@@ -1965,14 +1965,16 @@
     max-height: none;
   }
   .side.left > .corner.top-left {
-    flex: 0 1 auto;
+    /* The card and search give way first (their lists scroll): the bottom stack never shrinks below what it needs. */
+    flex: 0 100 auto;
     min-height: 0;
     align-items: flex-start;
   }
   /* When the two do not fit, the legend gives up more of its height than the card (its list scrolls). */
   .side.left > .corner.bottom-left {
     flex: 0 1 auto;
-    min-height: 0;
+    /* Never below its content's own minimum (legend, logo, scale bar): it would spill out of the map over the table. */
+    min-height: min-content;
     margin-top: auto;
     align-items: flex-start;
   }
@@ -2004,7 +2006,7 @@
   }
   .side.right > .corner.bottom-right {
     flex: 0 1 auto;
-    min-height: 0;
+    min-height: min-content;
     margin-top: auto;
   }
   .side.right > .corner > .native {

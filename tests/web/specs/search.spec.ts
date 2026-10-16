@@ -10,6 +10,7 @@ const group = (page: Page, name: string | RegExp) => page.getByRole('group', { n
 
 for (const mode of ['GeoJSON', 'tiles'] as const) {
   test(`a layer value is found, and choosing it selects the row, shows its attributes and zooms (${mode})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the feature card is open, not collapsed to its header
     await page.route('https://nominatim.openstreetmap.org/**', (r) => r.abort())
     await openFile(page, fixture('world-boundaries.geojson'), mode === 'tiles' ? '?e2e=1&tileRows=10' : '?e2e=1')
     const before = (await mapState(page)).zoom ?? 0

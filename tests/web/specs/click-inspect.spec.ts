@@ -14,6 +14,7 @@ test('clicking a map feature selects its row and shows its attributes', async ({
   // point inside the contiguous US (Kansas, -100/39) lands after the map's
   // fit-to-extent (Web Mercator, 32px padding). With a single world copy the
   // view can't extend past ±180°, so the center is clamped horizontally.
+  await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the card is open, not collapsed to its header
   await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../../vscode-ext/fixtures/usa-utm12n.gpkg'))
   await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
   await expect(page.locator('.inspector')).toHaveCount(0)
@@ -45,7 +46,7 @@ test('clicking a map feature selects its row and shows its attributes', async ({
 // size and can be filtered; dates show as dates in the inspector and table.
 test('the inspector with 50 attributes: readable rows that scroll, a filter, and dates as dates', async ({ page }) => {
   const { fixture, openFile } = await import('./helpers')
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 1280, height: 1000 })
   await openFile(page, fixture('wide-50.parquet'), '?e2e=1')
   // The table: DATE columns as YYYY-MM-DD, not epoch milliseconds.
   await expect(page.getByRole('grid').first()).toContainText('2020-01-01')

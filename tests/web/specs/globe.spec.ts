@@ -41,6 +41,7 @@ test('on the globe, engine tiles draw', async ({ page }) => {
 })
 
 test('on the globe, a click opens the inspector', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the feature card is open, not collapsed to its header
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   await globe(page).click()
   await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }).__spatialExplorerE2E.jumpTo(-100, 40, 3))

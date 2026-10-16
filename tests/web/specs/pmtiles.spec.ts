@@ -14,6 +14,7 @@ const e2e = <T>(page: Page, name: string): Promise<T> =>
 const rendered = async (page: Page): Promise<number> => Number((await page.locator('.canvas-host').getAttribute('data-rendered-features')) ?? 0)
 
 test('a PMTiles archive: tiles at two zooms, partial reads, the inspector, and the other pillars disabled', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the feature card is open, not collapsed to its header
   await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
   )

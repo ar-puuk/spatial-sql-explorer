@@ -63,6 +63,7 @@ test('over the tile threshold the engine draws tiles; Load all switches to GeoJS
 })
 
 test('tiles: a clicked feature shows its attributes; a selected row is drawn highlighted', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the feature card is open, not collapsed to its header
   await openFile(page, fixture('parcels-10k.geojson'), '?e2e=1&tileRows=1000')
   await expect.poll(async () => (await drawState(page)).mode).toBe('tiles')
   // Bring feature 0 to the map's center (fetched by id: FR-008), then click it.

@@ -2,6 +2,9 @@
 // sits in (a row per control: switch, name, position), remembered for the user (not per file).
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { fixture } from './helpers'
 
 async function open(page: Page): Promise<void> {
@@ -244,4 +247,45 @@ test('hover tooltip in engine tiles mode: the chosen columns come by id', async 
   await page.mouse.move(box.x + at!.x, box.y + at!.y)
   await expect(tooltip(page)).toBeVisible({ timeout: 15000 })
   await expect(tooltip(page).locator('.tip-row').first()).toBeVisible()
+})
+
+test('on a short map the left stacks never spill out of it or over each other', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 700 })
+  await page.goto('/?e2e=1')
+  // Many attributes: the feature card is as tall as it can be, so the stacks compete for the room.
+  const props = Object.fromEntries(Array.from({ length: 46 }, (_, i) => [`attribute_${i}`, i]))
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-w-')), 'wide.geojson')
+  fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [-111.9, 40.7] } }] }))
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await page.getByRole('grid', { name: 'Attribute table' }).getByRole('row').nth(1).dblclick()
+  await expect(page.locator('.inspector')).toBeVisible()
+  // Too little room: the card keeps its header only, and the legend its title.
+  await expect(page.locator('.inspector.collapsed')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Filter attributes' })).toHaveCount(0)
+  const view = (await page.locator('.map-view').boundingBox())!
+  const top = (await corner(page, 'top-left').boundingBox())!
+  const bottom = (await corner(page, 'bottom-left').boundingBox())!
+  expect(bottom.y + bottom.height).toBeLessThanOrEqual(view.y + view.height + 1)
+  expect(top.y + top.height).toBeLessThanOrEqual(bottom.y + 1)
+  // Every child of the bottom stack (legend, logo, scale bar) stays inside the stack.
+  for (const child of await corner(page, 'bottom-left').locator('> *').all()) {
+    const b = await child.boundingBox()
+    if (!b) continue
+    expect(b.y + b.height).toBeLessThanOrEqual(bottom.y + bottom.height + 1)
+  }
+})
+
+test('the feature card opens up when the map is tall enough', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/?e2e=1')
+  const props = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`attribute_${i}`, i]))
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'se-w-')), 'wide.geojson')
+  fs.writeFileSync(file, JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [-111.9, 40.7] } }] }))
+  await page.locator('input[type="file"]').setInputFiles(file)
+  await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+  await page.getByRole('grid', { name: 'Attribute table' }).getByRole('row').nth(1).dblclick()
+  await expect(page.locator('.inspector')).toBeVisible()
+  await expect(page.locator('.inspector.collapsed')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Filter attributes' })).toBeVisible()
 })

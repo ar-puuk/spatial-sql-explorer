@@ -33,6 +33,7 @@ test('the rail opens the side panel, the active button closes it, and Escape ret
 })
 
 test('a selection shows its attributes in a card on the map, with Style still open', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the card is open, not collapsed to its header
   await openFile(page, fixture('world-boundaries.geojson'))
   const rows = page.getByRole('grid', { name: 'Attribute table' }).locator('tbody tr')
   const card = page.getByRole('region', { name: 'Feature attributes' })
@@ -135,4 +136,20 @@ test('a right-drag tilts the map without extrusion, and Reset view flattens it a
   await reset.click()
   await expect.poll(async () => (await state()).pitch ?? 1).toBeLessThan(0.5)
   await expect(reset).toHaveCount(0)
+})
+
+test('the table panel cannot take so much that the map is shorter than its controls need', async ({ page }) => {
+  await openFile(page, fixture('world-boundaries.geojson'))
+  const sash = page.getByRole('separator', { name: 'Resize panel' })
+  await sash.focus()
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowUp')
+  const map = (await page.locator('.map-pane').boundingBox())!
+  expect(map.height).toBeGreaterThanOrEqual(219)
+  // And dragging the sash to the top of the page stops at the same place.
+  const box = (await sash.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, 5, { steps: 5 })
+  await page.mouse.up()
+  expect((await page.locator('.map-pane').boundingBox())!.height).toBeGreaterThanOrEqual(219)
 })

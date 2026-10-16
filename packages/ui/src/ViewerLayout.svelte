@@ -161,6 +161,9 @@
   // --- Bottom panel ------------------------------------------------------------
   const MIN_FRACTION = 0.15
   const MAX_FRACTION = 0.85
+  /** The map never gets shorter than this (apart from a maximized panel): below it the controls, card, legend and tools no longer fit. */
+  const MIN_MAP_PX = 220
+  const maxFractionOf = (height: number): number => (height > 0 ? Math.min(MAX_FRACTION, Math.max(MIN_FRACTION, (height - MIN_MAP_PX) / height)) : MAX_FRACTION)
   const TAB_BAR_H = 35
   const COLLAPSE_BELOW_PX = TAB_BAR_H + 36
   const NARROW_PX = 720
@@ -181,17 +184,17 @@
   let inspectorClosed = $state(false)
 
   // How much room the map has decides what is drawn over it (a big table panel leaves a strip). In steps, so nothing ever
-  // overlaps: under SHORT_MAP_PX the legend shows only its title (and the buttons lay out in rows, MapView); under
-  // TINY_MAP_PX the legend and the feature card wait until the map is taller (the selection stays highlighted, and its row is in the table).
+  // overlaps: under CARD_MAP_PX the feature card shows only its header, then under SHORT_MAP_PX the legend
+  // shows only its title too (and the buttons lay out in rows, MapView). Neither can be opened until the map is taller.
   const SHORT_MAP_PX = 420
-  const TINY_MAP_PX = 250
+  const CARD_MAP_PX = 520
   let mapPaneHeight = $state(0)
   const shortMap = $derived(mapPaneHeight > 0 && mapPaneHeight < SHORT_MAP_PX)
-  const tinyMap = $derived(mapPaneHeight > 0 && mapPaneHeight < TINY_MAP_PX)
+  const shortCard = $derived(mapPaneHeight > 0 && mapPaneHeight < CARD_MAP_PX)
 
   const narrow = $derived(layoutWidth > 0 && layoutWidth < NARROW_PX)
   const bottomHeight = $derived(
-    layout.bottomCollapsed ? TAB_BAR_H : maximized ? Math.max(TAB_BAR_H, mainHeight - 1) : Math.max(TAB_BAR_H, Math.round(layout.bottomFraction * mainHeight))
+    layout.bottomCollapsed ? TAB_BAR_H : maximized ? Math.max(TAB_BAR_H, mainHeight - 1) : Math.max(TAB_BAR_H, Math.min(Math.round(layout.bottomFraction * mainHeight), mainHeight - MIN_MAP_PX))
   )
 
   async function openSql(): Promise<void> {
@@ -215,7 +218,7 @@
         if (!layout.bottomCollapsed) store.setLayout({ bottomCollapsed: true })
         return
       }
-      store.setLayout({ bottomCollapsed: false, bottomFraction: Math.min(MAX_FRACTION, Math.max(MIN_FRACTION, px / rect.height)) })
+      store.setLayout({ bottomCollapsed: false, bottomFraction: Math.min(maxFractionOf(rect.height), Math.max(MIN_FRACTION, px / rect.height)) })
     }
     const up = (): void => {
       dragging = false
@@ -231,7 +234,7 @@
   function sashKeydown(e: KeyboardEvent): void {
     const step = e.shiftKey ? 0.1 : 0.03
     maximized = false
-    if (e.key === 'ArrowUp') store.setLayout({ bottomCollapsed: false, bottomFraction: Math.min(MAX_FRACTION, layout.bottomFraction + step) })
+    if (e.key === 'ArrowUp') store.setLayout({ bottomCollapsed: false, bottomFraction: Math.min(maxFractionOf(mainHeight), layout.bottomFraction + step) })
     else if (e.key === 'ArrowDown') {
       if (layout.bottomFraction - step < MIN_FRACTION) store.setLayout({ bottomCollapsed: true })
       else store.setLayout({ bottomFraction: layout.bottomFraction - step })
@@ -341,12 +344,12 @@
     {/if}
   {:else if id === 'info'}
     <!-- The selected feature's card. Not a control: it shows whenever a feature is selected. -->
-    {#if inspected && !inspectorClosed && !tinyMap}
+    {#if inspected && !inspectorClosed}
       <div class="inspector-slot">
-        <FeatureInspector feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+        <FeatureInspector collapsed={shortCard} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
       </div>
     {/if}
-  {:else if id === 'legend' && layer && showLegend && !tinyMap}
+  {:else if id === 'legend' && layer && showLegend}
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
