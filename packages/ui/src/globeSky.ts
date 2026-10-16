@@ -145,6 +145,12 @@ export function loadSky(onLoad: () => void): void {
 }
 
 /**
+ * Whether the stars are joined into the constellations' stick figures. Off (user decision 2026-10-15: the lines look unnatural);
+ * the figures stay in the data (skyData.ts FIGURES), so turning this on brings them back.
+ */
+const SHOW_CONSTELLATION_LINES = false
+
+/**
  * The sky behind the Earth, as the globe's camera sees it. The camera hangs over the view's center (longitude, latitude),
  * looks at the Earth's center, with east to the right and north (turned by the bearing) up. Earth-fixed directions are turned
  * into the inertial frame by the sidereal time of the device's clock, so the stars are where they are tonight. What shows is
@@ -209,12 +215,14 @@ function drawRealSky(ctx: CanvasRenderingContext2D, w: number, h: number, center
   })
   ctx.restore()
 
-  // The constellations' figures.
-  ctx.beginPath()
-  for (const fig of sky.figures) trace(fig)
-  ctx.lineWidth = 0.8
-  ctx.strokeStyle = 'rgba(150,185,255,0.13)'
-  ctx.stroke()
+  // The constellations' figures (the stick figures joining the stars): off, they are a convention and not in the sky.
+  if (SHOW_CONSTELLATION_LINES) {
+    ctx.beginPath()
+    for (const fig of sky.figures) trace(fig)
+    ctx.lineWidth = 0.8
+    ctx.strokeStyle = 'rgba(150,185,255,0.13)'
+    ctx.stroke()
+  }
 
   // The stars, sized by magnitude and tinted by color.
   for (let i = 0; i < sky.mag.length; i++) {
