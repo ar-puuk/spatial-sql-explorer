@@ -22,8 +22,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixed scale), with the area outside a polygon dimmed if you like, sorted and filtered, with `{atlas.name}`, `{atlas.pagenumber}`,
   `{atlas.total}` and `{atlas.attr:FIELD}` in the title, subtitle, footer and file names. One multi-page PDF, or a zip of pictures.
 
+- **Bivariate classes.** 2, 3 or 4 classes along each axis, unequal counts allowed (2 by 3, 3 by 4, ...): a "Classes" row in the
+  Style panel. Palettes are 3 by 3; other sizes read them at evenly spaced places, mixing the colors in CIELAB.
+- **Bivariate legend on the page.** Titled by the layer (not "a × b · Quantile"), cells that grow to fill the box, each axis named
+  with its lowest and highest value at the ends, and a **Tilted** option: the grid as a diamond with its axes along the lower edges.
+
 ### Changed
 
+- **The PDF is vector.** The page is drawn into the PDF as text, shapes, tables, charts and legends, with the map as the one
+  picture, the same page as the SVG (svg2pdf.js). Text is set in the PDF's built-in Helvetica; a page with text those fonts lack (such
+  as Japanese) is a page image instead, with a note.
 - The layout is remembered between sessions (a preference for every file). jsPDF and svgcanvas (both MIT) load the first time
   they are used.
 

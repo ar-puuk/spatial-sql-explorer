@@ -3230,7 +3230,7 @@ SOFTWARE.
 
 ## jsPDF 4.2.1
 
-Writes the Print Layout's PDF (a page image on a page of the chosen size). Loaded on first use.
+Writes the Print Layout's PDF: the page as vector content (with svg2pdf.js), or a page image where the PDF fonts lack the text's script. Loaded on first use.
 Source: https://github.com/parallax/jsPDF
 
 ```
@@ -3256,6 +3256,39 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+---
+
+## svg2pdf.js 2.8.1
+
+Draws the Print Layout's SVG page into the PDF as vector content (text, shapes, gradients, the map as one picture),
+through jsPDF. Loaded on first use. Source: https://github.com/yWorks/svg2pdf.js
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2015-2026 yWorks GmbH
+Copyright (c) 2013-2015 by Vitaly Puzrin
+
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ---

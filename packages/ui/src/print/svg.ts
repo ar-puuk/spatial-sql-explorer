@@ -10,6 +10,11 @@ import { drawLayoutContext, pagePx, resolvePageSize, type LayoutOptions } from "
  * This module is loaded on demand so PNG/PDF exports do not load svgcanvas.
  */
 export function renderLayoutSvg(opts: LayoutOptions): string {
+  return layoutSvgDocument(opts).serialize();
+}
+
+/** The layout as an SVG element (and how to write it out): the PDF's vector path reads the element. */
+export function layoutSvgDocument(opts: LayoutOptions): { svg: SVGSVGElement; serialize: () => string } {
   const size = resolvePageSize(opts);
   const { width, height } = pagePx(size, 150);
   const ctx = new Context(width, height);
@@ -72,5 +77,6 @@ export function renderLayoutSvg(opts: LayoutOptions): string {
   svg.setAttribute("height", `${size.height}${size.unit}`);
   // Keep consecutive spaces and non-ASCII labels intact in SVG editors.
   svg.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${ctx.getSerializedSvg()}`;
+  return { svg, serialize: () => `<?xml version="1.0" encoding="UTF-8"?>
+${ctx.getSerializedSvg()}` };
 }

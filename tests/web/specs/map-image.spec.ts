@@ -590,3 +590,24 @@ test('a bivariate legend on the page: the layer is its title, the axes are named
   expect(tilted).toContain('← obesity_rate')
   expect(tilted.some((t) => t.startsWith('poverty_rate →'))).toBe(true)
 })
+
+// The PDF is the same page the SVG is: text and shapes as vectors, the map the one picture. A script the PDF's built-in
+// fonts lack (here Japanese) is the exception: that page is a picture, and the dialog says so.
+test('a PDF is vector content; a title in a script the PDF fonts lack makes it a picture, with a note', async ({ page }) => {
+  test.setTimeout(150000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('World – Café 1:50 000')
+  const vector = await exportAs(page, 'PDF')
+  const text = vector.bytes.toString('latin1')
+  // One picture (the map) on the page, and no raster of the whole page: the image is far smaller than a 150 dpi A4 page would be.
+  expect(text.match(/\/Subtype\s*\/Image\b/g)?.length).toBe(1)
+  await expect(dialog(page)).not.toContainText('holds the page as a picture')
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('世界地図')
+  const raster = await exportAs(page, 'PDF')
+  expect(raster.bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  await expect(dialog(page)).toContainText('holds the page as a picture')
+  // The picture of the whole page is much bigger than the map alone.
+  expect(raster.bytes.length).toBeGreaterThan(vector.bytes.length)
+})

@@ -79,17 +79,62 @@ async function loadJsPdf(): Promise<typeof import('jspdf').jsPDF> {
   return (await import('jspdf')).jsPDF
 }
 
-/** One page as a PDF holding the page image at `dpi`. */
+/** The built-in PDF fonts are Latin: other scripts cannot be set in them. */
+const LATIN = /^[ -ÿ–—‘’“”•…€™]*$/
+/** The arrows of the legends and scale labels, which the built-in fonts lack, as plain characters. */
+const ARROWS: Record<string, string> = { '→': '->', '←': '<-', '↑': '^', '↓': 'v' }
+
+/**
+ * Draws the layout on the PDF's current page as vector content (text, swatches, tables, charts, the legend, the scale
+ * bar), with the map as the one picture: the same page the SVG is, through svg2pdf.js. Text is set in the PDF's built-in
+ * fonts (Helvetica for the system sans), so a layout whose text has characters they lack (CJK, say) is not drawn this way:
+ * returns false then, for the caller to draw the page image instead.
+ */
+async function drawVectorPage(pdf: InstanceType<typeof import('jspdf').jsPDF>, opts: LayoutOptions, widthMm: number, heightMm: number): Promise<boolean> {
+  const { layoutSvgDocument } = await import('./svg.js')
+  const { svg2pdf } = await import('svg2pdf.js')
+  const { svg } = layoutSvgDocument(opts)
+  const texts = [...svg.querySelectorAll('text')]
+  for (const t of texts) {
+    // Arrows first: plain characters stand in for them.
+    t.textContent = (t.textContent ?? '').replace(/[←↑→↓]/g, (c) => ARROWS[c])
+    if (!LATIN.test(t.textContent ?? '')) return false
+    // The PDF has normal and bold Helvetica: a weight of 500 or 600 would not find either and fall back to a serif font.
+    const weight = t.getAttribute('font-weight') || t.style.fontWeight
+    const bold = weight === 'bold' || Number(weight) >= 600
+    t.setAttribute('font-weight', bold ? 'bold' : 'normal')
+    t.style.fontWeight = bold ? 'bold' : 'normal'
+    // The family stays the system sans, which the PDF maps to Helvetica.
+  }
+  // The element is read for its computed styles, so it is on the page (out of sight) while it is drawn.
+  const host = document.createElement('div')
+  host.style.cssText = 'position:fixed;left:-100000px;top:0;width:0;height:0;overflow:hidden;visibility:hidden'
+  host.appendChild(svg)
+  document.body.appendChild(host)
+  try {
+    await svg2pdf(svg, pdf, { x: 0, y: 0, width: widthMm, height: heightMm })
+  } finally {
+    host.remove()
+  }
+  return true
+}
+
+/**
+ * One page as a PDF. The page is vector content with the map as one picture when its text can be set in the PDF's fonts
+ * (the same as the SVG); otherwise (a script they lack) it is the page image at `dpi`, and `notes` says so.
+ */
 export async function layoutPdf(opts: LayoutOptions, dpi = 150): Promise<PageFile> {
   const JsPdf = await loadJsPdf()
   const notes: string[] = []
   const { widthMm, heightMm } = pageMm(resolvePageSize(opts))
-  const canvas = renderToCanvas(opts, dpi, notes)
   // Orientation from the resolved shape, not the toggle: jsPDF turns a format that disagrees with it.
-  const pdf = new JsPdf({ orientation: widthMm >= heightMm ? 'landscape' : 'portrait', unit: 'mm', format: [widthMm, heightMm] })
+  const pdf = new JsPdf({ orientation: widthMm >= heightMm ? 'landscape' : 'portrait', unit: 'mm', format: [widthMm, heightMm], compress: true })
   if (opts.title.trim()) pdf.setProperties({ title: opts.title.trim() })
-  // The canvas itself, so jsPDF reads its pixels without a base64 copy.
-  pdf.addImage(canvas, 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
+  if (!(await drawVectorPage(pdf, opts, widthMm, heightMm))) {
+    notes.push('The page has text in a script the PDF fonts do not have, so the PDF holds the page as a picture. The SVG keeps the text.')
+    // The canvas itself, so jsPDF reads its pixels without a base64 copy.
+    pdf.addImage(renderToCanvas(opts, dpi, notes), 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
+  }
   return { bytes: new Uint8Array(pdf.output('arraybuffer')), size: sizeLabel(opts), notes }
 }
 
@@ -124,10 +169,13 @@ export async function atlasPdf(source: AtlasExportSource, dpi = 150): Promise<Pa
     const opts = await optionsForPage(i)
     const { widthMm, heightMm } = pageMm(resolvePageSize(opts))
     const orientation = widthMm >= heightMm ? 'landscape' : 'portrait'
-    const canvas = renderToCanvas(opts, dpi, i === 0 ? notes : undefined)
-    if (!pdf) pdf = new JsPdf({ orientation, unit: 'mm', format: [widthMm, heightMm] })
+    if (!pdf) pdf = new JsPdf({ orientation, unit: 'mm', format: [widthMm, heightMm], compress: true })
     else pdf.addPage([widthMm, heightMm], orientation)
-    pdf.addImage(canvas, 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
+    if (!(await drawVectorPage(pdf, opts, widthMm, heightMm))) {
+      // This page's text has characters the PDF fonts lack: its picture instead.
+      if (!notes.length) notes.push('Some pages have text in a script the PDF fonts do not have: they are pictures in the PDF.')
+      pdf.addImage(renderToCanvas(opts, dpi, i === 0 ? notes : undefined), 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
+    }
   }
   return { bytes: new Uint8Array((pdf as InstanceType<typeof JsPdf>).output('arraybuffer')), size: `${total} pages`, notes }
 }

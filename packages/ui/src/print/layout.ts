@@ -1170,8 +1170,9 @@ function drawScaleBar(
     ctx.fillStyle = INK;
     ctx.font = font(600);
     ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(formatScaleRatio(scaleRatio), boxX + boxW / 2, boxY + pad);
+    // Alphabetic baselines throughout: a "top" baseline is placed differently by a PDF's text engine.
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(formatScaleRatio(scaleRatio), boxX + boxW / 2, boxY + pad + textSize * 0.85);
   }
 
   // Four segments, alternating ink and paper, inside one frame.
@@ -1188,8 +1189,8 @@ function drawScaleBar(
   ctx.fillStyle = INK;
   ctx.font = font(500);
   ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  const labelY = y0 + barHeight + unit * 0.5;
+  ctx.textBaseline = "alphabetic";
+  const labelY = y0 + barHeight + unit * 0.5 + textSize * 0.85;
   ctx.fillText("0", x0, labelY);
   ctx.fillText(midLabel, x0 + barWidth / 2, labelY);
   ctx.fillText(endLabel, x0 + barWidth, labelY);

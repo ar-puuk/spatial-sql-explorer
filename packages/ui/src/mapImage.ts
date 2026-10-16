@@ -324,7 +324,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
     }
   }
   const gridTop = y + pad + titleBlock
-  let bottom = gridTop
+  let bottom: number
   if (!tilted) {
     const gx = x + pad + yCol
     ctx.save()
