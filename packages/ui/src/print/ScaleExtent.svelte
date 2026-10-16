@@ -51,11 +51,19 @@
           if (e.key === 'Enter') e.currentTarget.blur()
         }}
       />
-    </div>
-    <div class="row">
-      <span class="label" id="print-presets">Presets</span>
       <div class="presets">
-        <Select label="Scale presets" placeholder="Common scales" value="" disabled={!editable} onChange={(v) => void c.applyScale(Number(v))} options={PRESETS.map((n) => ({ value: String(n), label: `1:${n.toLocaleString('en-US')}` }))} />
+        <Select
+          label="Scale presets"
+          placeholder="Preset"
+          value=""
+          disabled={!editable}
+          onChange={(v) => {
+            // The chosen scale goes into the box at once; the map follows.
+            draft = v
+            void c.applyScale(Number(v))
+          }}
+          options={PRESETS.map((n) => ({ value: String(n), label: `1:${n.toLocaleString('en-US')}` }))}
+        />
       </div>
     </div>
     {#if c.scaleNotice}<p class="error" role="alert">{c.scaleNotice}</p>{/if}
@@ -109,11 +117,6 @@
     width: 96px;
     color: var(--se-text-secondary);
   }
-  .label {
-    flex: none;
-    width: 96px;
-    color: var(--se-text-secondary);
-  }
   .colon {
     color: var(--se-text-secondary);
   }
@@ -138,8 +141,8 @@
     outline-offset: 1px;
   }
   .presets {
-    flex: 1;
-    min-width: 0;
+    flex: none;
+    width: 112px;
   }
   .secondary {
     display: inline-flex;

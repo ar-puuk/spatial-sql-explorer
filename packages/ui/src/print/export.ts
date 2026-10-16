@@ -105,6 +105,18 @@ async function drawVectorPage(pdf: InstanceType<typeof import('jspdf').jsPDF>, o
     t.setAttribute('font-weight', bold ? 'bold' : 'normal')
     t.style.fontWeight = bold ? 'bold' : 'normal'
     // The family stays the system sans, which the PDF maps to Helvetica.
+    // A PDF has no middle or hanging baseline: text meant to be centered on its y (the N of the north arrow, the footer) would
+    // sit low. Move such text to the alphabetic baseline instead, by where the baseline falls (Helvetica's capitals are 0.72 em tall).
+    const base = t.getAttribute('dominant-baseline') || t.style.dominantBaseline
+    if (base === 'middle' || base === 'central' || base === 'hanging') {
+      const size = parseFloat(t.getAttribute('font-size') || t.style.fontSize || '')
+      const y = parseFloat(t.getAttribute('y') || '0')
+      if (Number.isFinite(size) && Number.isFinite(y)) {
+        t.setAttribute('y', String(y + size * (base === 'hanging' ? 0.72 : 0.36)))
+        t.setAttribute('dominant-baseline', 'alphabetic')
+        t.style.dominantBaseline = 'alphabetic'
+      }
+    }
   }
   // The element is read for its computed styles, so it is on the page (out of sight) while it is drawn.
   const host = document.createElement('div')
