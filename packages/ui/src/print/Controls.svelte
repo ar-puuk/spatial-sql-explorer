@@ -133,12 +133,6 @@
     {@render toggle('Legend', l.showLegend, (v) => c.set({ showLegend: v }))}
     {@render toggle('Scale bar', l.showScaleBar, (v) => c.set({ showScaleBar: v }))}
     {@render toggle('North arrow', l.showNorthArrow, (v) => c.set({ showNorthArrow: v }))}
-    {#if l.showScaleBar && l.showNorthArrow}
-      <div class="toggle nested">
-        <span id="t-group">Group north arrow and scale bar</span>
-        <Switch labelledby="t-group" checked={l.navigationGrouped} onChange={(v) => c.set({ navigationGrouped: v })} />
-      </div>
-    {/if}
     {@render toggle('Date', l.showDate, (v) => c.set({ showDate: v }))}
     {#if l.showDate}
       <label class="row nested"><span>Date text</span><input type="text" value={l.dateText} placeholder={c.options.dateText} oninput={(e) => c.set({ dateText: e.currentTarget.value })} /></label>

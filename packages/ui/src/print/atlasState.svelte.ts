@@ -46,11 +46,7 @@ export class AtlasState {
     this.#layout = layout
   }
 
-  /** The map the atlas needs: flat (no globe). */
-  get supported(): boolean {
-    return this.#store.projection !== 'globe'
-  }
-  enabled = $derived.by(() => this.#layout().atlasEnabled && this.supported)
+  enabled = $derived.by(() => this.#layout().atlasEnabled)
 
   /**
    * Reads the coverage features from the engine (again when the layer or the coverage changes). One read at a time: a

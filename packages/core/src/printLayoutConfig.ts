@@ -183,7 +183,7 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   showLegend: true,
   showScaleBar: true,
   showNorthArrow: true,
-  navigationGrouped: true,
+  navigationGrouped: false,
   showFooter: false,
   footerText: "",
   showDate: true,
@@ -197,7 +197,7 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   colorbarLabel: "",
   colorbarOrientation: "vertical",
   colorbarLength: 34,
-  colorbarPosition: "top-right",
+  colorbarPosition: "top-left",
 
   showCustomLegend: false,
   customLegendTitle: "Legend",
@@ -205,7 +205,7 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
     { id: "cl-1", label: "Class 1", color: "#2563eb" },
     { id: "cl-2", label: "Class 2", color: "#16a34a" },
   ],
-  customLegendPosition: "top-left",
+  customLegendPosition: "bottom-left",
 
   showDataTable: false,
   tableTitle: "",
@@ -224,7 +224,7 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   chartCategoryField: "",
   chartAggregation: "count",
   chartValueField: "",
-  chartPosition: "top-right",
+  chartPosition: "top-left",
   chartPageFilter: "contained",
 
   showInfoBlock: false,

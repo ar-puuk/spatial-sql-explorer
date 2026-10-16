@@ -1114,8 +1114,13 @@
     },
     unproject: (x, y) => {
       if (!map) return null
-      const p = map.unproject([x, y])
-      return [p.lng, p.lat]
+      // A pixel off the sphere (the globe) has no position.
+      try {
+        const p = map.unproject([x, y])
+        return Number.isFinite(p.lng) && Number.isFinite(p.lat) ? [p.lng, p.lat] : null
+      } catch {
+        return null
+      }
     },
     view: () => ({ center: map ? [map.getCenter().lng, map.getCenter().lat] : [0, 0], zoom: map?.getZoom() ?? 0, bearing: map?.getBearing() ?? 0, pitch: map?.getPitch() ?? 0 }),
     restoreView: (v) => map?.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing, pitch: v.pitch }),

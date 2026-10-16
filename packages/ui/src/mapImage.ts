@@ -89,19 +89,23 @@ export function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, r:
 }
 
 /**
- * The legend box with its top-left corner at (x, y), drawn `scale` times its screen size, in at most `maxHeight`
- * (rows beyond it are "+N more"). Returns the box's height in the caller's units, for stacking panels under it.
+ * The legend box drawn `scale` times its screen size, with its top-left corner at (x, y), or with its bottom-left corner
+ * there when `fromBottom`, in at most `maxHeight` (rows beyond it are "+N more"). Returns the box's height in the
+ * caller's units, for stacking panels beside it.
  */
-export function drawLegendAt(ctx: CanvasRenderingContext2D, legend: LegendSpec, x: number, y: number, maxHeight: number, scale: number): number {
+export function drawLegendAt(ctx: CanvasRenderingContext2D, legend: LegendSpec, x: number, y: number, maxHeight: number, scale: number, fromBottom = false): number {
   ctx.save()
   ctx.translate(x, y)
   ctx.scale(scale, scale)
-  const boxH = paintLegend(ctx, legend, maxHeight / scale + 60, () => ({ x: 0, y: 0 }))
+  const boxH = paintLegend(ctx, legend, maxHeight / scale + 60, (h) => ({ x: 0, y: fromBottom ? -h : 0 }))
   ctx.restore()
   return boxH * scale
 }
 
 function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number, origin: (boxH: number) => { x: number; y: number }): number {
+  // Whatever the page drew before left its alignment: the legend's text starts at its left.
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
   const pad = 8
   const row = 18
   const sw = 14

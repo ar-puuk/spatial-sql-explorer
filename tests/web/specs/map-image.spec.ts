@@ -29,13 +29,15 @@ const pixel = (page: Page, base64: string, x: number, y: number) =>
     [base64, x, y] as const
   )
 /**
- * Where the legend is on a map-size page without margins: the legend is drawn at its screen size times
- * (the page's shorter side / 100) / 6, with its top left two of those hundredths in. `at(dx, dy)` is a point
- * of the legend box in its own (screen) pixels.
+ * Where the legend is on a map-size page without margins: in the bottom-left, drawn at its screen size times
+ * (the page's shorter side / 100) / 6, its bottom two of those hundredths up from the page's. A box of `lines`
+ * lines of 18 legend px is 18 * lines + 14 tall. `at(dx, dy)` is a point of the box in its own (screen) pixels.
  */
-const legendAt = (shot: Shot) => {
+const legendAt = (shot: Shot, lines: number) => {
   const unit = Math.min(shot.width, shot.height) / 100
-  return (dx: number, dy: number) => ({ x: 2 * unit + (dx * unit) / 6, y: 2 * unit + (dy * unit) / 6 })
+  const scale = unit / 6
+  const top = shot.height - 2 * unit - (18 * lines + 14) * scale
+  return (dx: number, dy: number) => ({ x: 2 * unit + dx * scale, y: top + dy * scale })
 }
 
 async function openComposer(page: Page) {
@@ -104,7 +106,7 @@ test('the legend is drawn into the page, and only when it is on', async ({ page 
   const withLegend = await capture(page, 1, true)
   expect(withLegend.width).toBe(without.width)
   // The test legend's swatch (#ff0000): the title line, then the first row.
-  const at = legendAt(withLegend)(15, 15 + 18)
+  const at = legendAt(withLegend, 2)(15, 15 + 18)
   const [r, g, b] = await pixel(page, withLegend.base64, at.x, at.y)
   expect(r).toBeGreaterThan(200)
   expect(g).toBeLessThan(60)
@@ -142,7 +144,7 @@ test('the size channel group is drawn into the page, under the color group', asy
   }
   const shot = await capture(page, 1, legend)
   // Lines: title, A, group title, Small, Large. Each line is 18 legend px, the first centered 15 px below the box's top.
-  const at = legendAt(shot)
+  const at = legendAt(shot, 5)
   const centerOf = (line: number) => 15 + 18 * line
   const big = at(15, centerOf(4))
   const [r, g, b] = await pixel(page, shot.base64, big.x, big.y)
@@ -170,7 +172,7 @@ test('the bivariate square is drawn into the page, hidden cells hollow', async (
   }
   const shot = await capture(page, 1, legend)
   // Lines: title, axis 2, three cell rows (j = 2, 1, 0), axis 1, No value.
-  const at = legendAt(shot)
+  const at = legendAt(shot, 7)
   const hex = async (i: number, j: number) => {
     const p = at(16 + 18 * i, 15 + 18 * (2 + (2 - j)))
     const [r, g, b] = await pixel(page, shot.base64, p.x, p.y)
@@ -243,7 +245,7 @@ test('labels and the merged, bar and sample groups are in the saved page', async
   // The labels' dark text (#1f2937) in the map's upper right, where the legend isn't.
   const top = { x0: 640, y0: 0, x1: 2000, y1: 250 }
   expect(await near(after, [31, 41, 55], top)).toBeGreaterThan((await near(before, [31, 41, 55], top)) + 200)
-  // The outline color's bar: viridis' ends (#440154, #fde725) in the legend box (top left).
+  // The outline color's bar: viridis' ends (#440154, #fde725) in the legend box (bottom left).
   const box = { x0: 0, y0: 0, x1: 500, y1: 700 }
   expect(await near(after, [0x44, 0x01, 0x54], box)).toBeGreaterThan(5)
   expect(await near(after, [0xfd, 0xe7, 0x25], box)).toBeGreaterThan(5)
@@ -513,4 +515,34 @@ test('an atlas filter that does not parse says so and blocks the export', async 
   const atlas = dialog(page).getByRole('region', { name: 'Atlas' })
   await atlas.getByLabel('Atlas filter').fill('name ~~ x')
   await expect(atlas.getByRole('alert')).toContainText('joined with and')
+})
+
+// A plain layer has a legend on the page too (the map hides a trivial one), and the composer works on the globe.
+test('the page has a legend for a plain layer, and the composer and its atlas work on the globe', async ({ page }) => {
+  test.setTimeout(180000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await page.getByRole('button', { name: 'Globe view' }).click()
+  await page.waitForTimeout(1500)
+  await openComposer(page)
+  await expect(dialog(page).getByRole('group', { name: 'Legend entries' })).toBeVisible()
+  const atlas = await startAtlas(page, 'name contains "land"')
+  await expect(atlas.getByRole('status')).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pager = dialog(page).getByRole('group', { name: 'Atlas pages' })
+  await expect(pager).toContainText('Page 1 of', { timeout: 30000 })
+  await pager.getByRole('button', { name: 'Next page' }).click()
+  await expect(pager).toContainText('Page 2 of', { timeout: 30000 })
+  await expect(dialog(page).getByRole('button', { name: /^Export PDF \(\d+ pages\)$/ })).toBeEnabled({ timeout: 30000 })
+})
+
+test('the composer is centered on the map area', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const box = (await dialog(page).boundingBox())!
+  const main = (await page.locator('.main').first().boundingBox())!
+  expect(Math.abs(box.x + box.width / 2 - (main.x + main.width / 2))).toBeLessThan(2)
+  expect(Math.abs(box.y + box.height / 2 - (main.y + main.height / 2))).toBeLessThan(2)
 })

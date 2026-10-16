@@ -20,11 +20,9 @@
   <h3>Atlas</h3>
   <div class="toggle">
     <span id="atlas-switch">Generate a multi-page map series</span>
-    <Switch labelledby="atlas-switch" checked={l.atlasEnabled} disabled={!a.supported} onChange={(v) => c.set({ atlasEnabled: v })} />
+    <Switch labelledby="atlas-switch" checked={l.atlasEnabled} onChange={(v) => c.set({ atlasEnabled: v })} />
   </div>
-  {#if !a.supported}
-    <p class="hint">An atlas needs the flat map: switch the globe off.</p>
-  {:else if l.atlasEnabled}
+  {#if l.atlasEnabled}
     <div class="block">
       <div class="row">
         <span>Coverage</span>

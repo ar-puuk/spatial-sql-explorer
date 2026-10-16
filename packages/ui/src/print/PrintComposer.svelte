@@ -20,9 +20,31 @@
     store: ViewerStore
     /** The legend as shown on the map, or null when none is shown. */
     legend: LegendSpec | null
+    /** The map's area: the dialog centers in it, as the basemap gallery does (the whole viewer when it is too narrow). */
+    anchor?: HTMLElement | null
     onClose: () => void
   }
-  let { store, legend, onClose }: Props = $props()
+  let { store, legend, anchor = null, onClose }: Props = $props()
+
+  /** Narrower than this, the composer centers on the whole viewer (its two columns need the room). */
+  const MIN_ANCHOR_WIDTH = 760
+  let backdrop = $state<HTMLDivElement>()
+  /** The anchor's box within the backdrop (null: center on the backdrop). */
+  let frameBox = $state<{ left: number; top: number; width: number; height: number } | null>(null)
+  $effect(() => {
+    const host = backdrop
+    if (!anchor || !host) return
+    const place = (): void => {
+      const a = anchor.getBoundingClientRect()
+      const b = host.getBoundingClientRect()
+      frameBox = a.width >= MIN_ANCHOR_WIDTH ? { left: a.left - b.left, top: a.top - b.top, width: a.width, height: a.height } : null
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(anchor)
+    observer.observe(host)
+    return () => observer.disconnect()
+  })
 
   // svelte-ignore state_referenced_locally
   const c = new PrintComposer(store, () => legend)
@@ -123,7 +145,15 @@
   })
 </script>
 
-<div class="backdrop" class:drawing={c.drawingExtent} role="presentation" onkeydown={onKeydown}>
+<div class="backdrop" class:drawing={c.drawingExtent} role="presentation" onkeydown={onKeydown} bind:this={backdrop}>
+  <div
+    class="frame"
+    style:left={frameBox ? `${frameBox.left}px` : undefined}
+    style:top={frameBox ? `${frameBox.top}px` : undefined}
+    style:width={frameBox ? `${frameBox.width}px` : undefined}
+    style:height={frameBox ? `${frameBox.height}px` : undefined}
+    style:position={frameBox ? 'absolute' : undefined}
+  >
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Print map" bind:this={dialog}>
     <header>
       <h2>Print map</h2>
@@ -179,6 +209,7 @@
       {/if}
     </footer>
   </div>
+  </div>
 </div>
 
 <style>
@@ -188,8 +219,19 @@
     z-index: 30;
     display: grid;
     place-items: center;
-    padding: 16px;
     background: color-mix(in srgb, black 40%, transparent);
+  }
+  /* The box the dialog centers in: the backdrop's, or the map area's. */
+  .frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 16px;
+    box-sizing: border-box;
   }
   .backdrop.drawing {
     display: none;
@@ -197,6 +239,7 @@
   .dialog {
     display: flex;
     flex-direction: column;
+    flex: none;
     width: min(1080px, 100%);
     height: min(680px, 100%);
     background: var(--se-bg-elevated);

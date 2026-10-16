@@ -86,7 +86,8 @@
   }
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
-    if (!layer || !showLegend) return null
+    // The page always has a legend (a single symbol is one row), though the map hides a plain one.
+    if (!layer) return null
     const r = store.resolvedStyle
     const base = layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area'
     const sizing = legend.some((g) => g.channels.includes('size') || g.channels.includes('width')) || !!legendProportional
@@ -712,6 +713,7 @@
     <PrintComposer
       {store}
       legend={legendSpec}
+      anchor={main}
       onClose={() => {
         store.closeMapImage()
         void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Print map…"]')?.focus())

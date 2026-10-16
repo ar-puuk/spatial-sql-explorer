@@ -153,7 +153,8 @@ export class PrintComposer {
       showScaleBar: l.showScaleBar,
       scaleUnit: this.#store.drawUnits,
       showNorthArrow: l.showNorthArrow,
-      navigationGrouped: l.navigationGrouped,
+      // The north arrow is the top-right corner's, the scale bar the bottom-right's: they are not grouped.
+      navigationGrouped: false,
       showFooter: l.showFooter,
       footerText: l.footerText,
       showDate: l.showDate,
@@ -446,7 +447,8 @@ export class PrintComposer {
     ]
       .map(([x, y]) => camera.unproject(x, y))
       .filter((p): p is [number, number] => p !== null)
-    const viewBounds = geometryBounds({ type: 'MultiPoint', coordinates: corners }) ?? cap.extent
+    // A corner off the sphere (the globe) leaves the frame without a box: the whole capture's then.
+    const viewBounds = (corners.length === 4 ? geometryBounds({ type: 'MultiPoint', coordinates: corners }) : null) ?? cap.extent
     return { cap, viewBounds }
   }
 

@@ -879,19 +879,14 @@ export function drawLayoutContext(
     ctx.restore();
   }
 
-  const navGrouped = opts.navigationGrouped ?? true;
-  const groupNav = navGrouped && opts.showNorthArrow && hasScale;
-  // When the info block occupies the bottom-right corner, move the scale bar +
-  // north arrow to the bottom-left so they never sit under the block.
-  const navOnLeft = hasInfoBlock;
-  const navAnchorX = navOnLeft ? bodyX + inset + bodyW * 0.28 : bodyX + bodyW - inset;
-
-  // --- Scale bar + north arrow ------------------------------------------
-  let scaleTopY = bodyY + bodyH - inset;
+  // The scale bar sits in the bottom-right corner (the info block, when there is one, takes that corner and the scale
+  // bar moves to the middle of the bottom edge), the north arrow in the top-right, and the legend in the bottom-left.
+  const scaleRight = hasInfoBlock ? bodyX + bodyW * 0.62 : bodyX + bodyW - inset;
+  let scaleHeight = 0;
   if (hasScale) {
-    scaleTopY = drawScaleBar(
+    scaleHeight = drawScaleBar(
       ctx,
-      navAnchorX,
+      scaleRight,
       bodyY + bodyH - inset,
       bodyW * 0.28,
       outputMpp,
@@ -900,35 +895,25 @@ export function drawLayoutContext(
       opts.scaleUnit ?? "metric",
     );
   }
+  // Space the north arrow takes below the top-right inset, for panels stacked there.
+  let arrowDepth = 0;
   if (opts.showNorthArrow) {
     const arrowRadius = unit * 2.6;
     const discRadius = arrowRadius * 1.5;
-    if (groupNav) {
-      // Stack the north arrow directly above the scale bar (the "navigation duo").
-      drawNorthArrow(
-        ctx,
-        navAnchorX - discRadius,
-        scaleTopY - unit * 1.4 - discRadius,
-        arrowRadius,
-        opts.bearingDeg,
-        unit,
-      );
-    } else {
-      // Isolated fallback: top-right corner inside the map.
-      const topExtent = arrowRadius + unit * 2.4;
-      const arrowMargin = unit * 3;
-      drawNorthArrow(
-        ctx,
-        bodyX + bodyW - arrowMargin - discRadius,
-        bodyY + arrowMargin + topExtent,
-        arrowRadius,
-        opts.bearingDeg,
-        unit,
-      );
-    }
+    const topExtent = arrowRadius + unit * 2.4;
+    const arrowMargin = unit * 2;
+    drawNorthArrow(
+      ctx,
+      bodyX + bodyW - arrowMargin - discRadius,
+      bodyY + arrowMargin + topExtent,
+      arrowRadius,
+      opts.bearingDeg,
+      unit,
+    );
+    arrowDepth = arrowMargin + topExtent + discRadius - inset;
   }
 
-  // --- Legend (top-left inside the map) ---------------------------------
+  // --- Legend (bottom-left inside the map) ------------------------------
   // Clip to the map body so a legend with many layers cannot overflow onto the
   // footer or off the page.
   let legendHeight = 0;
@@ -938,7 +923,7 @@ export function drawLayoutContext(
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
     // The legend is drawn at screen sizes (12 px text): scale it with the page like the rest of the furniture.
-    legendHeight = drawLegendAt(ctx, opts.legend, bodyX + inset, bodyY + inset, bodyH - inset * 2, unit / 6);
+    legendHeight = drawLegendAt(ctx, opts.legend, bodyX + inset, bodyY + bodyH - inset, bodyH - inset * 2, unit / 6, true);
     ctx.restore();
   }
 
@@ -950,12 +935,11 @@ export function drawLayoutContext(
   // top-right first (the original colorbar rule, GH #522).
   const stackGap = unit * 1.2;
   const cornerUsed: Record<BodyCorner, number> = {
-    // The layer-derived legend always occupies the top-left corner when shown;
-    // seed the ledger so a panel aimed there stacks below it.
-    "top-left": legendHeight > 0 ? legendHeight + stackGap : 0,
-    "top-right": 0,
-    "bottom-left": 0,
-    "bottom-right": 0,
+    "top-left": 0,
+    // The north arrow, the legend and the scale bar hold their corners: a panel aimed there stacks beside them.
+    "top-right": arrowDepth > 0 ? arrowDepth + stackGap : 0,
+    "bottom-left": legendHeight > 0 ? legendHeight + stackGap : 0,
+    "bottom-right": scaleHeight > 0 && !hasInfoBlock ? scaleHeight + stackGap : 0,
   };
   const resolveCorner = (position: BodyCorner): BodyCorner =>
     hasInfoBlock && position === "bottom-right" ? "top-right" : position;
@@ -1087,6 +1071,12 @@ function drawNorthArrow(
   ctx.save();
   ctx.translate(0, -radius - unit * 1.4);
   ctx.rotate((bearingDeg * Math.PI) / 180);
+  // A pale chip behind the letter, which sits past the disc: it must read over a dark map (the globe's sky) too.
+  ctx.fillStyle = "rgba(255,255,255,0.86)";
+  ctx.beginPath();
+  ctx.arc(0, 0, unit * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = INK;
   ctx.fillText("N", 0, 0);
   ctx.restore();
   ctx.restore();
@@ -1127,12 +1117,11 @@ function formatSpanLabel(span: number, label: string): string {
 }
 
 /**
- * Draw a scale bar anchored at its bottom-right corner. When `scaleRatio` is a
- * positive value, a representative-fraction label (e.g. "1:25,000") is drawn
- * above the distance label.
+ * Draws a scale bar with its bottom-right corner at (`rightX`, `bottomY`): a segmented bar in the page's ink, its
+ * length labeled at 0, half way and the end under it, with the representative fraction (1:25,000) above when the page
+ * has a true scale. A pale panel keeps it readable over imagery.
  *
- * @returns The top Y of the scale bar's backing box, so a caller can stack the
- *   north arrow directly above it without overlapping.
+ * @returns The height of the panel, so a caller can stack something above it.
  */
 function drawScaleBar(
   ctx: CanvasRenderingContext2D,
@@ -1150,51 +1139,62 @@ function drawScaleBar(
   // the pixel width.
   const { metersPerUnit, label } = printScaleDenomination(maxMeters, scaleUnit);
   const rounded = niceSpan(maxMeters / metersPerUnit);
-  const distance = rounded * metersPerUnit;
-  const barWidth = distance / metersPerPixel;
-  const barHeight = unit * 1.1;
-  const x0 = rightX - barWidth;
-  const y0 = bottomY - barHeight;
-
+  const barWidth = (rounded * metersPerUnit) / metersPerPixel;
+  const barHeight = unit * 0.9;
+  const textSize = unit * 1.5;
+  const pad = unit * 1.1;
   const hasRatio = scaleRatio > 0 && Number.isFinite(scaleRatio);
-  const ratioGap = hasRatio ? unit * 2.2 : 0;
-  const backingTop = y0 - unit * 2.4 - ratioGap;
+  const ratioH = hasRatio ? textSize * 1.5 : 0;
+  const font = (weight: number) => `${weight} ${textSize}px system-ui, -apple-system, sans-serif`;
+  const endLabel = formatSpanLabel(rounded, label);
+  const midLabel = formatRoundNum(rounded / 2);
 
   ctx.save();
-  // Backing for legibility.
-  ctx.fillStyle = "rgba(255,255,255,0.78)";
-  ctx.fillRect(
-    x0 - unit * 0.8,
-    backingTop,
-    barWidth + unit * 1.6,
-    bottomY - backingTop + unit * 0.8,
-  );
+  ctx.font = font(500);
+  // The end labels are centered on the bar's ends, so they reach past them.
+  const overhang = Math.max(ctx.measureText("0").width, ctx.measureText(endLabel).width) / 2;
+  const sidePad = Math.max(pad, overhang + unit * 0.4);
+  const ratioW = hasRatio ? ctx.measureText(formatScaleRatio(scaleRatio)).width : 0;
+  const boxW = Math.max(barWidth + sidePad * 2, ratioW + pad * 2);
+  const boxH = pad + ratioH + barHeight + unit * 0.5 + textSize + pad;
+  const boxX = rightX - boxW;
+  const boxY = bottomY - boxH;
+  const x0 = boxX + (boxW - barWidth) / 2;
+  const y0 = boxY + pad + ratioH;
+
+  ctx.fillStyle = "rgba(255,255,255,0.86)";
+  roundRect(ctx, boxX, boxY, boxW, boxH, unit * 0.6);
+  ctx.fill();
 
   if (hasRatio) {
     ctx.fillStyle = INK;
-    ctx.font = `600 ${unit * 1.7}px system-ui, sans-serif`;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(formatScaleRatio(scaleRatio), rightX, y0 - unit * 2.4);
+    ctx.font = font(600);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(formatScaleRatio(scaleRatio), boxX + boxW / 2, boxY + pad);
   }
 
-  // Two-tone bar.
-  const half = barWidth / 2;
-  ctx.fillStyle = INK;
-  ctx.fillRect(x0, y0, half, barHeight);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x0 + half, y0, half, barHeight);
+  // Four segments, alternating ink and paper, inside one frame.
+  const segments = 4;
+  const segW = barWidth / segments;
+  for (let i = 0; i < segments; i++) {
+    ctx.fillStyle = i % 2 === 0 ? INK : "#ffffff";
+    ctx.fillRect(x0 + i * segW, y0, segW, barHeight);
+  }
   ctx.strokeStyle = INK;
   ctx.lineWidth = Math.max(1, unit * 0.15);
   ctx.strokeRect(x0, y0, barWidth, barHeight);
 
   ctx.fillStyle = INK;
-  ctx.font = `500 ${unit * 1.7}px system-ui, sans-serif`;
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(formatSpanLabel(rounded, label), rightX, y0 - unit * 0.5);
+  ctx.font = font(500);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const labelY = y0 + barHeight + unit * 0.5;
+  ctx.fillText("0", x0, labelY);
+  ctx.fillText(midLabel, x0 + barWidth / 2, labelY);
+  ctx.fillText(endLabel, x0 + barWidth, labelY);
   ctx.restore();
-  return backingTop;
+  return boxH;
 }
 
 /** Format a representative fraction as "1:N" with thousands separators. */

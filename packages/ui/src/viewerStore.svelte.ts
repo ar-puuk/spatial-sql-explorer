@@ -561,7 +561,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     })
     .catch(() => {})
   const MAP_CONTROLS_KEY = 'mapControls'
-  const PRINT_LAYOUT_KEY = 'printLayout'
+  // The second layout: positions of the legend, scale bar and north arrow changed, so earlier choices are left behind.
+  const PRINT_LAYOUT_KEY = 'printLayout.2'
   // Spec 014: drawn shapes. Scratch geometry for this viewer; the unit system is the user's.
   const DRAW_UNITS_KEY = 'draw.units'
   let shapes = $state.raw<DrawnShape[]>([])
