@@ -20,7 +20,7 @@
     <label class="row"><span>Legend title</span><input type="text" value={c.legendEdits.title ?? ''} placeholder={c.mapLegendTitle} oninput={(e) => c.setLegendTitle(e.currentTarget.value)} /></label>
     {#if c.editorRows.length}
       <ul>
-        {#each c.editorRows as r, i (r.key)}
+        {#each c.editorRows as r (r.key)}
           {#if r.first && (r.group > 0 || c.editorRows.some((x) => x.group > 0))}
             <li class="group">{r.groupTitle || 'Legend'}</li>
           {/if}

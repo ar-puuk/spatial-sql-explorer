@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { normalizePrintLayoutConfig, type PrintLayoutConfig, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { normalizePrintLayoutConfig, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { MapCapture, MapShot } from './mapImage.js'
 import type { PrintCamera } from './print/camera.js'
@@ -258,6 +258,8 @@ export interface ViewerStore {
   readonly printCamera: PrintCamera | null
   /** Spec 016: the map as captured for a page (cut to `clip` when given). */
   captureMap(opts: { ratio: number; clip?: [number, number, number, number] | null }): Promise<MapShot>
+  /** Spec 016: what a data block shows, from the displayed rows. */
+  printBlock(spec: BlockSpec): Promise<TableBlockResult | GroupRow[] | LineBlockResult | null>
   /** Spec 016: saves a page through the host (VS Code: a save dialog next to the data; web: a download). */
   savePrintFile(name: string, bytes: Uint8Array): Promise<{ saved: boolean; location?: string }>
   /** Spec 016: the composer's settings, remembered through HostAdapter.saveState('printLayout'). */
@@ -1864,6 +1866,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     fitTo(bbox) {
       fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
+    },
+    async printBlock(spec) {
+      const qs = querySession
+      if (!qs) return null
+      return qs.printBlock(spec).catch(() => null)
     },
     async searchValues(q) {
       const qs = querySession

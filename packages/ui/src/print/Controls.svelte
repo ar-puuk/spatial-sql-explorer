@@ -56,8 +56,8 @@
 
 {#snippet toggle(label: string, checked: boolean, onChange: (v: boolean) => void)}
   <div class="toggle">
-    <span id="t-{label}">{label}</span>
-    <Switch labelledby="t-{label}" {checked} {onChange} />
+    <span id="t-{label.replace(/[^a-zA-Z0-9]+/g, '-')}">{label}</span>
+    <Switch labelledby="t-{label.replace(/[^a-zA-Z0-9]+/g, '-')}" {checked} {onChange} />
   </div>
 {/snippet}
 

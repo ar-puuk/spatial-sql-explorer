@@ -1031,7 +1031,10 @@
         let center: { x: number; y: number } = m.project(m.getCenter())
         let width = cssW
         let height = cssH
+        const view = m.getBounds()
+        let extent: [number, number, number, number] = [view.getWest(), view.getSouth(), view.getEast(), view.getNorth()]
         if (clip) {
+          extent = clip
           const [w, s, e, n] = clip
           const corners = [m.project([w, n]), m.project([e, n]), m.project([e, s]), m.project([w, s])]
           const minX = Math.min(...corners.map((c) => c.x))
@@ -1051,7 +1054,7 @@
           width = out.width / ratio
           height = out.height / ratio
         }
-        return { frame: out, ratio, width, height, attribution: credit, bearing: m.getBearing(), metersPerPixel: metersPerPixelAt(m, center), notes }
+        return { frame: out, ratio, width, height, attribution: credit, bearing: m.getBearing(), extent: [Math.max(-180, extent[0]), Math.max(-90, extent[1]), Math.min(180, extent[2]), Math.min(90, extent[3])], metersPerPixel: metersPerPixelAt(m, center), notes }
       }
       try {
         return shot(flatten(await grabFrame(m)), attribution)

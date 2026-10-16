@@ -4,6 +4,7 @@
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import { extrusionHighSql, flatCountSql, type Extrusion } from '../style/extrusion.js'
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
+import { blockSql, groupRows, lineResult, tableResult, type GroupRow, type LineBlockResult, type BlockSpec, type TableBlockResult } from '../printBlocks.js'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
@@ -1625,6 +1626,27 @@ export class QuerySession {
         rows.push(...batch)
       })
       return rows
+    })
+  }
+
+  /**
+   * Spec 016: what a print layout's data block shows, from the displayed rows: a table's rows, a chart's groups or a
+   * line's values. Null when there is nothing to show (no rows, no layer).
+   */
+  async printBlock(spec: BlockSpec): Promise<TableBlockResult | GroupRow[] | LineBlockResult | null> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.pageTarget()
+      if (!target) return null
+      const { main, count } = blockSql(spec, this.narrowed(target.relation), target.geom, this.displayedSrid())
+      const rows: Record<string, unknown>[] = []
+      await streamRows(this.conn, main, isCancelled, (batch) => {
+        rows.push(...batch)
+      })
+      const counted = await singleRow<{ n: number | bigint }>(this.conn, count, isCancelled)
+      const total = Number(counted.n)
+      if (spec.kind === 'table') return tableResult(spec, rows, total)
+      if (spec.kind === 'groups') return rows.length ? groupRows(rows) : null
+      return lineResult(rows, total)
     })
   }
 

@@ -57,6 +57,8 @@ export interface MapShot {
   attribution: string
   /** Degrees clockwise the map is turned from north-up. */
   bearing: number
+  /** What the frame shows, in degrees (west, south, east, north), within the world. */
+  extent: [number, number, number, number]
   /** Ground meters per CSS pixel at the map's center (the scale bar's measure). */
   metersPerPixel: number
   notes: string[]

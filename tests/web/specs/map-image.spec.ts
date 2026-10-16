@@ -389,3 +389,60 @@ test('the legend editor: rename, hide and move a class, and the page follows; th
   await expect(mapLegend).toContainText(original[0])
   await expect(mapLegend).not.toContainText('Renamed class')
 })
+
+// Spec 016 slice 4: the attribute table and the chart, read from the engine.
+test('the attribute table and a bar chart of the layer are on the page', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+  await openComposer(page)
+  const switchOf = (name: string) => dialog(page).getByRole('switch', { name, exact: true })
+  await switchOf('Attribute table').click()
+  const table = dialog(page).getByRole('group', { name: 'Attribute table' })
+  const columns = table.locator('.checks input[type="checkbox"]')
+  await expect.poll(() => columns.count()).toBeGreaterThan(3)
+  // Sorted by severity, descending, five rows.
+  await table.getByRole('button', { name: 'Table sort field' }).click()
+  await page.getByRole('option', { name: 'severity', exact: true }).click()
+  await table.getByRole('radio', { name: 'Descending' }).click()
+  await table.getByLabel('Max rows').fill('5')
+  await switchOf('Chart').click()
+  const chart = dialog(page).getByRole('group', { name: 'Chart' })
+  await chart.getByRole('button', { name: 'Chart category field' }).click()
+  await page.getByRole('option', { name: 'severity', exact: true }).click()
+  // Give the engine its moment, then save an SVG: the table's and the chart's text are real text.
+  const texts = async () => [...(await exportAs(page, 'SVG')).bytes.toString('utf8').matchAll(/<text[^>]*>([^<]*)</g)].map((m) => m[1])
+  await expect.poll(async () => (await texts()).includes('Fatal'), { timeout: 20000 }).toBe(true)
+  const all = await texts()
+  // The table: its headers, then the five rows of the first columns, most severe first.
+  expect(all).toContain('severity')
+  expect(all).toContain('crash_type')
+  expect(all.filter((t) => /^\d+$/.test(t)).length).toBeGreaterThan(5)
+  expect(all.some((t) => /^\+\d+ more$/.test(t))).toBe(true)
+  // The chart: a bar for each severity, with its count.
+  expect(all).toContain('Fatal')
+  expect(all).toContain('Minor injury')
+})
+
+test('a data block follows the page extent: a table of what is inside the extent drawn', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  // Europe fills the page: few countries are completely inside it.
+  await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }).__spatialExplorerE2E.jumpTo(10, 50, 3.6))
+  await page.waitForTimeout(1500)
+  await openComposer(page)
+  await dialog(page).getByRole('switch', { name: 'Attribute table', exact: true }).click()
+  const table = dialog(page).getByRole('group', { name: 'Attribute table' })
+  await table.getByLabel('Max rows').fill('50')
+  await table.getByRole('button', { name: 'Table page extent filter' }).click()
+  await page.getByRole('option', { name: 'All features' }).click()
+  // The table shows what fits and says how many more there are: all 180 countries, against those entirely on the page.
+  const more = async () => Number((await exportAs(page, 'SVG')).bytes.toString('utf8').match(/>\+(\d+) more</)?.[1] ?? 0)
+  await expect.poll(more, { timeout: 20000 }).toBeGreaterThan(100)
+  await table.getByRole('button', { name: 'Table page extent filter' }).click()
+  await page.getByRole('option', { name: 'Completely within the page' }).click()
+  await expect.poll(more, { timeout: 20000 }).toBeLessThan(40)
+})

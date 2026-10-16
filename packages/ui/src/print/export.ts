@@ -15,6 +15,8 @@ export interface CapturedMap {
   /** Device pixels per CSS pixel of the map on screen. */
   pixelRatio: number
   bearingDeg: number
+  /** What the picture shows, in degrees: west, south, east, north. */
+  extent: [number, number, number, number]
 }
 
 /** The most pixels along one side of a raster page. */

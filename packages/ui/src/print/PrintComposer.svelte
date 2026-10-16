@@ -10,6 +10,7 @@
   import type { ViewerStore } from '../viewerStore.svelte.js'
   import { PrintComposer } from './composer.svelte.js'
   import Controls from './Controls.svelte'
+  import DataBlocks from './DataBlocks.svelte'
   import LegendEditor from './LegendEditor.svelte'
   import ScaleExtent from './ScaleExtent.svelte'
   import { drawLayout, resolvePageSize } from './layout.js'
@@ -54,6 +55,11 @@
   const schedule = (): void => {
     if (!frame) frame = requestAnimationFrame(drawPreview)
   }
+  // The table and the chart come from the engine: asked again when what they depend on changes.
+  $effect(() => {
+    void c.blocksKey
+    void c.refreshBlocks()
+  })
   $effect(() => {
     void c.options // every setting, the legend and the capture
     void canvas
@@ -108,6 +114,7 @@
       <div class="controls-pane">
         <Controls {c}>
           {#snippet scale()}<ScaleExtent {c} />{/snippet}
+          {#snippet blocks()}<DataBlocks {c} />{/snippet}
           {#snippet legendEditor()}<LegendEditor {c} />{/snippet}
         </Controls>
       </div>

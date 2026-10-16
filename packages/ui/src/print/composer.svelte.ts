@@ -3,7 +3,19 @@
 // 5 runes class). `layout` is what is remembered between sessions
 // (HostAdapter.saveState('printLayout')); everything else is the session's:
 // the captured map, progress, notices.
-import { createDefaultPrintLayout, rampColors, type PrintLayoutConfig } from '@spatial-explorer/core'
+import {
+  barData,
+  createDefaultPrintLayout,
+  DEFAULT_TABLE_COLUMNS,
+  MAX_TABLE_ROWS,
+  pieData,
+  rampColors,
+  type BlockScope,
+  type GroupRow,
+  type LineBlockResult,
+  type PrintLayoutConfig,
+  type TableBlockResult,
+} from '@spatial-explorer/core'
 import type { LegendSpec } from '../mapImage.js'
 import { applyLegendEdits, editRow, legendEditorRows, moveRow, NO_LEGEND_EDITS, type LegendEdits } from './legendEdit.js'
 import type { ViewerStore } from '../viewerStore.svelte.js'
@@ -42,6 +54,9 @@ export class PrintComposer {
   drawingExtent = $state(false)
   /** Set when a typed scale is out of the map's zoom range. */
   scaleNotice = $state<string | null>(null)
+  /** The attribute table and the chart, as the page draws them (read from the engine: see `refreshBlocks`). */
+  dataTable = $state.raw<LayoutOptions['dataTable']>(null)
+  dataChart = $state.raw<LayoutOptions['dataChart']>(null)
   /** The legend's edits: renames, hidden and moved classes, a title. Session only: the map's own legend is untouched. */
   legendEdits = $state<LegendEdits>(NO_LEGEND_EDITS)
   /** The draft of the map background's hex field: only a complete color is committed. */
@@ -52,6 +67,7 @@ export class PrintComposer {
   #loaded = false
   #copiedTimer: ReturnType<typeof setTimeout> | null = null
   #drawAbort: AbortController | null = null
+  #blockSeq = 0
 
   constructor(store: ViewerStore, legend: () => LegendSpec | null) {
     this.#store = store
@@ -87,9 +103,9 @@ export class PrintComposer {
   }
 
   /** The legend as the page shows it: the map's, with the edits. */
-  legend = $derived(applyLegendEdits(this.#legend(), this.legendEdits))
+  legend = $derived.by(() => applyLegendEdits(this.#legend(), this.legendEdits))
   /** What the legend editor lists. */
-  editorRows = $derived(legendEditorRows(this.#legend(), this.legendEdits))
+  editorRows = $derived.by(() => legendEditorRows(this.#legend(), this.legendEdits))
   /** The map's own legend title, the editor's placeholder. */
   get mapLegendTitle(): string {
     return this.#legend()?.title ?? ''
@@ -163,6 +179,8 @@ export class PrintComposer {
       crs: l.crs,
       revision: l.revision,
       legend: this.legend,
+      dataTable: this.dataTable,
+      dataChart: this.dataChart,
       metersPerPixel: c?.metersPerPixel ?? 0,
       mapPixelRatio: c?.pixelRatio ?? 1,
       bearingDeg: c?.bearingDeg ?? 0,
@@ -177,6 +195,67 @@ export class PrintComposer {
   isMmPage = $derived(resolvePageSize(this.options).unit === 'mm')
   /** The 1:N scale the page renders the capture at, or 0. */
   currentRatio = $derived(computeScaleRatio(this.options))
+
+  /** The layer's columns a block can show: not geometry, not the app's helpers. */
+  get fields(): Array<{ name: string; numeric: boolean }> {
+    return (this.#store.displayedLayer?.columns ?? [])
+      .filter((col) => !col.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(col.type))
+      .map((col) => ({ name: col.name, numeric: /^(U?TINYINT|U?SMALLINT|U?INTEGER|U?BIGINT|HUGEINT|UHUGEINT|FLOAT|DOUBLE|REAL|DECIMAL)/i.test(col.type) }))
+  }
+  /** The table's columns: those picked and still in the layer, or the first few. */
+  get tableColumns(): string[] {
+    const names = this.fields.map((f) => f.name)
+    const picked = this.layout.tableColumns.filter((n) => names.includes(n))
+    return picked.length ? picked : names.slice(0, DEFAULT_TABLE_COLUMNS)
+  }
+  /** Everything a block depends on, as one string: a change refreshes the blocks. */
+  get blocksKey(): string {
+    const l = this.layout
+    return JSON.stringify([
+      l.showDataTable, this.tableColumns, l.tableTitle, l.tableSortField, l.tableSortDesc, l.tableMaxRows, l.tableFitRows, l.tablePosition, l.tablePageFilter,
+      l.showDataChart, l.chartTitle, l.chartType, l.chartCategoryField, l.chartAggregation, l.chartValueField, l.chartPosition, l.chartPageFilter,
+      this.captured?.extent, this.#store.displayedLayer?.columns.map((col) => col.name),
+    ])
+  }
+
+  /** Asks the engine for what the table and the chart show (the displayed rows, in the page's extent), and keeps the answer if no newer ask came. */
+  async refreshBlocks(scopeFor: (mode: 'all' | 'contained' | 'intersecting') => BlockScope = (mode) => ({ mode, bbox: this.captured?.extent ?? null })): Promise<void> {
+    const seq = ++this.#blockSeq
+    const l = this.layout
+    const store = this.#store
+    const title = (own: string): string => (own.trim() ? own : store.printBaseName)
+    let table: LayoutOptions['dataTable'] = null
+    let chart: LayoutOptions['dataChart'] = null
+    if (l.showDataTable && this.tableColumns.length) {
+      const r = await store.printBlock({ kind: 'table', columns: this.tableColumns, sortField: l.tableSortField, sortDesc: l.tableSortDesc, limit: l.tableFitRows ? MAX_TABLE_ROWS : l.tableMaxRows, ...scopeFor(l.tablePageFilter) })
+      if (r && 'rows' in r) table = { title: title(l.tableTitle), columns: (r as TableBlockResult).columns, rows: (r as TableBlockResult).rows, truncated: (r as TableBlockResult).truncated, position: l.tablePosition }
+    }
+    if (l.showDataChart) {
+      const scope = scopeFor(l.chartPageFilter)
+      const colors = (n: number): string[] => rampColors({ id: 'okabe-ito', reversed: false }, Math.max(1, n))
+      if (l.chartType === 'line') {
+        if (l.chartValueField) {
+          const r = (await store.printBlock({ kind: 'line', valueField: l.chartValueField, ...scope })) as LineBlockResult | null
+          if (r && 'points' in r) chart = { title: title(l.chartTitle), position: l.chartPosition, data: { kind: 'line', points: r.points, min: r.min, max: r.max, length: r.length, color: colors(1)[0] } }
+        }
+      } else if (l.chartCategoryField && (l.chartAggregation === 'count' || l.chartValueField)) {
+        const rows = (await store.printBlock({ kind: 'groups', category: l.chartCategoryField, valueField: l.chartAggregation === 'count' ? null : l.chartValueField, ...scope })) as GroupRow[] | null
+        if (rows && Array.isArray(rows)) {
+          if (l.chartType === 'pie') {
+            const pie = pieData(rows, l.chartAggregation)
+            if (pie) chart = { title: title(l.chartTitle), position: l.chartPosition, data: { kind: 'pie', slices: pie.slices.map((sl, i) => ({ ...sl, color: colors(pie.slices.length)[i] })), total: pie.total } }
+          } else {
+            const bar = barData(rows, l.chartAggregation)
+            if (bar) chart = { title: title(l.chartTitle), position: l.chartPosition, data: { kind: 'bar', bars: bar.bars.map((b, i) => ({ ...b, color: colors(bar.bars.length)[i] })), maxValue: bar.maxValue, minValue: bar.minValue, truncated: bar.truncated } }
+          }
+        }
+      }
+    }
+    // A newer ask is on its way: this answer is stale.
+    if (seq !== this.#blockSeq) return
+    this.dataTable = table
+    this.dataChart = chart
+  }
 
   /** Takes the map as it is now (or the part inside the print extent). */
   async recapture(): Promise<void> {
@@ -197,6 +276,7 @@ export class PrintComposer {
         metersPerPixel: shot.metersPerPixel / shot.ratio,
         pixelRatio: shot.ratio,
         bearingDeg: shot.bearing,
+        extent: shot.extent,
       }
     } catch (err) {
       this.captured = null
