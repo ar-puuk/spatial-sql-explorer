@@ -9,37 +9,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-16
+
+Print layouts, bivariate classes and legends, and the polish around them.
+
 ### Added
 
-- **Print map.** The map's "Export map image" is now GeoLibre's Print Layout composer: the view as a page with a live preview.
-  Paper (A4, A3, Letter, Legal, Tabloid) and screen sizes or a custom size, orientation and margins; a title and subtitle (outside
-  or over the map, left, center or right); the legend, with its classes renamed, hidden or reordered for the page; a scale bar and
-  north arrow; a date, footer and attribution; a page border and a map frame; an info block, a colorbar and a custom legend; an
-  attribute table and a bar, pie or line chart of the rows, limited to what the page shows; a 1:N scale (presets, or typed) and a
-  print extent drawn on the map. Saved as a PNG, a PDF or an SVG (text, legend, tables and charts stay editable in Inkscape or
-  Illustrator), or copied to the clipboard.
-- **Atlas.** One page per feature, or a page for each stretch of a line, each framed on its own part of the map (a margin, or a
-  fixed scale), with the area outside a polygon dimmed if you like, sorted and filtered, with `{atlas.name}`, `{atlas.pagenumber}`,
+- **Print map.** The map's "Export map image" is now GeoLibre's Print Layout composer: the view as a page, with a live preview.
+  - **Page:** paper (A4, A3, Letter, Legal, Tabloid) or screen sizes or a custom size, orientation and margins; a title and
+    subtitle (outside or over the map; left, center or right); a date, footer text, a page border and a map frame.
+  - **Furniture:** the legend (its classes renamed, hidden or reordered for the page), a scale bar, a north arrow, an info block,
+    a colorbar and a custom legend. The north arrow is top right, the legend bottom left, the scale bar bottom right.
+  - **Data:** an attribute table and a bar, pie or line chart of the rows, limited to what the page shows (read by the engine).
+  - **Scale and extent:** a 1:N scale (typed, or a preset) and a print extent drawn on the map.
+  - **Credit:** a small strip in the map's bottom-right corner, "MapLibre | the basemap's credit", like MapLibre's own attribution.
+  - **Output:** PNG, PDF or SVG, or copy to the clipboard. The map's size on screen is one click ("Size of the map on screen").
+  - Works on the flat map and the globe. The layout is remembered between sessions (a preference for every file).
+  - The PDF is vector content, the same page as the SVG (svg2pdf.js): text, shapes, tables, charts and legends, with the map the one
+    picture. Text is set in the PDF's built-in Helvetica; a page with text those fonts lack (such as Japanese) is a page image instead,
+    with a note. The SVG keeps its text, legend, tables and charts editable in Inkscape or Illustrator.
+- **Atlas.** One page per feature, or a page for each stretch of a line, each framed on its own part of the map (a margin, or a fixed
+  scale), with the area outside a polygon dimmed if you like, sorted and filtered, with `{atlas.name}`, `{atlas.pagenumber}`,
   `{atlas.total}` and `{atlas.attr:FIELD}` in the title, subtitle, footer and file names. One multi-page PDF, or a zip of pictures.
-
 - **Bivariate classes.** 2, 3 or 4 classes along each axis, unequal counts allowed (2 by 3, 3 by 4, ...): a "Classes" row in the
   Style panel. Palettes are 3 by 3; other sizes read them at evenly spaced places, mixing the colors in CIELAB.
 - **Bivariate legend.** On the map and on a printed page: headed by the layer (not "a × b · Quantile"), cells that fill the box, each
   axis named with its lowest and highest value marked at the ends. **Legend shape** in the bivariate style (Square, the default, or
-  Tilted: a diamond with its axes along the lower edges) is saved with the style and applies to the map and to every page; the
-  composer has no setting of its own. The cells still hide their features, by click and by keyboard.
+  Tilted: a diamond with its axes along the lower edges) is saved with the style and applies to the map and to every page. The cells
+  still hide their features, by click and by keyboard.
+- The README, the extension's README and the landing page link to the VS Code Marketplace and Open VSX, and credit GeoLibre and its
+  author, Qiusheng Wu, for the inspiration and the code adapted from it.
 
 ### Changed
 
-- **The PDF is vector.** The page is drawn into the PDF as text, shapes, tables, charts and legends, with the map as the one
-  picture, the same page as the SVG (svg2pdf.js). Text is set in the PDF's built-in Helvetica; a page with text those fonts lack (such
-  as Japanese) is a page image instead, with a note.
-- The page credits the map, not this app: a thin pale strip in the map's bottom-right corner, in small type like MapLibre's own
-  attribution, reading "**MapLibre** | the basemap's credit" (cut with an ellipsis when long), with the scale bar and legend above it.
-  The footer keeps the date and any footer text. The switch is "Map attribution".
+- The style types are listed in the order a user reaches for them: single color; by one column (categorized, graduated,
+  continuous); by two (bivariate); by conditions (rules); as is; then the point-only heatmap and clusters.
 - The **Map controls** tab moved to the foot of the right rail, as a settings button is.
-- The layout is remembered between sessions (a preference for every file). jsPDF and svgcanvas (both MIT) load the first time
-  they are used.
+- jsPDF, svg2pdf.js and svgcanvas (all MIT) load the first time they are used.
+
+### Fixed
+
+- On a short map, the legend, the logo and the scale bar no longer spill over the table. The feature card and then the legend
+  collapse to their headers (and open again when the map is taller), and the table cannot take so much room that the map is
+  shorter than 220 px.
 
 ## [0.5.0] - 2026-10-15
 
