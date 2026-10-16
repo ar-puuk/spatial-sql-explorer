@@ -488,6 +488,15 @@ export function swapBivariateAxes(style: LayerStyle): LayerStyle {
   return withBivariate(style, (r) => ({ ...r, x: r.y, y: r.x, hidden: r.hidden.map((k) => k.split('-').reverse().join('-')) }))
 }
 
+/** The legend as a diamond (true) or a square (false, the default: the setting is dropped). */
+export function setBivariateTilted(style: LayerStyle, tilted: boolean): LayerStyle {
+  return withBivariate(style, (r) => {
+    const { tilted: _t, ...rest } = r
+    void _t
+    return tilted ? { ...rest, tilted: true } : rest
+  })
+}
+
 export function setBivariatePalette(style: LayerStyle, palette: string): LayerStyle {
   return withBivariate(style, (r) => ({ ...r, palette }))
 }

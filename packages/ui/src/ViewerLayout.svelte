@@ -129,6 +129,7 @@
             ny: r.grid.y.ranges.length,
             xRange: axisEnds(r.grid.x.ranges),
             yRange: axisEnds(r.grid.y.ranges),
+            tilted: r.grid.tilted === true,
             cells: r.classes.filter((c) => c.kind === 'cell').map((c) => ({ color: c.color, visible: c.visible })),
             noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
           }
@@ -359,8 +360,6 @@
           resolved={store.resolvedStyle}
           title={legendTitle}
           layerName={fileName ?? 'Layer'}
-          tilted={store.legendTilted}
-          onTilt={(v) => store.setLegendTilted(v)}
           geometryType={layer.geometryType}
           collapsed={store.legendCollapsed || shortMap}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}

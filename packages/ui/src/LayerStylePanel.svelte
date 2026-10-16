@@ -84,6 +84,7 @@
     HEATMAP_RADIUS,
     HEATMAP_STOPS,
     setBivariateAxis,
+    setBivariateTilted,
     setBivariatePalette,
     setCellVisible,
     swapBivariateAxes,
@@ -1010,6 +1011,7 @@
           columns={columnsFor('graduated')}
           onAxis={(axis, patch) => apply(setBivariateAxis(style, axis, patch))}
           onSwap={() => apply(swapBivariateAxes(style))}
+          onTilted={(tilted) => apply(setBivariateTilted(style, tilted))}
           onPalette={(id) => apply(setBivariatePalette(style, id))}
         />
         {#if editError}

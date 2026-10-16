@@ -24,12 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Bivariate classes.** 2, 3 or 4 classes along each axis, unequal counts allowed (2 by 3, 3 by 4, ...): a "Classes" row in the
   Style panel. Palettes are 3 by 3; other sizes read them at evenly spaced places, mixing the colors in CIELAB.
-- **Bivariate legend on the page.** Titled by the layer (not "a × b · Quantile"), cells that grow to fill the box, each axis named
-  with its lowest and highest value at the ends, and a **Tilted** option: the grid as a diamond with its axes along the lower edges.
-
-- **Bivariate legend on the map.** Headed by the layer (the method is in the Style panel), each axis with its lowest and highest
-  value marked, and a **Tilt** button that draws it as a diamond, axes along the lower edges (a setting for every file; square
-  is the default). The cells still hide their features, by click and by keyboard.
+- **Bivariate legend.** On the map and on a printed page: headed by the layer (not "a × b · Quantile"), cells that fill the box, each
+  axis named with its lowest and highest value marked at the ends. **Legend shape** in the bivariate style (Square, the default, or
+  Tilted: a diamond with its axes along the lower edges) is saved with the style and applies to the map and to every page; the
+  composer has no setting of its own. The cells still hide their features, by click and by keyboard.
 
 ### Changed
 

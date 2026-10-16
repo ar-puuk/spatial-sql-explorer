@@ -354,6 +354,8 @@ export interface BivariateRenderer {
   /** Hidden cells, `'<i>-<j>'` (i: x class, j: y class, 0-based). */
   hidden: string[]
   noValue: Omit<ClassOverride, 'color'>
+  /** The legend (on the map and on a printed page) is a diamond, its axes along the two lower edges. Absent: a square. */
+  tilted?: boolean
 }
 
 /** What the map, legend and panel draw. Recomputed on every style or data change; never saved. */
@@ -370,7 +372,7 @@ export interface ResolvedStyle {
   /** e.g. 'Only 3 distinct values: 3 classes.' */
   notes: string[]
   /** Spec 009, bivariate only: both axes' classes. */
-  grid?: { x: AxisInfo; y: AxisInfo }
+  grid?: { x: AxisInfo; y: AxisInfo; /** The legend is drawn as a diamond. */ tilted?: boolean }
   /** Spec 009: the size channel, when one applies. */
   size?: ResolvedSizeChannel
   /** Heatmap: the density ramp (low to high) and, when weighted, the weight column's largest value. */
@@ -869,6 +871,7 @@ export function sanitizeRenderer(r: Partial<Renderer> | undefined): Renderer {
       x: axis(b.x),
       y: axis(b.y),
       palette: typeof b.palette === 'string' && b.palette ? b.palette : DEFAULT_BIVARIATE_PALETTE,
+      ...(b.tilted === true ? { tilted: true } : {}),
       hidden: (Array.isArray(b.hidden) ? b.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-3]-[0-3]$/.test(k)),
       noValue,
     }

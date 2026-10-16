@@ -12,9 +12,11 @@
     columns: Array<{ name: string; type: string }>
     onAxis: (axis: 'x' | 'y', patch: Partial<BivariateAxis>) => void
     onSwap: () => void
+    /** The legend as a diamond (true) or a square. */
+    onTilted: (tilted: boolean) => void
     onPalette: (id: string) => void
   }
-  let { renderer, columns, onAxis, onSwap, onPalette }: Props = $props()
+  let { renderer, columns, onAxis, onSwap, onTilted, onPalette }: Props = $props()
 
   const METHODS: BivariateMethod[] = ['quantile', 'equal', 'jenks']
   const AXES = [
@@ -63,6 +65,15 @@
         {/each}
       </select>
     {/each}
+  </span>
+</div>
+<div class="axis counts">
+  <span class="label" title="The legend's shape, on the map and on a printed page. The diamond puts the two axes along its lower edges.">Legend</span>
+  <span class="count-pair">
+    <select aria-label="Legend shape" value={renderer.tilted ? 'tilted' : 'square'} onchange={(e) => onTilted(e.currentTarget.value === 'tilted')}>
+      <option value="square">Square</option>
+      <option value="tilted">Tilted (diamond)</option>
+    </select>
   </span>
 </div>
 <button type="button" class="swap" onclick={onSwap} title="Swap axis 1 and axis 2"><Icon name="swap" size={14} />Swap axes</button>

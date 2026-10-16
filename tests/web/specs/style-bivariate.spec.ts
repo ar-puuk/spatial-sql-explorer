@@ -82,11 +82,14 @@ test('Bivariate needs two numeric columns, and says why', async ({ page }) => {
   await expect(option).toContainText('Bivariate maps need two numeric columns.')
 })
 
-test('the map legend can be tilted into a diamond, and keeps working; square is the default', async ({ page }) => {
+test('the legend shape is a bivariate style setting: tilted draws a diamond, and square is the default', async ({ page }) => {
   await openCounties(page)
   const cells = grid(page).getByRole('gridcell').getByRole('button')
+  await expect(panel(page).getByLabel('Legend shape')).toHaveValue('square')
   await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(0)
-  await legend(page).getByRole('button', { name: 'Tilt', exact: true }).click()
+  // The legend has no control of its own for it.
+  await expect(legend(page).getByRole('button', { name: /^(Tilt|Square)$/ })).toHaveCount(0)
+  await panel(page).getByLabel('Legend shape').selectOption('tilted')
   await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(1)
   await expect(cells).toHaveCount(9)
   // A cell still hides its features, and the axes are named along the edges.
@@ -94,7 +97,6 @@ test('the map legend can be tilted into a diamond, and keeps working; square is 
   await expect(cells.first()).toHaveAttribute('aria-pressed', 'true')
   await expect(legend(page)).toContainText('← obesity_rate')
   await expect(legend(page)).toContainText('poverty_rate →')
-  // The choice is remembered: back to the square by the same button.
-  await legend(page).getByRole('button', { name: 'Square', exact: true }).click()
+  await panel(page).getByLabel('Legend shape').selectOption('square')
   await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(0)
 })

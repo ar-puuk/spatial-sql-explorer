@@ -12,15 +12,13 @@
     onToggle: (key: string, visible: boolean) => void
     /** Cell size, px. */
     cell?: number
-    /** Drawn as a diamond: the grid turned a quarter-turn and a half, its axes along the two lower edges. */
-    tilted?: boolean
-    /** Offers the choice between the square and the diamond. */
-    onTilt?: (tilted: boolean) => void
   }
-  let { resolved, onToggle, cell = 32, tilted = false, onTilt }: Props = $props()
+  let { resolved, onToggle, cell = 32 }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const grid = $derived(resolved.grid)
+  /** The style's choice: a diamond, the grid turned a quarter-turn and a half, its axes along the two lower edges. */
+  const tilted = $derived(!!resolved.grid?.tilted)
   const nx = $derived(grid?.x.ranges.length ?? 0)
   const ny = $derived(grid?.y.ranges.length ?? 0)
   const cells = $derived(resolved.classes.filter((c) => c.kind === 'cell'))
@@ -133,9 +131,6 @@
         <span class="count">{nf.format(noValue.count)}</span>
       </button>
     {/if}
-    {#if onTilt}
-      <button type="button" class="tilt" aria-pressed={tilted} title={tilted ? 'Draw the legend as a square' : 'Draw the legend as a diamond, its axes along the lower edges'} onclick={() => onTilt(!tilted)}>{tilted ? 'Square' : 'Tilt'}</button>
-    {/if}
   </div>
 {/if}
 
@@ -151,8 +146,7 @@
       'y ye square'
       '. . xe'
       '. . x'
-      'nv nv nv'
-      'tilt tilt tilt';
+      'nv nv nv';
     justify-content: start;
     align-items: center;
     justify-items: center;
@@ -221,28 +215,6 @@
   .edge.small {
     color: var(--se-text-secondary);
     font-size: 10px;
-  }
-  .tilt {
-    grid-area: tilt;
-    justify-self: start;
-    margin-top: 2px;
-    padding: 0 6px;
-    height: 20px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: transparent;
-    color: var(--se-text-secondary);
-    font: inherit;
-    font-size: 11px;
-    cursor: pointer;
-  }
-  .tilt:hover {
-    background: var(--se-bg-hover);
-    color: var(--se-text-primary);
-  }
-  .tilt:focus-visible {
-    outline: 2px solid var(--se-focus);
-    outline-offset: 1px;
   }
   .square {
     grid-area: square;

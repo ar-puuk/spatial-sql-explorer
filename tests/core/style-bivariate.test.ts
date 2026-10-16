@@ -20,6 +20,7 @@ import {
   rendererOf,
   setBivariateAxis,
   setBivariatePalette,
+  setBivariateTilted,
   setCellVisible,
   setSizeChannel,
   startStyle,
@@ -166,6 +167,19 @@ describe('bivariate classes (US4)', () => {
     // Back to 3: the setting is dropped, not kept as a 3.
     const back = rendererOf(setBivariateAxis(style, 'x', { classes: 3 }))
     expect(back.kind === 'bivariate' && back.x.classes).toBeUndefined()
+  })
+
+  it('the legend shape is part of the style: tilted survives sanitizing, reaches the resolved grid, and square drops it', () => {
+    const tilted = setBivariateTilted(bivariate(), true)
+    const kept = rendererOf(sanitizeStyle(tilted))
+    expect(kept.kind === 'bivariate' && kept.tilted).toBe(true)
+    expect(resolveStyle(tilted, counties).grid?.tilted).toBe(true)
+    expect(resolveStyle(bivariate(), counties).grid?.tilted).toBeUndefined()
+    // Swapping the axes keeps it; putting it back to square removes the key.
+    const swapped = rendererOf(swapBivariateAxes(tilted))
+    expect(swapped.kind === 'bivariate' && swapped.tilted).toBe(true)
+    const square = rendererOf(setBivariateTilted(tilted, false))
+    expect(square.kind === 'bivariate' && 'tilted' in square).toBe(false)
   })
 
   it('the same column twice, or a text column, is refused; picking the other axis column swaps them', () => {

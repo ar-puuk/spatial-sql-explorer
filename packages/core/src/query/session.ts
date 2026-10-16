@@ -1749,6 +1749,8 @@ const PRESENTATION_KEYS = new Set([
   'elseColor', 'elseLabel', 'elseVisible',
   // Heatmap: how the density is drawn.
   'radius', 'intensity',
+  // Bivariate: the legend's shape.
+  'tilted',
 ])
 
 /** The style without its presentation: two styles with the same key classify the same data the same way. */

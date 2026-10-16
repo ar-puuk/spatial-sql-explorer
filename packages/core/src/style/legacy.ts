@@ -88,7 +88,7 @@ export function colorEncodingOf(r: Renderer): Encoding | undefined {
     case 'bivariate':
       return {
         source: { kind: 'pair', x: r.x.column, y: r.y.column },
-        scale: { kind: 'bivariate', x: { method: r.x.method, ...(r.x.classes ? { classes: r.x.classes } : {}) }, y: { method: r.y.method, ...(r.y.classes ? { classes: r.y.classes } : {}) }, palette: r.palette, hidden: [...r.hidden], noValue: toClassDef(r.noValue) },
+        scale: { kind: 'bivariate', x: { method: r.x.method, ...(r.x.classes ? { classes: r.x.classes } : {}) }, y: { method: r.y.method, ...(r.y.classes ? { classes: r.y.classes } : {}) }, palette: r.palette, hidden: [...r.hidden], noValue: toClassDef(r.noValue), ...(r.tilted ? { tilted: true } : {}) },
       }
     default:
       return undefined
@@ -145,6 +145,7 @@ export function rendererFromEncoding(enc: Encoding | undefined): Renderer {
         palette: s.palette,
         hidden: [...s.hidden],
         noValue: toOverride(s.noValue, false),
+        ...(s.tilted ? { tilted: true } : {}),
       }
       return r
     }

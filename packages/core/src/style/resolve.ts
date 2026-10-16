@@ -874,7 +874,7 @@ function bivariate(style: LayerStyle, r: BivariateRenderer, layer: ResolveInput 
   const axis = (column: string, method: BivariateRenderer['x']['method'], c: Classified) => ({ column, method, ranges: c.ranges.map((range) => ({ ...range, label: c.label(range) })) })
   const methods = r.x.method === r.y.method ? METHOD_NAMES[r.x.method] : `${METHOD_NAMES[r.x.method]} / ${METHOD_NAMES[r.y.method]}`
   const notes = [...cx.notes.map((n) => `${r.x.column}: ${n}`), ...cy.notes.map((n) => `${r.y.column}: ${n}`)]
-  return { status: 'ok', caption: `${r.x.column} × ${r.y.column} · ${methods}`, classes, notes, grid: { x: axis(r.x.column, r.x.method, cx), y: axis(r.y.column, r.y.method, cy) } }
+  return { status: 'ok', caption: `${r.x.column} × ${r.y.column} · ${methods}`, classes, notes, grid: { x: axis(r.x.column, r.x.method, cx), y: axis(r.y.column, r.y.method, cy), ...(r.tilted ? { tilted: true } : {}) } }
 }
 
 /** Size channel class keys: `size:range:<i>`, `size:__other`, `size:__null` (legend and edits). */

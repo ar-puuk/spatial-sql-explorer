@@ -17,9 +17,6 @@
     title: string
     /** The layer's name: a bivariate legend names its axes itself, so this is its heading. */
     layerName?: string
-    /** A bivariate legend as a diamond, and the way to change it. */
-    tilted?: boolean
-    onTilt?: (tilted: boolean) => void
     geometryType: GeometryType
     collapsed: boolean
     onToggleCollapsed: () => void
@@ -36,7 +33,7 @@
     /** Clusters: a row per step, its bubble to scale (core `clusterLegendRows`). */
     clusterRows?: Array<{ label: string; color: string; symbol: SymbolSpec }>
   }
-  let { resolved, title, layerName = '', tilted = false, onTilt, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null, clusterRows = [] }: Props = $props()
+  let { resolved, title, layerName = '', geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null, clusterRows = [] }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
@@ -78,7 +75,7 @@
     {#if resolved.grid && resolved.status === 'ok'}
       <!-- Spec 009 US4: the bivariate square. -->
       <div role="group" aria-label={heading} class="group">
-        <BivariateLegend {resolved} onToggle={onToggleClass} {tilted} {onTilt} />
+        <BivariateLegend {resolved} onToggle={onToggleClass} />
       </div>
     {:else if resolved.heat && resolved.status === 'ok'}
       <!-- A heatmap: the ramp from sparse to dense, and how many points make it. -->

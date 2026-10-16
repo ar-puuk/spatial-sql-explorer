@@ -565,7 +565,7 @@ test('the composer is centered on the map area', async ({ page }) => {
   expect(Math.abs(box.y + box.height / 2 - (main.y + main.height / 2))).toBeLessThan(2)
 })
 
-// A bivariate map's page legend: titled by the layer (not "a × b · Quantile"), each axis named, and the grid tilted on request.
+// A bivariate map's page legend: titled by the layer (not "a × b · Quantile"), each axis named, and the grid tilted when the style says so (no control of its own in the composer).
 test('a bivariate legend on the page: the layer is its title, the axes are named, and it can be tilted', async ({ page }) => {
   test.setTimeout(120000)
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -585,7 +585,10 @@ test('a bivariate legend on the page: the layer is its title, the axes are named
   expect(square).toContain('poverty_rate →')
   expect(square).toContain('obesity_rate →')
   expect(square.some((t) => /Quantile/.test(t))).toBe(false)
-  await dialog(page).getByRole('radio', { name: 'Tilted' }).click()
+  await expect(dialog(page).getByRole('radio', { name: 'Tilted' })).toHaveCount(0)
+  await dialog(page).getByRole('button', { name: 'Close' }).click()
+  await panel.getByLabel('Legend shape').selectOption('tilted')
+  await openComposer(page)
   const tilted = await texts()
   expect(tilted).toContain('← obesity_rate')
   expect(tilted.some((t) => t.startsWith('poverty_rate →'))).toBe(true)

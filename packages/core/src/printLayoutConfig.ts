@@ -74,8 +74,6 @@ export interface PrintLayoutConfig {
   showTitle: boolean;
   showSubtitle: boolean;
   showLegend: boolean;
-  /** A bivariate legend drawn as a diamond (tilted a quarter and a half turn) instead of a square. */
-  bivariateTilted: boolean;
   showScaleBar: boolean;
   showNorthArrow: boolean;
   navigationGrouped: boolean;
@@ -183,7 +181,6 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   showTitle: true,
   showSubtitle: true,
   showLegend: true,
-  bivariateTilted: false,
   showScaleBar: true,
   showNorthArrow: true,
   navigationGrouped: false,
@@ -384,7 +381,6 @@ export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | 
     showTitle: bool(raw.showTitle, d.showTitle),
     showSubtitle: bool(raw.showSubtitle, d.showSubtitle),
     showLegend: bool(raw.showLegend, d.showLegend),
-    bivariateTilted: bool(raw.bivariateTilted, d.bivariateTilted),
     showScaleBar: bool(raw.showScaleBar, d.showScaleBar),
     showNorthArrow: bool(raw.showNorthArrow, d.showNorthArrow),
     navigationGrouped: bool(raw.navigationGrouped, d.navigationGrouped),

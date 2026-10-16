@@ -122,6 +122,8 @@ export interface BivariateScale {
   /** Hidden cells, `'<i>-<j>'`. */
   hidden: string[]
   noValue: ClassDef
+  /** The legend as a diamond. */
+  tilted?: boolean
 }
 
 export type Scale = CategoriesScale | ClassesScale | ContinuousScale | ConditionsScale | IdentityScale | BivariateScale
@@ -414,6 +416,7 @@ function sanitizeScale(channel: ChannelId, raw: unknown): Scale | null {
         x: axis(raw.x),
         y: axis(raw.y),
         palette: typeof raw.palette === 'string' && raw.palette ? raw.palette : 'orange-blue',
+        ...(raw.tilted === true ? { tilted: true } : {}),
         hidden: (Array.isArray(raw.hidden) ? raw.hidden : []).filter((k): k is string => typeof k === 'string' && /^[0-3]-[0-3]$/.test(k)),
         noValue: sanitizeClassDef(channel, raw.noValue),
       }
