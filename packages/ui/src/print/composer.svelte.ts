@@ -16,12 +16,14 @@ import {
   type PrintLayoutConfig,
   type TableBlockResult,
 } from '@spatial-explorer/core'
-import type { LegendSpec } from '../mapImage.js'
+import type { LegendSpec, MapShot } from '../mapImage.js'
+import { atlasEntryName, atlasViewportFrame, expandBounds, geometryBounds, stripAtlasTokens, substituteAtlasTokens, type AtlasBounds, type AtlasPage, type AtlasTokenContext } from './atlas.js'
+import { AtlasState } from './atlasState.svelte.js'
 import { applyLegendEdits, editRow, legendEditorRows, moveRow, NO_LEGEND_EDITS, type LegendEdits } from './legendEdit.js'
 import type { ViewerStore } from '../viewerStore.svelte.js'
-import { copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type CapturedMap, type PageFile } from './export.js'
+import { atlasPdf, atlasPngZip, copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type AtlasExportSource, type CapturedMap, type PageFile } from './export.js'
 import type { PrintExtent } from './extent.js'
-import { computeScaleRatio, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
+import { computeScaleRatio, mapBodyAspectRatio, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
 
 export type ExportKind = 'png' | 'pdf' | 'svg'
 
@@ -62,6 +64,9 @@ export class PrintComposer {
   /** The draft of the map background's hex field: only a complete color is committed. */
   mapBackgroundDraft = $state('')
 
+  /** The atlas (map series): its coverage features, pages and current page. */
+  atlas: AtlasState
+
   #store: ViewerStore
   #legend: () => LegendSpec | null
   #loaded = false
@@ -72,6 +77,7 @@ export class PrintComposer {
   constructor(store: ViewerStore, legend: () => LegendSpec | null) {
     this.#store = store
     this.#legend = legend
+    this.atlas = new AtlasState(store, () => this.layout)
     this.mapBackgroundDraft = this.layout.mapBackground
     void store.loadPrintLayout().then((saved) => {
       if (saved && !this.#loaded) {
@@ -191,6 +197,13 @@ export class PrintComposer {
     }
   })
 
+  /** The page as it is drawn and saved: the options with this atlas page's tokens resolved (the inputs keep the template). */
+  display = $derived.by((): LayoutOptions => {
+    const ctx = this.atlas.tokenContext
+    const o = this.options
+    return ctx ? { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerText: substituteAtlasTokens(o.footerText, ctx) } : o
+  })
+
   /** Only physical paper carries a true cartographic scale. */
   isMmPage = $derived(resolvePageSize(this.options).unit === 'mm')
   /** The 1:N scale the page renders the capture at, or 0. */
@@ -214,32 +227,40 @@ export class PrintComposer {
     return JSON.stringify([
       l.showDataTable, this.tableColumns, l.tableTitle, l.tableSortField, l.tableSortDesc, l.tableMaxRows, l.tableFitRows, l.tablePosition, l.tablePageFilter,
       l.showDataChart, l.chartTitle, l.chartType, l.chartCategoryField, l.chartAggregation, l.chartValueField, l.chartPosition, l.chartPageFilter,
+      l.tableFilterToAtlasFeature, l.atlasCoverage, this.atlas.active ? [this.atlas.clampedIndex, this.atlas.viewBounds?.bounds] : null,
       this.captured?.extent, this.#store.displayedLayer?.columns.map((col) => col.name),
     ])
   }
 
-  /** Asks the engine for what the table and the chart show (the displayed rows, in the page's extent), and keeps the answer if no newer ask came. */
-  async refreshBlocks(scopeFor: (mode: 'all' | 'contained' | 'intersecting') => BlockScope = (mode) => ({ mode, bbox: this.captured?.extent ?? null })): Promise<void> {
-    const seq = ++this.#blockSeq
+  /** The rows a block reads: the page's extent (the atlas page's own frame when there is one), filtered as chosen. */
+  #scope(mode: BlockScope['mode'], forTable: boolean, atlasBounds?: AtlasBounds | null, rowId?: number | null): BlockScope {
+    const page = this.atlas.viewBounds
+    const here = this.atlas.active && page && page.index === this.atlas.clampedIndex ? page.bounds : null
+    const bbox = atlasBounds ?? here ?? this.captured?.extent ?? null
+    const own = forTable && this.layout.tableFilterToAtlasFeature && this.layout.atlasCoverage === 'features' ? (rowId ?? this.atlas.currentPage?.rowId ?? null) : null
+    return { mode, bbox, rowId: own }
+  }
+
+  /** What the table and the chart show, asked of the engine (the displayed rows, in the scopes given). */
+  async #buildBlocks(tableScope: BlockScope, chartScope: BlockScope): Promise<{ table: LayoutOptions['dataTable']; chart: LayoutOptions['dataChart'] }> {
     const l = this.layout
     const store = this.#store
     const title = (own: string): string => (own.trim() ? own : store.printBaseName)
     let table: LayoutOptions['dataTable'] = null
     let chart: LayoutOptions['dataChart'] = null
     if (l.showDataTable && this.tableColumns.length) {
-      const r = await store.printBlock({ kind: 'table', columns: this.tableColumns, sortField: l.tableSortField, sortDesc: l.tableSortDesc, limit: l.tableFitRows ? MAX_TABLE_ROWS : l.tableMaxRows, ...scopeFor(l.tablePageFilter) })
+      const r = await store.printBlock({ kind: 'table', columns: this.tableColumns, sortField: l.tableSortField, sortDesc: l.tableSortDesc, limit: l.tableFitRows ? MAX_TABLE_ROWS : l.tableMaxRows, ...tableScope })
       if (r && 'rows' in r) table = { title: title(l.tableTitle), columns: (r as TableBlockResult).columns, rows: (r as TableBlockResult).rows, truncated: (r as TableBlockResult).truncated, position: l.tablePosition }
     }
     if (l.showDataChart) {
-      const scope = scopeFor(l.chartPageFilter)
       const colors = (n: number): string[] => rampColors({ id: 'okabe-ito', reversed: false }, Math.max(1, n))
       if (l.chartType === 'line') {
         if (l.chartValueField) {
-          const r = (await store.printBlock({ kind: 'line', valueField: l.chartValueField, ...scope })) as LineBlockResult | null
+          const r = (await store.printBlock({ kind: 'line', valueField: l.chartValueField, ...chartScope })) as LineBlockResult | null
           if (r && 'points' in r) chart = { title: title(l.chartTitle), position: l.chartPosition, data: { kind: 'line', points: r.points, min: r.min, max: r.max, length: r.length, color: colors(1)[0] } }
         }
       } else if (l.chartCategoryField && (l.chartAggregation === 'count' || l.chartValueField)) {
-        const rows = (await store.printBlock({ kind: 'groups', category: l.chartCategoryField, valueField: l.chartAggregation === 'count' ? null : l.chartValueField, ...scope })) as GroupRow[] | null
+        const rows = (await store.printBlock({ kind: 'groups', category: l.chartCategoryField, valueField: l.chartAggregation === 'count' ? null : l.chartValueField, ...chartScope })) as GroupRow[] | null
         if (rows && Array.isArray(rows)) {
           if (l.chartType === 'pie') {
             const pie = pieData(rows, l.chartAggregation)
@@ -251,14 +272,28 @@ export class PrintComposer {
         }
       }
     }
+    return { table, chart }
+  }
+
+  /** Asks the engine for the table and the chart of the page now, and keeps the answer if no newer ask came. */
+  async refreshBlocks(): Promise<void> {
+    const seq = ++this.#blockSeq
+    const l = this.layout
+    const { table, chart } = await this.#buildBlocks(this.#scope(l.tablePageFilter, true), this.#scope(l.chartPageFilter, false))
     // A newer ask is on its way: this answer is stale.
     if (seq !== this.#blockSeq) return
     this.dataTable = table
     this.dataChart = chart
   }
 
-  /** Takes the map as it is now (or the part inside the print extent). */
+  /** A capture as the layout measures it: meters per device pixel of the picture. */
+  #toCaptured(shot: MapShot): CapturedMap {
+    return { image: shot.frame, width: shot.frame.width, height: shot.frame.height, metersPerPixel: shot.metersPerPixel / shot.ratio, pixelRatio: shot.ratio, bearingDeg: shot.bearing, extent: shot.extent }
+  }
+
+  /** Takes the map as it is now (or the part inside the print extent); in an atlas, drives the map to the current page. */
   async recapture(): Promise<void> {
+    if (this.atlas.active) return this.goToAtlasPage(this.atlas.clampedIndex)
     if (this.capturing) return
     this.capturing = true
     this.error = null
@@ -268,16 +303,7 @@ export class PrintComposer {
       const notes = [...shot.notes]
       if (this.#store.basemapMissingFromPrint) notes.push('The basemap could not be loaded and is not in the page.')
       this.captureNotes = notes
-      this.captured = {
-        image: shot.frame,
-        width: shot.frame.width,
-        height: shot.frame.height,
-        // Per device pixel of the picture, as the layout measures.
-        metersPerPixel: shot.metersPerPixel / shot.ratio,
-        pixelRatio: shot.ratio,
-        bearingDeg: shot.bearing,
-        extent: shot.extent,
-      }
+      this.captured = this.#toCaptured(shot)
     } catch (err) {
       this.captured = null
       this.error = `The map could not be captured: ${err instanceof Error ? err.message : String(err)}`
@@ -357,13 +383,163 @@ export class PrintComposer {
     void this.recapture()
   }
 
+  /** The layer's coverage features, read again when the atlas turns on, its coverage changes or another layer is shown. */
+  get atlasLoadKey(): string {
+    return JSON.stringify([this.atlas.enabled, this.layout.atlasCoverage, this.#store.displayedLayer?.columns.map((col) => col.name)])
+  }
+
+  /**
+   * Drives the live map to one atlas page and captures it. A margin grows the feature's box before fitting; a fixed scale
+   * fits tight, then corrects the zoom by the log2 of the ratio and captures again. The page's frame (what the cover-crop
+   * keeps of the map) is its visible extent, so data blocks leave out the part that is cropped away.
+   */
+  async captureAtlasPage(page: AtlasPage, total = this.atlas.count): Promise<{ cap: CapturedMap; viewBounds: AtlasBounds }> {
+    const camera = this.#store.printCamera
+    if (!camera) throw new Error('The map is not ready.')
+    const l = this.layout
+    const ctx: AtlasTokenContext = { name: page.name, pageNumber: page.index + 1, total, properties: page.properties }
+    const o = this.options
+    const pageOptions: LayoutOptions = { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerText: substituteAtlasTokens(o.footerText, ctx) }
+    const { width: vw, height: vh } = camera.viewport()
+    const frame = atlasViewportFrame(vw, vh, mapBodyAspectRatio(pageOptions))
+    // Everything outside a polygon feature is dimmed on request.
+    let mask: GeoJSON.Feature | null = null
+    if (l.atlasMaskEnabled && l.atlasCoverage === 'features' && page.rowId !== undefined) {
+      const f = await this.#store.printFeatureGeometry(page.rowId)
+      if (f && (f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')) mask = f
+    }
+    camera.fit(expandBounds(page.bounds, this.atlas.fitMarginPct), frame.padding)
+    await camera.settled()
+    let cap = this.#toCaptured(await this.#store.captureMap({ ratio: CAPTURE_RATIO, mask }))
+    this.atlas.scaleNotice = null
+    if (l.atlasExtentMode === 'scale') {
+      const target = Number(l.atlasScale)
+      // Measured against the page's own text: a title made of tokens can resolve to nothing and change the body height.
+      const measure = (): number => computeScaleRatio({ ...pageOptions, metersPerPixel: cap.metersPerPixel, mapPixelRatio: cap.pixelRatio, bearingDeg: cap.bearingDeg, mapImage: cap.image, mapImageWidth: cap.width, mapImageHeight: cap.height })
+      // One correction usually lands it; up to three more, the last only to measure what ships.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const ratio = measure()
+        if (!(target > 0 && ratio > 0)) break
+        if (attempt > 0 && Math.abs(ratio / target - 1) < 0.005) {
+          this.atlas.scaleNotice = null
+          break
+        }
+        if (attempt === 3) {
+          this.atlas.scaleNotice = 'The map cannot zoom that far: this page is at the closest scale it can reach.'
+          break
+        }
+        const zoom = camera.zoom() + Math.log2(ratio / target)
+        const { min, max } = camera.zoomLimits()
+        const clamped = Math.max(min, Math.min(max, zoom))
+        this.atlas.scaleNotice = Math.abs(clamped - zoom) > 1e-3 ? 'The map cannot zoom that far: this page is at the closest scale it can reach.' : null
+        if (Math.abs(clamped - camera.zoom()) <= 1e-3) break
+        camera.setZoom(clamped)
+        await camera.settled()
+        cap = this.#toCaptured(await this.#store.captureMap({ ratio: CAPTURE_RATIO, mask }))
+      }
+    }
+    const corners = [
+      [frame.crop.left, frame.crop.top],
+      [frame.crop.right, frame.crop.top],
+      [frame.crop.right, frame.crop.bottom],
+      [frame.crop.left, frame.crop.bottom],
+    ]
+      .map(([x, y]) => camera.unproject(x, y))
+      .filter((p): p is [number, number] => p !== null)
+    const viewBounds = geometryBounds({ type: 'MultiPoint', coordinates: corners }) ?? cap.extent
+    return { cap, viewBounds }
+  }
+
+  /** Steps the preview to a page: drives the map there and captures it. */
+  async goToAtlasPage(index: number): Promise<void> {
+    const page = this.atlas.pages[index]
+    if (!page || this.atlas.busy) return
+    this.atlas.busy = true
+    this.capturing = true
+    this.error = null
+    try {
+      const { cap, viewBounds } = await this.captureAtlasPage(page)
+      this.captured = cap
+      this.atlas.index = index
+      this.atlas.viewBounds = { index, bounds: viewBounds }
+    } catch (err) {
+      this.error = `The page could not be captured: ${err instanceof Error ? err.message : String(err)}`
+    } finally {
+      this.atlas.busy = false
+      this.capturing = false
+    }
+  }
+
+  /** A page of the series, as the layout takes it: the page's map and its own blocks, its tokens resolved. */
+  async #atlasPageOptions(page: AtlasPage, total: number): Promise<LayoutOptions> {
+    const { cap, viewBounds } = await this.captureAtlasPage(page, total)
+    // Mirrored into the preview as pages are made.
+    this.captured = cap
+    this.atlas.index = page.index
+    this.atlas.viewBounds = { index: page.index, bounds: viewBounds }
+    const l = this.layout
+    const { table, chart } = await this.#buildBlocks(this.#scope(l.tablePageFilter, true, viewBounds, page.rowId), this.#scope(l.chartPageFilter, false, viewBounds))
+    const ctx: AtlasTokenContext = { name: page.name, pageNumber: page.index + 1, total, properties: page.properties }
+    const o = this.options
+    return {
+      ...o,
+      title: substituteAtlasTokens(o.title, ctx),
+      subtitle: substituteAtlasTokens(o.subtitle, ctx),
+      footerText: substituteAtlasTokens(o.footerText, ctx),
+      dataTable: table,
+      dataChart: chart,
+      metersPerPixel: cap.metersPerPixel,
+      mapPixelRatio: cap.pixelRatio,
+      bearingDeg: cap.bearingDeg,
+      mapImage: cap.image,
+      mapImageWidth: cap.width,
+      mapImageHeight: cap.height,
+    }
+  }
+
+  /** Exports every page: one multi-page PDF, or a PNG for each in a zip. The pages and the settings are those of the click. */
+  async exportAtlas(kind: 'pdf' | 'zip'): Promise<void> {
+    if (!this.atlas.active || this.atlas.busy || this.atlas.configBlocked) return
+    const camera = this.#store.printCamera
+    const pages = this.atlas.pages
+    const total = pages.length
+    const start = camera?.view()
+    this.exporting = true
+    this.atlas.busy = true
+    this.error = null
+    this.saved = null
+    const tokens = (i: number): AtlasTokenContext => ({ name: pages[i].name, pageNumber: i + 1, total, properties: pages[i].properties })
+    const source: AtlasExportSource = {
+      total,
+      onProgress: (current, of) => (this.atlas.progress = { current, total: of }),
+      optionsForPage: (i) => this.#atlasPageOptions(pages[i], total),
+    }
+    try {
+      // The combined file's name cannot carry any one page's tokens.
+      const base = sanitizeFilename(stripAtlasTokens(this.layout.title) || this.#store.printBaseName)
+      const file = kind === 'pdf' ? await atlasPdf(source) : await atlasPngZip(source, (i) => atlasEntryName(this.layout.atlasFilenamePattern, tokens(i)))
+      const name = `${base}-atlas.${kind === 'pdf' ? 'pdf' : 'zip'}`
+      const result = await this.#store.savePrintFile(name, file.bytes)
+      if (result.saved) this.saved = { location: result.location ?? name, size: file.size, notes: [...this.captureNotes, ...file.notes] }
+    } catch (err) {
+      this.error = `The atlas could not be made: ${err instanceof Error ? err.message : String(err)}`
+    } finally {
+      this.exporting = false
+      this.atlas.busy = false
+      this.atlas.progress = null
+      // The map goes back to where it was, and the preview to the page it shows.
+      if (start) camera?.restoreView(start)
+      void this.goToAtlasPage(Math.min(this.atlas.index, Math.max(0, this.atlas.count - 1)))
+    }
+  }
+
   /** Copies the page to the clipboard as a PNG. */
   async copy(): Promise<void> {
     if (!this.captured) return void (this.error = 'Capture the map first.')
     this.exporting = true
     this.error = null
     try {
-      await copyLayoutToClipboard(this.options)
+      await copyLayoutToClipboard(this.display)
       this.copied = true
       if (this.#copiedTimer) clearTimeout(this.#copiedTimer)
       this.#copiedTimer = setTimeout(() => (this.copied = false), 2000)
@@ -381,8 +557,8 @@ export class PrintComposer {
     this.error = null
     this.saved = null
     try {
-      const file: PageFile = kind === 'png' ? await layoutPng(this.options) : kind === 'pdf' ? await layoutPdf(this.options) : await layoutSvg(this.options)
-      const name = `${sanitizeFilename(this.options.title || this.#store.printBaseName)}.${kind}`
+      const file: PageFile = kind === 'png' ? await layoutPng(this.display) : kind === 'pdf' ? await layoutPdf(this.display) : await layoutSvg(this.display)
+      const name = `${sanitizeFilename(this.display.title || this.#store.printBaseName)}.${kind}`
       const result = await this.#store.savePrintFile(name, file.bytes)
       if (result.saved) this.saved = { location: result.location ?? name, size: file.size, notes: [...this.captureNotes, ...file.notes] }
     } catch (err) {

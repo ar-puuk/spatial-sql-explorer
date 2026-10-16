@@ -4,11 +4,12 @@
   // (PNG, PDF, SVG, the clipboard) underneath. The preview is built from a
   // capture of the live map: after panning, zooming or restyling the map,
   // Recapture map refreshes it. Opening the composer captures at once.
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import Icon from '../Icon.svelte'
   import type { LegendSpec } from '../mapImage.js'
   import type { ViewerStore } from '../viewerStore.svelte.js'
   import { PrintComposer } from './composer.svelte.js'
+  import AtlasEditor from './AtlasEditor.svelte'
   import Controls from './Controls.svelte'
   import DataBlocks from './DataBlocks.svelte'
   import LegendEditor from './LegendEditor.svelte'
@@ -28,14 +29,14 @@
   let dialog = $state<HTMLDivElement>()
   let canvas = $state<HTMLCanvasElement>()
   let pane = $state<HTMLDivElement>()
-  const busy = $derived(c.exporting || c.capturing)
+  const busy = $derived(c.exporting || c.capturing || c.atlas.busy)
 
   // The preview: the page fitted into the pane, redrawn when anything about it changes or the pane is resized.
   let frame = 0
   function drawPreview(): void {
     frame = 0
     if (!canvas || !pane) return
-    const size = resolvePageSize(c.options)
+    const size = resolvePageSize(c.display)
     const aspect = size.width / size.height
     const availW = Math.max(1, pane.clientWidth - 24)
     const availH = Math.max(1, pane.clientHeight - 24)
@@ -50,18 +51,36 @@
     canvas.height = Math.max(1, Math.round(h * dpr))
     canvas.style.width = `${Math.round(w)}px`
     canvas.style.height = `${Math.round(h)}px`
-    drawLayout(canvas, c.options)
+    drawLayout(canvas, c.display)
   }
   const schedule = (): void => {
     if (!frame) frame = requestAnimationFrame(drawPreview)
   }
+  // The atlas reads its coverage features from the engine, again when the layer or the coverage changes.
+  $effect(() => {
+    void c.atlasLoadKey
+    // Read untracked: only the load key says when to read again, not every setting the read looks at.
+    if (c.atlas.enabled) untrack(() => void c.atlas.load())
+  })
+  // The preview follows the series: when the pages or how they are framed change, the map is driven to the current page
+  // again (after a pause, so typing does not thrash the live map).
+  $effect(() => {
+    void c.atlas.driveKey
+    if (!c.atlas.active) return
+    const timer = setTimeout(() => void c.goToAtlasPage(Math.min(c.atlas.index, c.atlas.count - 1)), 500)
+    return () => clearTimeout(timer)
+  })
+  // A fixed scale means physical paper: on a pixel page the series falls back to a margin.
+  $effect(() => {
+    if (!c.isMmPage && c.layout.atlasExtentMode === 'scale') c.set({ atlasExtentMode: 'margin' })
+  })
   // The table and the chart come from the engine: asked again when what they depend on changes.
   $effect(() => {
     void c.blocksKey
     void c.refreshBlocks()
   })
   $effect(() => {
-    void c.options // every setting, the legend and the capture
+    void c.display // every setting, the legend, the capture and the atlas page's tokens
     void canvas
     schedule()
   })
@@ -114,6 +133,7 @@
       <div class="controls-pane">
         <Controls {c}>
           {#snippet scale()}<ScaleExtent {c} />{/snippet}
+          {#snippet atlas()}<AtlasEditor {c} />{/snippet}
           {#snippet blocks()}<DataBlocks {c} />{/snippet}
           {#snippet legendEditor()}<LegendEditor {c} />{/snippet}
         </Controls>
@@ -121,6 +141,13 @@
       <div class="preview-pane">
         <div class="preview-head">
           <span>Preview</span>
+          {#if c.atlas.active}
+            <span class="pager" role="group" aria-label="Atlas pages">
+              <button type="button" class="icon-button" aria-label="Previous page" disabled={busy || c.atlas.clampedIndex === 0} onclick={() => void c.goToAtlasPage(c.atlas.clampedIndex - 1)}><Icon name="chevron-left" size={14} /></button>
+              <span role="status">Page {c.atlas.clampedIndex + 1} of {c.atlas.count}</span>
+              <button type="button" class="icon-button" aria-label="Next page" disabled={busy || c.atlas.clampedIndex >= c.atlas.count - 1} onclick={() => void c.goToAtlasPage(c.atlas.clampedIndex + 1)}><Icon name="chevron-right" size={14} /></button>
+            </span>
+          {/if}
           <button type="button" class="secondary" disabled={busy} onclick={() => void c.recapture()}><Icon name="refresh" size={14} />Recapture map</button>
         </div>
         <div class="preview" bind:this={pane}>
@@ -139,12 +166,17 @@
       </div>
     </div>
     <footer>
-      {#if c.exporting}<span class="progress" role="status">Making the file…</span>{/if}
+      {#if c.atlas.progress}<span class="progress" role="status">Page {c.atlas.progress.current} of {c.atlas.progress.total}…</span>{:else if c.exporting}<span class="progress" role="status">Making the file…</span>{/if}
       <span class="spacer"></span>
       <button type="button" class="secondary" disabled={busy || !c.captured} onclick={() => void c.copy()}><Icon name={c.copied ? 'check' : 'copy'} size={14} />{c.copied ? 'Copied' : 'Copy to clipboard'}</button>
-      <button type="button" class="secondary" disabled={busy || !c.captured} onclick={() => void c.export('svg')}>Export SVG</button>
-      <button type="button" class="secondary" disabled={busy || !c.captured} onclick={() => void c.export('pdf')}>Export PDF</button>
-      <button type="button" class="primary" disabled={busy || !c.captured} onclick={() => void c.export('png')}><Icon name="printer" size={14} />Export PNG</button>
+      {#if c.atlas.active}
+        <button type="button" class="secondary" disabled={busy || !c.captured || c.atlas.configBlocked} onclick={() => void c.exportAtlas('pdf')}>Export PDF ({c.atlas.count} pages)</button>
+        <button type="button" class="primary" disabled={busy || !c.captured || c.atlas.configBlocked} onclick={() => void c.exportAtlas('zip')}><Icon name="printer" size={14} />Export PNG ZIP</button>
+      {:else}
+        <button type="button" class="secondary" disabled={busy || !c.captured} onclick={() => void c.export('svg')}>Export SVG</button>
+        <button type="button" class="secondary" disabled={busy || !c.captured} onclick={() => void c.export('pdf')}>Export PDF</button>
+        <button type="button" class="primary" disabled={busy || !c.captured} onclick={() => void c.export('png')}><Icon name="printer" size={14} />Export PNG</button>
+      {/if}
     </footer>
   </div>
 </div>
@@ -210,6 +242,12 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
+  }
+  .pager {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--se-text-primary);
   }
   .preview-head {
     display: flex;

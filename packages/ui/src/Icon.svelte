@@ -12,6 +12,8 @@
   import Check from '@lucide/svelte/icons/check'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Circle from '@lucide/svelte/icons/circle'
   import CircleX from '@lucide/svelte/icons/circle-x'
   import BrushCleaning from '@lucide/svelte/icons/brush-cleaning'
@@ -80,6 +82,8 @@
     paint: Paintbrush,
     'chevron-down': ChevronDown,
     'chevron-up': ChevronUp,
+    'chevron-left': ChevronLeft,
+    'chevron-right': ChevronRight,
     'arrow-up': ArrowUp,
     'arrow-down': ArrowDown,
     close: X,

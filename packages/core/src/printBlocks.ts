@@ -170,3 +170,44 @@ export function pieData(groups: GroupRow[], aggregation: BlockAggregation, maxSl
   const total = slices.reduce((sum, s) => sum + s.value, 0)
   return total > 0 ? { slices, total } : null
 }
+
+/** A coverage feature of an atlas: where it is, and its attributes. */
+export interface AtlasFeatureRow {
+  /** Its row id in the engine. */
+  rowId: number
+  /** West, south, east, north in WGS84, or null when it has no geometry. */
+  bounds: [number, number, number, number] | null
+  /** Its geometry as GeoJSON in WGS84, when asked for (lines are cut into pages from it). */
+  geometry?: string
+  properties: Record<string, unknown>
+}
+
+/** The most coverage features an atlas reads: more would be a long wait for pages nobody prints. */
+export const MAX_ATLAS_FEATURES = 20000
+
+/** The coverage features: id, bounds and attributes (and the geometry), WGS84 whatever the layer's CRS. */
+export function atlasFeaturesSql(relation: string, geom: string, srid: number | null, attributes: string[], withGeometry: boolean, limit: number): string {
+  const g = srid === null || srid === 4326 ? geom : `ST_Transform(${geom}, 'EPSG:${Math.floor(srid)}', 'EPSG:4326', always_xy := true)`
+  const cols = attributes.map((c) => q(c)).join(', ')
+  return `SELECT __se_rowid AS __id, ST_XMin(${g}) AS __w, ST_YMin(${g}) AS __s, ST_XMax(${g}) AS __e, ST_YMax(${g}) AS __n${withGeometry ? `, ST_AsGeoJSON(${g}) AS __gj` : ''}${cols ? `, ${cols}` : ''} FROM ${relation} WHERE ${geom} IS NOT NULL LIMIT ${Math.trunc(limit)}`
+}
+
+/** A property value the page can compare, sort and print: a bigint is a number, a date is its text. */
+function plain(value: unknown): unknown {
+  if (typeof value === 'bigint') return Number(value)
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  if (value instanceof Uint8Array) return null
+  return value
+}
+
+export function atlasFeatureRows(rows: Array<Record<string, unknown>>, attributes: string[]): AtlasFeatureRow[] {
+  return rows.map((r) => {
+    const w = num(r.__w)
+    const s = num(r.__s)
+    const e = num(r.__e)
+    const n = num(r.__n)
+    const properties: Record<string, unknown> = {}
+    for (const a of attributes) properties[a] = plain(r[a])
+    return { rowId: num(r.__id), bounds: [w, s, e, n].every(Number.isFinite) ? [w, s, e, n] : null, geometry: typeof r.__gj === 'string' ? r.__gj : undefined, properties }
+  })
+}

@@ -4,7 +4,7 @@
 // per-connection in DuckDB, so user temp objects and __se_result live here.
 import { extrusionHighSql, flatCountSql, type Extrusion } from '../style/extrusion.js'
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
-import { blockSql, groupRows, lineResult, tableResult, type GroupRow, type LineBlockResult, type BlockSpec, type TableBlockResult } from '../printBlocks.js'
+import { atlasFeaturesSql, atlasFeatureRows, blockSql, groupRows, lineResult, tableResult, type AtlasFeatureRow, type GroupRow, type LineBlockResult, type BlockSpec, type TableBlockResult } from '../printBlocks.js'
 import { exportErrorMessage, runExport, type ExportAssets, type ExportHooks, type ExportResult } from '../export/run.js'
 import { projjsonFor } from '../export/projjson.js'
 import type { ExportPlan } from '../export/plan.js'
@@ -1647,6 +1647,25 @@ export class QuerySession {
       if (spec.kind === 'table') return tableResult(spec, rows, total)
       if (spec.kind === 'groups') return rows.length ? groupRows(rows) : null
       return lineResult(rows, total)
+    })
+  }
+
+  /**
+   * Spec 016: the coverage features of an atlas, from the displayed rows: row id, WGS84 bounds, attributes and (for
+   * lines) the geometry. `truncated` when the layer has more than `limit` features with geometry.
+   */
+  async printAtlasFeatures(withGeometry: boolean, limit: number): Promise<{ rows: AtlasFeatureRow[]; attributes: string[]; truncated: boolean }> {
+    return this.exclusive(async (isCancelled) => {
+      const target = this.pageTarget()
+      if (!target?.geom) return { rows: [], attributes: [], truncated: false }
+      const attributes = target.columns.filter((c) => !c.name.startsWith('__se_') && !/^(GEOMETRY|BLOB|WKB)/i.test(c.type)).map((c) => c.name)
+      const rel = this.narrowed(target.relation)
+      const rows: Record<string, unknown>[] = []
+      await streamRows(this.conn, atlasFeaturesSql(rel, target.geom, this.displayedSrid(), attributes, withGeometry, limit + 1), isCancelled, (batch) => {
+        rows.push(...batch)
+      })
+      const truncated = rows.length > limit
+      return { rows: atlasFeatureRows(truncated ? rows.slice(0, limit) : rows, attributes), attributes, truncated }
     })
   }
 

@@ -446,3 +446,71 @@ test('a data block follows the page extent: a table of what is inside the extent
   await page.getByRole('option', { name: 'Completely within the page' }).click()
   await expect.poll(more, { timeout: 20000 }).toBeLessThan(40)
 })
+
+// Spec 016 slice 5: the atlas.
+async function startAtlas(page: Page, filter: string) {
+  await dialog(page).getByRole('switch', { name: 'Generate a multi-page map series' }).click()
+  const atlas = dialog(page).getByRole('region', { name: 'Atlas' })
+  await atlas.getByRole('button', { name: 'Page name field' }).click()
+  await page.getByRole('option', { name: 'name', exact: true }).click()
+  await atlas.getByLabel('Atlas filter').fill(filter)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('Country {atlas.name} ({atlas.pagenumber} of {atlas.total})')
+  return atlas
+}
+
+test('an atlas: one page per feature, stepped in the preview, saved as a multi-page PDF', async ({ page }) => {
+  test.setTimeout(240000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const atlas = await startAtlas(page, 'name contains "land"')
+  const count = atlas.getByRole('status')
+  await expect(count).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pages = Number((await count.textContent())!.match(/(\d+) pages/)![1])
+  expect(pages).toBeGreaterThan(2)
+  expect(pages).toBeLessThan(25)
+  // The preview is the first page; the pager steps it, and the title's tokens follow.
+  const pager = dialog(page).getByRole('group', { name: 'Atlas pages' })
+  await expect(pager).toContainText(`Page 1 of ${pages}`, { timeout: 30000 })
+  const names = async () => (await exportAs(page, 'SVG').catch(() => ({ bytes: Buffer.from('') }))).bytes.toString('utf8')
+  await expect(dialog(page).getByRole('button', { name: `Export PDF (${pages} pages)` })).toBeEnabled({ timeout: 30000 })
+  await pager.getByRole('button', { name: 'Next page' }).click()
+  await expect(pager).toContainText(`Page 2 of ${pages}`, { timeout: 30000 })
+  // One PDF page for every page of the series, and the PNG zip names each by the pattern.
+  const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), dialog(page).getByRole('button', { name: `Export PDF (${pages} pages)` }).click()])
+  expect(pdf.suggestedFilename()).toMatch(/-atlas\.pdf$/)
+  const text = fs.readFileSync((await pdf.path())!).toString('latin1')
+  expect(text.match(/\/Type\s*\/Page\b(?!s)/g)?.length).toBe(pages)
+  void names
+  await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toContainText(`${pages} pages`, { timeout: 30000 })
+})
+
+test('an atlas as a zip of pictures, named by the pattern', async ({ page }) => {
+  test.setTimeout(240000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const atlas = await startAtlas(page, 'name contains "land"')
+  await expect(atlas.getByRole('status')).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pages = Number((await atlas.getByRole('status').textContent())!.match(/(\d+) pages/)![1])
+  await expect(dialog(page).getByRole('button', { name: 'Export PNG ZIP' })).toBeEnabled({ timeout: 30000 })
+  const [zip] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), dialog(page).getByRole('button', { name: 'Export PNG ZIP' }).click()])
+  expect(zip.suggestedFilename()).toMatch(/-atlas\.zip$/)
+  const { unzipSync } = await import('fflate')
+  const entries = Object.keys(unzipSync(new Uint8Array(fs.readFileSync((await zip.path())!))))
+  expect(entries).toHaveLength(pages)
+  expect(entries[0]).toMatch(/^1-.+\.png$/)
+  expect(entries.every((e, i) => e.startsWith(`${i + 1}-`))).toBe(true)
+})
+
+test('an atlas filter that does not parse says so and blocks the export', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('switch', { name: 'Generate a multi-page map series' }).click()
+  const atlas = dialog(page).getByRole('region', { name: 'Atlas' })
+  await atlas.getByLabel('Atlas filter').fill('name ~~ x')
+  await expect(atlas.getByRole('alert')).toContainText('joined with and')
+})

@@ -76,6 +76,7 @@
   import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
   import { plainAttribution, type MapCapture, type MapShot } from './mapImage.js'
   import type { PrintCamera } from './print/camera.js'
+  import { paintAtlasMask } from './print/mask.js'
   import { clearPrintExtent, drawPrintExtent, setPrintExtentVisible, showPrintExtent } from './print/extent.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
@@ -988,7 +989,7 @@
     const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2
     return (2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)))) / 100
   }
-  const captureMap: MapCapture = async ({ ratio: wanted, clip }) => {
+  const captureMap: MapCapture = async ({ ratio: wanted, clip, mask }) => {
     const m = map
     if (!m) throw new Error('The map is not ready.')
     const notes: string[] = []
@@ -1011,6 +1012,13 @@
       if (ratio !== previous) {
         m.setPixelRatio(ratio)
         await idle(m)
+      }
+      // The frame as drawn, with the atlas's mask over everything outside the page's feature.
+      const grab = async (): Promise<HTMLCanvasElement> => {
+        const frame = await grabFrame(m)
+        const ctx = frame.getContext('2d')
+        if (mask && ctx) paintAtlasMask(ctx, mask, (p) => m.project(p), ratio)
+        return frame
       }
       // The frame over its background (and the globe's sky), so a transparent part is not black in the file.
       const flatten = (grabbed: HTMLCanvasElement): HTMLCanvasElement => {
@@ -1057,7 +1065,7 @@
         return { frame: out, ratio, width, height, attribution: credit, bearing: m.getBearing(), extent: [Math.max(-180, extent[0]), Math.max(-90, extent[1]), Math.min(180, extent[2]), Math.min(90, extent[3])], metersPerPixel: metersPerPixelAt(m, center), notes }
       }
       try {
-        return shot(flatten(await grabFrame(m)), attribution)
+        return shot(flatten(await grab()), attribution)
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'SecurityError')) throw err
         // A basemap whose server doesn't allow reading its tiles taints the
@@ -1066,7 +1074,7 @@
         const hidden = (m.getStyle().layers ?? []).filter((l) => !ours.has(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none').map((l) => l.id)
         for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'none')
         try {
-          const out = shot(flatten(await grabFrame(m)), '')
+          const out = shot(flatten(await grab()), '')
           notes.push(`The ${activeBasemap?.name ?? ''} basemap could not be captured (its server doesn't allow it) and was left out.`.replace('The  basemap', 'The basemap'))
           return out
         } finally {
@@ -1093,6 +1101,24 @@
       if (extent) showPrintExtent(map, extent)
       else clearPrintExtent(map)
     },
+    viewport: () => ({ width: container.clientWidth, height: container.clientHeight }),
+    fit: (bounds, padding) => {
+      const [w, s, e, n] = bounds
+      map?.fitBounds(
+        [
+          [w, s],
+          [e, n],
+        ],
+        { animate: false, padding, bearing: 0, pitch: 0 }
+      )
+    },
+    unproject: (x, y) => {
+      if (!map) return null
+      const p = map.unproject([x, y])
+      return [p.lng, p.lat]
+    },
+    view: () => ({ center: map ? [map.getCenter().lng, map.getCenter().lat] : [0, 0], zoom: map?.getZoom() ?? 0, bearing: map?.getBearing() ?? 0, pitch: map?.getPitch() ?? 0 }),
+    restoreView: (v) => map?.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing, pitch: v.pitch }),
   }
 
   let resizeObserver: ResizeObserver | null = null

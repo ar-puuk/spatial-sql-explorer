@@ -78,7 +78,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { normalizePrintLayoutConfig, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { MapCapture, MapShot } from './mapImage.js'
 import type { PrintCamera } from './print/camera.js'
@@ -257,7 +257,11 @@ export interface ViewerStore {
   setPrintCamera(camera: PrintCamera): void
   readonly printCamera: PrintCamera | null
   /** Spec 016: the map as captured for a page (cut to `clip` when given). */
-  captureMap(opts: { ratio: number; clip?: [number, number, number, number] | null }): Promise<MapShot>
+  captureMap(opts: { ratio: number; clip?: [number, number, number, number] | null; mask?: GeoJSON.Feature | null }): Promise<MapShot>
+  /** Spec 016: an atlas's coverage features (the displayed rows): ids, bounds, attributes and, for lines, geometry. */
+  printAtlasFeatures(withGeometry: boolean, limit: number): Promise<{ rows: AtlasFeatureRow[]; attributes: string[]; truncated: boolean }>
+  /** Spec 016: a feature's geometry (WGS84) by its row id: the polygon an atlas page masks around. */
+  printFeatureGeometry(rowId: number): Promise<GeoJSON.Feature | null>
   /** Spec 016: what a data block shows, from the displayed rows. */
   printBlock(spec: BlockSpec): Promise<TableBlockResult | GroupRow[] | LineBlockResult | null>
   /** Spec 016: saves a page through the host (VS Code: a save dialog next to the data; web: a download). */
@@ -1867,10 +1871,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     fitTo(bbox) {
       fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
     },
+    async printAtlasFeatures(withGeometry, limit) {
+      const qs = querySession
+      if (!qs) return { rows: [], attributes: [], truncated: false }
+      return qs.printAtlasFeatures(withGeometry, limit).catch((err) => {
+        console.warn('[print] the atlas could not read the layer:', err)
+        return { rows: [], attributes: [], truncated: false }
+      })
+    },
+    async printFeatureGeometry(rowId) {
+      const qs = querySession
+      if (!qs) return null
+      const f = await retryWhenBusy(qs, () => qs.featureById(rowId)).catch(() => null)
+      return f?.geometry ? { type: 'Feature', properties: {}, geometry: f.geometry } : null
+    },
     async printBlock(spec) {
       const qs = querySession
       if (!qs) return null
-      return qs.printBlock(spec).catch(() => null)
+      return qs.printBlock(spec).catch((err) => {
+        console.warn('[print] a data block could not be read:', err)
+        return null
+      })
     },
     async searchValues(q) {
       const qs = querySession
