@@ -1,7 +1,7 @@
 <script lang="ts">
   // Spec 010 layout Option A (T050): the icon rail on the right edge that
   // opens the side panel on Style, Labels (spec 011) or Basemap, as VS Code's activity
-  // bar does. Feature details are a card on the map (user decision 2026-10-14). Clicking the active button closes the panel.
+  // bar does, with Map controls (a setting of the viewer) at the foot. Feature details are a card on the map (user decision 2026-10-14). Clicking the active button closes the panel.
   import Icon, { type IconName } from './Icon.svelte'
   import Tip from './kit/Tip.svelte'
   import type { SideTab } from './viewerStore.svelte.js'
@@ -57,6 +57,7 @@
           type="button"
           {...props}
           class:active={active === b.id}
+          class:settings={b.id === 'controls'}
           aria-label={b.label}
           aria-pressed={active === b.id}
           {...{ 'aria-description': title(b) }}
@@ -96,6 +97,10 @@
     background: transparent;
     color: var(--se-activity-inactive-fg, var(--se-text-secondary));
     cursor: pointer;
+  }
+  /* Map controls are the viewer's settings, not a panel about the layer: at the foot of the rail, as a settings gear is. */
+  button.settings {
+    margin-top: auto;
   }
   button:hover:not(:disabled),
   button.active {

@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The PDF is vector.** The page is drawn into the PDF as text, shapes, tables, charts and legends, with the map as the one
   picture, the same page as the SVG (svg2pdf.js). Text is set in the PDF's built-in Helvetica; a page with text those fonts lack (such
   as Japanese) is a page image instead, with a note.
+- The page's footer credits the map, not this app: **MapLibre**, a hairline, then the basemap's own credit (cut with an ellipsis when it
+  is long), with the date and any footer text on the right. The switch is now "Map attribution".
+- The **Map controls** tab moved to the foot of the right rail, as a settings button is.
 - The layout is remembered between sessions (a preference for every file). jsPDF and svgcanvas (both MIT) load the first time
   they are used.
 

@@ -300,6 +300,9 @@ test('an SVG: the title, scale bar and north arrow are real text and shapes, the
   expect(svg).toMatch(/width="297mm"/)
   expect(svg).toMatch(/height="210mm"/)
   expect(svg).toContain('Every country')
+  // The footer credits the renderer (the basemap's own credit follows it when there is one), not this app.
+  expect(svg).toMatch(/>MapLibre</)
+  expect(svg).not.toContain('Created with')
   expect(svg).toMatch(/<text[^>]*>[^<]*\bN\b/) // the north arrow's letter
   expect(svg).toMatch(/\d+ (km|m|cm)\b/) // the scale bar's length
   expect(svg.match(/<image\b/g)?.length).toBe(1) // the map, and nothing else is a picture
@@ -613,4 +616,15 @@ test('a PDF is vector content; a title in a script the PDF fonts lack makes it a
   await expect(dialog(page)).toContainText('holds the page as a picture')
   // The picture of the whole page is much bigger than the map alone.
   expect(raster.bytes.length).toBeGreaterThan(vector.bytes.length)
+})
+
+test('the map controls tab sits at the foot of the right rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const rail = (await page.getByRole('toolbar', { name: 'Panels' }).boundingBox())!
+  const controls = (await page.getByRole('button', { name: 'Map controls', exact: true }).boundingBox())!
+  const basemap = (await page.getByRole('button', { name: 'Basemap', exact: true }).boundingBox())!
+  expect(Math.abs(controls.y + controls.height - (rail.y + rail.height))).toBeLessThan(2)
+  expect(controls.y).toBeGreaterThan(basemap.y + basemap.height + 50)
 })

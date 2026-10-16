@@ -240,33 +240,43 @@ describe("drawLayout cartographic furniture", () => {
     assert.equal(title.textAlign, "right");
   });
 
-  it("draws the attribution and date in the footer row independently", () => {
+  it("draws the map credit on the left, and the footer text and the date on the right", () => {
     const { canvas, fills } = recordingCanvas();
     drawLayout(
       canvas,
       baseOptions({
         showAttribution: true,
+        attributionText: "MapLibre | © OpenFreeMap © OpenStreetMap contributors",
         showDate: true,
         dateText: "2026-06-19",
         showFooter: true,
         footerText: "My Org",
       }),
     );
-    const attribution = fills.find((f) => f.text === "Created with Spatial Explorer");
-    assert.ok(attribution, "expected the attribution to be drawn");
-    assert.equal(attribution.textAlign, "left");
+    // MapLibre is set apart from the basemap's credit after it.
+    const lead = fills.find((f) => f.text === "MapLibre");
+    assert.ok(lead, "expected the renderer's name to be drawn");
+    assert.equal(lead.textAlign, "left");
+    const credit = fills.find((f) => f.text.startsWith("© OpenFreeMap"));
+    assert.ok(credit, "expected the basemap's credit to be drawn");
+    assert.equal(credit.textAlign, "left");
+    assert.ok(credit.x > lead.x, "the credit follows the name");
     const date = fills.find((f) => f.text === "2026-06-19");
     assert.ok(date, "expected the date to be drawn");
     assert.equal(date.textAlign, "right");
     const footer = fills.find((f) => f.text === "My Org");
     assert.ok(footer, "expected the custom footer text to be drawn");
-    assert.equal(footer.textAlign, "center");
+    assert.equal(footer.textAlign, "right");
+    assert.ok(footer.x < date.x, "the footer text sits before the date");
   });
 
-  it("omits the attribution when showAttribution is false", () => {
-    const { canvas, fills } = recordingCanvas();
-    drawLayout(canvas, baseOptions({ showAttribution: false }));
-    assert.ok(!fills.some((f) => f.text === "Created with Spatial Explorer"));
+  it("omits the attribution when showAttribution is false, or when there is no credit", () => {
+    const off = recordingCanvas();
+    drawLayout(off.canvas, baseOptions({ showAttribution: false, attributionText: "MapLibre" }));
+    assert.ok(!off.fills.some((f) => f.text === "MapLibre"));
+    const none = recordingCanvas();
+    drawLayout(none.canvas, baseOptions({}));
+    assert.ok(!none.fills.some((f) => /MapLibre|Created with/.test(f.text)));
   });
 
   it("draws a 1:N scale ratio for a millimetre paper size", () => {

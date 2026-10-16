@@ -137,7 +137,7 @@
     {#if l.showDate}
       <label class="row nested"><span>Date text</span><input type="text" value={l.dateText} placeholder={c.options.dateText} oninput={(e) => c.set({ dateText: e.currentTarget.value })} /></label>
     {/if}
-    {@render toggle('Include Spatial Explorer attribution', l.showAttribution, (v) => c.set({ showAttribution: v }))}
+    {@render toggle('Map attribution', l.showAttribution, (v) => c.set({ showAttribution: v }))}
     {@render toggle('Footer text', l.showFooter, (v) => c.set({ showFooter: v }))}
     {#if l.showFooter}
       <label class="row nested"><span>Footer</span><input type="text" value={l.footerText} oninput={(e) => c.set({ footerText: e.currentTarget.value })} /></label>

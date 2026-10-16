@@ -17,6 +17,8 @@ export interface CapturedMap {
   bearingDeg: number
   /** What the picture shows, in degrees: west, south, east, north. */
   extent: [number, number, number, number]
+  /** The basemap's credit as plain text, or '' when the basemap is not in the picture. */
+  attribution: string
 }
 
 /** The most pixels along one side of a raster page. */

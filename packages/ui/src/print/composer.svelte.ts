@@ -160,7 +160,8 @@ export class PrintComposer {
       showDate: l.showDate,
       dateText: l.dateText.trim() ? l.dateText : new Intl.DateTimeFormat().format(),
       showAttribution: l.showAttribution,
-      attributionText: 'Created with Spatial Explorer',
+      // MapLibre draws the map; the basemap's credit follows, as on the map's own attribution.
+      attributionText: c?.attribution ? `MapLibre | ${c.attribution}` : 'MapLibre',
       pageMargin: l.pageMargin,
       showPageBorder: l.showPageBorder,
       pageBorderColor: l.pageBorderColor,
@@ -289,7 +290,7 @@ export class PrintComposer {
 
   /** A capture as the layout measures it: meters per device pixel of the picture. */
   #toCaptured(shot: MapShot): CapturedMap {
-    return { image: shot.frame, width: shot.frame.width, height: shot.frame.height, metersPerPixel: shot.metersPerPixel / shot.ratio, pixelRatio: shot.ratio, bearingDeg: shot.bearing, extent: shot.extent }
+    return { image: shot.frame, width: shot.frame.width, height: shot.frame.height, metersPerPixel: shot.metersPerPixel / shot.ratio, pixelRatio: shot.ratio, bearingDeg: shot.bearing, extent: shot.extent, attribution: shot.attribution }
   }
 
   /** Takes the map as it is now (or the part inside the print extent); in an atlas, drives the map to the current page. */

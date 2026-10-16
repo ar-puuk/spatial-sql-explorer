@@ -304,9 +304,9 @@ export interface LayoutOptions {
   showDate?: boolean;
   /** The formatted date string drawn when {@link showDate} is true. */
   dateText?: string;
-  /** Draw the "Created with Spatial Explorer" attribution (left side of the footer row). */
+  /** Draw the map credit (left side of the footer row). */
   showAttribution?: boolean;
-  /** Attribution text; defaults to "Created with Spatial Explorer" when omitted. */
+  /** The map credit, "MapLibre | the basemap's credit" (the part before " | " is set apart); none when omitted. */
   attributionText?: string;
   /** Outer page padding preset: full margins, narrow, or borderless. */
   pageMargin?: "normal" | "narrow" | "none";
@@ -453,10 +453,10 @@ function resolveContentFlags(opts: LayoutOptions): ContentFlags {
   const hasTitleText = opts.showTitle && opts.title.trim().length > 0;
   const hasSubtitleText = showSubtitle && opts.subtitle.trim().length > 0;
   // Attribution is opt-out (on unless explicitly disabled), deliberately unlike
-  // the other new booleans: GH #526 wants a pre-checked "Created with Spatial Explorer"
+  // the other new booleans: GH #526 wants a pre-checked "the map credit"
   // credit so it survives a user replacing the footer text.
   const attributionText =
-    opts.showAttribution !== false && (opts.attributionText ?? "Created with Spatial Explorer").trim();
+    opts.showAttribution !== false && (opts.attributionText ?? "").trim();
   const footerText = opts.showFooter && opts.footerText.trim();
   const dateText = (opts.showDate && (opts.dateText ?? "").trim()) || false;
   return {
@@ -730,20 +730,42 @@ export function drawLayoutContext(
     ctx.fillStyle = MUTED;
     ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
     ctx.textBaseline = "middle";
-    // Give each of the three slots a third of the printable width so a long
-    // left attribution cannot visually bleed into the centred footer text.
-    const slotMax = (W - margin * 2) / 3;
+    // The date, and the footer text before it, are right-aligned; the map credit takes the rest of the row on the left, and
+    // is cut with an ellipsis (not squeezed) when it does not fit.
+    const total = W - margin * 2;
+    const gap = unit * 3;
+    ctx.textAlign = "right";
+    let rightEdge = W - margin;
+    for (const text of [dateText, footerText]) {
+      if (!text) continue;
+      ctx.fillText(text, rightEdge, baselineY);
+      rightEdge -= ctx.measureText(text).width + gap;
+    }
     if (attributionText) {
       ctx.textAlign = "left";
-      ctx.fillText(attributionText, margin, baselineY, slotMax);
-    }
-    if (footerText) {
-      ctx.textAlign = "center";
-      ctx.fillText(footerText, W / 2, baselineY, slotMax);
-    }
-    if (dateText) {
-      ctx.textAlign = "right";
-      ctx.fillText(dateText, W - margin, baselineY, slotMax);
+      const room = Math.max(0, rightEdge + gap - margin - gap);
+      // "MapLibre | © the basemap's credit": the renderer's name set in the page's ink, a hairline, then the basemap's credit.
+      const [lead, ...rest] = attributionText.split(" | ");
+      const credit = rest.join(" | ");
+      let x = margin;
+      ctx.font = `600 ${footSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = INK;
+      const leadText = credit ? lead : truncateToWidth(ctx, lead, Math.min(room, total));
+      ctx.fillText(leadText, x, baselineY);
+      x += ctx.measureText(leadText).width;
+      if (credit) {
+        x += unit * 1.2;
+        ctx.strokeStyle = MUTED;
+        ctx.lineWidth = Math.max(1, unit * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(x, baselineY - footSize * 0.55);
+        ctx.lineTo(x, baselineY + footSize * 0.55);
+        ctx.stroke();
+        x += unit * 1.2;
+        ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
+        ctx.fillStyle = MUTED;
+        ctx.fillText(truncateToWidth(ctx, credit, Math.max(0, margin + room - x)), x, baselineY);
+      }
     }
   }
 
