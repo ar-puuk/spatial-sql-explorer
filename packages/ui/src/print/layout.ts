@@ -851,7 +851,7 @@ export function drawLayoutContext(
   const inset = unit * 2;
   // The map credit is a thin strip along the bottom edge of the map, in its right corner (as MapLibre's own attribution is);
   // everything else keeps above it.
-  const creditSize = unit * 1.25;
+  const creditSize = unit * 1.55;
   const creditH = attributionText ? creditSize * 1.9 : 0;
   const floorH = bodyH - creditH;
   // Metres per pixel in the *output* image after cover scaling.
