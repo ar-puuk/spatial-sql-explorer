@@ -464,3 +464,28 @@ test('keyboard: Cancel opening and the whole-read announcement work from the key
   await page.keyboard.press('Enter')
   await expect(page.locator('.status-bar')).toContainText('10,000 features', { timeout: 60000 })
 })
+
+// Spec 016: the Print Layout composer, with every block it can show on: the table, the chart, the colorbar, the custom
+// legend, the info block and the atlas.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`axe: no violations in the Print map composer (${scheme})`, async ({ page }) => {
+    test.setTimeout(180000)
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.route('https://tiles.openfreemap.org/**', (route) => route.abort())
+    await page.goto('/')
+    await page.locator('input[type="file"]').setInputFiles(fixture)
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await page.getByRole('button', { name: 'Print map…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Print map' })
+    await expect(dialog.getByRole('button', { name: 'Export PNG' })).toBeEnabled({ timeout: 30000 })
+    await audit(page, 'composer: open')
+    for (const name of ['Attribute table', 'Chart', 'Colorbar', 'Custom legend', 'Info block (title block)', 'Footer text', 'Page border']) {
+      await dialog.getByRole('switch', { name, exact: true }).click()
+    }
+    await audit(page, 'composer: every element on')
+    await dialog.getByRole('switch', { name: 'Generate a multi-page map series' }).click()
+    await expect(dialog.getByRole('region', { name: 'Atlas' }).getByRole('status')).toContainText(/\d+ pages/, { timeout: 20000 })
+    await audit(page, 'composer: atlas')
+  })
+}

@@ -1799,6 +1799,8 @@ function drawDataChart(
   // anchoring are computed once for all three chart kinds.
   let contentW = 0;
   let contentH = 0;
+  // Assigned by every chart kind below (the arrow is only the declaration's placeholder).
+  // eslint-disable-next-line no-useless-assignment
   let drawContent: (cx0: number, cy0: number) => void = () => {};
 
   if (data.kind === "bar") {

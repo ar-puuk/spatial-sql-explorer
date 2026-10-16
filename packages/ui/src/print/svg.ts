@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- svgcanvas ships no types, and the apps' tsconfigs do not include the declaration
 /// <reference path="../svgcanvas.d.ts" />
 // Adapted from GeoLibre (opengeos/GeoLibre, MIT, © 2026 Qiusheng Wu): apps/geolibre-desktop/src/lib/print-layout-svg.ts.
 import { Context } from "svgcanvas";

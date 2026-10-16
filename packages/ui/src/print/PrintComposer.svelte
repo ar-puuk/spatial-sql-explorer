@@ -151,7 +151,7 @@
           <button type="button" class="secondary" disabled={busy} onclick={() => void c.recapture()}><Icon name="refresh" size={14} />Recapture map</button>
         </div>
         <div class="preview" bind:this={pane}>
-          <canvas bind:this={canvas} aria-label="Preview of the page" role="img"></canvas>
+          <canvas bind:this={canvas} aria-label="Preview of the page"></canvas>
           {#if c.capturing}<span class="overlay" role="status">Capturing the map…</span>{/if}
         </div>
         {#if c.error}<p class="result error" role="alert"><Icon name="error" size={14} />{c.error}</p>{/if}

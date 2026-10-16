@@ -157,7 +157,7 @@ export class PrintComposer {
       showFooter: l.showFooter,
       footerText: l.footerText,
       showDate: l.showDate,
-      dateText: l.dateText.trim() ? l.dateText : new Date().toLocaleDateString(),
+      dateText: l.dateText.trim() ? l.dateText : new Intl.DateTimeFormat().format(),
       showAttribution: l.showAttribution,
       attributionText: 'Created with Spatial Explorer',
       pageMargin: l.pageMargin,
@@ -348,7 +348,7 @@ export class PrintComposer {
     const abort = new AbortController()
     this.#drawAbort = abort
     this.drawingExtent = true
-    let extent: PrintExtent | null = null
+    let extent: PrintExtent | null
     try {
       extent = await camera.drawExtent({ aspect: size.width / size.height, signal: abort.signal })
     } finally {

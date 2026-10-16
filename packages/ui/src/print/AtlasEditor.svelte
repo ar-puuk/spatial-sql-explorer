@@ -96,7 +96,7 @@
       {/if}
       <label class="row">
         <span>Filter</span>
-        <input type="text" aria-label="Atlas filter" placeholder={'POP2000 > 100000 and ST = "CA"'} value={l.atlasFilter} oninput={(e) => c.set({ atlasFilter: e.currentTarget.value })} />
+        <input type="text" aria-label="Atlas filter" placeholder='POP2000 > 100000 and ST = "CA"' value={l.atlasFilter} oninput={(e) => c.set({ atlasFilter: e.currentTarget.value })} />
       </label>
       {#if a.predicate === null}<p class="error" role="alert">Use =, !=, &gt;, &gt;=, &lt;, &lt;= or contains, joined with and.</p>{/if}
       <label class="row">
@@ -107,8 +107,8 @@
         {#if a.loading}Reading the layer…{:else if a.count > 0}{a.count.toLocaleString('en-US')} {a.count === 1 ? 'page' : 'pages'}{:else}No pages: nothing in the layer matches.{/if}
         {#if a.truncated}<span class="hint"> The layer has more than {a.features.length.toLocaleString('en-US')} features; only these are read.</span>{/if}
       </p>
-      <p class="hint">In the title, subtitle, footer and file name: {'{atlas.name}'}, {'{atlas.pagenumber}'}, {'{atlas.total}'} and {'{atlas.attr:FIELD}'}.</p>
-      {#if l.atlasCoverage === 'line'}<p class="hint">Along a line, {'{atlas.attr:km_start}'}, km_end, segment and segments are also there.</p>{/if}
+      <p class="hint">In the title, subtitle, footer and file name: &#123;atlas.name&#125;, &#123;atlas.pagenumber&#125;, &#123;atlas.total&#125; and &#123;atlas.attr:FIELD&#125;.</p>
+      {#if l.atlasCoverage === 'line'}<p class="hint">Along a line, &#123;atlas.attr:km_start&#125;, km_end, segment and segments are also there.</p>{/if}
     </div>
   {/if}
 </section>

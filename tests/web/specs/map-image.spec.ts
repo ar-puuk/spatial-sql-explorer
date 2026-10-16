@@ -59,7 +59,7 @@ test('Print map: the composer opens on a live preview and exports a PNG on A4, l
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const open = page.getByRole('button', { name: 'Print map…' })
   await openComposer(page)
-  await expect(dialog(page).getByRole('img', { name: 'Preview of the page' })).toBeVisible()
+  await expect(dialog(page).locator('canvas[aria-label="Preview of the page"]')).toBeVisible()
   const started = Date.now()
   const out = await exportAs(page, 'PNG')
   // A blank title follows the file's name.

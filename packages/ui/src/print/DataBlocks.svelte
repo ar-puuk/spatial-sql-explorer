@@ -31,11 +31,9 @@
   const picked = $derived(c.tableColumns)
 
   function toggleColumn(name: string, on: boolean): void {
-    const next = new Set(picked)
-    if (on) next.add(name)
-    else next.delete(name)
+    const next = on ? [...picked, name] : picked.filter((n) => n !== name)
     // In the layer's own order: the printed order stays stable.
-    c.set({ tableColumns: names.filter((n) => next.has(n)) })
+    c.set({ tableColumns: names.filter((n) => next.includes(n)) })
   }
 </script>
 
