@@ -468,7 +468,8 @@ function resolveContentFlags(opts: LayoutOptions): ContentFlags {
     attributionText,
     footerText,
     dateText,
-    hasFooterRow: Boolean(attributionText || footerText || dateText),
+    // The map credit is not on this row: it is in the map's corner.
+    hasFooterRow: Boolean(footerText || dateText),
   };
 }
 
@@ -730,42 +731,13 @@ export function drawLayoutContext(
     ctx.fillStyle = MUTED;
     ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
     ctx.textBaseline = "middle";
-    // The date, and the footer text before it, are right-aligned; the map credit takes the rest of the row on the left, and
-    // is cut with an ellipsis (not squeezed) when it does not fit.
-    const total = W - margin * 2;
-    const gap = unit * 3;
+    // The date is at the right edge and the footer text before it; the map credit is not here but in the map's corner.
     ctx.textAlign = "right";
     let rightEdge = W - margin;
     for (const text of [dateText, footerText]) {
       if (!text) continue;
       ctx.fillText(text, rightEdge, baselineY);
-      rightEdge -= ctx.measureText(text).width + gap;
-    }
-    if (attributionText) {
-      ctx.textAlign = "left";
-      const room = Math.max(0, rightEdge + gap - margin - gap);
-      // "MapLibre | © the basemap's credit": the renderer's name set in the page's ink, a hairline, then the basemap's credit.
-      const [lead, ...rest] = attributionText.split(" | ");
-      const credit = rest.join(" | ");
-      let x = margin;
-      ctx.font = `600 ${footSize}px system-ui, -apple-system, sans-serif`;
-      ctx.fillStyle = INK;
-      const leadText = credit ? lead : truncateToWidth(ctx, lead, Math.min(room, total));
-      ctx.fillText(leadText, x, baselineY);
-      x += ctx.measureText(leadText).width;
-      if (credit) {
-        x += unit * 1.2;
-        ctx.strokeStyle = MUTED;
-        ctx.lineWidth = Math.max(1, unit * 0.12);
-        ctx.beginPath();
-        ctx.moveTo(x, baselineY - footSize * 0.55);
-        ctx.lineTo(x, baselineY + footSize * 0.55);
-        ctx.stroke();
-        x += unit * 1.2;
-        ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
-        ctx.fillStyle = MUTED;
-        ctx.fillText(truncateToWidth(ctx, credit, Math.max(0, margin + room - x)), x, baselineY);
-      }
+      rightEdge -= ctx.measureText(text).width + unit * 3;
     }
   }
 
@@ -877,6 +849,11 @@ export function drawLayoutContext(
   }
 
   const inset = unit * 2;
+  // The map credit is a thin strip along the bottom edge of the map, in its right corner (as MapLibre's own attribution is);
+  // everything else keeps above it.
+  const creditSize = unit * 1.25;
+  const creditH = attributionText ? creditSize * 1.9 : 0;
+  const floorH = bodyH - creditH;
   // Metres per pixel in the *output* image after cover scaling.
   const outputMpp = opts.metersPerPixel / (coverScale || 1);
   const hasScale = opts.showScaleBar && outputMpp > 0 && Number.isFinite(outputMpp);
@@ -897,7 +874,7 @@ export function drawLayoutContext(
     ctx.beginPath();
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
-    drawInfoBlock(ctx, bodyX + bodyW - inset, bodyY + bodyH - inset, infoLines, unit);
+    drawInfoBlock(ctx, bodyX + bodyW - inset, bodyY + floorH - inset, infoLines, unit);
     ctx.restore();
   }
 
@@ -909,7 +886,7 @@ export function drawLayoutContext(
     scaleHeight = drawScaleBar(
       ctx,
       scaleRight,
-      bodyY + bodyH - inset,
+      bodyY + floorH - inset,
       bodyW * 0.28,
       outputMpp,
       unit,
@@ -945,7 +922,7 @@ export function drawLayoutContext(
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
     // The legend is drawn at screen sizes (12 px text): scale it with the page like the rest of the furniture.
-    legendHeight = drawLegendAt(ctx, opts.legend, bodyX + inset, bodyY + bodyH - inset, bodyH - inset * 2, unit / 6, true);
+    legendHeight = drawLegendAt(ctx, opts.legend, bodyX + inset, bodyY + floorH - inset, floorH - inset * 2, unit / 6, true);
     ctx.restore();
   }
 
@@ -988,7 +965,7 @@ export function drawLayoutContext(
         bodyX,
         bodyY,
         bodyW,
-        bodyH,
+        floorH,
         unit,
         stackOffset,
       ),
@@ -1004,7 +981,7 @@ export function drawLayoutContext(
         bodyX,
         bodyY,
         bodyW,
-        bodyH,
+        floorH,
         unit,
         stackOffset,
       ),
@@ -1020,7 +997,7 @@ export function drawLayoutContext(
         bodyX,
         bodyY,
         bodyW,
-        bodyH,
+        floorH,
         unit,
         stackOffset,
       ),
@@ -1036,11 +1013,21 @@ export function drawLayoutContext(
         bodyX,
         bodyY,
         bodyW,
-        bodyH,
+        floorH,
         unit,
         stackOffset,
       ),
     );
+  }
+
+  // --- Map credit ----------------------------------------------------------
+  if (attributionText) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(bodyX, bodyY, bodyW, bodyH);
+    ctx.clip();
+    drawMapCredit(ctx, attributionText, bodyX + bodyW, bodyY + bodyH, bodyW * 0.7, creditSize, mapBorderWidth / 2);
+    ctx.restore();
   }
 
   // --- Page border -------------------------------------------------------
@@ -1052,6 +1039,52 @@ export function drawLayoutContext(
     ctx.strokeRect(lw / 2, lw / 2, W - lw, H - lw);
   }
 
+  ctx.restore();
+}
+
+/**
+ * Draws the map credit "MapLibre | the basemap's credit" as a thin pale strip hugging the map's bottom-right corner, in small
+ * type, so it reads as part of the map and not as a caption. "MapLibre" is a shade darker; a long credit is cut with an ellipsis.
+ */
+function drawMapCredit(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  right: number,
+  bottom: number,
+  maxWidth: number,
+  size: number,
+  frameInset: number,
+): void {
+  const [lead, ...rest] = text.split(" | ");
+  const credit = rest.join(" | ");
+  const pad = size * 0.7;
+  const height = size * 1.9;
+  const gap = size * 0.5;
+  ctx.save();
+  const font = (weight: number) => `${weight} ${size}px system-ui, -apple-system, sans-serif`;
+  ctx.font = font(600);
+  const leadW = ctx.measureText(lead).width;
+  ctx.font = font(400);
+  const sep = credit ? ctx.measureText("|").width + gap * 2 : 0;
+  const creditText = credit ? truncateToWidth(ctx, credit, Math.max(0, maxWidth - pad * 2 - leadW - sep)) : "";
+  const width = pad * 2 + leadW + sep + (creditText ? ctx.measureText(creditText).width : 0);
+  const x0 = right - frameInset - width;
+  const y0 = bottom - frameInset - height;
+  ctx.fillStyle = "rgba(255,255,255,0.78)";
+  roundRect(ctx, x0, y0, width, height, size * 0.5);
+  ctx.fill();
+  const baseline = y0 + height / 2;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.font = font(600);
+  ctx.fillStyle = "#374151";
+  ctx.fillText(lead, x0 + pad, baseline);
+  if (creditText) {
+    ctx.font = font(400);
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText("|", x0 + pad + leadW + gap, baseline);
+    ctx.fillText(creditText, x0 + pad + leadW + sep, baseline);
+  }
   ctx.restore();
 }
 
