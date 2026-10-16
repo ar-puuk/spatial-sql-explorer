@@ -276,7 +276,7 @@
     { kind: 'graduated', label: 'Graduated', hint: 'Colors by ranges of a number or an expression' },
     { kind: 'continuous', label: 'Continuous', hint: 'Colors along a ramp, in proportion to a number' },
     { kind: 'identity', label: 'As is', hint: 'Colors read from a column (#rrggbb)' },
-    { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a 3×3 color grid' },
+    { kind: 'bivariate', label: 'Bivariate', hint: 'Two numeric columns at once, on a grid of 2 to 4 classes each' },
     { kind: 'rules', label: 'Rules', hint: 'SQL conditions: the first one a feature meets colors it' },
     { kind: 'heatmap', label: 'Heatmap', hint: 'Where points cluster, as a smooth density surface' },
     { kind: 'clusters', label: 'Clusters', hint: 'Nearby points grouped into bubbles, sized and colored by how many' },

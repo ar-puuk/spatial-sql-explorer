@@ -65,8 +65,9 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
     `gdp_md * 1e6 / pop_est` instead of a column.
   - **Rules**: color by SQL conditions (`continent = 'Africa'`), the first
     match wins, with a count per rule. QGIS draws the saved rules the same.
-  - **Bivariate maps**: two numeric columns colored from a 3×3 square, with
-    a keyboard legend square whose cells hide their features.
+  - **Bivariate maps**: two numeric columns colored from a grid of 2 to 4
+    classes along each axis (3 by 3 by default), with a legend (a square, or a
+    diamond) whose cells hide their features.
   - **Vary by attribute**: more properties, each by its own column, so one map
     shows several variables (roads colored by level of service and widened
     by traffic). Points: size, outline color and width, shape, opacity,

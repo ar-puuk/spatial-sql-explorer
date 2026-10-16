@@ -2,7 +2,7 @@
   import ColumnOptions from './ColumnOptions.svelte'
   // Spec 009 US4 (contracts/ui.md "Style panel"): the bivariate axes (a
   // numeric column and a method each), swapping them, and the palette, shown
-  // as 3x3 previews. Palette colors are fixed data colors.
+  // as 3x3 previews (other grid sizes read the same colors). Palette colors are fixed data colors.
   import { BIVARIATE_CLASS_COUNTS, BIVARIATE_PALETTES, METHOD_NAMES, type BivariateAxis, type BivariateMethod, type BivariateRenderer } from '@spatial-explorer/core'
   import Icon from '../Icon.svelte'
 

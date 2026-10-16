@@ -110,7 +110,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   The panel keeps the Color type and adds "Vary by attribute"; legend groups merge on the same column and classes.
   Labels are their own side-rail panel (style.labels; expression text computed as __se_lbl), drawn with the
   system's sans-serif (no glyph download).
-  Spec 009: plus bivariate (two numeric columns, generated 3x3 palettes, keyboard legend square) and an
+  Spec 009: plus bivariate (two numeric columns, 2 to 4 classes per axis, generated 3x3 palettes read at other sizes, a keyboard legend square or diamond set in the style) and an
   optional size channel (marker size / line width by its own numeric column, classed or proportional) next to
   any color style but bivariate. QML writes the size channel as QGIS data-defined sizes and bivariate as a
   RuleRenderer; both ride along in spatialExplorer/* custom properties. Marker shapes and line patterns too.

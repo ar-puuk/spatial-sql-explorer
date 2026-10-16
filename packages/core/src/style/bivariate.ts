@@ -1,6 +1,7 @@
 // Spec 009 US4: bivariate maps (research §2, §3, §8). Two numeric columns,
-// each classified like a graduated axis (up to 3 classes); a feature takes the
-// color of its cell from a 3x3 palette (./bivariateData.ts, generated). Cells
+// each classified like a graduated axis (2 to 4 classes, 3 by default); a feature
+// takes the color of its cell from a 3x3 palette (./bivariateData.ts, generated),
+// read at evenly spaced places for other grid sizes. Cells
 // sit first in `ResolvedStyle.classes`, row-major from low/low (i + nx * j),
 // so a feature's cell position IS its class index on the map.
 import { BIVARIATE_PALETTES, type BivariatePalette } from './bivariateData.js'
