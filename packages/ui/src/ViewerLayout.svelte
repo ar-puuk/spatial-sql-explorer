@@ -20,7 +20,7 @@
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
-  import MapImageDialog from './MapImageDialog.svelte'
+  import PrintComposer from './print/PrintComposer.svelte'
   import type { LegendSpec } from './mapImage.js'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
@@ -708,7 +708,7 @@
   {@render statusBar?.()}
 
   {#if store.mapImageOpen}
-    <MapImageDialog
+    <PrintComposer
       {store}
       legend={legendSpec}
       onClose={() => {

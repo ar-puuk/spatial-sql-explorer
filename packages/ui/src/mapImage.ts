@@ -62,8 +62,8 @@ export interface MapShot {
   notes: string[]
 }
 
-/** MapView's capture: the current view at `ratio` device pixels per CSS pixel. */
-export type MapCapture = (opts: { ratio: number }) => Promise<MapShot>
+/** MapView's capture: the current view at `ratio` device pixels per CSS pixel, cut to `clip` (west, south, east, north) when given. */
+export type MapCapture = (opts: { ratio: number; clip?: [number, number, number, number] | null }) => Promise<MapShot>
 
 const FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif'
 const TITLE_FONT = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif'

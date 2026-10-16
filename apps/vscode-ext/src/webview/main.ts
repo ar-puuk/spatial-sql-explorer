@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   // real data flow (ViewerSession.selectedFeatureId propagation), not actual
   // mouse interaction.
   window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string; column?: string; filter?: unknown; hidden?: unknown; scale?: number }
+    const msg = event.data as { type: string; id?: string | number | null; sql?: string; style?: unknown; request?: Record<string, unknown>; format?: string; column?: string; filter?: unknown; hidden?: unknown; paper?: string; title?: string; furniture?: boolean; scale?: number }
     if (msg.type === 'testRunQuery' && typeof msg.sql === 'string') {
       // Test-only (spec 002 T028): the same store action the Run button uses,
       // with the whole text selected. (Spec 007 removed the large-result prompt.)
@@ -115,8 +115,9 @@ async function main(): Promise<void> {
       void store.saveStyleAs(msg.format)
     } else if (msg.type === 'testExportMapImage') {
       const format = msg.format === 'pdf' || msg.format === 'svg' ? msg.format : 'png'
-      const paper = msg.paper === 'a4' ? 'a4' : 'map'
-      void store.exportMapImage({ format, paper, orientation: 'auto', title: typeof msg.title === 'string' ? msg.title : '', legend: null, scaleBar: msg.furniture === true, northArrow: msg.furniture === true, units: 'metric', scale: msg.scale === 2 ? 2 : 1, dpi: 150 })
+      void import('@spatial-explorer/ui/print/quick').then(({ quickPrint }) =>
+        quickPrint(store, { format, paper: msg.paper === 'a4' ? 'a4' : 'map', scale: msg.scale === 2 ? 2 : 1, title: typeof msg.title === 'string' ? msg.title : '', furniture: msg.furniture === true })
+      )
     } else if (msg.type === 'testCancelOpen') {
       void store.cancelOpen()
     } else if (msg.type === 'testCancelQuery') {

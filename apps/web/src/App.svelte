@@ -164,11 +164,23 @@
       captureMap: async (scale: 1 | 2, legend: boolean | LegendSpec = false) => {
         // A test legend: one red row, or the spec the test passes (spec 009: groups).
         const legendSpec = typeof legend === 'object' ? legend : legend ? { title: 'Legend', shape: 'area' as const, alpha: 1, rows: [{ color: '#ff0000', label: 'Test' }] } : null
-        const r = await store.captureMapImage({ scale, legend: legendSpec })
-        if (!r) return null
+        // The map-size page of the print pipeline (a custom size in px, no margins and no furniture), with the legend.
+        const { renderToCanvas, canvasToPngBytes } = await import('@spatial-explorer/ui/print/export')
+        const shot = await store.captureMap({ ratio: scale })
+        const w = shot.frame.width
+        const h = shot.frame.height
+        const canvas = renderToCanvas(
+          {
+            title: '', subtitle: '', paperSize: 'custom', orientation: 'landscape', customSize: { width: w, height: h, unit: 'px' }, showTitle: false, showSubtitle: false, showLegend: legendSpec !== null,
+            showScaleBar: false, showNorthArrow: false, showFooter: false, footerText: '', showAttribution: false, pageMargin: 'none', mapBorderWidth: 0, legend: legendSpec,
+            metersPerPixel: 0, bearingDeg: 0, mapImage: shot.frame, mapImageWidth: w, mapImageHeight: h,
+          },
+          96
+        )
+        const bytes = await canvasToPngBytes(canvas)
         let bin = ''
-        for (let i = 0; i < r.bytes.length; i += 0x8000) bin += String.fromCharCode(...r.bytes.subarray(i, i + 0x8000))
-        return { width: r.width, height: r.height, notes: r.notes, base64: btoa(bin) }
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+        return { width: canvas.width, height: canvas.height, notes: shot.notes, base64: btoa(bin) }
       },
       zoomToFeature: (id: number) => store.zoomToFeature(id),
       /** The first point of the drawn feature closest to the view center: a click target. */

@@ -28,6 +28,7 @@
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Image from '@lucide/svelte/icons/image'
   import Printer from '@lucide/svelte/icons/printer'
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import Info from '@lucide/svelte/icons/info'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import Layers from '@lucide/svelte/icons/layers'
@@ -113,6 +114,7 @@
     tag: Tag,
     image: Image,
     printer: Printer,
+    refresh: RefreshCw,
     search: Search,
     link: Link,
     sun: Sun,

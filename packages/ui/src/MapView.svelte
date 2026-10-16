@@ -975,15 +975,15 @@
     })
   }
   /** Ground meters per CSS pixel at the center, from two points 100 px apart (right on a globe too). */
-  function centerMetersPerPixel(m: MapLibreMap): number {
-    const { x, y } = m.project(m.getCenter())
+  function metersPerPixelAt(m: MapLibreMap, at: { x: number; y: number }): number {
+    const { x, y } = at
     const a = m.unproject([x - 50, y])
     const b = m.unproject([x + 50, y])
     const rad = Math.PI / 180
     const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2
     return (2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)))) / 100
   }
-  const captureMap: MapCapture = async ({ ratio: wanted }) => {
+  const captureMap: MapCapture = async ({ ratio: wanted, clip }) => {
     const m = map
     if (!m) throw new Error('The map is not ready.')
     const notes: string[] = []
@@ -1018,7 +1018,34 @@
         ctx.drawImage(grabbed, 0, 0)
         return out
       }
-      const shot = (frame: HTMLCanvasElement, credit: string): MapShot => ({ frame, ratio, width: cssW, height: cssH, attribution: credit, bearing: m.getBearing(), metersPerPixel: centerMetersPerPixel(m), notes })
+      // With a print extent, the frame is cut to its box, and the scale is measured in the part that shows.
+      const shot = (frame: HTMLCanvasElement, credit: string): MapShot => {
+        let out = frame
+        let center: { x: number; y: number } = m.project(m.getCenter())
+        let width = cssW
+        let height = cssH
+        if (clip) {
+          const [w, s, e, n] = clip
+          const corners = [m.project([w, n]), m.project([e, n]), m.project([e, s]), m.project([w, s])]
+          const minX = Math.min(...corners.map((c) => c.x))
+          const maxX = Math.max(...corners.map((c) => c.x))
+          const minY = Math.min(...corners.map((c) => c.y))
+          const maxY = Math.max(...corners.map((c) => c.y))
+          const x0 = Math.max(0, Math.floor(minX * ratio))
+          const y0 = Math.max(0, Math.floor(minY * ratio))
+          const x1 = Math.min(frame.width, Math.ceil(maxX * ratio))
+          const y1 = Math.min(frame.height, Math.ceil(maxY * ratio))
+          if (x1 - x0 < 1 || y1 - y0 < 1) throw new Error('The print extent is outside the map: pan to it, or draw it again.')
+          out = document.createElement('canvas')
+          out.width = x1 - x0
+          out.height = y1 - y0
+          out.getContext('2d')?.drawImage(frame, x0, y0, out.width, out.height, 0, 0, out.width, out.height)
+          center = { x: (x0 + x1) / 2 / ratio, y: (y0 + y1) / 2 / ratio }
+          width = out.width / ratio
+          height = out.height / ratio
+        }
+        return { frame: out, ratio, width, height, attribution: credit, bearing: m.getBearing(), metersPerPixel: metersPerPixelAt(m, center), notes }
+      }
       try {
         return shot(flatten(await grabFrame(m)), attribution)
       } catch (err) {
