@@ -6,6 +6,10 @@ desktop GIS.
 
 Also available as a web app: https://ar-puuk.github.io/spatial-sql-explorer/
 
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=arpuuk.spatial-explorer)
+or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
+(`arpuuk.spatial-explorer`). Source: https://github.com/ar-puuk/spatial-sql-explorer
+
 ## Features
 
 - **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile,
@@ -202,3 +206,12 @@ No telemetry is collected.
 
 - **View → Output → Spatial Explorer** logs each open, query and engine
   download with timings.
+
+## Acknowledgements
+
+Inspired by, and built with constant reference to,
+[GeoLibre](https://github.com/opengeos/GeoLibre) by
+[Qiusheng Wu](https://github.com/giswqs) (MIT). Parts are adapted from it and
+from his maplibre-gl-vector and maplibre-gl-basemap-control; see the notices in
+the extension. Also inspired by
+[Kyle Walker's Spatial SQL Explorer](https://personal.tcu.edu/kylewalker/urbangis/sql-explorer/).

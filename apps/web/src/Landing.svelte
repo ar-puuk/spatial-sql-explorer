@@ -160,6 +160,11 @@
       {engine === 'ready' ? 'SQL engine ready' : engine === 'warming' ? 'SQL engine starting…' : 'SQL engine starts when a file opens'}
     </span>
     <span>Files are read in your browser and never uploaded.</span>
+    <span class="get">
+      Get the VS Code extension:
+      <a href="https://marketplace.visualstudio.com/items?itemName=arpuuk.spatial-explorer" target="_blank" rel="noopener noreferrer">Marketplace</a>
+      <a href="https://open-vsx.org/extension/arpuuk/spatial-explorer" target="_blank" rel="noopener noreferrer">Open VSX</a>
+    </span>
   </footer>
 </div>
 
@@ -539,6 +544,13 @@
   }
   .strip > span + span {
     box-shadow: -1px 0 0 var(--se-statusbar-border);
+  }
+  .strip .get {
+    margin-left: auto;
+  }
+  .strip a {
+    color: inherit;
+    text-decoration: underline;
   }
   .dot {
     width: 7px;

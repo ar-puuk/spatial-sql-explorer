@@ -5,7 +5,9 @@ spatial SQL, style it, and export it, without opening a desktop GIS. One
 codebase ships as:
 
 - **A VS Code extension**, "Spatial Explorer: Spatial SQL & Map Viewer", on the
-  VS Code Marketplace and Open VSX. See the [extension README](apps/vscode-ext/README.md).
+  [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=arpuuk.spatial-explorer)
+  and [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
+  (`arpuuk.spatial-explorer`). See the [extension README](apps/vscode-ext/README.md).
 - **A web app**: https://ar-puuk.github.io/spatial-sql-explorer/
 
 Everything runs locally, in WebAssembly: your files are never uploaded.
@@ -98,6 +100,7 @@ The single-page app this project replaces is preserved at the `legacy-v1` tag.
 
 ## Acknowledgements
 
+- [GeoLibre](https://github.com/opengeos/GeoLibre) and its author [Qiusheng Wu](https://github.com/giswqs): the inspiration for this project and a constant reference for its style panel, basemap picker, data-loading tiers and style interchange. Parts are adapted from his MIT-licensed GeoLibre, maplibre-gl-vector and maplibre-gl-basemap-control
 - Inspired by [Kyle Walker's Spatial SQL Explorer](https://personal.tcu.edu/kylewalker/urbangis/sql-explorer/)
 - [DuckDB](https://duckdb.org/) and its spatial extension
 - [MapLibre GL JS](https://maplibre.org/) for map rendering
