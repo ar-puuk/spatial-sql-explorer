@@ -9,6 +9,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Print map.** The map's "Export map image" is now GeoLibre's Print Layout composer: the view as a page with a live preview.
+  Paper (A4, A3, Letter, Legal, Tabloid) and screen sizes or a custom size, orientation and margins; a title and subtitle (outside
+  or over the map, left, center or right); the legend, with its classes renamed, hidden or reordered for the page; a scale bar and
+  north arrow; a date, footer and attribution; a page border and a map frame; an info block, a colorbar and a custom legend; an
+  attribute table and a bar, pie or line chart of the rows, limited to what the page shows; a 1:N scale (presets, or typed) and a
+  print extent drawn on the map. Saved as a PNG, a PDF or an SVG (text, legend, tables and charts stay editable in Inkscape or
+  Illustrator), or copied to the clipboard.
+- **Atlas.** One page per feature, or a page for each stretch of a line, each framed on its own part of the map (a margin, or a
+  fixed scale), with the area outside a polygon dimmed if you like, sorted and filtered, with `{atlas.name}`, `{atlas.pagenumber}`,
+  `{atlas.total}` and `{atlas.attr:FIELD}` in the title, subtitle, footer and file names. One multi-page PDF, or a zip of pictures.
+
+### Changed
+
+- The layout is remembered between sessions (a preference for every file). jsPDF and svgcanvas (both MIT) load the first time
+  they are used.
+
 ## [0.5.0] - 2026-10-15
 
 Map controls and drawing tools, terrain, and a new look.

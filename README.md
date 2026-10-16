@@ -54,8 +54,13 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   QML, SLD and Mapbox GL, and included in the map image.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;
-  all, filtered or selected rows. The map exports as a PNG with its legend.
-  The web app can also copy a share link (the view, never the data).
+  all, filtered or selected rows. The web app can also copy a share link (the
+  view, never the data).
+- **Print**: the map as a page, in the layout of GeoLibre's Print Layout: paper
+  or screen sizes, title, legend, scale bar and north arrow, colorbar, info block,
+  a table and a chart of the rows, a 1:N scale, a drawn print extent, and an atlas
+  (a page per feature or along a line). Saved as PNG, PDF or SVG (text and legend
+  stay editable), or copied.
 
 See [CHANGELOG.md](CHANGELOG.md) for everything in each release.
 

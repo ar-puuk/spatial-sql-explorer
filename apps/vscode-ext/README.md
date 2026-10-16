@@ -114,8 +114,14 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
 
   A notice lists anything the format changes (field renames, reprojection).
   The source file is never modified.
-- **Map image.** **Export map image…** saves the view as a PNG at 1x or 2x,
-  with its labels, every legend group and the basemap's attribution.
+- **Print map.** **Print map…** composes the view as a page, with a live
+  preview: paper or screen sizes, a title and subtitle, the legend (rename,
+  hide or reorder its classes), a scale bar and north arrow, a colorbar, an info
+  block, an attribute table and a chart of the rows, a 1:N scale, and a print
+  extent you draw on the map. Save it as a PNG, PDF or SVG (text and legend stay
+  editable), or copy it. An **atlas** makes one page per feature, or a page for
+  each stretch of a line, as one multi-page PDF or a zip of pictures. The layout
+  follows GeoLibre's Print Layout.
 - **Looks like VS Code.** Every color comes from your theme, including
   high-contrast themes. CRS, feature count and cursor coordinates appear in the
   native status bar.

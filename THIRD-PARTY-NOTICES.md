@@ -3033,7 +3033,10 @@ The color ramps in `packages/core/src/style/ramps.ts` are data, not code.
 
 Desktop GIS on DuckDB-Wasm and MapLibre; some functions are adapted from it (marked
 `// Adapted from GeoLibre …` in the code).
-Used: batched GeoJSON conversion and other adapted functions.
+Used: batched GeoJSON conversion and other adapted functions; the Print Layout composer (packages/ui/src/print/):
+the page drawing (title block, scale bar, north arrow, info block, colorbar, custom legend, table and chart blocks),
+the atlas (tokens, filter, page building along a line), the print extent tool, and the layout settings and their
+normalizing. Their tests are ported to tests/core.
 Source: https://github.com/opengeos/GeoLibre
 
 ```
@@ -3224,6 +3227,70 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+
+## jsPDF 4.2.1
+
+Writes the Print Layout's PDF (a page image on a page of the chosen size). Loaded on first use.
+Source: https://github.com/parallax/jsPDF
+
+```
+Copyright
+(c) 2010-2025 James Hall, https://github.com/MrRio/jsPDF
+(c) 2015-2025 yWorks GmbH, https://www.yworks.com/
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+---
+
+## svgcanvas 2.6.0
+
+A 2D canvas context that draws into an SVG element: the Print Layout's SVG export, where the text, legend,
+scale bar, table and chart stay editable. Loaded on first use.
+Source: https://github.com/zenozeng/svgcanvas
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2014 Gliffy Inc.
+Copyright (c) 2021 Zeno Zeng
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+---
 
 ## vanilla-colorful 0.7.2
 

@@ -10,12 +10,12 @@ The pre-rebuild single-page app is preserved at tag `legacy-v1` (no longer in th
 Use it only as a feature reference (`git show legacy-v1:js/app.js`, or check out the tag).
 
 ## Explicitly out of scope
-Feature editing, georeferencing, processing toolbox, print layouts, notebooks/ipynb
+Feature editing, georeferencing, processing toolbox, notebooks/ipynb
 integration, plugin system, 3D tiles/planets, raster analysis, stacked
 basemaps, multiple map layers. Say no to scope creep and flag it instead.
 Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection toggle
 (MapLibre's built-in globe, no terrain), and polygon extrusion as a style option
-(height from a column). Nothing else 3D, except (user decision 2026-10-13) the map can always be tilted and rotated, so a basemap's own 3D layers (Liberty's buildings) show. Allowed by user decision (2026-10-15, spec 014, constitution v1.3.0): a terrain on/off switch (a DEM is a height source the one basemap and the data are lifted onto, not a second basemap; with hillshade, an exaggeration slider and a cursor elevation readout), and scratch shapes drawn on the map to measure, select and filter (never edits to the data). Also allowed (2026-10-11): an opt-out place search
+(height from a column). Nothing else 3D, except (user decision 2026-10-13) the map can always be tilted and rotated, so a basemap's own 3D layers (Liberty's buildings) show. Allowed by user decision (2026-10-15, spec 014, constitution v1.3.0): a terrain on/off switch (a DEM is a height source the one basemap and the data are lifted onto, not a second basemap; with hillshade, an exaggeration slider and a cursor elevation readout), and scratch shapes drawn on the map to measure, select and filter (never edits to the data). Allowed by user decision (2026-10-16, spec 016): GeoLibre's whole Print Layout composer (the map as a page: paper and screen sizes, title block, legend, scale bar, north arrow, colorbar, info block, attribute table and chart blocks, a 1:N scale, a drawn print extent, and an atlas), saved as PNG, PDF or SVG. It replaces "Save as image". Also allowed (2026-10-11): an opt-out place search
 (OpenStreetMap Nominatim) that sends only the typed text, disclosed before first use (constitution v1.1.0).
 
 ## Product decisions (already made)
@@ -136,6 +136,13 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - No all-caps labels, no numbered cards, no dot-joined meta strings in the web shell. One radius per role (`--se-radius-sm` controls, `--se-radius` floating groups, `--se-radius-lg` dialogs and the hero), hairline rules for docked panels, shadows only on floating things. Motion answers an action, apart from the landing demo; always honor reduced motion.
 - Values are colored by type (`--se-type-*`, `valueKind.ts`): the host's debug-variable tokens in VS Code. Color is never the only cue.
 - The layer picker and the selected feature's card are not map controls: they show wherever needed (top left).
+
+## Print layout (spec 016)
+- The map control `exportImage` (label "Print map") opens the composer (packages/ui/src/print/): settings on the left, a live preview of the page on the right, exports underneath (PNG, PDF, SVG, the clipboard; an atlas gives a multi-page PDF or a zip of PNGs). Page drawing, atlas helpers, the print extent tool and the saved settings are adapted from GeoLibre (MIT; `// Adapted from GeoLibre` comments, notice in THIRD-PARTY-NOTICES.md), with our own legend (`mapImage.ts`, drawn from the resolved style; its editor renames, hides and moves classes for the page only).
+- One drawing routine (`print/layout.ts`, `drawLayoutContext`) paints a 2D canvas (preview, PNG, PDF) and svgcanvas (SVG: text, swatches, tables and charts stay editable; the map is one embedded image). jsPDF and svgcanvas load on first use. The PDF is the page image at 150 dpi (as GeoLibre's).
+- The settings are a global preference through `HostAdapter.saveState('printLayout')` (`PrintLayoutConfig` in packages/core/src/printLayoutConfig.ts, normalized on read). The captured map, atlas pages and legend edits are the session's.
+- Data blocks and the atlas read the engine (`QuerySession.printBlock`, `printAtlasFeatures`; SQL and reducers in packages/core/src/printBlocks.ts): a table is a query, a bar or pie a GROUP BY, a line sampled to 2,000 points, the page-extent filter ST_Within or ST_Intersects in the layer's CRS. One layer is on the map, so it is the coverage layer; an atlas reads at most 20,000 features (2,000 lines). The atlas needs the flat map. Its mask is painted on the capture, not drawn as a map layer.
+- MapView hands the store a capture (`MapCapture`: a frame at 2x, cut to the print extent, with the atlas mask) and a `PrintCamera` (zoom, fit, settle, the extent box). The extent box uses layer ids without the `se-` prefix and is hidden while the map is captured.
 
 ## Query UX
 Embedded SQL editor first (a native .sql document is a later option). Results become map layers.
