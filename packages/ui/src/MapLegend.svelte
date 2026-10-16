@@ -15,6 +15,8 @@
     resolved: ResolvedStyle
     /** Column name shown when the style falls back (FR-012). */
     title: string
+    /** The layer's name: a bivariate legend names its axes itself, so this is its heading. */
+    layerName?: string
     geometryType: GeometryType
     collapsed: boolean
     onToggleCollapsed: () => void
@@ -31,11 +33,11 @@
     /** Clusters: a row per step, its bubble to scale (core `clusterLegendRows`). */
     clusterRows?: Array<{ label: string; color: string; symbol: SymbolSpec }>
   }
-  let { resolved, title, geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null, clusterRows = [] }: Props = $props()
+  let { resolved, title, layerName = '', geometryType, collapsed, onToggleCollapsed, onToggleClass, symbols, groups = [], onToggleEntry = () => {}, proportional = null, clusterRows = [] }: Props = $props()
 
   const nf = new Intl.NumberFormat('en-US')
   const shape = $derived(geometryType === 'LineString' ? 'line' : geometryType === 'Point' ? 'point' : 'area')
-  const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.caption || 'Layer')
+  const heading = $derived(resolved.status === 'fallback' ? `${title} · not available` : resolved.grid ? layerName || 'Layer' : resolved.caption || 'Layer')
   // Markers keep their relative sizes; big ones shrink together to fit a row.
   const SWATCH = 22
   const reachOf = (list: SymbolSpec[]) => Math.max(1, ...list.map((s) => s.radius * markerExtent(s.shape) + Math.min(s.strokeWidth, 3) / 2))

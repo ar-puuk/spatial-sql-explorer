@@ -1,9 +1,11 @@
-// T079 (spec 008 US7, FR-030, SC-007): the map as a PNG.
+// T079 (spec 008 US7, FR-030, SC-007) and spec 016: the map as a printed page
+// (GeoLibre's Print Layout composer): PNG, PDF and SVG, on paper or at the
+// size of the map on screen, with the title, legend, scale bar and north arrow.
 import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import { fixture, openFile, chooseStyleType, openStyle, varyBy } from './helpers'
 
-const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export map image' })
+const dialog = (page: Page) => page.getByRole('dialog', { name: 'Print map' })
 /** PNG width and height from the IHDR chunk. */
 const pngSize = (b: Buffer) => ({ width: b.readUInt32BE(16), height: b.readUInt32BE(20), png: b.subarray(1, 4).toString('latin1') === 'PNG' })
 
@@ -22,68 +24,98 @@ const pixel = (page: Page, base64: string, x: number, y: number) =>
       c.height = img.height
       const ctx = c.getContext('2d')!
       ctx.drawImage(img, 0, 0)
-      return Array.from(ctx.getImageData(px, py, 1, 1).data)
+      return Array.from(ctx.getImageData(Math.round(px), Math.round(py), 1, 1).data)
     },
     [base64, x, y] as const
   )
+/**
+ * Where the legend is on a map-size page without margins: in the bottom-left, drawn at its screen size times
+ * (the page's shorter side / 100) / 6, its bottom two of those hundredths up from the page's. A box of `lines`
+ * lines of 18 legend px is 18 * lines + 14 tall. `at(dx, dy)` is a point of the box in its own (screen) pixels.
+ */
+const legendAt = (shot: Shot, lines: number) => {
+  const unit = Math.min(shot.width, shot.height) / 100
+  const scale = unit / 6
+  const top = shot.height - 2 * unit - (18 * lines + 14) * scale
+  return (dx: number, dy: number) => ({ x: 2 * unit + dx * scale, y: top + dy * scale })
+}
 
-test('Export map image: 1x and 2x PNGs of the map, through the dialog, in under 5 s', async ({ page }) => {
+async function openComposer(page: Page) {
+  await page.getByRole('button', { name: 'Print map…' }).click()
+  await expect(dialog(page)).toBeVisible()
+  // Ready once the map is captured: the exports are enabled.
+  await expect(dialog(page).getByRole('button', { name: 'Export PNG' })).toBeEnabled({ timeout: 30000 })
+}
+async function exportAs(page: Page, kind: 'PNG' | 'PDF' | 'SVG') {
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: `Export ${kind}` }).click()])
+  return { name: download.suggestedFilename(), bytes: fs.readFileSync((await download.path())!) }
+}
+const choosePage = async (page: Page, option: string) => {
+  await dialog(page).getByRole('button', { name: 'Page size', exact: true }).click()
+  await page.getByRole('option', { name: option, exact: false }).first().click()
+}
+
+test('Print map: the composer opens on a live preview and exports a PNG on A4, landscape, at 150 dpi', async ({ page }) => {
   test.setTimeout(120000)
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  const map = (await page.locator('.canvas-host').boundingBox())!
-  const open = page.getByRole('button', { name: 'Export map image…' })
-  await open.click()
-  await expect(dialog(page)).toBeVisible()
-  await expect(dialog(page).getByRole('radio', { name: '2×' })).toHaveAttribute('aria-checked', 'true')
-
-  for (const scale of [1, 2] as const) {
-    await dialog(page).getByRole('radio', { name: `${scale}×` }).click()
-    const started = Date.now()
-    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
-    expect(download.suggestedFilename()).toBe('world-boundaries-map.png')
-    const size = pngSize(fs.readFileSync((await download.path())!))
-    expect(Date.now() - started).toBeLessThan(5000) // SC-007
-    expect(size.png).toBe(true)
-    expect(size.width).toBe(Math.round(map.width) * scale)
-    expect(size.height).toBe(Math.round(map.height) * scale)
-    await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toContainText(`${size.width} × ${size.height} px`)
-  }
-  // The map goes back to the screen's pixel ratio.
-  await dialog(page).getByRole('button', { name: 'Done' }).click()
+  const open = page.getByRole('button', { name: 'Print map…' })
+  await openComposer(page)
+  await expect(dialog(page).locator('canvas[aria-label="Preview of the page"]')).toBeVisible()
+  const started = Date.now()
+  const out = await exportAs(page, 'PNG')
+  // A blank title follows the file's name.
+  expect(out.name).toBe('world-boundaries.png')
+  const size = pngSize(out.bytes)
+  expect(size.png).toBe(true)
+  expect(size.width).toBe(1754) // 297 mm at 150 dpi
+  expect(size.height).toBe(1240) // 210 mm
+  expect(Date.now() - started).toBeLessThan(5000) // SC-007
+  await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toContainText('1754 × 1240 px')
+  await dialog(page).getByRole('button', { name: 'Close' }).click()
   await expect(dialog(page)).toHaveCount(0)
   await expect(open).toBeFocused()
 })
 
-test('the legend is drawn into the image', async ({ page }) => {
+test('a page the size of the map on screen: the PNG is that many pixels', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const map = (await page.locator('.canvas-host').boundingBox())!
+  await openComposer(page)
+  await dialog(page).getByRole('button', { name: 'Size of the map on screen' }).click()
+  const size = pngSize((await exportAs(page, 'PNG')).bytes)
+  expect(size.width).toBe(Math.round(map.width))
+  expect(size.height).toBe(Math.round(map.height))
+})
+
+test('the title and the other settings are the page: a title names the file and heads the preview', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('Every country')
+  const out = await exportAs(page, 'PNG')
+  expect(out.name).toBe('Every-country.png')
+})
+
+test('the legend is drawn into the page, and only when it is on', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const without = await capture(page, 1, false)
   const withLegend = await capture(page, 1, true)
   expect(withLegend.width).toBe(without.width)
-  // The test legend's swatch (#ff0000) sits in the bottom-left box.
-  const [r, g, b] = await pixel(page, withLegend.base64, 24, withLegend.height - 45)
+  // The test legend's swatch (#ff0000): the title line, then the first row.
+  const at = legendAt(withLegend, 2)(15, 15 + 18)
+  const [r, g, b] = await pixel(page, withLegend.base64, at.x, at.y)
   expect(r).toBeGreaterThan(200)
   expect(g).toBeLessThan(60)
   expect(b).toBeLessThan(60)
-  const plain = await pixel(page, without.base64, 24, without.height - 45)
+  const plain = await pixel(page, without.base64, at.x, at.y)
   expect(plain[0] > 200 && plain[1] < 60).toBe(false)
 })
 
-test('the dialog offers the legend only when one is shown', async ({ page }) => {
-  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
-  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
-  await page.getByRole('button', { name: 'Export map image…' }).click()
-  await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeDisabled()
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await chooseStyleType(page, 'Categorized')
-  await page.getByRole('button', { name: 'Style', exact: true }).click()
-  await page.getByRole('button', { name: 'Export map image…' }).click()
-  await expect(dialog(page).getByRole('checkbox', { name: 'Include legend' })).toBeChecked()
-})
-
-test('a raster basemap whose tiles can not be read: the image is still made, and says the basemap is left out', async ({ page }) => {
+test('a raster basemap whose tiles can not be read: the page is still made, and says the basemap is left out', async ({ page }) => {
   test.setTimeout(120000)
   // MapLibre fetches tiles with CORS: a server that doesn't allow it fails
   // the tiles (they can't taint the canvas); the basemap falls back to blank.
@@ -93,14 +125,13 @@ test('a raster basemap whose tiles can not be read: the image is still made, and
   await page.getByRole('region', { name: 'Basemap' }).getByRole('radio', { name: /^Satellite/ }).click()
   await page.keyboard.press('Escape')
   await expect(page.locator('.map-notice')).toContainText(/Satellite basemap unavailable/, { timeout: 30000 })
-  await page.getByRole('button', { name: 'Export map image…' }).click()
-  const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
-  expect(pngSize(fs.readFileSync((await download.path())!)).png).toBe(true)
+  await openComposer(page)
+  expect(pngSize((await exportAs(page, 'PNG')).bytes).png).toBe(true)
   await expect(dialog(page)).toContainText('basemap could not be loaded')
 })
 
 // Spec 009 T030 (US6): a second legend group (the size channel) is drawn under the first, with its own title.
-test('the size channel group is drawn into the image, under the color group', async ({ page }) => {
+test('the size channel group is drawn into the page, under the color group', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const symbol = { fillColor: '#0000ff', fillOpacity: 1, strokeColor: '#0000ff', strokeOpacity: 1, strokeWidth: 0, lineColor: '#0000ff', lineWidth: 3, radius: 6, shape: 'circle', dash: 'solid' }
@@ -112,50 +143,68 @@ test('the size channel group is drawn into the image, under the color group', as
     groups: [{ title: 'aadt · Quantile, 2 classes', shape: 'point', alpha: 1, rows: [{ color: '#0000ff', label: 'Small', symbol: { ...symbol, radius: 3 } }, { color: '#0000ff', label: 'Large', symbol }] }],
   }
   const shot = await capture(page, 1, legend)
-  // Lines: title, A, group title, Small, Large. Each line is 18 px; the box sits 28 px above the bottom.
-  const lines = 5
-  const top = shot.height - (lines * 18 + 14) - 28
-  const centerOf = (line: number) => top + 8 + 12 + 18 * line - 5
-  const [r, g, b] = await pixel(page, shot.base64, 25, centerOf(4))
+  // Lines: title, A, group title, Small, Large. Each line is 18 legend px, the first centered 15 px below the box's top.
+  const at = legendAt(shot, 5)
+  const centerOf = (line: number) => 15 + 18 * line
+  const big = at(15, centerOf(4))
+  const [r, g, b] = await pixel(page, shot.base64, big.x, big.y)
   expect(b).toBeGreaterThan(200)
   expect(r).toBeLessThan(60)
   expect(g).toBeLessThan(60)
   // The color group's swatch is still red, above.
-  const red = await pixel(page, shot.base64, 24, centerOf(1))
+  const swatch = at(15, centerOf(1))
+  const red = await pixel(page, shot.base64, swatch.x, swatch.y)
   expect(red[0]).toBeGreaterThan(200)
 })
 
-// Spec 009 T049 (US6): the bivariate square is drawn into the image: axis 2's label, the cells
-// (rows high to low), axis 1's label, No value; a hidden cell is hollow.
-test('the bivariate square is drawn into the image, hidden cells hollow', async ({ page }) => {
+// Spec 009 T049 (US6): the bivariate grid is drawn into the page, every cell in its color; a hidden cell is hollow.
+test('the bivariate grid is drawn into the page, hidden cells hollow', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
   await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
   const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#800000', '#008000', '#000080']
   const legend = {
-    title: 'a × b · Quantile',
+    title: 'a × b',
     shape: 'area',
     alpha: 1,
     rows: [],
-    bivariate: { x: 'a', y: 'b', nx: 3, ny: 3, cells: colors.map((color, k) => ({ color, visible: k !== 4 })), noValue: { color: '#8c8c8c', label: 'No value', count: 3, visible: true } },
+    bivariate: { x: 'a', y: 'b', xRange: ['1', '9'], yRange: ['2', '8'], nx: 3, ny: 3, cells: colors.map((color, k) => ({ color, visible: k !== 4 })), noValue: { color: '#8c8c8c', label: 'No value', count: 3, visible: true } },
   }
   const shot = await capture(page, 1, legend)
-  // Lines: title, axis 2, three cell rows (j = 2, 1, 0), axis 1, No value.
-  const lines = 7
-  const top = shot.height - (lines * 18 + 14) - 28
-  const centerOf = (line: number) => top + 8 + 12 + 18 * line - 5
-  const hex = async (i: number, j: number) => {
-    const [r, g, b] = await pixel(page, shot.base64, 26 + 18 * i, centerOf(2 + (2 - j)))
-    return [r, g, b].map((v) => (v > 200 ? 'ff' : v < 60 ? '00' : 'xx')).join('')
-  }
-  expect(await hex(0, 0)).toBe('ff0000') // low/low: bottom-left
-  expect(await hex(2, 0)).toBe('0000ff')
-  expect(await hex(1, 2)).toBe('00xx00') // #008000: dark green, top row
-  expect(await hex(1, 1)).toBe('ffffff') // hidden: hollow (the light legend box shows through)
+  // Pixels near each color in the legend's corner (the bottom left).
+  const counts = await page.evaluate(
+    async ([b64, cols, w, h]) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const cv = document.createElement('canvas')
+      cv.width = img.width
+      cv.height = img.height
+      const ctx = cv.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const x1 = Math.floor((w as number) * 0.4)
+      const y0 = Math.floor((h as number) * 0.4)
+      const d = ctx.getImageData(0, y0, x1, (h as number) - y0).data
+      return (cols as string[]).map((hex) => {
+        const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+        let n = 0
+        for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - c[0]) < 24 && Math.abs(d[i + 1] - c[1]) < 24 && Math.abs(d[i + 2] - c[2]) < 24) n++
+        return n
+      })
+    },
+    [shot.base64, colors, shot.width, shot.height] as const
+  )
+  counts.forEach((n, k) => {
+    if (k === 4) return
+    expect(n, `cell ${k} (${colors[k]}) is filled: ${counts.join(', ')}`).toBeGreaterThan(150)
+  })
+  // The hidden cell keeps only its outline: a fraction of a filled cell.
+  expect(counts[4], counts.join(', ')).toBeGreaterThan(20)
+  expect(counts[4], counts.join(', ')).toBeLessThan(Math.min(...counts.filter((_, k) => k !== 4)) * 0.6)
 })
 
-// Spec 011 T049/T068 (US5, US8): the saved image has the labels as drawn and every legend group:
+// Spec 011 T049/T068 (US5, US8): the saved page has the labels as drawn and every legend group:
 // one merged (color and shape by severity), a bar (outline color continuous), samples (opacity).
-test('labels and the merged, bar and sample groups are in the saved image', async ({ page }) => {
+test('labels and the merged, bar and sample groups are in the saved page', async ({ page }) => {
   test.setTimeout(180000)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
@@ -177,14 +226,13 @@ test('labels and the merged, bar and sample groups are in the saved image', asyn
   const legend = page.getByRole('region', { name: 'Legend' })
   await expect(legend.getByRole('group')).toHaveCount(3)
 
-  /** Saves the image through the dialog (with its legend) and returns it as base64. */
+  /** Saves the page (at the map's size, with its legend) and returns it as base64. */
   const save = async (): Promise<string> => {
-    await page.getByRole('button', { name: 'Export map image…' }).click()
-    await dialog(page).getByRole('radio', { name: '1×' }).click()
-    const [download] = await Promise.all([page.waitForEvent('download'), dialog(page).getByRole('button', { name: 'Export' }).click()])
-    const b64 = fs.readFileSync((await download.path())!).toString('base64')
-    await dialog(page).getByRole('button', { name: 'Done' }).click()
-    return b64
+    await openComposer(page)
+    await dialog(page).getByRole('button', { name: 'Size of the map on screen' }).click()
+    const out = await exportAs(page, 'PNG')
+    await dialog(page).getByRole('button', { name: 'Close' }).click()
+    return out.bytes.toString('base64')
   }
   /** Pixels near `rgb` (within 40 per channel) in a region of the image. */
   const near = (b64: string, rgb: number[], region: { x0: number; y0: number; x1: number; y1: number }) =>
@@ -212,12 +260,371 @@ test('labels and the merged, bar and sample groups are in the saved image', asyn
   await page.getByRole('complementary', { name: 'Labels' }).getByRole('checkbox', { name: 'Show labels' }).check()
   await expect.poll(async () => Number(await page.locator('.canvas-host').getAttribute('data-rendered-labels')), { timeout: 20000 }).toBeGreaterThan(0)
   const after = await save()
-  // The labels' dark text (#1f2937) in the map's upper half, where the legend isn't.
-  const top = { x0: 0, y0: 0, x1: 2000, y1: 250 }
+  // The labels' dark text (#1f2937) in the map's upper right, where the legend isn't.
+  const top = { x0: 640, y0: 0, x1: 2000, y1: 250 }
   expect(await near(after, [31, 41, 55], top)).toBeGreaterThan((await near(before, [31, 41, 55], top)) + 200)
   // The outline color's bar: viridis' ends (#440154, #fde725) in the legend box (bottom left).
-  const box = { x0: 0, y0: 200, x1: 340, y1: 2000 }
+  const box = { x0: 0, y0: 0, x1: 500, y1: 700 }
   expect(await near(after, [0x44, 0x01, 0x54], box)).toBeGreaterThan(5)
   expect(await near(after, [0xfd, 0xe7, 0x25], box)).toBeGreaterThan(5)
   fs.writeFileSync(test.info().outputPath('map-image-011.png'), Buffer.from(after, 'base64'))
+})
+
+// Spec 016 (GeoLibre's Print options): PDF and SVG, on paper.
+test('a PDF: one page of the chosen paper', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await choosePage(page, 'Letter')
+  await dialog(page).getByRole('radio', { name: 'Portrait' }).click()
+  const out = await exportAs(page, 'PDF')
+  expect(out.name).toBe('world-boundaries.pdf')
+  const text = out.bytes.toString('latin1')
+  expect(text.startsWith('%PDF-')).toBe(true)
+  // Letter portrait is 612 x 792 points.
+  expect(text).toMatch(/\/MediaBox\s*\[\s*0\s+0\s+612(\.\d*)?\s+792(\.\d*)?\s*\]/)
+  expect(text.match(/\/Type\s*\/Page\b/g)?.length).toBe(1)
+})
+
+test('an SVG: the title, scale bar and north arrow are real text and shapes, the map one picture', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('Every country')
+  const out = await exportAs(page, 'SVG')
+  expect(out.name).toBe('Every-country.svg')
+  const svg = out.bytes.toString('utf8')
+  expect(svg.startsWith('<?xml')).toBe(true)
+  expect(svg).toMatch(/width="297mm"/)
+  expect(svg).toMatch(/height="210mm"/)
+  expect(svg).toContain('Every country')
+  // The footer credits the renderer (the basemap's own credit follows it when there is one), not this app.
+  expect(svg).toMatch(/>MapLibre</)
+  expect(svg).not.toContain('Created with')
+  expect(svg).toMatch(/<text[^>]*>[^<]*\bN\b/) // the north arrow's letter
+  expect(svg).toMatch(/\d+ (km|m|cm)\b/) // the scale bar's length
+  expect(svg.match(/<image\b/g)?.length).toBe(1) // the map, and nothing else is a picture
+})
+
+test('a custom size takes its own width and height, and the orientation control gives way', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await expect(dialog(page).getByRole('radio', { name: 'Portrait' })).toBeVisible()
+  await choosePage(page, 'Custom')
+  await expect(dialog(page).getByRole('radio', { name: 'Portrait' })).toHaveCount(0)
+  await dialog(page).getByLabel('Page width').fill('800')
+  await dialog(page).getByLabel('Page height').fill('600')
+  const size = pngSize((await exportAs(page, 'PNG')).bytes)
+  expect(size.width).toBe(800)
+  expect(size.height).toBe(600)
+})
+
+// Spec 016 slice 2: the scale on paper, and the print extent drawn on the map.
+test('a scale preset moves the map to that scale, and one the map cannot reach says so', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const scale = dialog(page).getByLabel('Scale (1:N)')
+  await expect(scale).toBeEnabled()
+  await dialog(page).getByRole('button', { name: 'Scale presets' }).click()
+  await page.getByRole('option', { name: '1:25,000' }).click()
+  await expect.poll(async () => Math.round(Number(await scale.inputValue()) / 1000), { timeout: 20000 }).toBe(25)
+  await scale.fill('1')
+  await scale.press('Enter')
+  await expect(dialog(page).getByRole('alert')).toContainText('cannot zoom that far')
+})
+
+test('the print extent: drawn with a drag on the map, kept as the page, and cleared', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const scaleBefore = await dialog(page).getByLabel('Scale (1:N)').inputValue()
+  await dialog(page).getByRole('button', { name: 'Draw extent on map' }).click()
+  // The dialog gets out of the way while the map takes the drag.
+  await expect(dialog(page)).toBeHidden()
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 6 })
+  await page.mouse.up()
+  await expect(dialog(page)).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toBeChecked()
+  // The extent fixes the area: the scale box is off, and the preview is a smaller part of the map.
+  await expect(dialog(page).getByLabel('Scale (1:N)')).toBeDisabled()
+  await expect.poll(async () => Number(await dialog(page).getByLabel('Scale (1:N)').inputValue()), { timeout: 20000 }).toBeLessThan(Number(scaleBefore))
+  const out = await exportAs(page, 'PNG')
+  expect(pngSize(out.bytes).width).toBe(1754)
+  await dialog(page).getByRole('radio', { name: 'Active viewport' }).click()
+  await expect(dialog(page).getByLabel('Scale (1:N)')).toBeEnabled()
+  await dialog(page).getByRole('button', { name: 'Clear extent' }).click()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toHaveCount(0)
+})
+
+test('drawing the extent can be cancelled with Escape', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('button', { name: 'Draw extent on map' }).click()
+  await expect(dialog(page)).toBeHidden()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toHaveCount(0)
+})
+
+// Spec 016 slice 3: the legend editor.
+test('the legend editor: rename, hide and move a class, and the page follows; the map keeps its own legend', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+  await openStyle(page)
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  await chooseStyleType(page, 'Categorized')
+  await panel.getByLabel('Column', { exact: true }).selectOption('severity')
+  const mapLegend = page.getByRole('region', { name: 'Legend' })
+  await expect(mapLegend).toBeVisible()
+  await openComposer(page)
+  const editor = dialog(page).getByRole('group', { name: 'Legend entries' })
+  const labels = editor.locator('li:not(.group) input[type="text"]')
+  await expect.poll(() => labels.count()).toBeGreaterThan(2)
+  const original = await labels.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
+  await labels.nth(0).fill('Renamed class')
+  await editor.getByRole('button', { name: `Hide ${original[1]}` }).click()
+  await editor.getByRole('button', { name: `Move ${original[2]} up` }).click()
+  await editor.getByLabel('Legend title').fill('Crash severity')
+  const svg = (await exportAs(page, 'SVG')).bytes.toString('utf8')
+  expect(svg).toContain('Crash severity')
+  expect(svg).toContain('Renamed class')
+  expect(svg).not.toContain(`>${original[1]}<`)
+  // The order: the third class is now above the second's place.
+  expect(svg.indexOf(`>${original[2]}<`)).toBeGreaterThan(svg.indexOf('Renamed class'))
+  expect(svg.indexOf(`>${original[2]}<`)).toBeGreaterThan(-1)
+  // The reset puts the map's legend back.
+  await editor.getByRole('button', { name: 'Reset the legend' }).click()
+  await expect(labels.nth(0)).toHaveValue(original[0])
+  await dialog(page).getByRole('button', { name: 'Close' }).click()
+  // The legend on the map was never touched.
+  await expect(mapLegend).toContainText(original[0])
+  await expect(mapLegend).not.toContainText('Renamed class')
+})
+
+// Spec 016 slice 4: the attribute table and the chart, read from the engine.
+test('the attribute table and a bar chart of the layer are on the page', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+  await openComposer(page)
+  const switchOf = (name: string) => dialog(page).getByRole('switch', { name, exact: true })
+  await switchOf('Attribute table').click()
+  const table = dialog(page).getByRole('group', { name: 'Attribute table' })
+  const columns = table.locator('.checks input[type="checkbox"]')
+  await expect.poll(() => columns.count()).toBeGreaterThan(3)
+  // Sorted by severity, descending, five rows.
+  await table.getByRole('button', { name: 'Table sort field' }).click()
+  await page.getByRole('option', { name: 'severity', exact: true }).click()
+  await table.getByRole('radio', { name: 'Descending' }).click()
+  await table.getByLabel('Max rows').fill('5')
+  await switchOf('Chart').click()
+  const chart = dialog(page).getByRole('group', { name: 'Chart' })
+  await chart.getByRole('button', { name: 'Chart category field' }).click()
+  await page.getByRole('option', { name: 'severity', exact: true }).click()
+  // Give the engine its moment, then save an SVG: the table's and the chart's text are real text.
+  const texts = async () => [...(await exportAs(page, 'SVG')).bytes.toString('utf8').matchAll(/<text[^>]*>([^<]*)</g)].map((m) => m[1])
+  await expect.poll(async () => (await texts()).includes('Fatal'), { timeout: 20000 }).toBe(true)
+  const all = await texts()
+  // The table: its headers, then the five rows of the first columns, most severe first.
+  expect(all).toContain('severity')
+  expect(all).toContain('crash_type')
+  expect(all.filter((t) => /^\d+$/.test(t)).length).toBeGreaterThan(5)
+  expect(all.some((t) => /^\+\d+ more$/.test(t))).toBe(true)
+  // The chart: a bar for each severity, with its count.
+  expect(all).toContain('Fatal')
+  expect(all).toContain('Minor injury')
+})
+
+test('a data block follows the page extent: a table of what is inside the extent drawn', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  // Europe fills the page: few countries are completely inside it.
+  await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, z: number): void } }).__spatialExplorerE2E.jumpTo(10, 50, 3.6))
+  await page.waitForTimeout(1500)
+  await openComposer(page)
+  await dialog(page).getByRole('switch', { name: 'Attribute table', exact: true }).click()
+  const table = dialog(page).getByRole('group', { name: 'Attribute table' })
+  await table.getByLabel('Max rows').fill('50')
+  await table.getByRole('button', { name: 'Table page extent filter' }).click()
+  await page.getByRole('option', { name: 'All features' }).click()
+  // The table shows what fits and says how many more there are: all 180 countries, against those entirely on the page.
+  const more = async () => Number((await exportAs(page, 'SVG')).bytes.toString('utf8').match(/>\+(\d+) more</)?.[1] ?? 0)
+  await expect.poll(more, { timeout: 20000 }).toBeGreaterThan(100)
+  await table.getByRole('button', { name: 'Table page extent filter' }).click()
+  await page.getByRole('option', { name: 'Completely within the page' }).click()
+  await expect.poll(more, { timeout: 20000 }).toBeLessThan(40)
+})
+
+// Spec 016 slice 5: the atlas.
+async function startAtlas(page: Page, filter: string) {
+  await dialog(page).getByRole('switch', { name: 'Generate a multi-page map series' }).click()
+  const atlas = dialog(page).getByRole('region', { name: 'Atlas' })
+  await atlas.getByRole('button', { name: 'Page name field' }).click()
+  await page.getByRole('option', { name: 'name', exact: true }).click()
+  await atlas.getByLabel('Atlas filter').fill(filter)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('Country {atlas.name} ({atlas.pagenumber} of {atlas.total})')
+  return atlas
+}
+
+test('an atlas: one page per feature, stepped in the preview, saved as a multi-page PDF', async ({ page }) => {
+  test.setTimeout(240000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const atlas = await startAtlas(page, 'name contains "land"')
+  const count = atlas.getByRole('status')
+  await expect(count).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pages = Number((await count.textContent())!.match(/(\d+) pages/)![1])
+  expect(pages).toBeGreaterThan(2)
+  expect(pages).toBeLessThan(25)
+  // The preview is the first page; the pager steps it, and the title's tokens follow.
+  const pager = dialog(page).getByRole('group', { name: 'Atlas pages' })
+  await expect(pager).toContainText(`Page 1 of ${pages}`, { timeout: 30000 })
+  const names = async () => (await exportAs(page, 'SVG').catch(() => ({ bytes: Buffer.from('') }))).bytes.toString('utf8')
+  await expect(dialog(page).getByRole('button', { name: `Export PDF (${pages} pages)` })).toBeEnabled({ timeout: 30000 })
+  await pager.getByRole('button', { name: 'Next page' }).click()
+  await expect(pager).toContainText(`Page 2 of ${pages}`, { timeout: 30000 })
+  // One PDF page for every page of the series, and the PNG zip names each by the pattern.
+  const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), dialog(page).getByRole('button', { name: `Export PDF (${pages} pages)` }).click()])
+  expect(pdf.suggestedFilename()).toMatch(/-atlas\.pdf$/)
+  const text = fs.readFileSync((await pdf.path())!).toString('latin1')
+  expect(text.match(/\/Type\s*\/Page\b(?!s)/g)?.length).toBe(pages)
+  void names
+  await expect(dialog(page).getByRole('status').filter({ hasText: 'Saved' })).toContainText(`${pages} pages`, { timeout: 30000 })
+})
+
+test('an atlas as a zip of pictures, named by the pattern', async ({ page }) => {
+  test.setTimeout(240000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const atlas = await startAtlas(page, 'name contains "land"')
+  await expect(atlas.getByRole('status')).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pages = Number((await atlas.getByRole('status').textContent())!.match(/(\d+) pages/)![1])
+  await expect(dialog(page).getByRole('button', { name: 'Export PNG ZIP' })).toBeEnabled({ timeout: 30000 })
+  const [zip] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), dialog(page).getByRole('button', { name: 'Export PNG ZIP' }).click()])
+  expect(zip.suggestedFilename()).toMatch(/-atlas\.zip$/)
+  const { unzipSync } = await import('fflate')
+  const entries = Object.keys(unzipSync(new Uint8Array(fs.readFileSync((await zip.path())!))))
+  expect(entries).toHaveLength(pages)
+  expect(entries[0]).toMatch(/^1-.+\.png$/)
+  expect(entries.every((e, i) => e.startsWith(`${i + 1}-`))).toBe(true)
+})
+
+test('an atlas filter that does not parse says so and blocks the export', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('switch', { name: 'Generate a multi-page map series' }).click()
+  const atlas = dialog(page).getByRole('region', { name: 'Atlas' })
+  await atlas.getByLabel('Atlas filter').fill('name ~~ x')
+  await expect(atlas.getByRole('alert')).toContainText('joined with and')
+})
+
+// A plain layer has a legend on the page too (the map hides a trivial one), and the composer works on the globe.
+test('the page has a legend for a plain layer, and the composer and its atlas work on the globe', async ({ page }) => {
+  test.setTimeout(180000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await page.getByRole('button', { name: 'Globe view' }).click()
+  await page.waitForTimeout(1500)
+  await openComposer(page)
+  await expect(dialog(page).getByRole('group', { name: 'Legend entries' })).toBeVisible()
+  const atlas = await startAtlas(page, 'name contains "land"')
+  await expect(atlas.getByRole('status')).toContainText(/\d+ pages/, { timeout: 20000 })
+  const pager = dialog(page).getByRole('group', { name: 'Atlas pages' })
+  await expect(pager).toContainText('Page 1 of', { timeout: 30000 })
+  await pager.getByRole('button', { name: 'Next page' }).click()
+  await expect(pager).toContainText('Page 2 of', { timeout: 30000 })
+  await expect(dialog(page).getByRole('button', { name: /^Export PDF \(\d+ pages\)$/ })).toBeEnabled({ timeout: 30000 })
+})
+
+test('the composer is centered on the map area', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const box = (await dialog(page).boundingBox())!
+  const main = (await page.locator('.main').first().boundingBox())!
+  expect(Math.abs(box.x + box.width / 2 - (main.x + main.width / 2))).toBeLessThan(2)
+  expect(Math.abs(box.y + box.height / 2 - (main.y + main.height / 2))).toBeLessThan(2)
+})
+
+// A bivariate map's page legend: titled by the layer (not "a × b · Quantile"), each axis named, and the grid tilted when the style says so (no control of its own in the composer).
+test('a bivariate legend on the page: the layer is its title, the axes are named, and it can be tilted', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('counties-bivariate.geojson'), '?e2e=1')
+  await openStyle(page)
+  await chooseStyleType(page, 'Bivariate')
+  const panel = page.getByRole('region', { name: 'Layer style' })
+  // Unequal class counts: 2 along the first axis, 4 along the second.
+  await panel.getByLabel('Axis 1 classes').selectOption('2')
+  await panel.getByLabel('Axis 2 classes').selectOption('4')
+  await expect(page.getByRole('region', { name: 'Legend' }).getByRole('grid', { name: 'Bivariate cells' }).getByRole('gridcell')).toHaveCount(8)
+  await openComposer(page)
+  const texts = async () => [...(await exportAs(page, 'SVG')).bytes.toString('utf8').matchAll(/<text[^>]*>([^<]*)</g)].map((m) => m[1])
+  const square = await texts()
+  expect(square).toContain('counties-bivariate.geojson')
+  expect(square).toContain('poverty_rate →')
+  expect(square).toContain('obesity_rate →')
+  expect(square.some((t) => /Quantile/.test(t))).toBe(false)
+  await expect(dialog(page).getByRole('radio', { name: 'Tilted' })).toHaveCount(0)
+  await dialog(page).getByRole('button', { name: 'Close' }).click()
+  await panel.getByLabel('Legend shape').selectOption('tilted')
+  await openComposer(page)
+  const tilted = await texts()
+  expect(tilted).toContain('← obesity_rate')
+  expect(tilted.some((t) => t.startsWith('poverty_rate →'))).toBe(true)
+})
+
+// The PDF is the same page the SVG is: text and shapes as vectors, the map the one picture. A script the PDF's built-in
+// fonts lack (here Japanese) is the exception: that page is a picture, and the dialog says so.
+test('a PDF is vector content; a title in a script the PDF fonts lack makes it a picture, with a note', async ({ page }) => {
+  test.setTimeout(150000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('World – Café 1:50 000')
+  const vector = await exportAs(page, 'PDF')
+  const text = vector.bytes.toString('latin1')
+  // One picture (the map) on the page, and no raster of the whole page: the image is far smaller than a 150 dpi A4 page would be.
+  expect(text.match(/\/Subtype\s*\/Image\b/g)?.length).toBe(1)
+  await expect(dialog(page)).not.toContainText('holds the page as a picture')
+  await dialog(page).getByRole('textbox', { name: 'Title', exact: true }).fill('世界地図')
+  const raster = await exportAs(page, 'PDF')
+  expect(raster.bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  await expect(dialog(page)).toContainText('holds the page as a picture')
+  // The picture of the whole page is much bigger than the map alone.
+  expect(raster.bytes.length).toBeGreaterThan(vector.bytes.length)
+})
+
+test('the map controls tab sits at the foot of the right rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  const rail = (await page.getByRole('toolbar', { name: 'Panels' }).boundingBox())!
+  const controls = (await page.getByRole('button', { name: 'Map controls', exact: true }).boundingBox())!
+  const basemap = (await page.getByRole('button', { name: 'Basemap', exact: true }).boundingBox())!
+  expect(Math.abs(controls.y + controls.height - (rail.y + rail.height))).toBeLessThan(2)
+  expect(controls.y).toBeGreaterThan(basemap.y + basemap.height + 50)
 })

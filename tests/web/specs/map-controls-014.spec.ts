@@ -26,7 +26,7 @@ async function openPanel(page: Page): Promise<void> {
 test('the rail has a Map controls button that opens the panel with every control listed', async ({ page }) => {
   await open(page)
   await openPanel(page)
-  for (const name of ['Search', 'Zoom in and out', 'Zoom to layer', 'Reset view', 'Globe view', 'Terrain', 'Draw shapes', 'Measure', 'Select by shape', 'Export map image', 'Legend', 'MapLibre logo', 'Scale bar']) {
+  for (const name of ['Search', 'Zoom in and out', 'Zoom to layer', 'Reset view', 'Globe view', 'Terrain', 'Draw shapes', 'Measure', 'Select by shape', 'Print map', 'Legend', 'MapLibre logo', 'Scale bar']) {
     await expect(panel(page).getByRole('switch', { name: new RegExp(`^${name}`) })).toBeChecked()
   }
   await expect(panel(page).getByRole('button', { name: 'Reset to defaults' })).toBeDisabled()

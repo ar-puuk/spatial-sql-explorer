@@ -78,9 +78,10 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
-import type { LegendSpec, MapCapture } from './mapImage.js'
+import type { MapCapture, MapShot } from './mapImage.js'
+import type { PrintCamera } from './print/camera.js'
 import type { DrawTool } from './draw/controller.js'
 import { registerTileProvider } from './engineTiles.js'
 
@@ -128,7 +129,7 @@ export interface QueryTableInfo {
 
 /** Spec 008 US7: what a map image export did. */
 export type MapImageOutcome =
-  | { kind: 'saved'; location: string; width: number; height: number; notes: string[] }
+  | { kind: 'saved'; location: string; size: string; notes: string[] }
   | { kind: 'cancelled' }
   | { kind: 'failed'; message: string }
 
@@ -252,10 +253,26 @@ export interface ViewerStore {
   closeMapImage(): void
   /** MapView hands over its capture once the map is ready. */
   setMapCapture(capture: MapCapture): void
-  /** Captures the view (1x or 2x, with the legend or not) and saves it through the host as `<file>-map.png`. */
-  exportMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<MapImageOutcome>
-  /** Test hook: the capture only, no save. */
-  captureMapImage(opts: { scale: 1 | 2; legend: LegendSpec | null }): Promise<{ bytes: Uint8Array; width: number; height: number; notes: string[] } | null>
+  /** MapView hands over the composer's view of the map (zoom, extent box) once the map is ready. */
+  setPrintCamera(camera: PrintCamera): void
+  readonly printCamera: PrintCamera | null
+  /** Spec 016: the map as captured for a page (cut to `clip` when given). */
+  captureMap(opts: { ratio: number; clip?: [number, number, number, number] | null; mask?: GeoJSON.Feature | null }): Promise<MapShot>
+  /** Spec 016: an atlas's coverage features (the displayed rows): ids, bounds, attributes and, for lines, geometry. */
+  printAtlasFeatures(withGeometry: boolean, limit: number): Promise<{ rows: AtlasFeatureRow[]; attributes: string[]; truncated: boolean }>
+  /** Spec 016: a feature's geometry (WGS84) by its row id: the polygon an atlas page masks around. */
+  printFeatureGeometry(rowId: number): Promise<GeoJSON.Feature | null>
+  /** Spec 016: what a data block shows, from the displayed rows. */
+  printBlock(spec: BlockSpec): Promise<TableBlockResult | GroupRow[] | LineBlockResult | null>
+  /** Spec 016: saves a page through the host (VS Code: a save dialog next to the data; web: a download). */
+  savePrintFile(name: string, bytes: Uint8Array): Promise<{ saved: boolean; location?: string }>
+  /** Spec 016: the composer's settings, remembered through HostAdapter.saveState('printLayout'). */
+  loadPrintLayout(): Promise<PrintLayoutConfig | null>
+  savePrintLayout(config: PrintLayoutConfig): void
+  /** The open file's name without its extension: the base of the pages' file names. */
+  readonly printBaseName: string
+  /** Set when the basemap failed to load and fell back to blank: it is not in the page either. */
+  readonly basemapMissingFromPrint: boolean
   openExport(): void
   closeExport(): void
   readonly exportRequest: ExportRequest
@@ -544,6 +561,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     })
     .catch(() => {})
   const MAP_CONTROLS_KEY = 'mapControls'
+  // The second layout: positions of the legend, scale bar and north arrow changed, so earlier choices are left behind.
+  const PRINT_LAYOUT_KEY = 'printLayout.2'
   // Spec 014: drawn shapes. Scratch geometry for this viewer; the unit system is the user's.
   const DRAW_UNITS_KEY = 'draw.units'
   let shapes = $state.raw<DrawnShape[]>([])
@@ -1003,6 +1022,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let exportOpen = $state(false)
   let mapImageOpen = $state(false)
   let mapCapture: MapCapture | null = null
+  let printCamera: PrintCamera | null = null
   let savedExportPrefs = ''
   let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
@@ -1852,6 +1872,28 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     fitTo(bbox) {
       fitRequest = { bbox, seq: (fitRequest?.seq ?? 0) + 1 }
     },
+    async printAtlasFeatures(withGeometry, limit) {
+      const qs = querySession
+      if (!qs) return { rows: [], attributes: [], truncated: false }
+      return qs.printAtlasFeatures(withGeometry, limit).catch((err) => {
+        console.warn('[print] the atlas could not read the layer:', err)
+        return { rows: [], attributes: [], truncated: false }
+      })
+    },
+    async printFeatureGeometry(rowId) {
+      const qs = querySession
+      if (!qs) return null
+      const f = await retryWhenBusy(qs, () => qs.featureById(rowId)).catch(() => null)
+      return f?.geometry ? { type: 'Feature', properties: {}, geometry: f.geometry } : null
+    },
+    async printBlock(spec) {
+      const qs = querySession
+      if (!qs) return null
+      return qs.printBlock(spec).catch((err) => {
+        console.warn('[print] a data block could not be read:', err)
+        return null
+      })
+    },
     async searchValues(q) {
       const qs = querySession
       if (!qs) return []
@@ -1900,23 +1942,30 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setMapCapture(capture) {
       mapCapture = capture
     },
-    async captureMapImage(opts) {
-      return mapCapture ? mapCapture(opts) : null
+    setPrintCamera(camera) {
+      printCamera = camera
     },
-    async exportMapImage(opts) {
-      if (!mapCapture) return { kind: 'failed', message: 'The map is not ready yet.' }
-      try {
-        const shot = await mapCapture(opts)
-        const notes = [...shot.notes]
-        // A basemap that already failed (blank fallback) isn't in the image either.
-        if (basemapFailed && basemapNotice) notes.push('The basemap could not be loaded and is not in the image.')
-        const base = (currentFileName ?? 'map').replace(/\.[^.]+$/, '')
-        const saved = await hostAdapter.saveFile(`${base}-map.png`, shot.bytes, { kind: 'image' })
-        if (!saved.saved) return { kind: 'cancelled' }
-        return { kind: 'saved', location: saved.location ?? `${base}-map.png`, width: shot.width, height: shot.height, notes }
-      } catch (err) {
-        return { kind: 'failed', message: `The map image could not be made: ${err instanceof Error ? err.message : String(err)}` }
-      }
+    get printCamera() {
+      return printCamera
+    },
+    async captureMap(opts) {
+      if (!mapCapture) throw new Error('The map is not ready yet.')
+      return mapCapture(opts)
+    },
+    async savePrintFile(name, bytes) {
+      return hostAdapter.saveFile(name, bytes, { kind: 'image' })
+    },
+    async loadPrintLayout() {
+      return normalizePrintLayoutConfig(await hostAdapter.loadState<unknown>(PRINT_LAYOUT_KEY).catch(() => undefined))
+    },
+    savePrintLayout(config) {
+      void hostAdapter.saveState(PRINT_LAYOUT_KEY, config).catch(() => {})
+    },
+    get printBaseName() {
+      return (currentFileName ?? 'map').replace(/\.[^.]+$/, '')
+    },
+    get basemapMissingFromPrint() {
+      return basemapFailed && !!basemapNotice
     },
     get exportOpen() {
       return exportOpen

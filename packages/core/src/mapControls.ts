@@ -87,7 +87,7 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   control('draw', 'tools', 'Draw shapes', 'Points, lines and shapes to use in queries and filters. They are scratch geometry, never edits to the data.', true, CORNERS, 'top-right'),
   control('measure', 'tools', 'Measure', 'Distances and areas, live while you draw.', true, CORNERS, 'top-right'),
   control('select', 'tools', 'Select by shape', 'Draw a shape to select the rows inside it.', true, CORNERS, 'top-right'),
-  control('exportImage', 'tools', 'Export map image', 'Saves the map as a PNG.', true, CORNERS, 'top-right'),
+  control('exportImage', 'tools', 'Print map', 'Saves the map as a PNG, PDF or SVG, with a title, legend, scale bar and north arrow.', true, CORNERS, 'top-right'),
   control('legend', 'display', 'Legend', 'What the colors, sizes and shapes mean.', true, CORNERS, 'bottom-left'),
   // A wide, short readout: along the top or the bottom edge.
   control('coordinates', 'display', 'Coordinates', 'Shows the cursor position (and elevation). To copy a position, right-click the map.', false, EDGES, 'bottom-center'),

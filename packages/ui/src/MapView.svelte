@@ -74,7 +74,10 @@
   import ProgressBar from './ProgressBar.svelte'
   import Tip from './kit/Tip.svelte'
   import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
-  import { canvasToPng, composeMapImage, plainAttribution, type MapCapture } from './mapImage.js'
+  import { plainAttribution, type MapCapture, type MapShot } from './mapImage.js'
+  import type { PrintCamera } from './print/camera.js'
+  import { paintAtlasMask } from './print/mask.js'
+  import { clearPrintExtent, drawPrintExtent, setPrintExtentVisible, showPrintExtent } from './print/extent.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
@@ -151,6 +154,8 @@
     extruded?: boolean
     /** Spec 008 US7: hands the store the map's PNG capture once the map is ready. */
     onCaptureReady?: (capture: MapCapture) => void
+    /** Spec 016: hands the store the print composer's view of the map. */
+    onCameraReady?: (camera: PrintCamera) => void
     /** Spec 008 US7: opens the map image dialog. */
     onExportImage?: () => void
   }
@@ -200,6 +205,7 @@
     onInspectTileFeature,
     extruded = false,
     onCaptureReady,
+    onCameraReady,
     onExportImage,
   }: Props = $props()
 
@@ -974,7 +980,16 @@
       m.triggerRepaint()
     })
   }
-  const captureMap: MapCapture = async ({ scale, legend }) => {
+  /** Ground meters per CSS pixel at the center, from two points 100 px apart (right on a globe too). */
+  function metersPerPixelAt(m: MapLibreMap, at: { x: number; y: number }): number {
+    const { x, y } = at
+    const a = m.unproject([x - 50, y])
+    const b = m.unproject([x + 50, y])
+    const rad = Math.PI / 180
+    const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2
+    return (2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)))) / 100
+  }
+  const captureMap: MapCapture = async ({ ratio: wanted, clip, mask }) => {
     const m = map
     if (!m) throw new Error('The map is not ready.')
     const notes: string[] = []
@@ -982,12 +997,14 @@
     const cssH = container.clientHeight
     const gl = (m.getCanvas().getContext('webgl2') ?? m.getCanvas().getContext('webgl')) as WebGLRenderingContext | null
     const max = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number) : 4096
-    let ratio: number = scale
+    let ratio = wanted
     if (Math.max(cssW, cssH) * ratio > max) {
       ratio = 1
-      notes.push(`2× would be larger than this device can draw (${max} px): saved at 1×.`)
+      notes.push(`${wanted}× would be larger than this device can draw (${max} px): the map is at 1×.`)
     }
     const previous = m.getPixelRatio()
+    // The print extent's box is not part of the picture.
+    setPrintExtentVisible(m, false)
     const background = blankBackground()
     const attribution = activeBasemap?.attribution ? plainAttribution(activeBasemap.attribution) : ''
     const sky = untrack(() => projection) === 'globe' ? (skyCanvas ?? null) : null
@@ -996,11 +1013,59 @@
         m.setPixelRatio(ratio)
         await idle(m)
       }
-      const compose = (frame: HTMLCanvasElement, withAttribution: boolean) =>
-        composeMapImage({ map: frame, under: sky, background, ratio, legend, attribution: withAttribution ? attribution : '' })
+      // The frame as drawn, with the atlas's mask over everything outside the page's feature.
+      const grab = async (): Promise<HTMLCanvasElement> => {
+        const frame = await grabFrame(m)
+        const ctx = frame.getContext('2d')
+        if (mask && ctx) paintAtlasMask(ctx, mask, (p) => m.project(p), ratio)
+        return frame
+      }
+      // The frame over its background (and the globe's sky), so a transparent part is not black in the file.
+      const flatten = (grabbed: HTMLCanvasElement): HTMLCanvasElement => {
+        const out = document.createElement('canvas')
+        out.width = grabbed.width
+        out.height = grabbed.height
+        const ctx = out.getContext('2d')
+        if (!ctx) throw new Error('No 2D canvas is available for the map image.')
+        ctx.fillStyle = background
+        ctx.fillRect(0, 0, out.width, out.height)
+        if (sky && sky.width) ctx.drawImage(sky, 0, 0, out.width, out.height)
+        ctx.drawImage(grabbed, 0, 0)
+        return out
+      }
+      // With a print extent, the frame is cut to its box, and the scale is measured in the part that shows.
+      const shot = (frame: HTMLCanvasElement, credit: string): MapShot => {
+        let out = frame
+        let center: { x: number; y: number } = m.project(m.getCenter())
+        let width = cssW
+        let height = cssH
+        const view = m.getBounds()
+        let extent: [number, number, number, number] = [view.getWest(), view.getSouth(), view.getEast(), view.getNorth()]
+        if (clip) {
+          extent = clip
+          const [w, s, e, n] = clip
+          const corners = [m.project([w, n]), m.project([e, n]), m.project([e, s]), m.project([w, s])]
+          const minX = Math.min(...corners.map((c) => c.x))
+          const maxX = Math.max(...corners.map((c) => c.x))
+          const minY = Math.min(...corners.map((c) => c.y))
+          const maxY = Math.max(...corners.map((c) => c.y))
+          const x0 = Math.max(0, Math.floor(minX * ratio))
+          const y0 = Math.max(0, Math.floor(minY * ratio))
+          const x1 = Math.min(frame.width, Math.ceil(maxX * ratio))
+          const y1 = Math.min(frame.height, Math.ceil(maxY * ratio))
+          if (x1 - x0 < 1 || y1 - y0 < 1) throw new Error('The print extent is outside the map: pan to it, or draw it again.')
+          out = document.createElement('canvas')
+          out.width = x1 - x0
+          out.height = y1 - y0
+          out.getContext('2d')?.drawImage(frame, x0, y0, out.width, out.height, 0, 0, out.width, out.height)
+          center = { x: (x0 + x1) / 2 / ratio, y: (y0 + y1) / 2 / ratio }
+          width = out.width / ratio
+          height = out.height / ratio
+        }
+        return { frame: out, ratio, width, height, attribution: credit, bearing: m.getBearing(), extent: [Math.max(-180, extent[0]), Math.max(-90, extent[1]), Math.min(180, extent[2]), Math.min(90, extent[3])], metersPerPixel: metersPerPixelAt(m, center), notes }
+      }
       try {
-        const out = compose(await grabFrame(m), true)
-        return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+        return shot(flatten(await grab()), attribution)
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'SecurityError')) throw err
         // A basemap whose server doesn't allow reading its tiles taints the
@@ -1009,16 +1074,56 @@
         const hidden = (m.getStyle().layers ?? []).filter((l) => !ours.has(l.id) && m.getLayoutProperty(l.id, 'visibility') !== 'none').map((l) => l.id)
         for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'none')
         try {
-          const out = compose(await grabFrame(m), false)
+          const out = shot(flatten(await grab()), '')
           notes.push(`The ${activeBasemap?.name ?? ''} basemap could not be captured (its server doesn't allow it) and was left out.`.replace('The  basemap', 'The basemap'))
-          return { bytes: await canvasToPng(out), width: out.width, height: out.height, notes }
+          return out
         } finally {
           for (const id of hidden) m.setLayoutProperty(id, 'visibility', 'visible')
         }
       }
     } finally {
       if (m.getPixelRatio() !== previous) m.setPixelRatio(previous)
+      setPrintExtentVisible(m, true)
     }
+  }
+
+  // Spec 016: the composer's hold on the map.
+  const printCamera: PrintCamera = {
+    zoom: () => map?.getZoom() ?? 0,
+    zoomLimits: () => ({ min: map?.getMinZoom() ?? 0, max: map?.getMaxZoom() ?? 22 }),
+    setZoom: (zoom) => map?.setZoom(zoom),
+    settled: async (timeoutMs = 1500) => {
+      if (map) await idle(map, timeoutMs)
+    },
+    drawExtent: (opts) => (map ? drawPrintExtent(map, opts) : Promise.resolve(null)),
+    showExtent: (extent) => {
+      if (!map) return
+      if (extent) showPrintExtent(map, extent)
+      else clearPrintExtent(map)
+    },
+    viewport: () => ({ width: container.clientWidth, height: container.clientHeight }),
+    fit: (bounds, padding) => {
+      const [w, s, e, n] = bounds
+      map?.fitBounds(
+        [
+          [w, s],
+          [e, n],
+        ],
+        { animate: false, padding, bearing: 0, pitch: 0 }
+      )
+    },
+    unproject: (x, y) => {
+      if (!map) return null
+      // A pixel off the sphere (the globe) has no position.
+      try {
+        const p = map.unproject([x, y])
+        return Number.isFinite(p.lng) && Number.isFinite(p.lat) ? [p.lng, p.lat] : null
+      } catch {
+        return null
+      }
+    },
+    view: () => ({ center: map ? [map.getCenter().lng, map.getCenter().lat] : [0, 0], zoom: map?.getZoom() ?? 0, bearing: map?.getBearing() ?? 0, pitch: map?.getPitch() ?? 0 }),
+    restoreView: (v) => map?.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing, pitch: v.pitch }),
   }
 
   let resizeObserver: ResizeObserver | null = null
@@ -1061,6 +1166,7 @@
       registerHandlers()
       mapReady = true
       onCaptureReady?.(captureMap)
+      onCameraReady?.(printCamera)
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
@@ -1795,7 +1901,7 @@
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
                   {:else if id === 'exportImage'}
-                    {@render mapButton('Export map image…', 'Export map image…', 'image', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
+                    {@render mapButton('Print map…', 'Print map…', 'printer', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}
                     <!-- Spec 008 FR-026: back to flat and north-up. -->
                     {@render mapButton('Reset view', 'Reset view (flat, north up)', 'north', corner, { rotate: -mapBearing, onclick: resetView })}

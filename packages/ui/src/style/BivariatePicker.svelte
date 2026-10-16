@@ -2,8 +2,8 @@
   import ColumnOptions from './ColumnOptions.svelte'
   // Spec 009 US4 (contracts/ui.md "Style panel"): the bivariate axes (a
   // numeric column and a method each), swapping them, and the palette, shown
-  // as 3x3 previews. Palette colors are fixed data colors.
-  import { BIVARIATE_PALETTES, METHOD_NAMES, type BivariateAxis, type BivariateMethod, type BivariateRenderer } from '@spatial-explorer/core'
+  // as 3x3 previews (other grid sizes read the same colors). Palette colors are fixed data colors.
+  import { BIVARIATE_CLASS_COUNTS, BIVARIATE_PALETTES, METHOD_NAMES, type BivariateAxis, type BivariateMethod, type BivariateRenderer } from '@spatial-explorer/core'
   import Icon from '../Icon.svelte'
 
   interface Props {
@@ -12,9 +12,11 @@
     columns: Array<{ name: string; type: string }>
     onAxis: (axis: 'x' | 'y', patch: Partial<BivariateAxis>) => void
     onSwap: () => void
+    /** The legend as a diamond (true) or a square. */
+    onTilted: (tilted: boolean) => void
     onPalette: (id: string) => void
   }
-  let { renderer, columns, onAxis, onSwap, onPalette }: Props = $props()
+  let { renderer, columns, onAxis, onSwap, onTilted, onPalette }: Props = $props()
 
   const METHODS: BivariateMethod[] = ['quantile', 'equal', 'jenks']
   const AXES = [
@@ -53,6 +55,27 @@
     </select>
   </div>
 {/each}
+<div class="axis counts">
+  <span class="label" title="How many classes each axis has: the grid is axis 1 by axis 2. Unequal counts (2 by 3, 3 by 4) suit measures of different character.">Classes</span>
+  <span class="count-pair">
+    {#each AXES as a (a.key)}
+      <select aria-label="{a.label} classes" value={String(renderer[a.key].classes ?? 3)} onchange={(e) => onAxis(a.key, { classes: Number(e.currentTarget.value) })}>
+        {#each BIVARIATE_CLASS_COUNTS as n (n)}
+          <option value={String(n)}>{a.label}: {n}</option>
+        {/each}
+      </select>
+    {/each}
+  </span>
+</div>
+<div class="axis counts">
+  <span class="label" title="The legend's shape, on the map and on a printed page. The diamond puts the two axes along its lower edges.">Legend</span>
+  <span class="count-pair">
+    <select aria-label="Legend shape" value={renderer.tilted ? 'tilted' : 'square'} onchange={(e) => onTilted(e.currentTarget.value === 'tilted')}>
+      <option value="square">Square</option>
+      <option value="tilted">Tilted (diamond)</option>
+    </select>
+  </span>
+</div>
 <button type="button" class="swap" onclick={onSwap} title="Swap axis 1 and axis 2"><Icon name="swap" size={14} />Swap axes</button>
 
 {#if chosen}
@@ -93,6 +116,14 @@
   }
   .label {
     color: var(--se-text-secondary);
+  }
+  .counts {
+    grid-template-columns: 72px 1fr;
+  }
+  .count-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
   }
   select {
     min-width: 0;

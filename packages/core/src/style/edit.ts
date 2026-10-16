@@ -475,6 +475,9 @@ export function setBivariateAxis(style: LayerStyle, axis: 'x' | 'y', patch: Part
   return withBivariate(style, (r) => {
     const other = axis === 'x' ? 'y' : 'x'
     const next = { ...r, [axis]: { ...r[axis], ...patch } }
+    // Other class counts make other cells: the hidden ones no longer mean the same.
+    if (patch.classes !== undefined && patch.classes !== (r[axis].classes ?? 3)) next.hidden = []
+    if (patch.classes === 3) delete next[axis].classes
     if (patch.column !== undefined && patch.column === r[other].column && patch.column !== r[axis].column) next[other] = { ...r[other], column: r[axis].column }
     return next
   })
@@ -483,6 +486,15 @@ export function setBivariateAxis(style: LayerStyle, axis: 'x' | 'y', patch: Part
 /** Swaps the axes; hidden cells follow (transposed). */
 export function swapBivariateAxes(style: LayerStyle): LayerStyle {
   return withBivariate(style, (r) => ({ ...r, x: r.y, y: r.x, hidden: r.hidden.map((k) => k.split('-').reverse().join('-')) }))
+}
+
+/** The legend as a diamond (true) or a square (false, the default: the setting is dropped). */
+export function setBivariateTilted(style: LayerStyle, tilted: boolean): LayerStyle {
+  return withBivariate(style, (r) => {
+    const { tilted: _t, ...rest } = r
+    void _t
+    return tilted ? { ...rest, tilted: true } : rest
+  })
 }
 
 export function setBivariatePalette(style: LayerStyle, palette: string): LayerStyle {

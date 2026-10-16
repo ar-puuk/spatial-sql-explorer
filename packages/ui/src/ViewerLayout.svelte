@@ -14,13 +14,14 @@
   import LayerWarningBanner from './LayerWarningBanner.svelte'
   import LayerStylePanel from './LayerStylePanel.svelte'
   import MapLegend from './MapLegend.svelte'
+  import { axisEnds } from './style/axisEnds.js'
   import BasemapPicker from './BasemapPicker.svelte'
   import BasemapGallery from './BasemapGallery.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import ExportDialog from './ExportDialog.svelte'
-  import MapImageDialog from './MapImageDialog.svelte'
+  import PrintComposer from './print/PrintComposer.svelte'
   import type { LegendSpec } from './mapImage.js'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
@@ -86,7 +87,8 @@
   }
   // Spec 008 US7: the legend as the map shows it, for the map image.
   const legendSpec = $derived.by((): LegendSpec | null => {
-    if (!layer || !showLegend) return null
+    // The page always has a legend (a single symbol is one row), though the map hides a plain one.
+    if (!layer) return null
     const r = store.resolvedStyle
     const base = layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area'
     const sizing = legend.some((g) => g.channels.includes('size') || g.channels.includes('width')) || !!legendProportional
@@ -109,7 +111,8 @@
     const colorGroup = legend[0]?.channels[0] === 'color' && !legend[0].gradient && !legend[0].note ? legend[0] : null
     const others = colorGroup ? legend.slice(1) : legend
     return {
-      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.caption || (fileName ?? 'Layer'),
+      // A bivariate legend names its axes itself: its title is the layer, not "a × b · Quantile".
+      title: r.status === 'fallback' ? `${legendTitle} · not available` : r.grid ? (fileName ?? 'Layer') : r.caption || (fileName ?? 'Layer'),
       shape: colorGroup ? shapeOf(colorGroup) : base,
       alpha: store.style.fillOpacity * (store.style.layerOpacity ?? 1),
       rows: r.clusters && r.status === 'ok'
@@ -124,6 +127,9 @@
             y: r.grid.y.column,
             nx: r.grid.x.ranges.length,
             ny: r.grid.y.ranges.length,
+            xRange: axisEnds(r.grid.x.ranges),
+            yRange: axisEnds(r.grid.y.ranges),
+            tilted: r.grid.tilted === true,
             cells: r.classes.filter((c) => c.kind === 'cell').map((c) => ({ color: c.color, visible: c.visible })),
             noValue: r.classes.filter((c) => c.kind === 'noValue').map((c) => ({ color: c.color, label: c.label, count: c.count, visible: c.visible }))[0],
           }
@@ -353,6 +359,7 @@
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
+          layerName={fileName ?? 'Layer'}
           geometryType={layer.geometryType}
           collapsed={store.legendCollapsed || shortMap}
           onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)}
@@ -440,6 +447,7 @@
           }}
           extruded={store.extruded}
           onCaptureReady={(capture) => store.setMapCapture(capture)}
+          onCameraReady={(camera) => store.setPrintCamera(camera)}
           onExportImage={() => store.openMapImage()}
         />
         {#if store.shapes.length > 0}
@@ -708,12 +716,13 @@
   {@render statusBar?.()}
 
   {#if store.mapImageOpen}
-    <MapImageDialog
+    <PrintComposer
       {store}
       legend={legendSpec}
+      anchor={main}
       onClose={() => {
         store.closeMapImage()
-        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Export map image…"]')?.focus())
+        void tick().then(() => document.querySelector<HTMLElement>('[aria-label="Print map…"]')?.focus())
       }}
     />
   {/if}

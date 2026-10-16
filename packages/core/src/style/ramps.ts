@@ -145,7 +145,7 @@ const WHITE = [0.95047, 1, 1.08883]
 const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116)
 const fi = (t: number): number => (t ** 3 > 216 / 24389 ? t ** 3 : (116 * t - 16) / (24389 / 27))
 
-function toLab(hex: string): [number, number, number] {
+export function toLab(hex: string): [number, number, number] {
   const c = parseColor(hex) ?? { r: 0, g: 0, b: 0, a: 1 }
   const [r, g, b] = [lin(c.r / 255), lin(c.g / 255), lin(c.b / 255)]
   const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / WHITE[0]
@@ -155,7 +155,7 @@ function toLab(hex: string): [number, number, number] {
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)]
 }
 
-function fromLab([l, a, bb]: number[]): string {
+export function fromLab([l, a, bb]: number[]): string {
   const fy = (l + 16) / 116
   const [x, y, z] = [fi(fy + a / 500) * WHITE[0], fi(fy) * WHITE[1], fi(fy - bb / 200) * WHITE[2]]
   const r = gam(3.2404542 * x - 1.5371385 * y - 0.4985314 * z)

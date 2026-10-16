@@ -24,7 +24,11 @@ async function openCounties(page: Page): Promise<void> {
 
 test('a 3x3 bivariate map: the cells add up, and a cell hides by keyboard (US4)', async ({ page }) => {
   await openCounties(page)
-  await expect(legend(page)).toContainText('poverty_rate × obesity_rate · Quantile')
+  // The legend is headed by the layer and names its axes itself, with the ends of each marked; the method is in the style panel.
+  await expect(legend(page)).toContainText('counties-bivariate.geojson')
+  await expect(legend(page)).not.toContainText('Quantile')
+  await expect(legend(page)).toContainText('poverty_rate')
+  await expect(legend(page)).toContainText('obesity_rate')
   const cells = grid(page).getByRole('gridcell').getByRole('button')
   await expect(cells).toHaveCount(9)
   // Each cell names both ranges and its count; with No value, they add up to the 600 counties.
@@ -56,13 +60,15 @@ test('swap axes and change the palette; no size channel; no axe violations', asy
   const before = await topRight()
   await panel(page).getByRole('button', { name: 'Swap axes' }).click()
   await expect(panel(page).getByLabel('Axis 1', { exact: true })).toHaveValue('obesity_rate')
-  await expect(legend(page)).toContainText('obesity_rate × poverty_rate')
+  // The axes swapped on the legend too: the first one runs along the bottom.
+  await expect(legend(page).locator('.x-axis')).toContainText('obesity_rate')
+  await expect(legend(page).locator('.y-axis')).toContainText('poverty_rate')
   await panel(page).getByRole('radiogroup', { name: 'Bivariate palette' }).getByRole('radio', { name: 'Green – Purple' }).click()
   await expect.poll(topRight).not.toBe(before)
   // Counties are polygons: no size channel either way (FR-006/FR-007; core tests cover points and lines).
   await expect(panel(page).getByRole('switch', { name: 'Size by column' })).toHaveCount(0)
   await panel(page).getByLabel('Axis 1 method').selectOption('equal')
-  await expect(legend(page)).toContainText('Equal interval')
+  await expect(panel(page).getByLabel('Axis 1 method')).toHaveValue('equal')
   const results = await new AxeBuilder({ page }).exclude('.maplibregl-canvas').analyze()
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([])
 })
@@ -74,4 +80,23 @@ test('Bivariate needs two numeric columns, and says why', async ({ page }) => {
   const option = page.getByRole('option', { name: 'Bivariate', exact: true })
   await expect(option).toHaveAttribute('aria-disabled', 'true')
   await expect(option).toContainText('Bivariate maps need two numeric columns.')
+})
+
+test('the legend shape is a bivariate style setting: tilted draws a diamond, and square is the default', async ({ page }) => {
+  await openCounties(page)
+  const cells = grid(page).getByRole('gridcell').getByRole('button')
+  await expect(panel(page).getByLabel('Legend shape')).toHaveValue('square')
+  await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(0)
+  // The legend has no control of its own for it.
+  await expect(legend(page).getByRole('button', { name: /^(Tilt|Square)$/ })).toHaveCount(0)
+  await panel(page).getByLabel('Legend shape').selectOption('tilted')
+  await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(1)
+  await expect(cells).toHaveCount(9)
+  // A cell still hides its features, and the axes are named along the edges.
+  await cells.first().click()
+  await expect(cells.first()).toHaveAttribute('aria-pressed', 'true')
+  await expect(legend(page)).toContainText('← obesity_rate')
+  await expect(legend(page)).toContainText('poverty_rate →')
+  await panel(page).getByLabel('Legend shape').selectOption('square')
+  await expect(legend(page).locator('.bivariate.tilted')).toHaveCount(0)
 })

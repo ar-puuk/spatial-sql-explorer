@@ -12,6 +12,8 @@
   import Check from '@lucide/svelte/icons/check'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Circle from '@lucide/svelte/icons/circle'
   import CircleX from '@lucide/svelte/icons/circle-x'
   import BrushCleaning from '@lucide/svelte/icons/brush-cleaning'
@@ -27,6 +29,8 @@
   import Globe from '@lucide/svelte/icons/globe'
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Image from '@lucide/svelte/icons/image'
+  import Printer from '@lucide/svelte/icons/printer'
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import Info from '@lucide/svelte/icons/info'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import Layers from '@lucide/svelte/icons/layers'
@@ -78,6 +82,8 @@
     paint: Paintbrush,
     'chevron-down': ChevronDown,
     'chevron-up': ChevronUp,
+    'chevron-left': ChevronLeft,
+    'chevron-right': ChevronRight,
     'arrow-up': ArrowUp,
     'arrow-down': ArrowDown,
     close: X,
@@ -111,6 +117,8 @@
     cube: Box,
     tag: Tag,
     image: Image,
+    printer: Printer,
+    refresh: RefreshCw,
     search: Search,
     link: Link,
     sun: Sun,

@@ -65,8 +65,9 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
     `gdp_md * 1e6 / pop_est` instead of a column.
   - **Rules**: color by SQL conditions (`continent = 'Africa'`), the first
     match wins, with a count per rule. QGIS draws the saved rules the same.
-  - **Bivariate maps**: two numeric columns colored from a 3×3 square, with
-    a keyboard legend square whose cells hide their features.
+  - **Bivariate maps**: two numeric columns colored from a grid of 2 to 4
+    classes along each axis (3 by 3 by default), with a legend (a square, or a
+    diamond) whose cells hide their features.
   - **Vary by attribute**: more properties, each by its own column, so one map
     shows several variables (roads colored by level of service and widened
     by traffic). Points: size, outline color and width, shape, opacity,
@@ -114,8 +115,14 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
 
   A notice lists anything the format changes (field renames, reprojection).
   The source file is never modified.
-- **Map image.** **Export map image…** saves the view as a PNG at 1x or 2x,
-  with its labels, every legend group and the basemap's attribution.
+- **Print map.** **Print map…** composes the view as a page, with a live
+  preview: paper or screen sizes, a title and subtitle, the legend (rename,
+  hide or reorder its classes), a scale bar and north arrow, a colorbar, an info
+  block, an attribute table and a chart of the rows, a 1:N scale, and a print
+  extent you draw on the map. Save it as a PNG, PDF or SVG (text and legend stay
+  editable), or copy it. An **atlas** makes one page per feature, or a page for
+  each stretch of a line, as one multi-page PDF or a zip of pictures. The layout
+  follows GeoLibre's Print Layout.
 - **Looks like VS Code.** Every color comes from your theme, including
   high-contrast themes. CRS, feature count and cursor coordinates appear in the
   native status bar.
