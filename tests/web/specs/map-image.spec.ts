@@ -298,3 +298,57 @@ test('a custom size takes its own width and height, and the orientation control 
   expect(size.width).toBe(800)
   expect(size.height).toBe(600)
 })
+
+// Spec 016 slice 2: the scale on paper, and the print extent drawn on the map.
+test('a scale preset moves the map to that scale, and one the map cannot reach says so', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const scale = dialog(page).getByLabel('Scale (1:N)')
+  await expect(scale).toBeEnabled()
+  await dialog(page).getByRole('button', { name: 'Scale presets' }).click()
+  await page.getByRole('option', { name: '1:25,000' }).click()
+  await expect.poll(async () => Math.round(Number(await scale.inputValue()) / 1000), { timeout: 20000 }).toBe(25)
+  await scale.fill('1')
+  await scale.press('Enter')
+  await expect(dialog(page).getByRole('alert')).toContainText('cannot zoom that far')
+})
+
+test('the print extent: drawn with a drag on the map, kept as the page, and cleared', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  const scaleBefore = await dialog(page).getByLabel('Scale (1:N)').inputValue()
+  await dialog(page).getByRole('button', { name: 'Draw extent on map' }).click()
+  // The dialog gets out of the way while the map takes the drag.
+  await expect(dialog(page)).toBeHidden()
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 6 })
+  await page.mouse.up()
+  await expect(dialog(page)).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toBeChecked()
+  // The extent fixes the area: the scale box is off, and the preview is a smaller part of the map.
+  await expect(dialog(page).getByLabel('Scale (1:N)')).toBeDisabled()
+  await expect.poll(async () => Number(await dialog(page).getByLabel('Scale (1:N)').inputValue()), { timeout: 20000 }).toBeLessThan(Number(scaleBefore))
+  const out = await exportAs(page, 'PNG')
+  expect(pngSize(out.bytes).width).toBe(1754)
+  await dialog(page).getByRole('radio', { name: 'Active viewport' }).click()
+  await expect(dialog(page).getByLabel('Scale (1:N)')).toBeEnabled()
+  await dialog(page).getByRole('button', { name: 'Clear extent' }).click()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toHaveCount(0)
+})
+
+test('drawing the extent can be cancelled with Escape', async ({ page }) => {
+  await page.route('https://tiles.openfreemap.org/**', (r) => r.abort())
+  await openFile(page, fixture('world-boundaries.geojson'), '?e2e=1')
+  await openComposer(page)
+  await dialog(page).getByRole('button', { name: 'Draw extent on map' }).click()
+  await expect(dialog(page)).toBeHidden()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toBeVisible()
+  await expect(dialog(page).getByRole('radio', { name: 'Clip to extent' })).toHaveCount(0)
+})

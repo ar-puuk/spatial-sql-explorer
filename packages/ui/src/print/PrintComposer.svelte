@@ -10,6 +10,7 @@
   import type { ViewerStore } from '../viewerStore.svelte.js'
   import { PrintComposer } from './composer.svelte.js'
   import Controls from './Controls.svelte'
+  import ScaleExtent from './ScaleExtent.svelte'
   import { drawLayout, resolvePageSize } from './layout.js'
 
   interface Props {
@@ -59,6 +60,8 @@
   })
 
   function onKeydown(e: KeyboardEvent): void {
+    // The dialog is hidden while the extent is drawn: Escape then belongs to that drawing.
+    if (c.drawingExtent) return
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -84,22 +87,28 @@
     const observer = new ResizeObserver(schedule)
     if (pane) observer.observe(pane)
     void c.recapture()
+    c.attach()
     void tick().then(() => dialog?.querySelector<HTMLElement>('button.primary')?.focus())
     return () => {
       observer.disconnect()
       cancelAnimationFrame(frame)
+      c.detach()
     }
   })
 </script>
 
-<div class="backdrop" role="presentation" onkeydown={onKeydown}>
+<div class="backdrop" class:drawing={c.drawingExtent} role="presentation" onkeydown={onKeydown}>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Print map" bind:this={dialog}>
     <header>
       <h2>Print map</h2>
       <button type="button" class="icon-button" aria-label="Close" title="Close" disabled={busy} onclick={onClose}><Icon name="close" /></button>
     </header>
     <div class="body">
-      <div class="controls-pane"><Controls {c} /></div>
+      <div class="controls-pane">
+        <Controls {c}>
+          {#snippet scale()}<ScaleExtent {c} />{/snippet}
+        </Controls>
+      </div>
       <div class="preview-pane">
         <div class="preview-head">
           <span>Preview</span>
@@ -140,6 +149,9 @@
     place-items: center;
     padding: 16px;
     background: color-mix(in srgb, black 40%, transparent);
+  }
+  .backdrop.drawing {
+    display: none;
   }
   .dialog {
     display: flex;

@@ -7,7 +7,8 @@ import { createDefaultPrintLayout, rampColors, type PrintLayoutConfig } from '@s
 import type { LegendSpec } from '../mapImage.js'
 import type { ViewerStore } from '../viewerStore.svelte.js'
 import { copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type CapturedMap, type PageFile } from './export.js'
-import { computeScaleRatio, resolvePageSize, type CustomSize, type LayoutOptions } from './layout.js'
+import type { PrintExtent } from './extent.js'
+import { computeScaleRatio, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
 
 export type ExportKind = 'png' | 'pdf' | 'svg'
 
@@ -36,6 +37,10 @@ export class PrintComposer {
   error = $state<string | null>(null)
   /** What the last export did, to say so. */
   saved = $state<{ location: string; size: string; notes: string[] } | null>(null)
+  /** True while the dialog is hidden for the user to drag the print extent on the map. */
+  drawingExtent = $state(false)
+  /** Set when a typed scale is out of the map's zoom range. */
+  scaleNotice = $state<string | null>(null)
   /** The draft of the map background's hex field: only a complete color is committed. */
   mapBackgroundDraft = $state('')
 
@@ -43,6 +48,7 @@ export class PrintComposer {
   #legend: () => LegendSpec | null
   #loaded = false
   #copiedTimer: ReturnType<typeof setTimeout> | null = null
+  #drawAbort: AbortController | null = null
 
   constructor(store: ViewerStore, legend: () => LegendSpec | null) {
     this.#store = store
@@ -176,6 +182,77 @@ export class PrintComposer {
     } finally {
       this.capturing = false
     }
+  }
+
+  /** Shows the saved extent box on the map when the composer opens; takes it down when it closes. */
+  attach(): void {
+    const { captureMode, extentBbox } = this.layout
+    if (captureMode === 'extent' && extentBbox) this.#store.printCamera?.showExtent(extentBbox)
+  }
+  detach(): void {
+    this.#drawAbort?.abort()
+    this.#store.printCamera?.showExtent(null)
+    if (this.#copiedTimer) clearTimeout(this.#copiedTimer)
+  }
+
+  /** Moves the map to a typed or preset 1:N scale and captures it again. The scale is linear in meters per pixel, which halves per zoom level. */
+  async applyScale(target: number): Promise<void> {
+    const camera = this.#store.printCamera
+    // A drawn extent fixes the ground area: zooming would not reach the scale.
+    if (!camera || this.layout.captureMode === 'extent') return
+    const { min, max } = camera.zoomLimits()
+    const to = scaleZoomTarget(camera.zoom(), this.currentRatio, target, min, max)
+    if (!to) return
+    // A scale the map cannot reach is applied as far as it goes, and says so.
+    this.scaleNotice = to.clamped ? 'The map cannot zoom that far: the closest scale it can reach is used.' : null
+    if (!to.unchanged) {
+      camera.setZoom(to.zoom)
+      await camera.settled()
+    }
+    await this.recapture()
+  }
+
+  /** Hides the dialog so the map takes the drag, then keeps the extent that was drawn. */
+  async drawExtent(): Promise<void> {
+    const camera = this.#store.printCamera
+    if (!camera || this.drawingExtent) return
+    const size = resolvePageSize(this.options)
+    const abort = new AbortController()
+    this.#drawAbort = abort
+    this.drawingExtent = true
+    let extent: PrintExtent | null = null
+    try {
+      extent = await camera.drawExtent({ aspect: size.width / size.height, signal: abort.signal })
+    } finally {
+      this.#drawAbort = null
+      this.drawingExtent = false
+    }
+    if (abort.signal.aborted) return
+    const previous = this.layout.extentBbox
+    if (extent) {
+      this.scaleNotice = null
+      this.set({ extentBbox: extent, captureMode: 'extent' })
+      await this.recapture()
+    } else {
+      // Cancelled: the box goes back to the one before (or away).
+      camera.showExtent(this.layout.captureMode === 'extent' ? previous : null)
+    }
+  }
+
+  clearExtent(): void {
+    this.#store.printCamera?.showExtent(null)
+    this.set({ extentBbox: null, captureMode: 'viewport' })
+    void this.recapture()
+  }
+
+  /** Switches between the viewport and the drawn extent. */
+  setCaptureMode(mode: 'viewport' | 'extent'): void {
+    if (mode === this.layout.captureMode) return
+    if (mode === 'extent') this.scaleNotice = null
+    this.set({ captureMode: mode })
+    // The box is on the map in extent mode only.
+    this.#store.printCamera?.showExtent(mode === 'extent' ? this.layout.extentBbox : null)
+    void this.recapture()
   }
 
   /** Copies the page to the clipboard as a PNG. */

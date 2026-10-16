@@ -440,6 +440,7 @@
           }}
           extruded={store.extruded}
           onCaptureReady={(capture) => store.setMapCapture(capture)}
+          onCameraReady={(camera) => store.setPrintCamera(camera)}
           onExportImage={() => store.openMapImage()}
         />
         {#if store.shapes.length > 0}

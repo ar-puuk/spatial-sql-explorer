@@ -81,6 +81,7 @@ import {
 import { normalizePrintLayoutConfig, type PrintLayoutConfig, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { MapCapture, MapShot } from './mapImage.js'
+import type { PrintCamera } from './print/camera.js'
 import type { DrawTool } from './draw/controller.js'
 import { registerTileProvider } from './engineTiles.js'
 
@@ -252,6 +253,9 @@ export interface ViewerStore {
   closeMapImage(): void
   /** MapView hands over its capture once the map is ready. */
   setMapCapture(capture: MapCapture): void
+  /** MapView hands over the composer's view of the map (zoom, extent box) once the map is ready. */
+  setPrintCamera(camera: PrintCamera): void
+  readonly printCamera: PrintCamera | null
   /** Spec 016: the map as captured for a page (cut to `clip` when given). */
   captureMap(opts: { ratio: number; clip?: [number, number, number, number] | null }): Promise<MapShot>
   /** Spec 016: saves a page through the host (VS Code: a save dialog next to the data; web: a download). */
@@ -1011,6 +1015,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let exportOpen = $state(false)
   let mapImageOpen = $state(false)
   let mapCapture: MapCapture | null = null
+  let printCamera: PrintCamera | null = null
   let savedExportPrefs = ''
   let exportRequest = $state<ExportRequest>({ format: 'geoparquet', crs: 'result', csvGeometry: 'wkt' })
   void hostAdapter
@@ -1907,6 +1912,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setMapCapture(capture) {
       mapCapture = capture
+    },
+    setPrintCamera(camera) {
+      printCamera = camera
+    },
+    get printCamera() {
+      return printCamera
     },
     async captureMap(opts) {
       if (!mapCapture) throw new Error('The map is not ready yet.')

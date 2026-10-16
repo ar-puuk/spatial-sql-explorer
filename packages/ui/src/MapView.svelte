@@ -75,6 +75,8 @@
   import Tip from './kit/Tip.svelte'
   import { Comets, drawSky, FLAT_SKY, GLOBE_SKY, globeCircle, loadSky } from './globeSky.js'
   import { plainAttribution, type MapCapture, type MapShot } from './mapImage.js'
+  import type { PrintCamera } from './print/camera.js'
+  import { clearPrintExtent, drawPrintExtent, setPrintExtentVisible, showPrintExtent } from './print/extent.js'
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
@@ -151,6 +153,8 @@
     extruded?: boolean
     /** Spec 008 US7: hands the store the map's PNG capture once the map is ready. */
     onCaptureReady?: (capture: MapCapture) => void
+    /** Spec 016: hands the store the print composer's view of the map. */
+    onCameraReady?: (camera: PrintCamera) => void
     /** Spec 008 US7: opens the map image dialog. */
     onExportImage?: () => void
   }
@@ -200,6 +204,7 @@
     onInspectTileFeature,
     extruded = false,
     onCaptureReady,
+    onCameraReady,
     onExportImage,
   }: Props = $props()
 
@@ -997,6 +1002,8 @@
       notes.push(`${wanted}× would be larger than this device can draw (${max} px): the map is at 1×.`)
     }
     const previous = m.getPixelRatio()
+    // The print extent's box is not part of the picture.
+    setPrintExtentVisible(m, false)
     const background = blankBackground()
     const attribution = activeBasemap?.attribution ? plainAttribution(activeBasemap.attribution) : ''
     const sky = untrack(() => projection) === 'globe' ? (skyCanvas ?? null) : null
@@ -1065,7 +1072,24 @@
       }
     } finally {
       if (m.getPixelRatio() !== previous) m.setPixelRatio(previous)
+      setPrintExtentVisible(m, true)
     }
+  }
+
+  // Spec 016: the composer's hold on the map.
+  const printCamera: PrintCamera = {
+    zoom: () => map?.getZoom() ?? 0,
+    zoomLimits: () => ({ min: map?.getMinZoom() ?? 0, max: map?.getMaxZoom() ?? 22 }),
+    setZoom: (zoom) => map?.setZoom(zoom),
+    settled: async (timeoutMs = 1500) => {
+      if (map) await idle(map, timeoutMs)
+    },
+    drawExtent: (opts) => (map ? drawPrintExtent(map, opts) : Promise.resolve(null)),
+    showExtent: (extent) => {
+      if (!map) return
+      if (extent) showPrintExtent(map, extent)
+      else clearPrintExtent(map)
+    },
   }
 
   let resizeObserver: ResizeObserver | null = null
@@ -1108,6 +1132,7 @@
       registerHandlers()
       mapReady = true
       onCaptureReady?.(captureMap)
+      onCameraReady?.(printCamera)
     })
     resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserver.observe(container)
