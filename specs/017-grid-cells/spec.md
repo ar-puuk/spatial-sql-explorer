@@ -1,6 +1,6 @@
 # Spec 017: Grid cells (H3 and A5)
 
-**Status:** draft for review (2026-10-17), branch `017-grid-cells`. Step 1 (the extensions) is built and committed;
+**Status:** approved to plan (2026-10-17), branch `017-grid-cells`. Step 1 (the extensions) is built and committed;
 this spec covers step 2, the "Bin into cells" action. Research: research.md.
 **Request (user, 2026-10-17):** start with the h3 and a5 DuckDB extensions, in two steps: the extensions first, then an
 action that bins a layer into cells and draws them.
@@ -123,10 +123,8 @@ value, and how many features it holds. The id can be copied.
 - SC-4 An exported GeoParquet or GeoJSON of the cells reopens in the app and matches the map.
 - SC-5 No request to any host other than the pinned engine hosts is made by the action.
 
-## Open questions (for the user before planning)
-1. **Where does the action live?** (a) A button in the query panel's toolbar next to the SQL helpers, (b) an entry in
-   the layer's menu, (c) both. Recommended: (c), one dialog.
-2. **Lines and polygons:** centroid assignment only for now (recommended), or also offer "all cells touched"
-   (polyfill) in this spec?
-3. **Live preview:** should changing the resolution redraw immediately (cheap at coarse levels, guarded by the cell
-   limit), or only after pressing Run? Recommended: immediate below 5,000 cells, Run above.
+## Decisions on the open questions (user, 2026-10-17: all three recommendations)
+1. **Where the action lives:** both the query panel's toolbar and the layer's menu, opening one dialog.
+2. **Lines and polygons:** centroid assignment only. "All cells touched" (polyfill) stays out of scope.
+3. **Live preview:** changing the resolution redraws immediately while the result is under 5,000 cells; above that the
+   user presses Run.
