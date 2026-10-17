@@ -33,7 +33,7 @@ export default defineConfig({
     env: { ENGINE_MIRROR: '1', VITE_ENGINE_MIRROR: '/engine-mirror' },
   },
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: process.env.SE_BASE_URL ?? 'http://localhost:4173',
   },
   projects: [
     {

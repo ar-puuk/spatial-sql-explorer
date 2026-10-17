@@ -31,21 +31,23 @@ describe('engine assets (run scripts/engine-assets.mjs after upgrading)', () => 
     expect(ENGINE_ASSETS.sqljs.wasm.sha256).toBe(sha(path.join(dir, 'dist/sql-wasm.wasm')))
   })
 
-  it('extensions: spatial, parquet, json, excel and sqlite_scanner (spec 010) for the same DuckDB release, each with a hash', () => {
+  it('extensions: spatial, parquet, json, excel, sqlite_scanner (spec 010), fts, h3 and a5 (spec 017) for the same DuckDB release, each with a hash', () => {
     const { duckdb, platform, files } = ENGINE_ASSETS.extensions
     expect(duckdb).toBe(ENGINE_ASSETS.duckdb.release)
-    expect(Object.keys(files).sort()).toEqual(['excel', 'json', 'parquet', 'spatial', 'sqlite_scanner'])
+    expect(Object.keys(files).sort()).toEqual(['a5', 'excel', 'fts', 'h3', 'json', 'parquet', 'spatial', 'sqlite_scanner'])
     for (const [name, f] of Object.entries(files)) {
-      expect(f.url).toBe(`https://extensions.duckdb.org/${duckdb}/${platform}/${name}.duckdb_extension.wasm`)
+      const host = ['h3', 'a5'].includes(name) ? 'community-extensions.duckdb.org' : 'extensions.duckdb.org'
+      expect(f.url).toBe(`https://${host}/${duckdb}/${platform}/${name}.duckdb_extension.wasm`)
       expect(f.sha256).toMatch(/^[0-9a-f]{64}$/)
     }
   })
 
-  it('every URL is https on the two allowed hosts; a mirror keeps the paths', () => {
+  it('every URL is https on the three allowed hosts; a mirror keeps the paths', () => {
     const urls = [ENGINE_ASSETS.duckdb.worker.url, ENGINE_ASSETS.duckdb.wasm.url, ENGINE_ASSETS.sqljs.wasm.url, ...Object.values(ENGINE_ASSETS.extensions.files).map((f) => f.url)]
-    for (const u of urls) expect(new URL(u).host).toMatch(/^(cdn\.jsdelivr\.net|extensions\.duckdb\.org)$/)
+    for (const u of urls) expect(new URL(u).host).toMatch(/^(cdn\.jsdelivr\.net|extensions\.duckdb\.org|community-extensions\.duckdb\.org)$/)
     expect(engineUrl(ENGINE_ASSETS.duckdb.wasm.url, { mirror: '/engine-mirror' })).toBe(`/engine-mirror/npm/@duckdb/duckdb-wasm@${ENGINE_ASSETS.duckdb.package}/dist/duckdb-eh.wasm`)
     expect(engineUrl(ENGINE_ASSETS.extensions.files.spatial.url, { mirror: '/engine-mirror/' })).toBe(`/engine-mirror/extensions/${ENGINE_ASSETS.extensions.duckdb}/wasm_eh/spatial.duckdb_extension.wasm`)
+    expect(engineUrl(ENGINE_ASSETS.extensions.files.h3.url, { mirror: '/engine-mirror' })).toBe(`/engine-mirror/community-extensions/${ENGINE_ASSETS.extensions.duckdb}/wasm_eh/h3.duckdb_extension.wasm`)
     expect(engineUrl(ENGINE_ASSETS.duckdb.wasm.url)).toBe(ENGINE_ASSETS.duckdb.wasm.url)
   })
 })

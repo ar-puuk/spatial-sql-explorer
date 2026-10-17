@@ -3600,6 +3600,14 @@ They are listed for transparency and attribution.
     (LGPL-2.1). https://github.com/duckdb/duckdb-spatial
   - **parquet** and **json** (part of DuckDB, MIT).
   - **excel** (DuckDB, MIT; xlsx export and input). https://github.com/duckdb/duckdb-excel
+  - **fts** (DuckDB, MIT; full-text search). https://github.com/duckdb/duckdb-fts
+  - **h3** (Apache-2.0; H3 hexagonal grid, Uber's H3 library is Apache-2.0), a
+    community extension from `community-extensions.duckdb.org`.
+    https://github.com/isaacbrodsky/h3-duckdb
+  - **a5** (Apache-2.0; A5 equal-area pentagonal grid, by Query.Farm), a
+    community extension from `community-extensions.duckdb.org`. Its start-up
+    report to Query.Farm is blocked, so it sends nothing.
+    https://github.com/query-farm/a5
 - **sql.js WebAssembly** (MIT, see above), from `cdn.jsdelivr.net`.
 
 Every engine file above is checked against a SHA-256 recorded at build time

@@ -66,9 +66,20 @@ const __duckdbWasmBytesPromise = new Promise((resolve) => {
     }
   });
 });
+// Spec 017: the a5 community extension reports its name and version to Query.Farm when it loads.
+// Constitution IV: nothing leaves the machine but what the user asked for, so the engine cannot reach
+// that host (the extension carries on without it). Everything else is unchanged.
+const __telemetry = /(^|\\.)query-farm\\.services$/i;
+const __blocked = (u) => { try { return __telemetry.test(new URL(String(u), self.location.href).hostname); } catch { return false; } };
+const __origOpen = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+  // Not a throw (that would trap inside the engine): the request goes to a URL that cannot load, an ordinary network failure.
+  return __origOpen.call(this, method, __blocked(url) ? 'blob:blocked-telemetry' : url, ...rest);
+};
 const __origFetch = self.fetch.bind(self);
 self.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input.url;
+  if (__blocked(url)) throw new TypeError('blocked: telemetry');
   if (url && url.indexOf('${SENTINEL_WASM_URL}') !== -1) {
     const bytes = await __duckdbWasmBytesPromise;
     return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/wasm' } });
@@ -95,14 +106,17 @@ ${workerScriptText}
 }
 
 /**
- * Loads the extensions the app needs (spatial, parquet, json), each downloaded
+ * Loads the extensions the app needs (spatial, parquet, json, and since spec 017 fts, h3 and a5), each downloaded
  * from its pinned URL and checked against its recorded SHA-256 (spec 008
- * research §15). Shells' CSP `connect-src` must allow extensions.duckdb.org
+ * research §15). Shells' CSP `connect-src` must allow extensions.duckdb.org and community-extensions.duckdb.org
  * (and `blob:`, which the worker reads the verified bytes from).
  */
 export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls = {}): Promise<void> {
   await loadExtensions(conn, assets)
 }
+
+/** Extensions the app can start without: only spatial and parquet are required. */
+const OPTIONAL_EXTENSIONS: ReadonlySet<ExtensionName> = new Set(['json', 'excel', 'sqlite_scanner', 'fts', 'h3', 'a5'])
 
 /**
  * Spec 008 research §15: spatial, parquet and json, each downloaded and
@@ -134,8 +148,8 @@ async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDb
       bytes = await verified[i]
     } catch (err) {
       // Spec 008: JSON only serves JSON export; spec 010: excel xlsx export and input, sqlite_scanner
-      // a SQLite file's attribute tables. The app works without them.
-      if (name === 'json' || name === 'excel' || name === 'sqlite_scanner') continue
+      // a SQLite file's attribute tables; spec 017: fts, h3 and a5 (SQL only). The app works without them.
+      if (OPTIONAL_EXTENSIONS.has(name)) continue
       throw err
     }
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/wasm' }))

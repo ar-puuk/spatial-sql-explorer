@@ -26,7 +26,8 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
 - DuckDB runs as DuckDB-WASM inside the webview (NOT native in the extension host).
   Use the single-threaded bundle (no SharedArrayBuffer; coi-serviceworker is not usable in VS Code webviews).
   Not bundled (user decision 2026-10-11, constitution v1.2.0): DuckDB-WASM, its extensions (spatial, parquet,
-  json) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
+  json, and, user decision 2026-10-17, spec 017, constitution v1.4.0, the optional fts, h3 and a5, the last two from
+  community-extensions.duckdb.org) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
   scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package.
   Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
   Each shell keeps a local copy through HostAdapter.engineFile (VS Code: extension host global storage;

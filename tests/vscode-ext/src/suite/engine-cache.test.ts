@@ -28,7 +28,7 @@ suite('Spec 008: the engine’s local copy in VS Code', () => {
     await openAndWaitReady(FIXTURE)
     const { dir, downloaded } = await engine()
     const files = fs.readdirSync(dir).filter((f) => !f.endsWith('.part')).sort()
-    for (const name of ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'spatial.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'excel.duckdb_extension.wasm', 'sqlite_scanner.duckdb_extension.wasm']) {
+    for (const name of ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm', 'spatial.duckdb_extension.wasm', 'parquet.duckdb_extension.wasm', 'json.duckdb_extension.wasm', 'excel.duckdb_extension.wasm', 'sqlite_scanner.duckdb_extension.wasm', 'fts.duckdb_extension.wasm', 'h3.duckdb_extension.wasm', 'a5.duckdb_extension.wasm']) {
       assert.ok(files.some((f) => /^[0-9a-f]{64}-/.test(f) && f.endsWith(`-${name}`)), `${name} is kept (${files.join(', ')})`)
     }
     const before = downloaded.length

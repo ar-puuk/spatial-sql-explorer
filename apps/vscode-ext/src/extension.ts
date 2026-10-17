@@ -167,7 +167,7 @@ function log(line: string): void {
 // --- Spec 008 research §15: the SQL engine's local copy ---------------------
 // The engine isn't shipped. Each file (DuckDB-WASM, its extensions, sql.js) is
 // downloaded once by the extension host from its pinned URL (jsDelivr,
-// extensions.duckdb.org), checked against the SHA-256 the webview sends (from
+// extensions.duckdb.org, community-extensions.duckdb.org), checked against the SHA-256 the webview sends (from
 // the build-time record), and kept in global storage, named by its hash. The
 // webview reads it from there: offline after the first use.
 const engineDir = (context: vscode.ExtensionContext): vscode.Uri => vscode.Uri.joinPath(context.globalStorageUri, 'engine')
@@ -177,7 +177,7 @@ const engineDownloadLog: string[] = []
 
 async function ensureEngineFile(context: vscode.ExtensionContext, file: { name: string; url: string; sha256: string }, refresh: boolean): Promise<vscode.Uri> {
   if (!/^[0-9a-f]{64}$/.test(file.sha256) || !/^[\w.@-]+$/.test(file.name)) throw new Error('not an engine file')
-  if (!/^https:\/\/(cdn\.jsdelivr\.net|extensions\.duckdb\.org)\//.test(file.url)) throw new Error(`not an engine download URL: ${file.url}`)
+  if (!/^https:\/\/(cdn\.jsdelivr\.net|extensions\.duckdb\.org|community-extensions\.duckdb\.org)\//.test(file.url)) throw new Error(`not an engine download URL: ${file.url}`)
   const target = vscode.Uri.joinPath(engineDir(context), `${file.sha256}-${file.name}`)
   if (!refresh) {
     try {

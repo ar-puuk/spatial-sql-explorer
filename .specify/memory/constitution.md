@@ -1,6 +1,18 @@
 <!--
 Sync Impact Report
-Version change: 1.2.1 → 1.3.0 (spec 014, user decisions 2026-10-15)
+Version change: 1.3.0 → 1.4.0 (spec 017, user decision 2026-10-17)
+Modified principles:
+  - IV. Local-First and Private: one more pinned download host. The fts extension (official
+    host) and the h3 and a5 community extensions (community-extensions.duckdb.org, a
+    different signing key) are fetched like the other extensions: pinned URL, SHA-256
+    recorded at build time, checked before they run, DuckDB's signature check left on.
+    They are optional: the app starts without them.
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: none
+
+Previous: 1.2.1 → 1.3.0 (spec 014, user decisions 2026-10-15)
 Modified principles:
   - I. Scope Discipline: a terrain on/off switch is allowed: a DEM is a height source the
     one basemap and the data are lifted onto, not a second basemap (so "stacked basemaps"
@@ -198,4 +210,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-15
+**Version**: 1.4.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-17
