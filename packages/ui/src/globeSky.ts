@@ -248,41 +248,32 @@ function drawRealSky(ctx: CanvasRenderingContext2D, w: number, h: number, center
   const focal = h / 2 / Math.tan((36.87 * RAD) / 2)
   const out = { x: 0, y: 0, ok: false }
   const COS_EDGE = Math.cos(80 * RAD)
-  const SIN_EDGE = Math.sin(80 * RAD)
-  /** `limb`: a direction nearly sideways or behind is put at 80 degrees from the view's axis instead of dropped (for the Milky Way's filled outlines). */
-  const project = (v: Float32Array, i: number, limb = false): void => {
+  const project = (v: Float32Array, i: number): void => {
     const vx = v[i]
     const vy = v[i + 1]
     const vz = v[i + 2]
-    let a = vx * right[0] + vy * right[1] + vz * right[2]
-    let b = vx * up[0] + vy * up[1] + vz * up[2]
+    const a = vx * right[0] + vy * right[1] + vz * right[2]
+    const b = vx * up[0] + vy * up[1] + vz * up[2]
     // Forward is away from the camera's position, through the Earth.
-    let d = -(vx * at[0] + vy * at[1] + vz * at[2])
+    const d = -(vx * at[0] + vy * at[1] + vz * at[2])
     if (d < COS_EDGE) {
-      if (!limb) {
-        out.ok = false
-        return
-      }
-      const len = Math.hypot(a, b) || 1
-      a = (a / len) * SIN_EDGE
-      b = (b / len) * SIN_EDGE
-      d = COS_EDGE
+      out.ok = false
+      return
     }
     out.x = w / 2 + (focal * a) / d
     out.y = h / 2 - (focal * b) / d
     out.ok = true
   }
-  const trace = (v: Float32Array, limb = false, close = false): void => {
+  const trace = (v: Float32Array): void => {
     let pen = false
     for (let i = 0; i < v.length; i += 3) {
-      project(v, i, limb)
+      project(v, i)
       if (out.ok) {
         if (pen) ctx.lineTo(out.x, out.y)
         else ctx.moveTo(out.x, out.y)
         pen = true
       } else pen = false
     }
-    if (close && pen) ctx.closePath()
   }
 
   drawMilkyWay(ctx, w, h, focal, at, right, up)
