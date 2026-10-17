@@ -9,6 +9,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-17
+
+### Fixed
+
+- **The globe's Milky Way no longer changes brightness as you turn the view.** The outlines were filled in screen space, so patches
+  swapped brightness with small turns. It is now painted once in right ascension and declination and sampled per pixel, so each
+  part of the sky keeps its own brightness.
+- **No fake band across the Milky Way.** Two of its outlines go all the way around the sky; they were closed with a straight
+  line, which drew a perfectly straight band and left a hole where it crossed the real one. They now close through the pole and
+  fill between the two edges.
+
+### Removed
+
+- The "Polaris" and "Big Dipper" names on the globe's sky. The sky shows no text now.
+
 ## [0.6.0] - 2026-10-16
 
 Print layouts, bivariate classes and legends, and the polish around them.
