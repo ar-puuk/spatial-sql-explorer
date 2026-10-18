@@ -697,6 +697,7 @@
               extrusionFlat={store.extrusionFlat}
               onSuggestScale={(column) => store.suggestExtrusionScale(column)}
               onSuggestRules={() => store.ruleSuggestions()}
+              onSuggestHeatRadius={() => store.suggestHeatmapRadius()}
             />
           {/if}
         {:else if layout.sideTab === 'labels'}

@@ -199,6 +199,7 @@
     embedded?: boolean
     /** Spec 010: example rules from the data, for a first rules style. */
     onSuggestRules?: () => Promise<RuleSuggestions>
+    onSuggestHeatRadius?: () => Promise<{ meters: number; latitude: number } | null>
     /** The map's view: a heatmap radius switched between pixels and meters keeps its size on screen. */
     camera?: { center: [number, number]; zoom: number } | null
   }
@@ -226,6 +227,7 @@
     onSuggestScale,
     embedded = false,
     onSuggestRules,
+    onSuggestHeatRadius,
     camera = null,
   }: Props = $props()
 
@@ -846,10 +848,17 @@
           <input
             type="checkbox"
             checked={renderer.autoIntensity === true}
-            onchange={(e) => apply(setHeatmapAutoIntensity(style, e.currentTarget.checked, camera ? { latitude: camera.center[1], zoom: camera.zoom } : null))}
+            onchange={async (e) => {
+              const on = e.currentTarget.checked
+              const view = camera ? { latitude: camera.center[1], zoom: camera.zoom } : null
+              apply(setHeatmapAutoIntensity(style, on, view))
+              // Automatic also sizes the kernel from the point spacing; the radius stays editable.
+              const fit = on ? await onSuggestHeatRadius?.() : null
+              if (fit && renderer.kind === 'heatmap' && renderer.autoIntensity) apply(setHeatmap(style, { radiusMeters: fit.meters, latitude: fit.latitude }))
+            }}
           />
           <span>Automatic</span>
-          <Tip text="The densest spot takes the last color. Worked out from all the points, so it holds at every zoom (it needs the radius in meters)." side="top">
+          <Tip text="Sets the radius from how close the points lie (meters), and the intensity so the densest 2% take the last color. Worked out from all the points, so it holds at every zoom. Change the radius afterward if you like." side="top">
             {#snippet trigger(props)}
               <button type="button" class="info" {...props} aria-label="About automatic intensity"><Icon name="info" size={13} /></button>
             {/snippet}

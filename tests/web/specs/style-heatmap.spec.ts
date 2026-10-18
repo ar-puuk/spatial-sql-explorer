@@ -126,21 +126,20 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
   })
 }
 
-/** MapLibre's kernel summed exactly at every point of writePoints' data, in Web Mercator meters (radius: Mercator meters). */
+/** MapLibre's kernel summed exactly at every point of writePoints' data (Web Mercator meters; radius: Mercator meters): the density the densest 2% of the points reach. */
 function exactPeak(file: string, radius: number): number {
   const R = 6378137
   const xy = (JSON.parse(fs.readFileSync(file, 'utf8')) as { features: Array<{ geometry: { coordinates: [number, number] } }> }).features.map(({ geometry: { coordinates: [lon, lat] } }) => [(R * lon * Math.PI) / 180, R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))])
-  let best = 0
-  for (const [x0, y0] of xy) {
+  const dens = xy.map(([x0, y0]) => {
     let d = 0
     for (const [x, y] of xy) d += Math.exp((-4.5 * ((x - x0) ** 2 + (y - y0) ** 2)) / radius ** 2)
-    best = Math.max(best, d)
-  }
-  return best * 0.3989422804014327
+    return d
+  }).sort((a, b) => a - b)
+  return dens[Math.ceil(dens.length * 0.98) - 1] * 0.3989422804014327
 }
 
 for (const mode of ['GeoJSON', 'tiles'] as const) {
-  test(`automatic intensity: from the engine, the densest spot just reaches the last color (${mode})`, async ({ page }) => {
+  test(`automatic intensity: from the engine, the densest 2% reach the last color (${mode})`, async ({ page }) => {
     test.setTimeout(90000)
     const file = writePoints()
     await openFile(page, file, mode === 'tiles' ? '?e2e=1&tileRows=10' : '?e2e=1')
@@ -154,7 +153,11 @@ for (const mode of ['GeoJSON', 'tiles'] as const) {
     await page.getByRole('checkbox', { name: /^Automatic/ }).check()
     await expect(page.getByRole('radio', { name: 'Meters' })).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByRole('slider', { name: 'Intensity' })).toBeDisabled()
-    const meters = Number(await page.getByRole('spinbutton', { name: 'Radius in meters' }).inputValue())
+    // The radius is then fitted to the point spacing (it changes from the pixel radius carried over).
+    const radiusBox = page.getByRole('spinbutton', { name: 'Radius in meters' })
+    const carried = await radiusBox.inputValue()
+    await expect.poll(async () => await radiusBox.inputValue(), { timeout: 20000, intervals: [100] }).not.toBe(carried)
+    const meters = Number(await radiusBox.inputValue())
     const lat = (await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { mapState(): { center: [number, number] } } }).__spatialExplorerE2E.mapState().center))[1]
     const want = 1 / exactPeak(file, meters / Math.cos((lat * Math.PI) / 180))
     const shown = page.locator('.row', { has: page.getByRole('slider', { name: 'Intensity' }) }).locator('.value')

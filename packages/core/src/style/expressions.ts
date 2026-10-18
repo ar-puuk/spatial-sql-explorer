@@ -505,7 +505,9 @@ export function heatmapPaint(style: LayerStyle, resolved: ResolvedStyle, layerLa
   const heat = resolved.heat
   if (r.kind !== 'heatmap' || !heat) return {}
   const color: unknown[] = ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0, 0, 0, 0)']
-  heat.colors.forEach((c, i) => color.push((i + 1) / heat.colors.length, c))
+  // Automatic: the stops bunch toward low density (color ∝ √density), so sparse places still show.
+  const curved = r.autoIntensity && heat.intensity !== undefined
+  heat.colors.forEach((c, i) => color.push(curved ? ((i + 1) / heat.colors.length) ** 2 : (i + 1) / heat.colors.length, c))
   const w = heat.weight
   return {
     'heatmap-radius': heatmapRadius(r, layerLatitude),

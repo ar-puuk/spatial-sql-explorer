@@ -421,6 +421,8 @@ export interface ViewerStore {
   suggestExtrusionScale(column: string): Promise<number>
   /** Spec 010: example rules from the data (a numeric column's median, a text column's most common value). */
   ruleSuggestions(): Promise<RuleSuggestions>
+  /** Heatmap, automatic size: a radius in meters from the point spacing, or null. */
+  suggestHeatmapRadius(): Promise<{ meters: number; latitude: number } | null>
   /** What the style panel resolves against: columns, rows, distinct counts. */
   readonly styleInput: ResolveInput | null
   /** Legend collapsed (spec 003 FR-010), remembered via HostAdapter state. */
@@ -2637,6 +2639,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const qs = querySession
       if (!qs) return {}
       return retryWhenBusy(qs, () => qs.ruleSuggestions()).catch(() => ({}))
+    },
+    async suggestHeatmapRadius() {
+      const qs = querySession
+      if (!qs) return null
+      return retryWhenBusy(qs, () => qs.suggestHeatmapRadius()).catch(() => null)
     },
     async suggestExtrusionScale(column) {
       const qs = querySession

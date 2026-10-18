@@ -64,7 +64,7 @@ import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/
 import { drawModeFor, type DrawMode } from '../view/drawMode.js'
 import { allFeaturesSql } from '../view/features.js'
 import { labelPointsSql, type LabelPoint } from '../view/labelPoint.js'
-import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
+import { heatmapPeakSql, heatmapRadiusSql, mercatorLatitude, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
 import { timeExtentSql, type TimeDomain } from '../view/timeSlider.js'
 import { ftsBuildSql, ftsColumns, ftsDropSql, ftsHit, ftsSearchSql } from '../view/textSearch.js'
@@ -1100,6 +1100,24 @@ export class QuerySession {
     } else return resolveStyleFrom(style, base)
     if (this.styleInput && out.status === 'ok') this.styleCache = { key, input: this.styleInput, resolved: out }
     return out
+  }
+
+  /**
+   * Heatmap, automatic size: a radius in ground meters (and the latitude it
+   * is measured at) that puts about eight neighbors under the kernel in a
+   * typical place (view/heat.ts). Null when the points can't say (fewer than
+   * two places).
+   */
+  async suggestHeatmapRadius(): Promise<{ meters: number; latitude: number } | null> {
+    const target = this.viewTarget()
+    if (!target) return null
+    const row = await this.exclusive((isCancelled) => singleRow<{ radius: number | null; cy: number | null }>(this.conn, heatmapRadiusSql(target), isCancelled), 'background')
+    const radius = Number(row.radius)
+    const cy = Number(row.cy)
+    if (!(radius > 0) || !Number.isFinite(cy)) return null
+    const latitude = Math.max(-85, Math.min(85, mercatorLatitude(cy)))
+    const meters = Math.min(HEATMAP_METERS.max, Math.max(HEATMAP_METERS.min, radius * Math.cos((latitude * Math.PI) / 180)))
+    return { meters: Number(meters.toPrecision(2)), latitude: Number(latitude.toFixed(3)) }
   }
 
   /**

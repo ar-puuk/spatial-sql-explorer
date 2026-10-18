@@ -16,6 +16,7 @@ import {
   resolveStyle,
   sanitizeStyle,
   HEAT_GAUSS,
+  HEAT_PERCENTILE,
   heatmapPeak,
   mercatorRadius,
   metersPerPixel,
@@ -252,27 +253,32 @@ describe('automatic intensity (radius in meters)', () => {
     const r = (dense ? 0.01 : 0.05) * Math.sqrt((dense ? i : i - 1000) / (dense ? 1000 : 500))
     return [(dense ? -111.89 : -111.7) + r * Math.cos(a), (dense ? 40.76 : 40.6) + r * Math.sin(a), 1]
   })
-  /** Brute force: MapLibre's kernel summed at every point, in Web Mercator meters. */
+  /** Brute force: MapLibre's kernel summed at every point; the density the densest 2% of the points reach. */
   const brute = (radius: number): number => {
     const R = 6378137
     const xy = pts.map(([lon, lat]) => [(R * lon * Math.PI) / 180, R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))])
-    let best = 0
-    for (const [x0, y0] of xy) {
+    const dens = xy.map(([x0, y0]) => {
       let d = 0
       for (const [x, y] of xy) d += Math.exp((-4.5 * ((x - x0) ** 2 + (y - y0) ** 2)) / radius ** 2)
-      best = Math.max(best, d)
-    }
-    return best * HEAT_GAUSS
+      return d
+    })
+    dens.sort((a, b) => a - b)
+    return dens[Math.ceil(dens.length * HEAT_PERCENTILE) - 1] * HEAT_GAUSS
   }
 
-  it('the grid estimate of the peak is within 10% of the exact sum', () => {
+  it('the grid estimate of the 98th-percentile density is within 10% of the exact sum', () => {
     for (const meters of [200, 1000, 5000]) {
       const radius = mercatorRadius(meters, 40.7)
       const exact = brute(radius)
       expect(Math.abs(heatmapPeak(pts, radius) - exact) / exact, `${meters} m`).toBeLessThan(0.1)
     }
   })
-  it('resolves to 1 / peak and the map paints with it; off, the slider’s value', () => {
+  it('one outlier spot does not set the scale', () => {
+    const radius = mercatorRadius(1000, 40.7)
+    const spike = Array.from({ length: 300 }, (): [number, number, number] => [-111.5, 40.5, 1])
+    expect(heatmapPeak([...pts, ...spike], radius)).toBeLessThan(heatmapPeak(pts, radius) * 1.5)
+  })
+  it('resolves to 1 / the percentile density and the map paints with it; off, the slider’s value', () => {
     const layer = { columns: [{ name: 'pop', type: 'BIGINT' }], features: pts.map(([lon, lat], id) => ({ id, geometry: { type: 'Point' as const, coordinates: [lon, lat] }, attributes: { pop: 1 } })) }
     const on = setHeatmapAutoIntensity(heat({ intensity: 2 }), true, { latitude: 40.7, zoom: 11 })
     expect(rendererOf(on)).toMatchObject({ radiusUnit: 'm', autoIntensity: true, latitude: 40.7 })
