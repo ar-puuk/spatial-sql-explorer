@@ -247,6 +247,12 @@
       />
       </span>
       {#if searchingPlaces}<span class="busy" aria-hidden="true">…</span>{/if}
+      {#if text}
+        <button type="button" class="clear" aria-label="Clear search" title="Clear (Esc)" onpointerdown={(e) => e.preventDefault()} onclick={clear}><Icon name="close" size={12} /></button>
+      {:else}
+        <!-- The clear button's place, kept so the box doesn't change width as you type. -->
+        <span class="clear-space" aria-hidden="true"></span>
+      {/if}
       {#if wordsAvailable}
         <button
           type="button"
@@ -258,12 +264,6 @@
           onpointerdown={(e) => e.preventDefault()}
           onclick={toggleWords}><Icon name="textSearch" size={14} /></button
         >
-      {/if}
-      {#if text}
-        <button type="button" class="clear" aria-label="Clear search" title="Clear (Esc)" onpointerdown={(e) => e.preventDefault()} onclick={clear}><Icon name="close" size={12} /></button>
-      {:else}
-        <!-- The clear button's place, kept so the box doesn't change width as you type. -->
-        <span class="clear-space" aria-hidden="true"></span>
       {/if}
     </form>
   </div>
