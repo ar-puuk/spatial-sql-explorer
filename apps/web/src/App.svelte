@@ -421,7 +421,7 @@
         <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
           ><Icon name="link" size={14} />Copy link</button
         >
-        <button type="button" class="open" title="Open a File Geodatabase (a folder that ends in .gdb)" onclick={() => void chooseFolder()}><Icon name="folder" size={14} />Open geodatabase</button>
+        <button type="button" class="open" title="Open a File Geodatabase, a folder that ends in .gdb (experimental)" onclick={() => void chooseFolder()}><Icon name="folder" size={14} />Open geodatabase</button>
         <button type="button" class="open primary" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
       </div>
       <span class="divider" aria-hidden="true"></span>

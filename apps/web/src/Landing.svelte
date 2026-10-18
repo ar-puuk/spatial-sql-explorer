@@ -127,7 +127,7 @@
         {/if}
         <div class="actions">
           <button type="button" class="primary" bind:this={chooseButton} onclick={onChoose}><Icon name="import" size={16} />Choose a file</button>
-          <button type="button" class="secondary" title="A File Geodatabase is a folder that ends in .gdb" onclick={onChooseFolder}><Icon name="folder" size={16} />Choose a geodatabase folder</button>
+          <button type="button" class="secondary" title="A File Geodatabase is a folder that ends in .gdb (experimental)" onclick={onChooseFolder}><Icon name="folder" size={16} />Choose a geodatabase folder</button>
           <button type="button" class="secondary" onclick={onSample}>Try sample data <small>US counties</small></button>
         </div>
         <p class="drop" aria-live="polite">{isDragOver ? 'Release to open' : 'Drag a geospatial file here'}, anywhere on this page.</p>
