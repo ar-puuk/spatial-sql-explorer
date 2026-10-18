@@ -63,6 +63,7 @@ import { allFeaturesSql } from '../view/features.js'
 import { labelPointsSql, type LabelPoint } from '../view/labelPoint.js'
 import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
+import { timeExtentSql, type TimeDomain } from '../view/timeSlider.js'
 import { ftsBuildSql, ftsColumns, ftsDropSql, ftsHit, ftsSearchSql } from '../view/textSearch.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
 import { tileBoundsWgs84, tileSql, type TileAttr, type TileClusters } from '../view/tiles.js'
@@ -1421,6 +1422,20 @@ export class QuerySession {
         for (const r of batch) hits.push(ftsHit(r as { id: unknown; col: unknown; value: unknown; score: unknown }))
       })
       return hits
+    }, 'background')
+  }
+
+  /**
+   * Spec 020: the time span of a date or timestamp column of the displayed result, over all its rows (the column filters,
+   * the slider's own included, don't narrow it). Null when no row has a time.
+   */
+  async timeExtent(column: string): Promise<TimeDomain | null> {
+    const target = this.pageTarget()
+    if (!target || this.utilityRows) return null
+    return this.exclusive(async (isCancelled) => {
+      const row = await singleRow<{ lo: number | bigint | null; hi: number | bigint | null; missing: number | bigint }>(this.conn, timeExtentSql(target.relation, column), isCancelled)
+      if (row.lo === null || row.hi === null) return null
+      return { min: Number(row.lo), max: Number(row.hi), missing: Number(row.missing) }
     }, 'background')
   }
 

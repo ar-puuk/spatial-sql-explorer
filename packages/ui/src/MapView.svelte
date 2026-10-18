@@ -162,6 +162,10 @@
     onExportImage?: () => void
     /** Spec 017: opens the Bin into cells dialog. */
     onBinCells?: () => void
+    /** Spec 020: opens (or closes) the time slider; whether it is open; why it can't open (or null). */
+    onTimeSlider?: () => void
+    timeSliderOpen?: boolean
+    timeSliderUnavailable?: string | null
     /** Why Bin into cells is not available, or null. */
     binUnavailable?: string | null
   }
@@ -214,6 +218,9 @@
     onCameraReady,
     onExportImage,
     onBinCells,
+    onTimeSlider,
+    timeSliderOpen = false,
+    timeSliderUnavailable = null,
     binUnavailable = null,
   }: Props = $props()
 
@@ -1806,7 +1813,7 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'timeSlider', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
   const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
@@ -1915,6 +1922,8 @@
                       pressed: drawTool?.purpose === purpose,
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
+                  {:else if id === 'timeSlider'}
+                    {@render mapButton('Time slider', timeSliderUnavailable ?? 'Time slider: show the rows within a window of a date column', 'timeSlider', corner, { pressed: timeSliderOpen, disabled: !layer || !onTimeSlider || !!timeSliderUnavailable, onclick: () => onTimeSlider?.() })}
                   {:else if id === 'binCells'}
                     {@render mapButton('Bin into cells…', binUnavailable ?? 'Bin into cells (H3 or A5 grid)', 'grid', corner, { disabled: !layer || !onBinCells || !!binUnavailable, onclick: () => onBinCells?.() })}
                   {:else if id === 'exportImage'}

@@ -33,6 +33,7 @@
   import MapControlsPanel from './MapControlsPanel.svelte'
   import TerrainSection from './TerrainSection.svelte'
   import ShapesBar from './ShapesBar.svelte'
+  import TimeSlider from './TimeSlider.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -452,7 +453,13 @@
           onExportImage={() => store.openMapImage()}
           onBinCells={() => void store.openBinDialog()}
           binUnavailable={store.binUnavailable}
+          onTimeSlider={() => (store.timeSlider.open ? store.closeTimeSlider() : void store.openTimeSlider())}
+          timeSliderOpen={store.timeSlider.open}
+          timeSliderUnavailable={store.timeSliderUnavailable}
         />
+        {#if store.timeSlider.open}
+          <div class="time-slot" class:above={store.shapes.length > 0}><TimeSlider {store} /></div>
+        {/if}
         {#if store.shapes.length > 0}
           <div class="shapes-slot"><ShapesBar {store} /></div>
         {/if}
@@ -805,6 +812,19 @@
     max-width: 100%;
   }
   /* Spec 014: the drawn shapes' actions, at the bottom centre (clear of the toolbars, the legend and the attribution). */
+  /* Spec 020: the time slider, at the foot of the map (above the shapes bar when both are open). */
+  .time-slot {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
+    z-index: 6;
+    transform: translateX(-50%);
+    width: calc(100% - 140px);
+    max-width: 640px;
+  }
+  .time-slot.above {
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 88px);
+  }
   .shapes-slot {
     position: absolute;
     left: 50%;

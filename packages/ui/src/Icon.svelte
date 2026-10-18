@@ -63,6 +63,9 @@
   import Scan from '@lucide/svelte/icons/scan'
   import Search from '@lucide/svelte/icons/search'
   import TextSearch from '@lucide/svelte/icons/text-search'
+  import Play from '@lucide/svelte/icons/play'
+  import Pause from '@lucide/svelte/icons/pause'
+  import CalendarRange from '@lucide/svelte/icons/calendar-range'
   import Shapes from '@lucide/svelte/icons/shapes'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Spline from '@lucide/svelte/icons/spline'
@@ -124,6 +127,9 @@
     refresh: RefreshCw,
     search: Search,
     textSearch: TextSearch,
+    play: Play,
+    pause: Pause,
+    timeSlider: CalendarRange,
     link: Link,
     sun: Sun,
     moon: Moon,
