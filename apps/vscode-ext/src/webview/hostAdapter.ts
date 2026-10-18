@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef, type WorkspaceResolution } from '@spatial-explorer/core'
+import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef, type WorkspaceResolution, type GdbCallOptions, type GdbCatalog, type GdbConverted, type GdbError, type GdbHost, type GdbLayerInfo, type GdbProgress, GdbError as GdbErrorClass } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -179,6 +179,8 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 const pendingRequests = new Map<number, (result: unknown) => void>()
+/** Spec 013: progress messages for requests that report some (the geodatabase reader). */
+const pendingProgress = new Map<number, (step: GdbProgress) => void>()
 
 function request<T>(msg: Record<string, unknown>): Promise<T> {
   const requestId = nextRequestId++
@@ -226,6 +228,12 @@ window.addEventListener('message', (event: MessageEvent) => {
     message?: string
     requestId?: number
     result?: unknown
+  }
+
+  if ((msg as { type: string }).type === 'gdbProgress') {
+    const m = event.data as { requestId: number; step: GdbProgress }
+    pendingProgress.get(m.requestId)?.(m.step)
+    return
   }
 
   if (msg.type === 'requestResult' && msg.requestId !== undefined) {
@@ -279,8 +287,46 @@ export function signalReady(): void {
   post({ type: 'ready' })
 }
 
+/** Spec 013: the extension host reads the geodatabase; this asks it and turns the answer into core's types. */
+function createGdbHost(): GdbHost {
+  const ask = async <T extends object>(msg: Record<string, unknown>, options: GdbCallOptions | undefined): Promise<T> => {
+    const requestId = nextRequestId++
+    return new Promise<T>((resolve, reject) => {
+      const done = (): void => {
+        pendingRequests.delete(requestId)
+        pendingProgress.delete(requestId)
+      }
+      pendingRequests.set(requestId, (result) => {
+        done()
+        const r = result as T & { error?: string; code?: GdbError['code'] }
+        if (r.error) reject(new GdbErrorClass(r.error, r.code ?? 'unreadable'))
+        else resolve(r)
+      })
+      if (options?.onProgress) pendingProgress.set(requestId, options.onProgress)
+      options?.signal?.addEventListener('abort', () => post({ type: 'gdbCancel', requestId }), { once: true })
+      post({ ...msg, requestId })
+    })
+  }
+  return {
+    async list(_ref: OpenedFileRef, options?: GdbCallOptions): Promise<GdbCatalog> {
+      return (await ask<{ catalog: GdbCatalog }>({ type: 'gdbList' }, options)).catalog
+    },
+    async convert(_ref: OpenedFileRef, layer: GdbLayerInfo, options?: GdbCallOptions): Promise<GdbConverted> {
+      const r = await ask<{ name: string; size: number; url: string; domains: GdbConverted['domains'] }>({ type: 'gdbConvert', layer, assumeCrs: options?.assumeCrs }, options)
+      if (options?.whole) {
+        const res = await fetch(r.url)
+        if (!res.ok) throw new GdbErrorClass(`The converted layer could not be read (${res.status}).`, 'unreadable')
+        const bytes = new Uint8Array(await res.arrayBuffer())
+        return { source: { kind: 'bytes', name: r.name, size: bytes.byteLength, bytes, sidecars: [], styleSidecar: null }, domains: r.domains }
+      }
+      return { source: { kind: 'url', name: r.name, size: r.size, url: r.url, sidecars: [], styleSidecar: null }, domains: r.domains }
+    },
+  }
+}
+
 export function createVsCodeHostAdapter(): HostAdapter {
   return {
+    gdb: createGdbHost(),
     getTheme(): ThemeKind {
       return detectTheme()
     },

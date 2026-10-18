@@ -10,10 +10,12 @@
     phase: OpenPhase | null
     startedAt: number | null
     facts: DatasetFacts | null
+    /** Spec 013: what a geodatabase open is doing, in words. */
+    note?: string | null
     sizeBytes?: number | null
     onCancel: () => void
   }
-  let { phase, startedAt, facts, onCancel }: Props = $props()
+  let { phase, startedAt, facts, note = null, onCancel }: Props = $props()
 
   const nf = new Intl.NumberFormat()
   let now = $state(performance.now())
@@ -23,11 +25,13 @@
     return () => clearInterval(timer)
   })
 
-  const active = $derived(phase === 'registering' || phase === 'facts' || phase === 'reading' || phase === 'indexing')
+  const active = $derived(phase === 'registering' || phase === 'converting' || phase === 'facts' || phase === 'reading' || phase === 'indexing')
   const elapsed = $derived(startedAt === null ? 0 : Math.max(0, now - startedAt))
   const seconds = $derived(Math.floor(elapsed / 1000))
   const label = $derived.by(() => {
     switch (phase) {
+      case 'converting':
+        return `${note ?? 'Reading the geodatabase…'} ${seconds} s`
       case 'reading':
         return `Reading the whole file… ${seconds} s`
       case 'indexing':

@@ -24,7 +24,12 @@ import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
 import { planSqliteSource } from './source/sqlite.js'
 import { fileSqlNames, RESERVED_NAMES_SQL, type FileSqlNames } from './sql/names.js'
-import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, UnsupportedFormatError, type FileLayer } from './source/layers.js'
+import { activeLayerOf, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, type FileLayer } from './source/layers.js'
+import { chooseDataset, extractDataset, inspectZip, isZipName, ZipChoiceError, type ZipDataset } from './source/zip.js'
+import { gdbWhole, openGdb, setUpGeodatabaseLayers } from './gdb/integration.js'
+import type { GdbOpened } from './gdb/open.js'
+import type { GdbLayerInfo } from './gdb/types.js'
+import type { FileSource } from './hostAdapter.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -251,18 +256,24 @@ export interface OpenOptions {
    * `layer`; query it by name instead.
    */
   layer?: string
+  /** Spec 013: the dataset of a zip holding several to open. */
+  dataset?: string
 }
 
 /** Progress and cancellation for an open (spec 007 FR-002, contracts/core-data-access.md). */
 export interface OpenHooks {
   /** Reports each visible phase (OpenProgress). */
-  onPhase?(phase: OpenPhase, detail?: { readMode?: ReadModeKind; sizeBytes?: number; format?: string }): void
+  onPhase?(phase: OpenPhase, detail?: { readMode?: ReadModeKind; sizeBytes?: number; format?: string; note?: string }): void
   /** Whole-file facts, as soon as they're known, before the first view (FR-001). */
   onFacts?(facts: DatasetFacts): void
   /** Whole-read files over the threshold wait for this (FR-004); false cancels the open. */
   confirmWholeRead?(sizeBytes: number, format: string): Promise<boolean>
   /** Receives a function that interrupts the engine statement in flight (FR-002: Cancel within 3 s). */
   onCancelHandle?(interrupt: () => Promise<void>): void
+  /** Spec 013: a geodatabase layer that records no coordinate system asks for one: an EPSG code, null to go on without (WGS84 is assumed, and said), undefined cancels the open. */
+  chooseCrs?(layerName: string): Promise<number | null | undefined>
+  /** Spec 013: a zip holding several datasets asks which to open; null cancels the open. */
+  chooseDataset?(datasets: Array<{ name: string; size: number }>): Promise<string | null>
   /** Polled between steps; true stops the open with QueryCancelledError. */
   isCancelled?(): boolean
 }
@@ -326,11 +337,42 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (hooks.isCancelled?.()) throw new QueryCancelledError()
   }
   hooks.onPhase?.('registering')
-  // Spec 008 FR-018: File Geodatabase has no reader in this runtime (research §2).
-  if (isFileGeodatabase(ref.displayName)) throw new UnsupportedFormatError(GDB_UNSUPPORTED)
-  let source = await hostAdapter.getFileSource(ref)
+  // Spec 013: a File Geodatabase (a folder, a .gdb.zip, or a zip holding one) is read by the shell's
+  // reader into a FlatGeobuf, which then opens like any file; a zip of ordinary data is unzipped here.
+  const abort = new AbortController()
+  hooks.onCancelHandle?.(async () => abort.abort())
+  let gdb: GdbOpened | null = null
+  let source: FileSource
+  if (isFileGeodatabase(ref.displayName)) {
+    gdb = await openGdb(ref, deps, hooks, options, abort.signal)
+    source = gdb.converted.source
+  } else if (isZipName(ref.displayName)) {
+    const zip = await hostAdapter.getFileSource(ref, { whole: true })
+    checkCancelled()
+    if (zip.kind !== 'bytes') throw new Error('The zip could not be read into memory.')
+    const contents = inspectZip(zip.bytes)
+    if (contents.kind === 'gdb') {
+      gdb = await openGdb(ref, deps, hooks, options, abort.signal)
+      source = gdb.converted.source
+    } else if (contents.kind === 'datasets') {
+      let dataset: ZipDataset
+      try {
+        dataset = chooseDataset(contents.datasets, options.dataset)
+      } catch (err) {
+        // Several datasets: the person chooses (the shell's dialog), or there is nobody to ask.
+        if (!(err instanceof ZipChoiceError) || !hooks.chooseDataset) throw err
+        const picked = await hooks.chooseDataset(err.datasets.map((d) => ({ name: d.name, size: d.size })))
+        if (picked === null) throw new QueryCancelledError()
+        dataset = chooseDataset(contents.datasets, picked)
+      }
+      source = extractDataset(zip.bytes, dataset)
+    } else {
+      throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel or a File Geodatabase).`)
+    }
+  } else {
+    source = await hostAdapter.getFileSource(ref)
+  }
   checkCancelled()
-  if (isFileGeodatabase(source.name)) throw new UnsupportedFormatError(GDB_UNSUPPORTED)
   const strategy = detectStrategy(source.name)
   const format = formatFromFileName(source.name)
   if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
@@ -341,13 +383,15 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
 
   // How the engine reaches this file (research §4); a whole-transfer fallback
   // means partial reads aren't available in this window (FR-015).
+  // The same file again, whole: the geodatabase's converted layer, or the picked file.
+  const refetchWhole = (): Promise<FileSource> => (gdb ? gdbWhole(ref, deps, gdb.active, gdb.assumedCrs) : hostAdapter.getFileSource(ref, { whole: true }))
   const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
   const mode = readModeFor(format, source.size, { partialReads: fallback === null })
   // Whole reads from memory: small files read faster from memory than through
   // many small handle/HTTP reads (10 MB GeoJSON: 1.6 s vs 2.1 s warm), and
   // FlatGeobuf is ~1,500x faster from memory (research §4).
   if (mode.mode === 'whole' && source.kind !== 'bytes' && (format === 'flatgeobuf' || source.size <= (testOverrides().wholeBytes ?? MATERIALIZE_MAX_BYTES))) {
-    source = await hostAdapter.getFileSource(ref, { whole: true })
+    source = await refetchWhole()
   }
 
   const styleSidecar = source.styleSidecar
@@ -376,17 +420,17 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   try {
     if (mode.mode === 'whole' && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
       hooks.onPhase?.('announce', detail)
-      if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
+      if (!(await hooks.confirmWholeRead(source.size, gdb ? 'geodatabase' : format))) throw new QueryCancelledError()
     }
     checkCancelled()
     // Research §16: a GeoPackage layer GDAL can't stream is read from a plain
     // SQLite copy; a file already in memory is copied before the engine takes
     // it, which is much faster than fetching it again.
     let sqliteBytes: Uint8Array | null = format === 'geopackage' && source.kind === 'bytes' ? source.bytes.slice() : null
-    registered = await registerSource(db, source, () => hostAdapter.getFileSource(ref, { whole: true }))
+    registered = await registerSource(db, source, refetchWhole)
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
-    let layers = strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    let layers: FileLayer[] = gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
     // Research §16: how each GeoPackage / SQLite layer is read.
     let readers = new Map<string, string>()
     if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
@@ -413,9 +457,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     }
     checkCancelled()
     const multi = layers.length > 1
-    const active = layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    const active = gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
-    const names = await sqlNamesFor(conn, source.name, multi ? layers : null, active)
+    const names = await sqlNamesFor(conn, gdb ? gdb.fileName : source.name, multi ? layers : null, active)
     const ctx: ModeContext = {
       conn,
       path: registered.primaryPath,
@@ -426,7 +470,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       detail,
       checkCancelled,
       isCancelled: () => hooks.isCancelled?.() ?? false,
-      layer: active,
+      // A converted geodatabase layer is a file of its own: read plainly, not by layer name.
+      layer: gdb ? null : active,
       reader: active ? readers.get(active.name) : undefined,
     }
 
@@ -435,7 +480,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     else {
       opened = await openWhole(ctx, strategy)
       // A multi-layer file stays registered: its other layers are views over it (FR-017).
-      keepRegistered = multi
+      keepRegistered = multi && !gdb
     }
     timings.prepare = lap()
     checkCancelled()
@@ -450,7 +495,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // Spec 010: a big file's default view is drawn as tiles whatever its rows (TILE_BYTES).
     session.setFileBytes(source.size)
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
-    if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
+    if (gdb && multi) await setUpGeodatabaseLayers(session, db, gdb, names, ref, deps, hooks)
+    else if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
     const initial = await session.runDefault()
     timings.rows = lap()
 
@@ -469,10 +515,12 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       totalRows: table.totals.rows,
       source: table.totals,
       styleSidecar,
+      ...(gdb && Object.keys(gdb.converted.domains).length ? { columnDomains: gdb.converted.domains } : {}),
       loadTimings: timings,
       facts: {
         ...factsOf(table, opened, mode.mode, fallback),
-        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name) })), activeLayer: active.name } : {}),
+        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name), ...(gdb ? { group: (l as GdbLayerInfo).featureDataset } : {}) })), activeLayer: active.name } : {}),
+        ...(gdb ? { experimental: true } : {}),
       },
     }
     hooks.onPhase?.('ready', detail)

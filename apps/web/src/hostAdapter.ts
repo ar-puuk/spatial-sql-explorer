@@ -1,6 +1,7 @@
 // Web implementation of HostAdapter (T031). Reads file bytes directly via
 // the File/Blob API — no message-passing boundary to cross, unlike the VS
 // Code implementation (apps/vscode-ext/src/webview/hostAdapter.ts).
+import { createWebGdbHost, geodatabaseFiles } from './gdb/gdbHost.js'
 import { fetchFromNetwork, type EngineFileRef, type FileSource, type HostAdapter, type OpenedFileRef, type SaveOptions, type SaveResult, type StatusFields, type ThemeKind, type WorkspaceFile, type WorkspaceResolution } from '@spatial-explorer/core'
 
 const fileMap = new Map<string, File[]>()
@@ -56,11 +57,13 @@ let pendingOpenFilesResolve: ((refs: OpenedFileRef[]) => void) | null = null
  * contracts/host-adapter.md.
  */
 export function provideFiles(files: File[]): void {
-  const primary = files.find((f) => !isLikelySidecar(f.name)) ?? files[0]
+  // Spec 013: a picked or dropped .gdb folder is many files; it is opened by the folder's name.
+  const gdbFolder = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? null
+  const primary = gdbFolder ? { name: gdbFolder, size: files.reduce((sum, f) => sum + f.size, 0), lastModified: Math.max(...files.map((f) => f.lastModified)) } : (files.find((f) => !isLikelySidecar(f.name)) ?? files[0])
   const id = crypto.randomUUID()
   fileMap.set(id, files)
-  // Spec 010 phase 9: the open file is also a workspace file (a query may name it).
-  openGroup = files
+  // Spec 010 phase 9: the open file is also a workspace file (a query may name it); a geodatabase's tables are not.
+  openGroup = gdbFolder ? null : files
   notifyWorkspace()
   // No path exists in the browser: name + size + mtime identifies "the same
   // file" across sessions well enough for query history (spec 002).
@@ -90,6 +93,54 @@ export function addWorkspaceFileList(files: File[]): WorkspaceFile[] {
   }
   if (added.length) notifyWorkspace()
   return added
+}
+
+interface DirectoryHandle {
+  readonly name: string
+  values(): AsyncIterable<{ kind: 'file'; name: string; getFile(): Promise<File> } | (DirectoryHandle & { kind: 'directory' })>
+}
+
+/** Every file under a directory handle, each carrying its path inside the folder like a dropped folder's files. */
+async function filesOf(dir: DirectoryHandle, prefix: string): Promise<File[]> {
+  const out: File[] = []
+  for await (const entry of dir.values()) {
+    if (entry.kind === 'file') {
+      const file = await entry.getFile()
+      Object.defineProperty(file, 'webkitRelativePath', { value: `${prefix}${entry.name}` })
+      out.push(file)
+    } else out.push(...(await filesOf(entry, `${prefix}${entry.name}/`)))
+  }
+  return out
+}
+
+/**
+ * Spec 013: a folder picker. Chrome and Edge get the File System Access picker, whose prompt says the
+ * site may view the files (true); the `<input webkitdirectory>` fallback is worded by the browser as an
+ * upload ("Upload N files to this site"), though nothing leaves the tab.
+ */
+export async function pickFolder(): Promise<File[]> {
+  const show = (window as unknown as { showDirectoryPicker?: (options?: { mode?: 'read' }) => Promise<DirectoryHandle> }).showDirectoryPicker
+  if (show) {
+    try {
+      const dir = await show.call(window, { mode: 'read' })
+      return await filesOf(dir, `${dir.name}/`)
+    } catch (err) {
+      // Cancelled; any other failure (a blocked folder, say) falls back to the input.
+      if (err instanceof DOMException && err.name === 'AbortError') return []
+    }
+  }
+  return pickFolderInput()
+}
+
+function pickFolderInput(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.setAttribute('webkitdirectory', '')
+    input.addEventListener('change', () => resolve([...(input.files ?? [])]))
+    input.addEventListener('cancel', () => resolve([]))
+    input.click()
+  })
 }
 
 /** A file picker, resolved with the chosen files (none when cancelled). */
@@ -161,6 +212,7 @@ export function createWebHostAdapter(): HostAdapter {
   return {
     engineFile,
     pruneEngineFiles,
+    gdb: createWebGdbHost({ engine: { host: { engineFile, pruneEngineFiles } }, getFiles: async (ref) => geodatabaseFiles(fileMap.get(ref.id) ?? []) }),
     getTheme(): ThemeKind {
       return detectTheme()
     },

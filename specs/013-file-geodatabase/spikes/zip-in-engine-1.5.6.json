@@ -1,0 +1,57 @@
+[
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.shp.zip')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.shp.zip\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.shp.zip')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.shp.zip/nodes.shp')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.shp.zip/nodes.shp\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.shp.zip/nodes.shp')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.gpkg.zip')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.gpkg.zip\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.gpkg.zip')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.gpkg.zip/nodes.gpkg')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.gpkg.zip/nodes.gpkg\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.gpkg.zip/nodes.gpkg')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.geojson.zip')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.geojson.zip\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.geojson.zip')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.geojson.zip/nodes.geojson')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/nodes.geojson.zip/nodes.geojson\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/nodes.geojson.zip/nodes.geojson...\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read_Meta('/vsizip//se-source/s/nodes.gpkg.zip/nodes.gpkg')",
+  "ok": true,
+  "rows": 1,
+  "first": [
+   {
+    "n": 0
+   }
+  ]
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/wf.gdb.zip')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /vsizip//se-source/s/wf.gdb.zip\n\nLINE 1: SELECT count(*) AS n FROM ST_Read('/vsizip//se-source/s/wf.gdb.zip')\n                                  ^"
+ },
+ {
+  "sql": "SELECT count(*) AS n FROM glob('/vsizip//se-source/s/nodes.shp.zip/*')",
+  "ok": true,
+  "rows": 1,
+  "first": [
+   {
+    "n": 0
+   }
+  ]
+ }
+]

@@ -29,6 +29,8 @@ export interface Feature {
  * this one shape.
  */
 export interface Layer {
+  /** Spec 013: a File Geodatabase layer's coded domains (column to code to description), for display only. */
+  columnDomains?: Record<string, Record<string, string>>
   id: string
   sourceUri: string
   sourceFormat: string
@@ -88,8 +90,10 @@ export interface DatasetFacts {
    * one opened as `layer`.
    */
   /** `sqlName`: what a query names the layer by (`us_boundaries.counties`). */
-  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null; sqlName?: string }>
+  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null; sqlName?: string; /** Spec 013: the geodatabase's feature dataset holding the layer. */ group?: string | null }>
   activeLayer?: string
+  /** Spec 013: the file is a geodatabase read through the experimental reader. */
+  experimental?: boolean
   rows: number
   /** True only while a count is still pending. */
   rowsEstimated: boolean
@@ -142,7 +146,7 @@ export interface StyleStats {
 }
 
 /** The open pipeline's visible phases (data-model.md OpenPhase). */
-export type OpenPhase = 'registering' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
+export type OpenPhase = 'registering' | 'converting' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
 
 // --- Spec 002: query ------------------------------------------------------------
 

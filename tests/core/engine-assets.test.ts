@@ -31,6 +31,16 @@ describe('engine assets (run scripts/engine-assets.mjs after upgrading)', () => 
     expect(ENGINE_ASSETS.sqljs.wasm.sha256).toBe(sha(path.join(dir, 'dist/sql-wasm.wasm')))
   })
 
+  it('gdal3.js (spec 013): the installed version, its four files, pinned jsDelivr URLs', () => {
+    const dir = pkg('gdal3.js')
+    expect(ENGINE_ASSETS.gdal.package).toBe(version(dir))
+    expect(Object.keys(ENGINE_ASSETS.gdal.files).sort()).toEqual(['gdal3.js', 'gdal3.node.js', 'gdal3WebAssembly.data', 'gdal3WebAssembly.wasm'])
+    for (const [file, f] of Object.entries(ENGINE_ASSETS.gdal.files)) {
+      expect(f.sha256).toBe(sha(path.join(dir, 'dist/package', file)))
+      expect(f.url).toBe(`https://cdn.jsdelivr.net/npm/gdal3.js@${version(dir)}/dist/package/${file}`)
+    }
+  })
+
   it('extensions: spatial, parquet, json, excel, sqlite_scanner (spec 010), fts, h3 and a5 (spec 017) for the same DuckDB release, each with a hash', () => {
     const { duckdb, platform, files } = ENGINE_ASSETS.extensions
     expect(duckdb).toBe(ENGINE_ASSETS.duckdb.release)
@@ -43,7 +53,7 @@ describe('engine assets (run scripts/engine-assets.mjs after upgrading)', () => 
   })
 
   it('every URL is https on the three allowed hosts; a mirror keeps the paths', () => {
-    const urls = [ENGINE_ASSETS.duckdb.worker.url, ENGINE_ASSETS.duckdb.wasm.url, ENGINE_ASSETS.sqljs.wasm.url, ...Object.values(ENGINE_ASSETS.extensions.files).map((f) => f.url)]
+    const urls = [ENGINE_ASSETS.duckdb.worker.url, ENGINE_ASSETS.duckdb.wasm.url, ENGINE_ASSETS.sqljs.wasm.url, ...Object.values(ENGINE_ASSETS.extensions.files).map((f) => f.url), ...Object.values(ENGINE_ASSETS.gdal.files).map((f) => f.url)]
     for (const u of urls) expect(new URL(u).host).toMatch(/^(cdn\.jsdelivr\.net|extensions\.duckdb\.org|community-extensions\.duckdb\.org)$/)
     expect(engineUrl(ENGINE_ASSETS.duckdb.wasm.url, { mirror: '/engine-mirror' })).toBe(`/engine-mirror/npm/@duckdb/duckdb-wasm@${ENGINE_ASSETS.duckdb.package}/dist/duckdb-eh.wasm`)
     expect(engineUrl(ENGINE_ASSETS.extensions.files.spatial.url, { mirror: '/engine-mirror/' })).toBe(`/engine-mirror/extensions/${ENGINE_ASSETS.extensions.duckdb}/wasm_eh/spatial.duckdb_extension.wasm`)

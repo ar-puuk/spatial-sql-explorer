@@ -1,0 +1,9 @@
+<!doctype html><meta charset=utf-8><input type=file id=f webkitdirectory multiple><input type=file id=z><pre id=out></pre>
+<script>
+const w = new Worker('/worker.js')
+window.run = (kind) => new Promise((res) => {
+  w.onmessage = (e) => { if (e.data.done) res(e.data); else document.getElementById('out').textContent += e.data.log + '\n' }
+  const files = [...document.getElementById(kind === 'folder' ? 'f' : 'z').files]
+  w.postMessage({ kind, files })
+})
+</script>

@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, hasDomains, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import './kit/base.css'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
@@ -26,6 +26,8 @@
   import PrintComposer from './print/PrintComposer.svelte'
   import type { LegendSpec } from './mapImage.js'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
+  import ZipChoiceDialog from './ZipChoiceDialog.svelte'
+  import GdbCrsDialog from './GdbCrsDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
   import ColumnChooser from './ColumnChooser.svelte'
   import SelectionBar from './SelectionBar.svelte'
@@ -349,13 +351,13 @@
   {:else if id === 'layers'}
     <!-- Spec 008 US3: the file's layers. Not a control: it shows whenever the file has more than one. -->
     {#if store.fileLayers.length > 1}
-      <LayerPicker layers={store.fileLayers} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
+      <LayerPicker layers={store.fileLayers} experimental={store.openFacts?.experimental ?? store.session.layer?.facts?.experimental ?? false} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
     {/if}
   {:else if id === 'info'}
     <!-- The selected feature's card. Not a control: it shows whenever a feature is selected. -->
     {#if inspected && !inspectorClosed}
       <div class="inspector-slot">
-        <FeatureInspector collapsed={shortCard} copyKey={isBinResult(layer?.columns ?? []) ? 'cell_id' : null} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+        <FeatureInspector domains={store.columnDomains} domainMode={store.domainDisplay} collapsed={shortCard} copyKey={isBinResult(layer?.columns ?? []) ? 'cell_id' : null} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
       </div>
     {/if}
   {:else if id === 'legend' && layer && showLegend}
@@ -381,7 +383,13 @@
 
 <div class="viewer-layout" class:dragging bind:clientWidth={layoutWidth}>
   {#if loading}
-    <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} onCancel={() => void store.cancelOpen()} />
+    <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} note={store.openNote} onCancel={() => void store.cancelOpen()} />
+  {/if}
+  {#if store.crsPrompt}
+    <GdbCrsDialog layerName={store.crsPrompt.layerName} onAnswer={(epsg) => store.answerCrs(epsg)} />
+  {/if}
+  {#if store.datasetPrompt}
+    <ZipChoiceDialog datasets={store.datasetPrompt.datasets} onAnswer={(name) => store.answerDataset(name)} />
   {/if}
   {#if store.wholeReadPrompt}
     <ReadWholeDialog sizeBytes={store.wholeReadPrompt.sizeBytes} format={store.wholeReadPrompt.format} onAnswer={(open) => store.answerWholeRead(open)} />
@@ -427,6 +435,8 @@
           controls={store.mapControls}
           extra={mapExtra}
           tooltipColumns={store.tooltipColumns}
+          columnDomains={store.columnDomains}
+          domainMode={store.domainDisplay}
           terrain={store.terrain}
           drawTool={store.drawTool}
           shapes={store.shapes}
@@ -568,6 +578,17 @@
                     <ColumnChooser columns={layer.columns} hidden={store.hiddenColumns} onChange={(hidden) => store.setHiddenColumns(hidden)} onClose={() => (columnsOpen = false)} />
                   {/if}
                 </div>
+                {#if hasDomains(store.columnDomains)}
+                  <button
+                    type="button"
+                    class="tool"
+                    aria-pressed={store.domainDisplay === 'descriptions'}
+                    title={store.domainDisplay === 'descriptions' ? 'Columns with a geodatabase domain show descriptions. Click to show the stored codes (what SQL and filters use).' : 'Columns with a geodatabase domain show their stored codes. Click to show descriptions.'}
+                    onclick={() => store.setDomainDisplay(store.domainDisplay === 'descriptions' ? 'codes' : 'descriptions')}
+                  >
+                    <Icon name="tag" size={14} /><span>{store.domainDisplay === 'descriptions' ? 'Showing descriptions' : 'Showing codes'}</span>
+                  </button>
+                {/if}
                 {#if store.filters.length}
                   <button type="button" class="tool" onclick={() => store.clearFilters()}><Icon name="close" size={14} /><span>Clear filters</span></button>
                 {/if}
@@ -612,6 +633,8 @@
                   selection={store.selection}
                   onToggleSelect={(id, on) => store.toggleSelected(id, on)}
                   onSelectAll={(on) => (on ? store.selectAllMatching() : store.clearSelection())}
+                  domains={store.columnDomains}
+                  domainMode={store.domainDisplay}
                 />
               {/if}
             </div>

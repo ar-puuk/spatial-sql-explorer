@@ -68,13 +68,12 @@ test('a single-layer file shows no layer list', async ({ page }) => {
   await expect(layerPicker(page)).toHaveCount(0)
 })
 
-test('a File Geodatabase (as a zip) is refused with a way forward', async ({ page }) => {
-  // A .gdb.zip of the fixture folder: what a user would pick in a browser.
+test('a .gdb.zip that is not a zip says what a geodatabase is', async ({ page }) => {
+  // Spec 013 reads geodatabases (tests/web/specs/gdb-013.spec.ts); a damaged one gets a clear message.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-gdb-'))
   const zip = path.join(dir, 'two.gdb.zip')
   fs.writeFileSync(zip, 'PK\u0003\u0004') // the name is what's checked; contents never read
   await page.goto('/')
   await page.locator('input[type="file"]').setInputFiles(zip)
-  await expect(page.getByRole('alert')).toContainText("File Geodatabase (.gdb) isn't supported yet")
-  await expect(page.getByRole('alert')).toContainText('ogr2ogr -f GPKG')
+  await expect(page.getByRole('alert')).toContainText('not a File Geodatabase')
 })

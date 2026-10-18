@@ -13,7 +13,7 @@
   // so row counts stay as they were); a checkbox column ticks rows, with a
   // tri-state "all matching" box in the header.
   import { onMount, untrack } from 'svelte'
-  import { PAGE_SIZE, type ColumnFilter as Filter, type Feature, type Layer, type Selection, type TablePage } from '@spatial-explorer/core'
+  import { describeCode, PAGE_SIZE, type ColumnDomains, type ColumnFilter as Filter, type DomainDisplay, type Feature, type Layer, type Selection, type TablePage } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import ColumnFilter from './ColumnFilter.svelte'
 
@@ -41,6 +41,9 @@
     selection?: Selection
     onToggleSelect?: (id: number, selected: boolean) => void
     onSelectAll?: (selected: boolean) => void
+    /** Spec 013: a geodatabase layer's coded domains, and whether the cells show descriptions or codes. */
+    domains?: ColumnDomains
+    domainMode?: DomainDisplay
   }
   let {
     layer,
@@ -60,6 +63,8 @@
     selection = { kind: 'ids', ids: new Set<number>() },
     onToggleSelect = () => {},
     onSelectAll = () => {},
+    domains = {},
+    domainMode = 'descriptions',
   }: Props = $props()
 
   type Value = Feature['attributes'][string] | undefined
@@ -164,6 +169,9 @@
   let tableWidth = $derived(CHECK_W + idWidth + colWidths.reduce((a, b) => a + b, 0))
   /** The sticky header: one row, or two lines tall with the filter inputs. */
   let headerHeight = $derived(showFilters ? rowHeight * 2 : rowHeight)
+
+  /** The description of a coded value while descriptions are shown, else null (the cell shows the value itself). */
+  const described = (col: string, v: Value): string | null => (domainMode === 'descriptions' ? describeCode(domains, col, v) : null)
 
   function display(v: Value): string {
     if (v === null || v === undefined) return 'NULL'
@@ -376,7 +384,7 @@
               </button>
               {#if showFilters}
                 <div class="filter-cell">
-                  <ColumnFilter column={col} type={typeOf(col)} filter={filterOf(col)} onChange={(f) => onFilter(col, f)} />
+                  <ColumnFilter column={col} type={typeOf(col)} filter={filterOf(col)} domain={domainMode === 'descriptions' ? domains[col] : undefined} onChange={(f) => onFilter(col, f)} />
                 </div>
               {/if}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -421,8 +429,9 @@
               </td>
               {#each columns as col (col)}
                 {@const v = row.attributes[col]}
-                {@const kind = valueKind(v, typeOf(col))}
-                <td role="gridcell" class="v-{kind}" class:num={isNumericKind(kind)} class:null={kind === 'null'} title={display(v)}>{display(v)}</td>
+                {@const words = described(col, v)}
+                {@const kind = words !== null ? 'text' : valueKind(v, typeOf(col))}
+                <td role="gridcell" class="v-{kind}" class:num={isNumericKind(kind)} class:null={kind === 'null'} title={words !== null ? `${words} (${display(v)})` : display(v)}>{words ?? display(v)}</td>
               {/each}
               <td class="filler" aria-hidden="true"></td>
             </tr>

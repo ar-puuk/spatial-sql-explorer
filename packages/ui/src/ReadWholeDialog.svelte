@@ -22,6 +22,7 @@
     sqlite: 'SQLite',
     geoparquet: 'GeoParquet',
     flatgeobuf: 'FlatGeobuf',
+    geodatabase: 'Geodatabase layers',
   }
   /** Parse rate measured in research §4 (~70 ms per MB of GeoJSON through a handle). */
   const MS_PER_MB = 70

@@ -69,6 +69,9 @@
     type ControlPosition,
     type ControlGroupId,
     type MapControlsPrefs,
+    describeCode,
+    type ColumnDomains,
+    type DomainDisplay,
   } from '@spatial-explorer/core'
   import type { Snippet } from'svelte'
   import Icon, { type IconName } from './Icon.svelte'
@@ -130,6 +133,9 @@
     extra?: Snippet<[MapExtraId, ControlPosition]>
     /** Spec 014: the columns the hover tooltip shows, and (engine tiles, which carry only the style's columns) a by-id lookup of the rest. */
     tooltipColumns?: string[]
+    /** Spec 013: a geodatabase layer's coded domains, and whether the tooltip shows descriptions or codes. */
+    columnDomains?: ColumnDomains
+    domainMode?: DomainDisplay
     /** Spec 014: 3D terrain (a DEM the map is lifted onto), and what to do when its tiles fail. */
     terrain?: { on: boolean; exaggeration: number }
     onToggleTerrain?: () => void
@@ -199,6 +205,8 @@
     controls = DEFAULT_MAP_CONTROLS,
     extra,
     tooltipColumns = [],
+    columnDomains = {},
+    domainMode = 'descriptions',
     terrain = { on: false, exaggeration: 1 },
     onToggleTerrain = () => {},
     onTerrainFailure = () => {},
@@ -1506,7 +1514,8 @@
       if (lines.length >= TIP_MAX_LINES) break
       const v = props[name]
       if (v === undefined) continue
-      const text = v === null ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+      const words = untrack(() => domainMode) === 'descriptions' ? describeCode(untrack(() => columnDomains), name, v) : null
+      const text = words ?? (v === null ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v))
       lines.push([name, text.length > TIP_MAX_CHARS ? `${text.slice(0, TIP_MAX_CHARS - 1)}…` : text])
     }
     return lines

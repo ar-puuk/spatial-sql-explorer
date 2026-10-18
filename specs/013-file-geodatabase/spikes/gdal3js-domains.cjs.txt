@@ -1,0 +1,14 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+;(async () => {
+  const Gdal = await initGdalJs()
+  const ds = (await Gdal.open(path.resolve('dom.gdb'))).datasets[0]
+  const j = await Gdal.ogrinfo(ds, ['-json', '-so', '-al'])
+  console.log('domains:', JSON.stringify(j.domains))
+  console.log('fields:', JSON.stringify(j.layers[0].fields))
+  const FS = Gdal.Module.FS
+  fs.mkdirSync('out', { recursive: true })
+  FS.mkdir('/disk'); FS.mount(FS.filesystems.NODEFS, { root: path.resolve('out') }, '/disk')
+  await Gdal.ogr2ogr(ds, ['-f', 'FlatGeobuf', 'roads'], '../disk/dom')
+  console.log('fgb', fs.statSync('out/dom.fgb').size)
+})().catch((e) => console.error('FAIL', e))

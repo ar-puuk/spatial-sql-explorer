@@ -1,0 +1,218 @@
+{
+ "layers": [
+  {
+   "name": "WFv1000_MasterNet_20260903_Node",
+   "metadata": {},
+   "geometryFields": [
+    {
+     "name": "SHAPE",
+     "type": "Point",
+     "nullable": false,
+     "extent": [
+      396012.7000000179,
+      4406820.008000001,
+      503919.88250002265,
+      4606407.163000017
+     ],
+     "coordinateSystem": {
+      "wkt": "PROJCRS[\"NAD83 / UTM zone 12N\",\n    BASEGEOGCRS[\"NAD83\",\n        DATUM[\"North Am",
+      "projjson": {
+       "id": {
+        "authority": "EPSG",
+        "code": 26912
+       }
+      }
+     }
+    }
+   ],
+   "featureCount": 21964,
+   "fidColumnName": "OBJECTID",
+   "fields": [
+    {
+     "name": "N",
+     "type": "Integer",
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "X",
+     "type": "Real",
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "Y",
+     "type": "Real",
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "GEOGKEY",
+     "type": "String",
+     "width": 255,
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "EXTERNAL",
+     "type": "Real",
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "HOTZN",
+     "type": "Real",
+     "nullable": true,
+     "uniqueConstraint": false
+    }
+   ]
+  },
+  {
+   "name": "mag_brt_2032_PTLine",
+   "metadata": {},
+   "geometryFields": [
+    {
+     "name": "SHAPE",
+     "type": "MultiLineString",
+     "nullable": true,
+     "extent": [
+      413765.3437999934,
+      4422502.134000003,
+      445304.9827000201,
+      4475503.915000021
+     ],
+     "coordinateSystem": {
+      "wkt": "PROJCRS[\"NAD83 / UTM zone 12N\",\n    BASEGEOGCRS[\"NAD83\",\n        DATUM[\"North Am",
+      "projjson": {
+       "id": {
+        "authority": "EPSG",
+        "code": 26912
+       }
+      }
+     }
+    }
+   ],
+   "featureCount": 5,
+   "fidColumnName": "OBJECTID",
+   "fields": [
+    {
+     "name": "SHAPE_Length",
+     "type": "Real",
+     "nullable": true,
+     "uniqueConstraint": false,
+     "defaultValue": "FILEGEODATABASE_SHAPE_LENGTH"
+    },
+    {
+     "name": "NAME",
+     "type": "String",
+     "width": 255,
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "MODE",
+     "type": "Integer",
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "OPERATOR",
+     "type": "Integer",
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "ONEWAY",
+     "type": "Integer",
+     "subType": "Int16",
+     "nullable": true,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "CIRCULAR",
+     "type": "Integer",
+     "subType": "Int16",
+     "nullable": true,
+     "uniqueConstraint": false
+    }
+   ]
+  },
+  {
+   "name": "CITILABS_TRANSITGROUPS",
+   "metadata": {},
+   "geometryFields": [],
+   "featureCount": 17,
+   "fidColumnName": "TRANSITGROUP_ID",
+   "fields": [
+    {
+     "name": "TRANSITGROUP_NAME",
+     "type": "String",
+     "width": 255,
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "TRANSITGROUP_LINE",
+     "type": "String",
+     "width": 255,
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "TRANSITGROUP_LINK",
+     "type": "String",
+     "width": 255,
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "TRANSITGROUP_NODE",
+     "type": "String",
+     "width": 255,
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "CREATED_BY",
+     "type": "String",
+     "width": 255,
+     "nullable": false,
+     "uniqueConstraint": false
+    },
+    {
+     "name": "DATE_CREATED",
+     "type": "DateTime",
+     "nullable": false,
+     "uniqueConstraint": false
+    }
+   ]
+  },
+  {
+   "name": "GDB_Items",
+   "fields": [],
+   "geometryFields": []
+  }
+ ],
+ "domains": {},
+ "rootGroup": {
+  "layerNames": [
+   "CITILABS_TRANSITGROUPS"
+  ],
+  "groups": [
+   {
+    "name": "WFv1000_MasterNet_20260903",
+    "layerNames": [
+     "WFv1000_MasterNet_20260903_Node"
+    ],
+    "groups": []
+   },
+   {
+    "name": "mag_brt_2032",
+    "layerNames": [
+     "mag_brt_2032_PTLine"
+    ],
+    "groups": []
+   }
+  ]
+ }
+}

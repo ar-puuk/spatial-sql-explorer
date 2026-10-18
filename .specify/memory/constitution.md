@@ -1,6 +1,20 @@
 <!--
 Sync Impact Report
-Version change: 1.3.0 → 1.4.0 (spec 017, user decision 2026-10-17)
+Version change: 1.4.0 → 1.5.0 (spec 013, user decision 2026-10-18)
+Modified principles:
+  - IV. Local-First and Private: one more pinned download. gdal3.js (GDAL 3.8.4 in
+    WebAssembly, LGPL-2.1+, used unmodified as a separate file) is fetched from jsDelivr
+    like the engine: pinned URL, SHA-256 recorded at build time, checked before it runs,
+    kept as a local copy, and only when a File Geodatabase is first opened.
+  - Technology & Platform Constraints: the extension host and a web worker may run gdal3.js
+    (WebAssembly) to read File Geodatabases, which no part of the SQL engine can read.
+    "No native GDAL" still holds: no GDAL binary is shipped or called.
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: delete the reader if DuckDB-WASM's spatial extension gains the OpenFileGDB driver.
+
+Previous: 1.3.0 → 1.4.0 (spec 017, user decision 2026-10-17)
 Modified principles:
   - IV. Local-First and Private: one more pinned download host. The fts extension (official
     host) and the h3 and a5 community extensions (community-extensions.duckdb.org, a
@@ -98,9 +112,9 @@ first-party VS Code feature, not a web page embedded in a webview.
 ### IV. Local-First and Private
 User data never leaves the machine. No telemetry is collected without explicit
 opt-in. The network is used only for basemap tiles/styles, downloading the SQL engine's code
-(DuckDB-WASM, its extensions and sql.js, from pinned URLs, each checked against a SHA-256
-recorded at build time before it runs; the engine is not bundled, and each shell keeps a
-local copy after the first download), and the place search, which sends only the text the user
+(DuckDB-WASM, its extensions, sql.js and, only when a File Geodatabase is opened, gdal3.js,
+from pinned URLs, each checked against a SHA-256 recorded at build time before it runs;
+the engine is not bundled, and each shell keeps a local copy after the first download), and the place search, which sends only the text the user
 types, is disclosed before first use, and can be turned off — never for user data
 egress (no file contents, file names or paths).
 **Rationale**: the target user opens sensitive or proprietary geospatial files; trust
@@ -173,7 +187,8 @@ rebuilding rather than patching.
   `.gpkg .fgb .shp .pmtiles .geoparquet`, priority `"option"` for
   `.geojson .csv .parquet .json` (never hijack built-in text/data viewers); an
   explorer/context command for folder-based formats (`.gdb`) that cannot bind to a
-  custom editor; status bar items for CRS/feature count/cursor coordinates; an output
+  custom editor (spec 013 reads them with gdal3.js: in a child process of the extension host,
+  in a worker on the web); status bar items for CRS/feature count/cursor coordinates; an output
   channel for query logs and timings.
 - Basemap catalog is DATA (one table: id, name, type, url template, attribution,
   requiresKey, region) — the UI renders from it, and adding a provider means adding a
@@ -210,4 +225,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.4.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-17
+**Version**: 1.5.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-18

@@ -6,7 +6,9 @@
 //   - the spatial, parquet, json, excel, sqlite_scanner and fts extensions, from extensions.duckdb.org, and
 //     the h3 and a5 community extensions (spec 017), from community-extensions.duckdb.org
 //     (not on npm: downloaded once, hashed, and cached for the test mirror);
-//   - sql.js's wasm (the GeoPackage writer), from jsDelivr.
+//   - sql.js's wasm (the GeoPackage writer), from jsDelivr;
+//   - gdal3.js (GDAL in WebAssembly, LGPL), which reads File Geodatabases (spec 013): its browser and Node entry
+//     files, wasm and data, from jsDelivr, fetched only when a geodatabase is opened.
 //
 //   node scripts/engine-assets.mjs            writes packages/core/src/engineAssets.json
 //   node scripts/engine-assets.mjs --mirror   also fills scripts/.engine-cache/ (tests' local mirror)
@@ -64,6 +66,14 @@ const npmFile = (dir, pkg, ver, file) => {
 const worker = npmFile(duckdbDir, '@duckdb/duckdb-wasm', duckdbVersion, 'duckdb-browser-eh.worker.js')
 const wasm = npmFile(duckdbDir, '@duckdb/duckdb-wasm', duckdbVersion, 'duckdb-eh.wasm')
 const sqlWasm = npmFile(sqljsDir, 'sql.js', sqljsVersion, 'sql-wasm.wasm')
+const gdalDir = pkgDir('gdal3.js')
+const gdalVersion = version(gdalDir)
+const gdalFile = (file) => {
+  const buf = fs.readFileSync(path.join(gdalDir, 'dist', 'package', file))
+  return { url: `https://cdn.jsdelivr.net/npm/gdal3.js@${gdalVersion}/dist/package/${file}`, sha256: sha256(buf), bytes: buf.length, local: path.join(gdalDir, 'dist', 'package', file) }
+}
+const GDAL_FILES = ['gdal3.js', 'gdal3.node.js', 'gdal3WebAssembly.wasm', 'gdal3WebAssembly.data']
+const gdal = Object.fromEntries(GDAL_FILES.map((f) => [f, gdalFile(f)]))
 
 const mirror = process.argv.includes('--mirror')
 const previous = (() => {
@@ -105,6 +115,7 @@ if (mirror) {
   put(worker.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-browser-eh.worker.js`)
   put(wasm.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-eh.wasm`)
   put(sqlWasm.local, `npm/sql.js@${sqljsVersion}/dist/sql-wasm.wasm`)
+  for (const f of GDAL_FILES) put(gdal[f].local, `npm/gdal3.js@${gdalVersion}/dist/package/${f}`)
   for (const name of EXTENSIONS) put(cachePath(name), `${subdir(name)}/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`)
 }
 
@@ -114,6 +125,7 @@ const out = {
   duckdb: { package: duckdbVersion, release: DUCKDB_VERSION, worker: strip(worker), wasm: strip(wasm) },
   extensions: { duckdb: DUCKDB_VERSION, platform: PLATFORM, files: extensions },
   sqljs: { package: sqljsVersion, wasm: strip(sqlWasm) },
+  gdal: { package: gdalVersion, files: Object.fromEntries(GDAL_FILES.map((f) => [f, strip(gdal[f])])) },
 }
 fs.writeFileSync(path.join(ROOT, 'packages', 'core', 'src', 'engineAssets.json'), JSON.stringify(out, null, 2) + '\n')
-console.log(`engineAssets.json: DuckDB-WASM ${duckdbVersion} (DuckDB ${DUCKDB_VERSION}), sql.js ${sqljsVersion}, extensions ${EXTENSIONS.join(', ')}${mirror ? '; mirror filled' : ''}`)
+console.log(`engineAssets.json: DuckDB-WASM ${duckdbVersion} (DuckDB ${DUCKDB_VERSION}), sql.js ${sqljsVersion}, gdal3.js ${gdalVersion}, extensions ${EXTENSIONS.join(', ')}${mirror ? '; mirror filled' : ''}`)

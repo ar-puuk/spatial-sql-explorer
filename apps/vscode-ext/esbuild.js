@@ -21,7 +21,17 @@ async function build() {
     external: ['vscode'],
     sourcemap: true,
   })
-  console.log('Build complete: out/extension.cjs')
+  // Spec 013: the geodatabase reader runs in a worker thread (GDAL blocks while it works).
+  await esbuild.build({
+    entryPoints: ['src/gdbWorker.ts'],
+    bundle: true,
+    outfile: 'out/gdbWorker.cjs',
+    platform: 'node',
+    target: 'node18',
+    format: 'cjs',
+    sourcemap: true,
+  })
+  console.log('Build complete: out/extension.cjs, out/gdbWorker.cjs')
 }
 
 build().catch((err) => {

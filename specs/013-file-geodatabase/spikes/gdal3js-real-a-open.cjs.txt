@@ -1,0 +1,24 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+const mb = () => Math.round(process.memoryUsage().rss / 1048576)
+;(async () => {
+  const t0 = Date.now()
+  const Gdal = await initGdalJs()
+  console.log('init ms', Date.now() - t0)
+  const FS = Gdal.Module.FS
+  fs.mkdirSync('out', { recursive: true })
+  FS.mkdir('/disk'); FS.mount(FS.filesystems.NODEFS, { root: path.resolve('out') }, '/disk')
+  const t1 = Date.now()
+  const r = await Gdal.open('D:/WFv1000_MasterNet_20260903.gdb')
+  console.log('open ms', Date.now() - t1, 'datasets', r.datasets.length, 'errors', JSON.stringify(r.errors))
+  const ds = r.datasets[0]
+  const info = await Gdal.getInfo(ds)
+  console.log('info keys', Object.keys(info), 'layers', (info.layers || []).length)
+  const rows = []
+  for (const l of info.layers || []) {
+    rows.push([l.name, l.geometryFields?.[0]?.type ?? l.geometryType, l.featureCount, l.geometryFields?.[0]?.coordinateSystem?.wkt?.slice(0, 40) ?? 'noCRS'].join(' | '))
+  }
+  console.log(rows.join('\n'))
+  console.log('rss', mb())
+  fs.writeFileSync('info.json', JSON.stringify(info, null, 1))
+})().catch((e) => console.error('FAIL', e))

@@ -16,7 +16,10 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
 
 - **Look**: GeoJSON, GeoPackage (several layers), SQLite/SpatiaLite (e.g.
   Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
-  PMTiles and Excel, on a map and in an attribute table kept in sync. Small
+  PMTiles and Excel, on a map and in an attribute table kept in sync. File
+  Geodatabases (a `.gdb` folder or `.gdb.zip`, experimental) and zipped data
+  open too; a geodatabase's layers are tables in one schema, and coded domains
+  show their descriptions (or codes, on a switch). Small
   results are drawn once from memory; big ones (millions of rows, several GB)
   from vector tiles the engine builds as you pan, with a "Load all" option.
   129 basemaps from 26 providers (keyed ones with your own key), each with a

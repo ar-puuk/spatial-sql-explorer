@@ -5,8 +5,10 @@
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore, type LegendSpec } from '@spatial-explorer/ui'
   import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
-  import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import { createWebHostAdapter, pickFolder, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import { dropHasFolder, filesFromDrop } from './dropFiles.js'
   import ThemeMenu from './ThemeMenu.svelte'
+  import OpenMenu from './OpenMenu.svelte'
   import Landing from './Landing.svelte'
   /** The project's source code, linked from the header. */
   const REPO_URL = 'https://github.com/ar-puuk/spatial-sql-explorer'
@@ -210,6 +212,25 @@
     }
   }
 
+  // Spec 013: converted geodatabase layers are kept in the browser; this offers to clear them.
+  let gdbCache = $state<{ files: number; bytes: number } | null>(null)
+  async function refreshGdbCache(): Promise<void> {
+    const info = await hostAdapter.gdb?.cacheInfo?.().catch(() => null)
+    gdbCache = info && info.files > 0 ? info : null
+  }
+  async function clearGdbCache(): Promise<void> {
+    const removed = await hostAdapter.gdb?.clearCache?.().catch(() => null)
+    gdbCache = null
+    if (removed) {
+      copyStatus = `Cleared ${removed.files} stored layer${removed.files === 1 ? '' : 's'} (${(removed.bytes / 1024 / 1024).toFixed(0)} MB)`
+      setTimeout(() => (copyStatus = null), 4000)
+    }
+  }
+  void refreshGdbCache()
+  $effect(() => {
+    if (store.session.loadState === 'ready') void refreshGdbCache()
+  })
+
   let isDragOver = $state(false)
   let fileName = $state<string | null>(null)
   let input: HTMLInputElement
@@ -228,13 +249,23 @@
     // issue (see tasks.md T029/T030's notes).
     void store.load()
     provideFiles(files)
-    fileName = files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+  }
+
+  /** Spec 013: a File Geodatabase is a folder. */
+  async function chooseFolder(): Promise<void> {
+    const files = await pickFolder()
+    if (files.length) handleFiles(files)
   }
 
   function handleDrop(e: DragEvent): void {
     e.preventDefault()
     isDragOver = false
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files)
+    const transfer = e.dataTransfer
+    if (!transfer) return
+    // A dropped folder has to be read from the event itself, before this handler returns.
+    if (dropHasFolder(transfer.items)) void filesFromDrop(transfer.items, transfer.files).then((files) => files.length && handleFiles(files))
+    else if (transfer.files.length > 0) handleFiles(transfer.files)
   }
 
   function handleDragOver(e: DragEvent): void {
@@ -391,11 +422,14 @@
         <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
           ><Icon name="link" size={14} />Copy link</button
         >
-        <button type="button" class="open primary" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
+        <OpenMenu label="Open file" onFile={() => input.click()} onFolder={() => void chooseFolder()} />
       </div>
       <span class="divider" aria-hidden="true"></span>
     {/if}
     <div class="utilities">
+      {#if gdbCache}
+        <button type="button" class="open" title="Converted geodatabase layers are kept in this browser so opening them again is quick. Clear them to free the space." onclick={() => void clearGdbCache()}><Icon name="trash" size={14} />Clear stored layers ({(gdbCache.bytes / 1024 / 1024).toFixed(gdbCache.bytes < 10 * 1024 * 1024 ? 1 : 0)} MB)</button>
+      {/if}
       <ThemeMenu value={themePreference} onChange={chooseTheme} />
       <a class="icon-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="Spatial Explorer on GitHub (opens a new tab)" title="Source code on GitHub">
         <!-- GitHub's mark (Octicons mark-github, MIT; see THIRD-PARTY-NOTICES.md). -->
@@ -424,6 +458,7 @@
         {engine}
         sharedFileName={pendingShare?.state.source?.kind === 'file' ? pendingShare.state.source.name : null}
         onChoose={() => input.click()}
+        onChooseFolder={() => void chooseFolder()}
         onSample={() => void openSample()}
         bind:chooseButton
       />

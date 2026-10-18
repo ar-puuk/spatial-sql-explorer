@@ -97,3 +97,39 @@ supported format with range reads; over 100 MiB it draws from engine tiles). Rep
    close the §4 risks.
 3. Web scope: same feature, or VS Code first with web later.
 4. Whether SQL must reach unopened layers of the same `.gdb`.
+
+## 8. Spikes on a real geodatabase (2026-10-18, branch 013-file-geodatabase)
+
+Sample: a Cube/Citilabs transit network, 111 MB, 406 files, UTM 12N (EPSG:26912), uncompressed, 14 feature datasets. Scripts and raw output in `spikes/`.
+
+| Test | Result |
+|---|---|
+| gdal3.js 2.8.1 (GDAL 3.8.4) opens the folder | 160 ms, 56 layers (53 spatial, 3 non-spatial), driver OpenFileGDB |
+| `ogrinfo -json` through `Gdal.ogrinfo` | 20 ms: per-layer geometry type, extent, CRS WKT, field list, `domains` and `relationships` keys. This sample has no domains (the key is empty), so domain reading is **still untested** |
+| Link (58,195 lines) to FlatGeobuf on a NODEFS mount | 1.8 s, 109 MB, CRS kept |
+| Node (21,964 points) | 0.26 s, 13 MB |
+| Non-spatial table to FlatGeobuf | fails ("NULL geometry not supported with spatial index"); works with `-lco SPATIAL_INDEX=NO` (geometry "Unknown"); GPKG also works |
+| `.gdb.zip` (the folder at the zip's first level) opened by path | 349 ms, 56 layers, converts identically. (`/vsizip/` prefix by hand fails; gdal3.js detects the zip itself.) |
+| gdal3.js vector drivers (53) | OpenFileGDB, FlatGeobuf, GPKG, GeoJSON, Shapefile, CSV, SQLite, XLSX ... **no Parquet or Arrow writer**, so GeoParquet cannot be the intermediate without a second DuckDB step |
+| DuckDB-WASM engine, `/vsizip/` on .shp.zip, .gpkg.zip, .geojson.zip, .gdb.zip | **All fail.** With the lockdown: "VSI prefix: External access is disabled". With the lockdown skipped: "Could not open GDAL dataset". The engine cannot read zips at all |
+
+Consequence: zipped GIS files are the shell's job (unzip, register the inner files), or gdal3.js's job for geodatabases.
+
+## 9. Domains and the browser (2026-10-18)
+
+**Domains.** A test geodatabase with a coded-value domain and a range domain (built with GDAL 3.13: `spikes/make-domains-gdb.py.txt`). `Gdal.ogrinfo(ds, ['-json','-so','-al'])` in gdal3.js 3.8.4 returns:
+`domains: { RoadClass: {type:'coded', fieldType:'Integer', codedValues:{"1":"Freeway","2":"Arterial","3":"Local"}}, Lanes: {type:'range', minValue:1, maxValue:12, ...} }`
+and each field carries `domainName`. The FlatGeobuf conversion keeps only the raw codes (no domain), so the descriptions have to be stored beside the cache file (`<layer>.domains.json`) and applied by the app. Subtypes were not tested.
+
+**Browser (Chrome, gdal3.js in our own Web Worker, `useWorker: false`, the real 111 MB sample, picked with `<input webkitdirectory>`).**
+
+| Test | Result |
+|---|---|
+| Mount the picked files with `FS.mount(WORKERFS, {files}, '/input/<name>.gdb')` (a geodatabase is a flat folder, so flat is right; gdal3.js's own `Gdal.open(files)` is flat and unusable for this, and `open` only accepts paths under `/input` or `/output`) | 406 files, open 449 ms, 56 layers |
+| Convert Link straight from WORKERFS | **33 s** (a Blob read per page) |
+| Same, layer's files + every file under 2 MB first copied into memory (`File.arrayBuffer` into `/output/<name>.gdb`) | copy 0.2 s (98 MB), open 52 ms, convert **1.2 s**, 109 MB FlatGeobuf |
+| Which files belong to a layer | `GDB_SystemCatalog` (open option `LIST_ALL_TABLES=YES`, `ogr2ogr -f CSV -sql "SELECT FID, Name FROM GDB_SystemCatalog"`): row id N is file `a<N in 8 hex digits>.*` (Link = `a0000000e`). 66 rows in 0.5 s |
+| `.gdb.zip` mounted with WORKERFS (one File) and opened with the `vsizip` handler | open 6 s, convert 1.6 s |
+| Result to OPFS (`createSyncAccessHandle`) | 109 MB in 0.3 s |
+
+Heap stayed at 512 MB. The ceiling is memory: a layer's table files plus its FlatGeobuf must fit (about 3 GB of heap at most). A layer past that needs a streaming path (not spiked).

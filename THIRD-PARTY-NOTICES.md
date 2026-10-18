@@ -3609,6 +3609,19 @@ They are listed for transparency and attribution.
     report to Query.Farm is blocked, so it sends nothing.
     https://github.com/query-farm/a5
 - **sql.js WebAssembly** (MIT, see above), from `cdn.jsdelivr.net`.
+- **gdal3.js 2.8.1** (LGPL-2.1-or-later; GDAL 3.8.4 compiled to WebAssembly, by
+  Buğra Sarı), from `cdn.jsdelivr.net`: its browser build (web app) or Node
+  build (VS Code's extension host), its `.wasm` and its `.data` (GDAL and PROJ
+  data). It reads File Geodatabases (experimental), and is fetched only when a
+  geodatabase is first opened. It is used unmodified, as a separate file that
+  is loaded at run time, never linked into or bundled with Spatial Explorer's
+  own code, so it can be replaced by another build of the same library by
+  changing the pinned address and hash in `packages/core/src/engineAssets.json`
+  (written by `scripts/engine-assets.mjs`). Source:
+  https://github.com/bugra9/gdal3.js. It carries GDAL (MIT/X, https://gdal.org),
+  PROJ (MIT, https://proj.org), GEOS (LGPL-2.1, https://libgeos.org), SQLite
+  (public domain), libtiff, libpng, zlib, Expat and other libraries under their
+  own permissive licenses; see the gdal3.js repository for the full list.
 
 Every engine file above is checked against a SHA-256 recorded at build time
 before it runs, and each app keeps a local copy after the first download (VS

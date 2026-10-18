@@ -104,6 +104,7 @@ import {
   type Selection,
 } from '@spatial-explorer/core'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { MapCapture, MapShot } from './mapImage.js'
 import type { PrintCamera } from './print/camera.js'
@@ -576,6 +577,19 @@ export interface ViewerStore {
   /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
   readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
   answerWholeRead(open: boolean): void
+  /** Spec 013: a zip holding several datasets, waiting for the person to choose one (ZipChoiceDialog). */
+  readonly datasetPrompt: { datasets: Array<{ name: string; size: number }> } | null
+  answerDataset(name: string | null): void
+  /** Spec 013: a geodatabase layer that records no coordinate system, waiting for the person to name one (GdbCrsDialog). */
+  readonly crsPrompt: { layerName: string } | null
+  answerCrs(epsg: number | null | undefined): void
+  /** Spec 013: what the open is doing, in words, while a geodatabase is read (null otherwise). */
+  readonly openNote: string | null
+  /** Spec 013: the coded domains of the open geodatabase layer (column to code to description), for display. */
+  readonly columnDomains: ColumnDomains
+  /** Descriptions (default) or codes; remembered. */
+  readonly domainDisplay: DomainDisplay
+  setDomainDisplay(mode: DomainDisplay): void
   /** Spec 007: the open in progress (null when none), its whole-file facts as soon as known, and Cancel (FR-001, FR-002). */
   readonly openPhase: OpenPhase | null
   readonly openStartedAt: number | null
@@ -1904,6 +1918,30 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let openStartedAt = $state<number | null>(null)
   let openFacts = $state<DatasetFacts | null>(null)
   let openCancelled = false
+  let openNote = $state<string | null>(null)
+  let datasetPrompt = $state<{ datasets: Array<{ name: string; size: number }>; resolve: (name: string | null) => void } | null>(null)
+  function answerDataset(name: string | null): void {
+    const prompt = datasetPrompt
+    datasetPrompt = null
+    prompt?.resolve(name)
+  }
+  let crsPrompt = $state<{ layerName: string; resolve: (epsg: number | null | undefined) => void } | null>(null)
+  /** What the person said for each layer without a CRS, this session (switching back does not ask again). */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const crsAnswers = new Map<string, number | null>()
+  function answerCrs(epsg: number | null | undefined): void {
+    const prompt = crsPrompt
+    crsPrompt = null
+    prompt?.resolve(epsg)
+  }
+  let columnDomains = $state.raw<ColumnDomains>({})
+  let domainDisplay = $state<DomainDisplay>(DEFAULT_DOMAIN_DISPLAY)
+  void hostAdapter
+    .loadState<string>(DOMAIN_DISPLAY_KEY)
+    .then((saved) => {
+      if (saved === 'codes' || saved === 'descriptions') domainDisplay = saved
+    })
+    .catch(() => {})
   let openInterrupt: (() => Promise<void>) | null = null
   let wholeReadPrompt = $state<{ sizeBytes: number; format: string; resolve: (open: boolean) => void } | null>(null)
 
@@ -1950,6 +1988,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     memoryNotice = null
     openPhase = null
     openStartedAt = null
+    openNote = null
+    columnDomains = {}
     try {
       const ref = options.ref ?? (await hostAdapter.openFiles())[0]
       // The previous file leaves the screen at once: its table, map and
@@ -2005,6 +2045,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         {
           onPhase: (phase, detail) => {
             if (!openCancelled) openPhase = phase
+            if (phase === 'converting') openNote = detail?.note ?? openNote
+            else openNote = null
             if (detail?.sizeBytes !== undefined) openedSize = detail.sizeBytes
           },
           onFacts: (facts) => {
@@ -2013,6 +2055,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
             hostAdapter.setStatus({ crs: facts.crs.label, featureCount: facts.rows - (facts.invalid ?? 0), countLabel: facts.invalid === null ? 'rows' : 'features' })
           },
           confirmWholeRead: (sizeBytes, format) => new Promise<boolean>((resolve) => (wholeReadPrompt = { sizeBytes, format, resolve })),
+          chooseDataset: (datasets) => new Promise<string | null>((resolve) => (datasetPrompt = { datasets, resolve })),
+          chooseCrs: async (layerName) => {
+            const key = `${ref.stateKey}#${layerName}`
+            if (crsAnswers.has(key)) return crsAnswers.get(key)
+            const answer = await new Promise<number | null | undefined>((resolve) => (crsPrompt = { layerName, resolve }))
+            if (answer !== undefined) crsAnswers.set(key, answer)
+            return answer
+          },
           onCancelHandle: (interrupt) => {
             openInterrupt = interrupt
           },
@@ -2023,6 +2073,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       openInterrupt = null
       openPhase = null
       openStartedAt = null
+      openNote = null
       querySession = opened.session
       // The `drawn` table exists from the start (empty until a shape is drawn).
       void syncShapes()
@@ -2033,6 +2084,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       resetQueryState()
       catalog = null
       const layer = opened.layer
+      columnDomains = layer.columnDomains ?? {}
       initialLayer = layer
       initialLayerState = layer
       fileLayers = layer.facts?.layers ?? []
@@ -2954,6 +3006,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return wholeReadPrompt
     },
     answerWholeRead,
+    get datasetPrompt() {
+      return datasetPrompt
+    },
+    answerDataset,
+    get crsPrompt() {
+      return crsPrompt
+    },
+    answerCrs,
+    get openNote() {
+      return openNote
+    },
+    get columnDomains() {
+      return columnDomains
+    },
+    get domainDisplay() {
+      return domainDisplay
+    },
+    setDomainDisplay(mode) {
+      domainDisplay = mode
+      void hostAdapter.saveState(DOMAIN_DISPLAY_KEY, mode).catch(() => {})
+    },
     get tiles() {
       return tilesArchive
     },

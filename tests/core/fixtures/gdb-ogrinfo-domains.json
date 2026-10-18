@@ -1,0 +1,85 @@
+{
+ "layers": [
+  {
+   "name": "roads",
+   "metadata": {},
+   "geometryFields": [
+    {
+     "name": "SHAPE",
+     "type": "MultiLineString",
+     "nullable": true,
+     "extent": [
+      430000,
+      4500000,
+      431000,
+      4500300
+     ],
+     "coordinateSystem": {
+      "wkt": "PROJCRS[\"NAD83 / UTM zone 12N\",\n    BASEGEOGCRS[\"NAD83\",\n   ",
+      "projjson": {
+       "id": {
+        "authority": "EPSG",
+        "code": 26912
+       }
+      }
+     }
+    }
+   ],
+   "featureCount": 3,
+   "fidColumnName": "OBJECTID",
+   "fields": [
+    {
+     "name": "class",
+     "type": "Integer",
+     "nullable": true,
+     "uniqueConstraint": false,
+     "domainName": "RoadClass"
+    },
+    {
+     "name": "lanes",
+     "type": "Integer",
+     "nullable": true,
+     "uniqueConstraint": false,
+     "domainName": "Lanes"
+    },
+    {
+     "name": "name",
+     "type": "String",
+     "nullable": true,
+     "uniqueConstraint": false
+    }
+   ]
+  }
+ ],
+ "domains": {
+  "Lanes": {
+   "description": "Lane count",
+   "type": "range",
+   "fieldType": "Integer",
+   "splitPolicy": "default value",
+   "mergePolicy": "default value",
+   "minValue": 1,
+   "minValueIncluded": true,
+   "maxValue": 12,
+   "maxValueIncluded": true
+  },
+  "RoadClass": {
+   "description": "Road class",
+   "type": "coded",
+   "fieldType": "Integer",
+   "splitPolicy": "default value",
+   "mergePolicy": "default value",
+   "codedValues": {
+    "1": "Freeway",
+    "2": "Arterial",
+    "3": "Local"
+   }
+  }
+ },
+ "rootGroup": {
+  "layerNames": [
+   "roads"
+  ],
+  "groups": []
+ }
+}

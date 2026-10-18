@@ -13,6 +13,7 @@ import { parseEngineError } from '../sql/errors.js'
 import { classifyStatement } from '../sql/policy.js'
 import { statementToRun } from '../sql/scanner.js'
 import { pathLiterals, rewritePaths, type Rewritten } from '../sql/workspacePaths.js'
+import { namedLayers } from '../gdb/open.js'
 import { registerSource, type RegisteredSource } from '../source/register.js'
 import type { WorkspaceResolution } from '../hostAdapter.js'
 import { buildQueryResult, CTAS_PREFIX, defaultResult, layerCrs, RESULT_TABLE, ResultDeclinedError, type BuildContext, type BuiltResult } from './run.js'
@@ -235,6 +236,13 @@ function toViewFeature(row: Record<string, unknown>): Feature {
 /** Internal objects every viewer creates: hidden from users and protected from DDL. */
 export const SOURCE_TABLE = '__se_source'
 
+/** Spec 013: the layers of a geodatabase read on demand (SQL name by layer name), and how to read one. */
+export interface LazyLayers {
+  /** Layer name to SQL name, for the layers still to read; each is removed once read. */
+  names: Map<string, string>
+  load(layerName: string, signal?: AbortSignal): Promise<void>
+}
+
 export class QuerySession {
   private inFlight: Promise<unknown> | null = null
   /** What holds the engine (EngineWorkKind). */
@@ -306,6 +314,12 @@ export class QuerySession {
     if (!policy.allowed) {
       this.log?.(`[query] refused: ${policy.reason} — ${oneLine(span.text)}`)
       return { kind: 'refused', reason: policy.reason, statement }
+    }
+    // Spec 013: geodatabase layers the statement names are read first.
+    const lazyRefusal = await this.prepareLazyLayers(span.text)
+    if (lazyRefusal) {
+      this.log?.(`[query] refused: ${lazyRefusal} — ${oneLine(span.text)}`)
+      return { kind: 'refused', reason: lazyRefusal, statement }
     }
     // Spec 010 phase 9: other workspace files the statement names, registered and rewritten.
     const prepared = await this.prepareWorkspace(span.text)
@@ -426,6 +440,37 @@ export class QuerySession {
       kind: 'table',
       reRuns: false,
     }
+  }
+
+  /** Spec 013: the layers of an open File Geodatabase not read yet, and how to read one. */
+  private lazyLayers: LazyLayers | null = null
+
+  setLazyLayers(lazy: LazyLayers | null): void {
+    this.lazyLayers = lazy
+  }
+
+  /** Registered files this session must drop when it ends (a geodatabase layer read after the open). */
+  adoptPaths(paths: string[]): void {
+    this.liveFiles.push(...paths)
+  }
+
+  /**
+   * Reads the geodatabase layers a statement names, once each, before it runs.
+   * A layer that cannot be read refuses the statement with the reader's message.
+   */
+  private async prepareLazyLayers(text: string, signal?: AbortSignal): Promise<string | null> {
+    const lazy = this.lazyLayers
+    if (!lazy || !lazy.names.size) return null
+    for (const layerName of namedLayers(text, lazy.names)) {
+      try {
+        this.log?.(`[query] reading geodatabase layer: ${layerName}`)
+        await lazy.load(layerName, signal)
+        lazy.names.delete(layerName)
+      } catch (err) {
+        return `The layer "${layerName}" could not be read: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+    return null
   }
 
   /** Spec 010 phase 9: reaches other workspace files (HostAdapter.resolveWorkspaceFiles), or null. */

@@ -14,8 +14,8 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "ignoreDeprecations": "6.0",
-    "types": ["node", "vscode"]
+    "types": ["node", "vscode", "geojson"]
   },
-  "include": ["src/extension.ts"],
+  "include": ["src/extension.ts", "src/gdbWorker.ts"],
   "exclude": ["node_modules", "out", "dist-webview", "src/webview"]
 }

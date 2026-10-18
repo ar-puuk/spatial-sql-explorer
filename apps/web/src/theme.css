@@ -104,8 +104,8 @@
   --se-sql-comment: #5f6d86;
   --se-sql-error: #c0262d;
 
-  --se-font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI Variable', 'Segoe UI', sans-serif;
-  --se-font-mono: 'Fira Code', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, monospace;
+  --se-font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --se-font-mono: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
   --se-font-data: var(--se-font-ui);
   --se-font-size: 13px;
   --se-section-title-font: 600 12px var(--se-font-ui);

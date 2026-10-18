@@ -1,0 +1,17 @@
+// SPIKE (temporary, never committed): gdal3.js in a browser worker on a picked folder / zip, output to OPFS.
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+
+const sp = 'C:/Users/PUKAR~1.BHA/AppData/Local/Temp/claude/D--GitHub-spatial-sql-explorer/7ca60a29-6d9d-4dd5-abfb-bb5384d35274/scratchpad'
+for (const kind of ['folder'] as const) {
+  test(`gdb ${kind} in the browser`, async ({ page }) => {
+    test.setTimeout(300000)
+    await page.goto('http://localhost:4190/')
+    if (kind === 'folder') await page.setInputFiles('#f', 'D:/WFv1000_MasterNet_20260903.gdb')
+    else await page.setInputFiles('#z', `${sp}/gdal/zips/wf.gdb.zip`)
+    void page.evaluate((k) => (window as unknown as { run(k: string): Promise<unknown> }).run(k), kind)
+    await page.waitForTimeout(90000)
+    const out = await page.evaluate(() => document.getElementById('out')!.textContent)
+    fs.writeFileSync(`${sp}/browser-${kind}.json`, JSON.stringify(out, null, 1))
+  })
+}
