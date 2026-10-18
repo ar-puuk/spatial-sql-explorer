@@ -287,6 +287,10 @@ export interface ViewerStore {
   fitTo(bbox: [number, number, number, number]): void
   /** Spec 010 phase 10: text values of the displayed result containing `q` (the search box). */
   searchValues(q: string): Promise<SearchHit[]>
+  /** Spec 018: whether the displayed result can be searched by words (text columns and the `fts` extension). */
+  wordSearchAvailable(): Promise<boolean>
+  /** Spec 018: rows whose text has every word of `q`, best first; `onIndexing` is called when the index is being built. */
+  searchWords(q: string, onIndexing?: () => void): Promise<SearchHit[]>
   /** Spec 008 US7: the map image dialog. */
   readonly mapImageOpen: boolean
   openMapImage(): void
@@ -2114,6 +2118,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const qs = querySession
       if (!qs) return []
       return qs.searchValues(q).catch(() => [])
+    },
+    async wordSearchAvailable() {
+      const qs = querySession
+      if (!qs) return false
+      return (await qs.wordSearchColumns().catch(() => [])).length > 0
+    },
+    async searchWords(q, onIndexing) {
+      const qs = querySession
+      if (!qs) return []
+      return qs.searchWords(q, 8, onIndexing).catch((err) => {
+        console.warn('[search] the word search failed:', err)
+        return []
+      })
     },
     get placeSearchEnabled() {
       return placeSearchEnabled

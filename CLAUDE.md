@@ -128,8 +128,8 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   (a point by its place, a line or polygon by its centroid), a measure per cell (count, or sum, average, minimum, maximum, median of a number
   column), and the cells are drawn like any result. It is QUERY plus STYLE of a result, never a second layer; polyfill of polygons, neighbor
   analysis and joins between grids are out of scope.
-- The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the query panel
-  and a map control `binCells`) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
+- The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the map control `binCells`;
+  user decision 2026-10-17: no button in the query panel) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
   a query (`openBinDialog`, `setBinSpec`, `applyBin`, `cancelBin`) and the user can edit and rerun it. A fresh bin gets the style in `gridStyle`
   (quantile classes on `value`, the legend titled with the measure); a rerun of an edited bin keeps the user's style.
 - Sizes and estimates come from the engine's own tables (`gridSizes.ts`, checked by a core test against specs/017-grid-cells/spikes/cell-sizes.json). A5 starts at
@@ -140,6 +140,10 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   left out and counted.
 - h3 and a5 are community extensions (constitution v1.4.0): pinned, hash-checked, optional. The a5 extension phones home to Query.Farm when it loads; the engine
   worker blocks that host (duckdbService.ts) and a test checks no request reaches it.
+
+## Search by words (spec 018)
+- The search box has a Words switch (offered when the result has text columns and the optional `fts` extension is loaded). It ranks rows by BM25 over up to 12 text columns, every word required, English stemming and stop words (`packages/core/src/view/textSearch.ts`, `QuerySession.searchWords`). The plain substring search stays the default.
+- The app builds the index itself on the hidden temp table `__se_fts` (`PRAGMA create_fts_index`, schema `fts_main___se_fts`): the SQL policy still refuses PRAGMA from the user. One index per displayed result (rebuilt when the facts change), keyed by `__se_rowid`; the column filters apply when searching, not when indexing.
 
 ## Map controls and quality-of-life tools (spec 014)
 - The map's controls are a registry (packages/core/src/mapControls.ts): id, group, label, default on and default corner. A fourth right-rail tab, "Map controls" (sliders icon), has a row per control: an on/off switch, its name and a dropdown for its position. Each control declares the positions that suit it (user decision 2026-10-15): buttons, search, legend, scale bar and logo take the four corners; the coordinates readout takes the middle of the top or bottom edge; the hover tooltip has none. The user is treated as the developer of the map, as with mapgl, where every control has a `position`. Search (with the selected feature's card under it), zoom, zoom to layer, reset view, globe, terrain, draw, measure, select by shape, export image, legend, coordinates, the MapLibre logo (on by default) and the scale bar are all positionable; the hover tooltip has no place; the attribution stays at the bottom right (licences). Controls at a position stack in registry order, and buttons of one group side by side share a box. A global user preference through `HostAdapter.saveState('mapControls')` (`visible`, `positions`; the first version's group corners are migrated, and a saved position a control no longer offers is dropped). Adding a control is adding a row, plus its element in MapView (a button, or `extra` for something ViewerLayout owns).

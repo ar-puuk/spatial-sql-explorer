@@ -63,6 +63,7 @@ import { allFeaturesSql } from '../view/features.js'
 import { labelPointsSql, type LabelPoint } from '../view/labelPoint.js'
 import { heatmapPeakSql, mercatorRadius } from '../view/heat.js'
 import { searchValuesSql, type SearchHit } from '../view/search.js'
+import { ftsBuildSql, ftsColumns, ftsDropSql, ftsHit, ftsSearchSql } from '../view/textSearch.js'
 import { featureCollector, type MapData } from '../view/featureBatches.js'
 import { tileBoundsWgs84, tileSql, type TileAttr, type TileClusters } from '../view/tiles.js'
 
@@ -1364,6 +1365,60 @@ export class QuerySession {
       const hits: SearchHit[] = []
       await streamRows(this.conn, sql, isCancelled, (batch) => {
         for (const r of batch) hits.push({ id: Number(r.id), column: String(r.col), value: String(r.value), count: Number(r.n) })
+      })
+      return hits
+    }, 'background')
+  }
+
+  private ftsLoaded: Promise<boolean> | null = null
+  /** The result the word index was built for (facts are replaced with every new result), and the columns in it. */
+  private ftsFor: { facts: unknown; columns: string[] } | null = null
+
+  /**
+   * Spec 018: the text columns a word search reads, or none when the `fts` extension isn't loaded (an optional download),
+   * the result has no text, or it is a utility result. Asked once for the extension.
+   */
+  async wordSearchColumns(): Promise<string[]> {
+    const target = this.pageTarget()
+    if (!target || this.utilityRows) return []
+    const cols = ftsColumns(target.columns)
+    if (!cols.length) return []
+    this.ftsLoaded ??= this.exclusive(async () => {
+      const result = await this.conn.query(`SELECT extension_name FROM duckdb_extensions() WHERE loaded AND extension_name = 'fts'`)
+      return result.numRows > 0
+    }, 'background')
+    this.ftsLoaded.catch(() => {
+      this.ftsLoaded = null
+    })
+    return (await this.ftsLoaded) ? cols : []
+  }
+
+  /**
+   * Spec 018: the displayed result's rows whose text has every word of `q` (stemmed, no stop words), best first, filters
+   * applied. The index is built on the first search of a result and rebuilt for the next result; `onIndexing` is called
+   * when that build starts. A search overtaken by a newer one returns nothing.
+   */
+  async searchWords(q: string, limit = 8, onIndexing?: () => void): Promise<SearchHit[]> {
+    const seq = ++this.searchSeq
+    const target = this.pageTarget()
+    if (!target || this.utilityRows) return []
+    const columns = ftsColumns(target.columns)
+    return this.exclusive(async (isCancelled) => {
+      if (seq !== this.searchSeq) return []
+      const facts = this.facts
+      if (!this.ftsFor || this.ftsFor.facts !== facts || this.ftsFor.columns.join('\u0000') !== columns.join('\u0000')) {
+        onIndexing?.()
+        this.ftsFor = null
+        for (const sql of ftsDropSql) await this.conn.query(sql).catch(() => {})
+        for (const sql of ftsBuildSql(target.relation, columns)) await this.conn.query(sql)
+        this.ftsFor = { facts, columns }
+      }
+      const where = this.restriction()
+      const sql = ftsSearchSql(q, columns, where ? `SELECT __se_rowid FROM ${this.narrowed(target.relation)}` : null, limit)
+      if (!sql) return []
+      const hits: SearchHit[] = []
+      await streamRows(this.conn, sql, isCancelled, (batch) => {
+        for (const r of batch) hits.push(ftsHit(r as { id: unknown; col: unknown; value: unknown; score: unknown }))
       })
       return hits
     }, 'background')

@@ -43,14 +43,28 @@
   let searchingPlaces = $state(false)
   let message = $state<{ kind: 'info' | 'error'; text: string; places?: boolean } | null>(null)
   let noticeOpen = $state(false)
+  // Spec 018: the Words switch (ranked word search with the fts extension) is offered when the result has text columns.
+  let wordsAvailable = $state(false)
+  let words = $state(false)
+  let indexing = $state(false)
   let input = $state<HTMLInputElement>()
   let noticeButton = $state<HTMLButtonElement>()
   let timer: ReturnType<typeof setTimeout> | null = null
   let controller: AbortController | null = null
 
-  onMount(() => () => {
-    controller?.abort()
-    if (timer) clearTimeout(timer)
+  const checkWords = (): void => {
+    void store.wordSearchAvailable().then((ok) => {
+      wordsAvailable = ok
+      if (!ok) words = false
+    })
+  }
+
+  onMount(() => {
+    checkWords()
+    return () => {
+      controller?.abort()
+      if (timer) clearTimeout(timer)
+    }
   })
 
   const fmt = (n: number): string => String(Math.round(n * 1e6) / 1e6)
@@ -61,7 +75,7 @@
     const out: Group[] = []
     const coords = parseCoordinates(q)
     if (coords.length) out.push({ id: 'coords', label: 'Coordinates', options: coords.map((c, i) => ({ key: `c${i}`, kind: 'coord', c, swapped: i > 0 })) })
-    if (hits.length) out.push({ id: 'values', label: `In ${layerName}`, options: hits.map((hit) => ({ key: `v${hit.column}\u0000${hit.value}`, kind: 'value', hit })) })
+    if (hits.length) out.push({ id: 'values', label: words ? `Words in ${layerName}` : `In ${layerName}`, options: hits.map((hit) => ({ key: words ? `w${hit.id}` : `v${hit.column}\u0000${hit.value}`, kind: 'value', hit })) })
     if (store.placeSearchEnabled) {
       if (places?.length && placesFor === q) out.push({ id: 'places', label: 'Places', options: places.map((place, i) => ({ key: `p${i}`, kind: 'place', place })) })
       else if (!(places && placesFor === q)) out.push({ id: 'places', label: 'Places', options: [{ key: 'pa', kind: 'placesAction', q }] })
@@ -71,7 +85,8 @@
   const flat = $derived(groups.flatMap((g) => g.options))
   const active = $derived(flat.find((o) => o.key === activeKey) ?? flat[0] ?? null)
   const listShown = $derived(open && flat.length > 0)
-  const nothing = $derived(open && !flat.length && text.trim().length >= SEARCH_MIN_LENGTH && searchedFor === text.trim() && !message)
+  // With Words on, the places row doesn't hide the answer: the words matched nothing.
+  const nothing = $derived(open && (words ? !hits.length : !flat.length) && text.trim().length >= SEARCH_MIN_LENGTH && searchedFor === text.trim() && !message && !indexing)
   const optionId = (o: Option): string => `search-opt-${flat.indexOf(o)}`
 
   function onInput(): void {
@@ -86,12 +101,23 @@
       return
     }
     timer = setTimeout(() => {
-      void store.searchValues(q).then((found) => {
-        if (text.trim() !== q) return // typed on: a newer search is coming
+      const byWords = words
+      const search = byWords ? store.searchWords(q, () => (indexing = true)) : store.searchValues(q)
+      void search.then((found) => {
+        indexing = false
+        if (text.trim() !== q || byWords !== words) return // typed on: a newer search is coming
         hits = found
         searchedFor = q
       })
     }, DEBOUNCE_MS)
+  }
+
+  function toggleWords(): void {
+    words = !words
+    hits = []
+    searchedFor = ''
+    if (text.trim()) onInput()
+    input?.focus()
   }
 
   function clear(): void {
@@ -215,6 +241,7 @@
         onkeydown={onKey}
         onfocus={() => {
           if (text.trim()) open = true
+          checkWords()
         }}
         onblur={() => (open = false)}
       />
@@ -226,10 +253,22 @@
         <!-- The clear button's place, kept so the box doesn't change width as you type. -->
         <span class="clear-space" aria-hidden="true"></span>
       {/if}
+      {#if wordsAvailable}
+        <button
+          type="button"
+          class="words"
+          class:on={words}
+          aria-pressed={words}
+          aria-label="Search by words"
+          title="Search by words: every word, any form (ranked)"
+          onpointerdown={(e) => e.preventDefault()}
+          onclick={toggleWords}><Icon name="textSearch" size={14} /></button
+        >
+      {/if}
     </form>
   </div>
 
-  {#if listShown || message || noticeOpen || nothing}
+  {#if listShown || message || noticeOpen || nothing || indexing}
     <div class="drop">
       <div id="search-results" role="listbox" aria-label="Search results" hidden={!listShown}>
         {#each groups as g (g.id)}
@@ -266,8 +305,11 @@
           </ul>
         {/each}
       </div>
+      {#if indexing}
+        <p class="message info" role="status">Indexing the text of {layerName}…</p>
+      {/if}
       {#if nothing}
-        <p class="message info" role="status">Nothing in {layerName} matches “{text.trim()}”.</p>
+        <p class="message info" role="status">{words ? `No row in ${layerName} has all of these words: “${text.trim()}”.` : `Nothing in ${layerName} matches “${text.trim()}”.`}</p>
       {/if}
       {#if message}
         <p class="message {message.kind}" role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</p>
@@ -370,8 +412,27 @@
     color: var(--se-text-secondary);
     cursor: pointer;
   }
-  .clear:hover {
+  .clear:hover,
+  .words:hover {
     background: var(--se-bg-hover);
+  }
+  .words {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: pointer;
+  }
+  .words.on {
+    background: var(--se-button-bg);
+    color: var(--se-button-fg);
   }
   .drop {
     /* Over what is next to the box (the feature card), as wide as the box: the results never widen it. */

@@ -62,6 +62,7 @@
   import Save from '@lucide/svelte/icons/save'
   import Scan from '@lucide/svelte/icons/scan'
   import Search from '@lucide/svelte/icons/search'
+  import TextSearch from '@lucide/svelte/icons/text-search'
   import Shapes from '@lucide/svelte/icons/shapes'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Spline from '@lucide/svelte/icons/spline'
@@ -122,6 +123,7 @@
     printer: Printer,
     refresh: RefreshCw,
     search: Search,
+    textSearch: TextSearch,
     link: Link,
     sun: Sun,
     moon: Moon,

@@ -196,8 +196,8 @@ test.describe('Bin into cells in the engine (spec 017)', () => {
 })
 
 // The dialog, through the real interface (US1, FR-2 of the plan): crashes.geojson holds points.
-// The query panel's button; the map's own is "Bin into cells…".
-const binButton = (page: Page) => page.getByRole('button', { name: 'Bin into cells', exact: true })
+// The map's button.
+const binButton = (page: Page) => page.getByRole('button', { name: 'Bin into cells…' })
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Bin into cells' })
 const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
 const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
