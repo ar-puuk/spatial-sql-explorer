@@ -29,6 +29,17 @@ export interface GridSystem {
    * across the date line comes back as one continuous ring that runs past 180 or -180 (see `splitDateLineSql`).
    */
   ringSql(cell: string, res: number): string
+  /**
+   * Spec 021: SQL for the list of cells (UBIGINT[]) a geometry touches, from the SQL expression `geom` (a GEOMETRY in
+   * longitude/latitude) at `res`: every cell a polygon overlaps, the cells along a line, the cell of a point.
+   */
+  coverSql(geom: string, res: number): string
+  /**
+   * Spec 021: SQL for the cell and its neighbors within `rings` steps (UBIGINT[]), from the SQL expression `cell`. Absent
+   * when the system has no neighbor function that can be relied on: A5's `a5_grid_disk` returns 3 cells for one ring and 11
+   * for two (a pentagon has 5 edge neighbors), so smoothing is offered for H3 only.
+   */
+  diskSql?(cell: string, rings: number): string
 }
 
 /** The `x y` pairs of a cell's boundary, from `h3_cell_to_boundary_wkt` (closing vertex included). */
@@ -57,6 +68,54 @@ function h3Ring(cell: string, res: number): string {
   return `ST_GeomFromText(CASE WHEN ${cell} IN (h3_latlng_to_cell(90, 0, ${res}), h3_latlng_to_cell(-90, 0, ${res})) THEN ${cap} ELSE ${ring} END)`
 }
 
+/** Most sample points taken along one line (a longer one is sampled more coarsely). */
+const MAX_LINE_POINTS = 20_000
+/** Most sample points taken inside one polygon (a bigger one is sampled more coarsely). */
+const MAX_INTERIOR_POINTS = 100_000
+
+/**
+ * The cells of the points taken along a line (a SQL expression for a LINESTRING), at most a quarter of an edge apart: a degree of
+ * longitude is never longer than a degree of latitude on the ground, so the planar length in degrees never under-counts.
+ */
+function lineCells(line: string, edgeKm: number, cellAt: (lon: string, lat: string) => string): string {
+  const stepDeg = edgeKm / 111.32 / 4
+  const along = `1.0 / greatest(1, least(${MAX_LINE_POINTS}, ceil(ST_Length(${line}) / ${stepDeg})))`
+  const at = (pt: string) => cellAt(`ST_X(${pt})`, `ST_Y(${pt})`)
+  // The vertices too: a corner is where a cell can hold only a sliver of the line.
+  return `list_transform(ST_Dump(ST_LineInterpolatePoints(${line}, ${along}, true)), _q -> ${at('_q.geom')}) || list_transform(ST_Dump(ST_Points(${line})), _v -> ${at('_v.geom')})`
+}
+
+/**
+ * A polygon's cells for a system with no usable polygon function (A5's `a5_geometry_to_cells` finds only a few of a
+ * polygon's cells): the cells along its boundary (every cell that crosses it) and the cells of a grid of points inside
+ * it, a third of an edge apart on the ground (the longitude step widens with the latitude's cosine, taken at the box's
+ * edge nearest the equator, so it never under-samples). Most points: MAX_INTERIOR_POINTS.
+ */
+function sampledPolygonCells(part: string, edgeKm: number, cellAt: (lon: string, lat: string) => string): string {
+  // A5's cells are irregular pentagons: half an edge missed thin slivers of them.
+  const stepDeg = edgeKm / 111.32 / 3
+  const at = (pt: string) => cellAt(`ST_X(${pt})`, `ST_Y(${pt})`)
+  const boundary = `flatten(list_transform(ST_Dump(ST_Boundary(${part})), _b -> ${lineCells('_b.geom', edgeKm, cellAt)}))`
+  const box = `{'x0': ST_XMin(${part}), 'y0': ST_YMin(${part}), 'w': ST_XMax(${part}) - ST_XMin(${part}), 'h': ST_YMax(${part}) - ST_YMin(${part})}`
+  const cos = `greatest(0.05, cos(radians(CASE WHEN _s.y0 <= 0 AND _s.y0 + _s.h >= 0 THEN 0 ELSE least(abs(_s.y0), abs(_s.y0 + _s.h)) END)))`
+  const raw = `((_s.w / (${stepDeg} / ${cos}) + 1) * (_s.h / ${stepDeg} + 1))`
+  const grid = `{'x0': _s.x0, 'y0': _s.y0, 'dx': ${stepDeg} / ${cos} * greatest(1, sqrt(${raw} / ${MAX_INTERIOR_POINTS})), 'dy': ${stepDeg} * greatest(1, sqrt(${raw} / ${MAX_INTERIOR_POINTS})), 'w': _s.w, 'h': _s.h}`
+  const points = `ST_Point(_gr.x0 + (_k % (CAST(ceil(_gr.w / _gr.dx) AS BIGINT) + 1)) * _gr.dx, _gr.y0 + (_k // (CAST(ceil(_gr.w / _gr.dx) AS BIGINT) + 1)) * _gr.dy)`
+  const interior = `list_transform(list_filter(list_transform(range((CAST(ceil(_gr.w / _gr.dx) AS BIGINT) + 1) * (CAST(ceil(_gr.h / _gr.dy) AS BIGINT) + 1)), _k -> ${points}), _pt -> ST_Contains(${part}, _pt)), _pt -> ${at('_pt')})`
+  return `list_distinct(${boundary} || list_transform(list_transform([${box}], _s -> ${grid}), _gr -> ${interior})[1])`
+}
+
+/**
+ * The cells a geometry touches, written once for both systems. The parts of a multi-part geometry are covered one by one
+ * (`ST_Dump`). A polygon is covered by `polygon` (given a single polygon); if that gives no cell (a polygon smaller than a
+ * cell) it takes the cell of its center. A line is covered by `lineCells`. A point is in its own cell.
+ */
+function coverOf(geom: string, edgeKm: number, polygon: (part: string) => string, cellAt: (lon: string, lat: string) => string): string {
+  const at = (pt: string) => cellAt(`ST_X(${pt})`, `ST_Y(${pt})`)
+  const poly = `CASE WHEN len(${polygon('_d.geom')}) > 0 THEN ${polygon('_d.geom')} ELSE [${at('ST_Centroid(_d.geom)')}] END`
+  return `list_distinct(flatten(list_transform(ST_Dump(${geom}), _d -> CASE ST_GeometryType(_d.geom)::VARCHAR WHEN 'POLYGON' THEN ${poly} WHEN 'LINESTRING' THEN ${lineCells('_d.geom', edgeKm, cellAt)} ELSE [${at('_d.geom')}] END)))`
+}
+
 export const GRID_SYSTEMS: readonly GridSystem[] = [
   {
     id: 'h3',
@@ -71,6 +130,10 @@ export const GRID_SYSTEMS: readonly GridSystem[] = [
     cellSql: (lon, lat, res) => `h3_latlng_to_cell(${lat}, ${lon}, ${res})`,
     idSql: (cell) => `h3_h3_to_string(${cell})`,
     ringSql: h3Ring,
+    // `overlap`: every cell the polygon touches (the plain function keeps cells whose center is inside).
+    coverSql: (geom, res) =>
+      coverOf(geom, sizes.h3.edgeKm[res], (part) => `h3_polygon_wkt_to_cells_experimental(ST_AsText(${part}), ${res}, 'overlap')`, (lon, lat) => `h3_latlng_to_cell(${lat}, ${lon}, ${res})`),
+    diskSql: (cell, rings) => `h3_grid_disk(${cell}, ${rings})`,
   },
   {
     id: 'a5',
@@ -88,6 +151,10 @@ export const GRID_SYSTEMS: readonly GridSystem[] = [
     idSql: (cell) => `a5_u64_to_hex(${cell})`,
     // A5 returns a ring already continuous across the date line (longitudes past 180 or below -180).
     ringSql: (cell) => `a5_cell_to_geometry(${cell})`,
+    coverSql: (geom, res) => {
+      const cellAt = (lon: string, lat: string) => `a5_lonlat_to_cell(${lon}, ${lat}, ${res})`
+      return coverOf(geom, sizes.a5.edgeKm[res], (part) => sampledPolygonCells(part, sizes.a5.edgeKm[res], cellAt), cellAt)
+    },
   },
 ]
 

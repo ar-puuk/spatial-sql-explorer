@@ -53,7 +53,7 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
-import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
+import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, featureSizeSql, type FeatureSize, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
 import type { GridSystemId } from '../grid/gridSystems.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
@@ -711,6 +711,16 @@ export class QuerySession {
       numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
       filtersIgnored: this.binRestriction().ignored,
     }
+  }
+
+  /** Spec 021: the average box of the layer's features, for the dialog's estimate of covering; null when it cannot be read. */
+  async featureSizeForBin(): Promise<FeatureSize | null> {
+    const lv = this.layerView
+    if (!lv) return null
+    return this.exclusive(async (isCancelled) => {
+      const row = await singleRow<{ area_km2: number | null; span_km: number | null }>(this.conn, featureSizeSql(lv.geom, this.table.srid), isCancelled)
+      return row.area_km2 === null || row.span_km === null ? null : { areaKm2: Number(row.area_km2), spanKm: Number(row.span_km) }
+    }, 'background')
   }
 
   /** Row ids of the displayed rows meeting `predicate` against the shapes (the map's "select by shape"). */

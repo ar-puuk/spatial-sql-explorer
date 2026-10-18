@@ -3,6 +3,7 @@
 // the preview redraws at once (under PREVIEW_CELL_LIMIT) and whether to warn first (over CELL_LIMIT).
 import { formatArea, formatLength, type UnitSystem } from '../draw/geodesy.js'
 import type { Bbox } from '../models.js'
+import type { FeatureSize } from './binSql.js'
 import type { GridSystem } from './gridSystems.js'
 
 /** Results over this many cells are drawn from engine tiles, so the dialog warns before running them (spec FR-8, plan decision 8). */
@@ -22,15 +23,26 @@ export function extentAreaKm2(extent: Bbox): number {
   return EARTH_RADIUS_KM * EARTH_RADIUS_KM * lon * lat
 }
 
+/** The cells in a disk of `rings` steps on a hexagonal grid. */
+export const diskSize = (rings: number): number => 3 * rings * (rings + 1) + 1
+
 /**
  * About how many cells a bin at `res` has: the extent's area over the average cell area (plus the cells along its
- * edge), never more than the rows, never fewer than one. Without an extent, only the rows are known.
+ * edge), never more than the rows, never fewer than one. Without an extent, only the rows are known. Spec 021: a
+ * feature that covers the cells it touches is not limited by the rows (the extent says), and each ring of smoothing
+ * adds a margin of cells around the data (and lets every row reach a whole disk of them).
  */
-export function estimateCells(system: GridSystem, res: number, extent: Bbox | null, rows: number): number {
+export function estimateCells(system: GridSystem, res: number, extent: Bbox | null, rows: number, opts: { cover?: boolean; smooth?: number; featureSize?: FeatureSize | null } = {}): number {
   const area = system.cellAreaKm2[res]
   if (area === undefined) return 0
-  const byArea = extent ? extentAreaKm2(extent) / area + 1 : Number.POSITIVE_INFINITY
-  return Math.max(1, Math.round(Math.min(byArea, rows)))
+  const rings = opts.smooth ?? 0
+  const inside = extent ? extentAreaKm2(extent) / area + 1 : Number.POSITIVE_INFINITY
+  const byArea = rings > 0 ? inside + 6 * rings * Math.sqrt(inside) + 3 * rings * rings : inside
+  // Covering: each feature reaches the cells its box does (its area over a cell's, and along its width and height), when that is known.
+  const perFeature = opts.featureSize ? opts.featureSize.areaKm2 / area + opts.featureSize.spanKm / system.edgeKm[res] + 1 : Number.POSITIVE_INFINITY
+  const byRows = opts.cover ? rows * perFeature : rings > 0 ? rows * diskSize(rings) : rows
+  const estimate = Math.min(byArea, byRows)
+  return Math.max(1, Math.round(Number.isFinite(estimate) ? estimate : rows))
 }
 
 /**

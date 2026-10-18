@@ -3,18 +3,21 @@
   // brings the old query back) and, while the result would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
   // it floats over its top left corner. Esc cancels (and puts everything back), Enter keeps the bin.
   import { onDestroy, onMount, tick } from 'svelte'
-  import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind } from '@spatial-explorer/core'
+  import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind, MAX_SMOOTH_RINGS, SMOOTH_WARN_RINGS, diskSize } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import Segmented from './kit/Segmented.svelte'
   import Select from './kit/Select.svelte'
+  import NumberField from './kit/NumberField.svelte'
   import Slider from './kit/Slider.svelte'
   import Switch from './kit/Switch.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
     store: ViewerStore
+    /** The map pane's height (px): the dialog stays inside it, and its body scrolls. 0: not known. */
+    mapHeight?: number
   }
-  let { store }: Props = $props()
+  let { store, mapHeight = 0 }: Props = $props()
 
   const bin = $derived(store.binDialog)
   const spec = $derived(bin.spec)
@@ -37,6 +40,18 @@
   function chooseMeasure(kind: string): void {
     if (kind === 'count') store.setBinSpec({ measure: { kind: 'count' } })
     else store.setBinSpec({ measure: { kind: kind as Exclude<BinMeasureKind, 'count'>, column: column || numeric[0] || '' } })
+  }
+  // Spec 021: smoothing is a switch and a number of rings; the switch remembers the last number while it is off.
+  const smoothing = $derived((spec.smooth ?? 0) > 0)
+  let lastRings = $state(1)
+  function chooseSmooth(on: boolean): void {
+    store.setBinSpec({ smooth: on ? lastRings : 0 })
+  }
+  function chooseRings(n: number): void {
+    if (!Number.isFinite(n)) return
+    const rings = Math.min(MAX_SMOOTH_RINGS, Math.max(1, Math.round(n)))
+    lastRings = rings
+    store.setBinSpec({ smooth: rings })
   }
   function chooseColumn(name: string): void {
     if (spec.measure.kind !== 'count') store.setBinSpec({ measure: { kind: spec.measure.kind, column: name } })
@@ -80,7 +95,8 @@
   })
 </script>
 
-<div class="panel" role="dialog" aria-label="Bin into cells" bind:this={panel} onkeydown={onKeydown} tabindex="-1">
+<!-- Its top is 48 px into the map pane, and it leaves 8 px at the foot: taller than that, the body scrolls. -->
+<div class="panel" role="dialog" aria-label="Bin into cells" bind:this={panel} onkeydown={onKeydown} tabindex="-1" style:max-height={mapHeight > 0 ? `${Math.max(180, mapHeight - 58)}px` : undefined}>
   <header>
     <Icon name="grid" size={14} />
     <h2>Bin into cells</h2>
@@ -129,6 +145,48 @@
         </div>
       </div>
 
+      {#if bin.info && bin.info.geometryType !== 'Point'}
+        <div class="field">
+          <span class="label">Features</span>
+          <div class="control">
+            <Segmented
+              label="How lines and polygons are placed"
+              value={spec.assign ?? 'center'}
+              options={[
+                { value: 'center', label: 'Center', title: 'Each feature is in the cell of its center point' },
+                { value: 'cover', label: 'Every cell touched', title: 'Each feature is in every cell it touches, so a feature is counted once in each' },
+              ]}
+              onChange={(v) => store.setBinSpec({ assign: v as 'center' | 'cover' })}
+            />
+            {#if spec.assign === 'cover'}<p class="hint">Each line or polygon counts once in every cell it touches.</p>{/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if system.diskSql}
+        <div class="field">
+          <span class="label">Smooth</span>
+          <div class="control">
+            <div class="all">
+              <Switch checked={smoothing} label="Smooth with neighbors" disabled={spec.measure.kind === 'median'} onChange={chooseSmooth} />
+              {#if smoothing}
+                <span class="rings">
+                  <NumberField label="Rings of neighbors" value={spec.smooth ?? 1} min={1} max={MAX_SMOOTH_RINGS} onChange={chooseRings} />
+                  <span class="hint" aria-hidden="true">{spec.smooth === 1 ? 'ring' : 'rings'}</span>
+                </span>
+              {:else}
+                <span class="hint" aria-hidden="true">Neighbors</span>
+              {/if}
+            </div>
+            {#if spec.measure.kind === 'median'}
+              <p class="hint">A median can't be combined across cells.</p>
+            {:else if smoothing}
+              <p class="hint">Each cell shows its neighborhood; the cells spread past the data.</p>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
       {#if bin.selectedCount > 0}
         <div class="field">
           <span class="label">Rows</span>
@@ -146,6 +204,10 @@
 
       {#if bin.skipped}
         <p class="notice" role="status"><Icon name="info" size={14} /><span>{nf2.format(bin.skipped)} {bin.skipped === 1 ? 'row has' : 'rows have'} no location and {bin.skipped === 1 ? 'is' : 'are'} not counted.</span></p>
+      {/if}
+
+      {#if (spec.smooth ?? 0) > SMOOTH_WARN_RINGS}
+        <p class="notice warn" role="status"><Icon name="info" size={14} /><span>{spec.smooth} rings makes each cell a disk of {nf2.format(diskSize(spec.smooth ?? 0))} cells: slow for a lot of data, and the cells spread far past it.</span></p>
       {/if}
 
       {#if bin.problem}
@@ -211,6 +273,11 @@
     gap: 10px;
     padding: 12px;
     overflow-y: auto;
+  }
+  .rings {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .field {
     display: grid;
