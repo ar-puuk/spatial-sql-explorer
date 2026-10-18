@@ -17,7 +17,9 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   Parquet, GML, JSON and SQLite (`.sqlite`, `.db`) offer it under **Open
   With…**, so text and database viewers aren't replaced. You can also right-click a file and choose **Open in Spatial
   Explorer**. A GeoPackage with several layers lists them, and each one can be
-  shown. No file at hand? Run **Spatial Explorer: Open Sample Data (US
+  shown. A **File Geodatabase** (the `.gdb` folder, or a `.gdb.zip`) opens the
+  same way (experimental, see below), and so does any of these files inside a
+  `.zip`. No file at hand? Run **Spatial Explorer: Open Sample Data (US
   Counties)**.
 - **Map and table, in sync.**
   - Click a feature to select its row and see all of its attributes;
@@ -196,14 +198,37 @@ GeoJSON, GeoPackage (several layers), SQLite and SpatiaLite databases such as
 Cube 7 networks (several layers; attribute tables can be queried by name),
 FlatGeobuf, Shapefile (with `.shx`, `.dbf`, `.prj`), GeoParquet, Parquet with a WKB geometry column, GML, CSV with
 `lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles (view
-only). File Geodatabase folders can't be read; the extension offers an
-`ogr2ogr` command to convert one to GeoPackage.
+only). Any of these inside a `.zip` opens as if unzipped (a zip never opens by
+itself: right-click it, or use **Open With…**; one with several datasets asks
+which).
+
+### File Geodatabase (experimental)
+
+Right-click a `.gdb` folder (or a `.gdb.zip`) and choose **Open in Spatial
+Explorer**. Its layers are listed, grouped by feature dataset, and each layer
+is a table in the geodatabase's schema (`network.roads`), so a query can join
+layers. A layer is read the first time it is opened or named, and kept, so
+opening it again is immediate.
+
+- Columns with a coded **domain** show their description ("Freeway"); a switch
+  in the table toolbar shows the stored code instead. SQL, filters and exports
+  always use the code.
+- The reader (gdal3.js, GDAL in WebAssembly, about 40 MB) is downloaded once
+  the first time you open a geodatabase, checked against a recorded hash, and
+  kept for offline use. The extension runs it in a separate process.
+- Converted layers are cached in the extension's storage (up to
+  `spatialExplorer.gdb.cacheLimitMB`, 2 GB by default; the least recently used
+  go first). **Spatial Explorer: Clear Geodatabase Cache** removes them.
+- Limits: a compressed geodatabase can't be read by any open-source reader (the
+  message says to run *Uncompress File Geodatabase Data* in ArcGIS), and tables
+  with 64-bit ObjectIDs (ArcGIS Pro 3.2 and newer) are untested.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| Spatial Explorer: Open in Spatial Explorer | Opens the file (also in the Explorer and editor-tab context menus) |
+| Spatial Explorer: Open in Spatial Explorer | Opens the file, a `.gdb` folder or a `.zip` (also in the Explorer and editor-tab context menus) |
+| Spatial Explorer: Clear Geodatabase Cache | Deletes the converted geodatabase layers kept on disk |
 | Spatial Explorer: Export Data… | Exports the displayed result |
 | Spatial Explorer: Open Sample Data (US Counties) | Opens a bundled sample, no workspace file needed |
 

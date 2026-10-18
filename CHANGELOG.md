@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **File Geodatabase (experimental).** Open an Esri `.gdb` folder or a `.gdb.zip`: in VS Code, right-click it and choose Open in Spatial Explorer; on the web, choose or drop the folder. Its layers (and attribute tables) are listed, grouped by feature dataset, and each layer is a table in the geodatabase's schema (`network.roads`), read the first time a query names it, so layers can be joined. Every column is kept. Converted layers are cached (VS Code's storage, the browser's origin-private storage) so opening one again is immediate, and can be cleared (Spatial Explorer: Clear Geodatabase Cache; "Clear stored layers" in the web header). The reader is gdal3.js (GDAL in WebAssembly, LGPL, about 40 MB): downloaded once the first time, checked against a recorded hash, kept for offline use, run in a separate process in VS Code and in a worker on the web.
+- **Domain descriptions.** A geodatabase column with a coded domain shows its description in the table, the selected feature's card, the hover tooltip and the column filter; a switch in the table toolbar shows the stored codes instead (remembered). SQL, filters and exports always use the code.
+- **Zipped data.** A zip holding a Shapefile (with its parts), GeoPackage, GeoJSON, FlatGeobuf, GeoParquet, CSV, GML, SQLite or Excel opens as if unzipped; a zip with several datasets asks which. A zip never opens by itself: right-click it or use Open With.
+
+### Notes
+
+- Compressed geodatabases can't be read by any open-source reader (uncompress them in ArcGIS first); tables with 64-bit ObjectIDs (ArcGIS Pro 3.2+) are untested. In the browser a layer's table files and its converted copy must fit in memory (about 3 GB).
+
 ## [0.8.0] - 2026-10-18
 
 Queries and maps: a snippet library, dot density, a time slider, and more ways to use grid cells.
