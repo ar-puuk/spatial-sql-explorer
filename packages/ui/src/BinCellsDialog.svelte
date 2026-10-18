@@ -2,7 +2,7 @@
   // Spec 017: Bin into cells. The choices write a query (shown in the query panel once kept) and, while the result
   // would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
   // it floats over its top left corner. Esc cancels (and puts everything back), Enter keeps the bin.
-  import { onMount, tick } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import Segmented from './kit/Segmented.svelte'
@@ -83,8 +83,13 @@
     }
   }
 
+  // Focus goes to the grid choice on open and back to what opened the dialog (a button in the query panel or on the map) on close.
+  const opener = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
   onMount(() => {
     void tick().then(() => panel?.querySelector<HTMLElement>('[role="radio"][data-state="on"]')?.focus())
+  })
+  onDestroy(() => {
+    if (opener && opener !== document.body && opener.isConnected) void tick().then(() => opener.focus())
   })
 </script>
 
@@ -157,7 +162,7 @@
         <details class="sql">
           <summary>SQL</summary>
           <div class="sql-box">
-            <pre aria-label="The query this writes">{bin.sql}</pre>
+            <pre aria-label="The query this writes" tabindex="0">{bin.sql}</pre>
             <button type="button" class="icon-button copy" onclick={copySql} title="Copy the query" aria-label="Copy the query"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>
           </div>
         </details>

@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
-import { editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery, writeParcels } from './helpers'
+import { choose, editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery, writeParcels } from './helpers'
 
 type Row = Record<string, unknown>
 
@@ -514,3 +514,23 @@ test.describe('Reading a cell (spec 017)', () => {
   })
 })
 
+// The dialog remembers the grid system and the kind of measure that was kept.
+test('the last grid system and measure are remembered for the next bin', async ({ page, context }) => {
+  test.setTimeout(120000)
+  await openFile(page, fixture('crashes.geojson'))
+  await page.getByRole('button', { name: 'Bin into cells…' }).click()
+  await dialog(page).getByRole('radio', { name: 'A5' }).click()
+  await choose(page, dialog(page).getByRole('button', { name: 'What each cell shows' }), 'Average of a column')
+  await expect(dialog(page).getByRole('button', { name: 'Column', exact: true })).toBeVisible()
+  await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+  await expect(dialog(page)).toBeHidden()
+
+  // A new page of the same browser: what is remembered is read back from the saved state.
+  const next = await context.newPage()
+  await openFile(next, fixture('crashes.geojson'))
+  await next.getByRole('button', { name: 'Bin into cells…' }).click()
+  const again = next.getByRole('dialog', { name: 'Bin into cells' })
+  await expect(again.getByRole('radio', { name: 'A5' })).toHaveAttribute('data-state', 'on')
+  await expect(again.getByRole('button', { name: 'What each cell shows' })).toContainText('Average of a column')
+  await next.keyboard.press('Escape')
+})

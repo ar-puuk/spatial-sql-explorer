@@ -5,7 +5,9 @@
 import { untrack } from 'svelte'
 import {
   DEFAULT_LAYER_STYLE,
+  BIN_PREFERENCE_KEY,
   CELL_LIMIT,
+  normalizeBinPreference,
   PREVIEW_CELL_LIMIT,
   binSpecProblem,
   estimateCells,
@@ -1413,9 +1415,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const info = qs.layerFactsForBin()
     const support = await retryWhenBusy(qs, () => qs.gridSupport()).catch(() => ({ h3: false, a5: false }))
     if (!info) return
-    const system: GridSystemId = support.h3 || !support.a5 ? 'h3' : 'a5'
+    // The grid system and kind of measure last kept, when they still make sense here.
+    const saved = normalizeBinPreference(await hostAdapter.loadState<unknown>(BIN_PREFERENCE_KEY).catch(() => undefined))
+    const system: GridSystemId = support[saved.system] ? saved.system : support.h3 || !support.a5 ? 'h3' : 'a5'
     const grid = getGridSystem(system)!
-    const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure: { kind: 'count' } }
+    const column = info.numericColumns[0]
+    const measure: BinSpec['measure'] = saved.measureKind !== 'count' && column !== undefined ? { kind: saved.measureKind, column } : { kind: 'count' }
+    const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure }
     binPrev = { text: queryText, ranText: lastRunText, style, styleDirty, bottomTab: layout.bottomTab, bottomCollapsed: layout.bottomCollapsed }
     binDialog = { ...closedBin(), open: true, info, support, selectedCount: selection.kind === 'ids' ? selection.ids.size : 0 }
     updateBin(spec)
@@ -1439,6 +1445,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     binTimer = null
     if (!binDialog.previewed) await runBin()
     if (!binDialog.previewed) return
+    void hostAdapter.saveState(BIN_PREFERENCE_KEY, { system: binDialog.spec.system, measureKind: binDialog.spec.measure.kind }).catch(() => {})
     binDialog = { ...binDialog, open: false }
     binPrev = null
     layout = { ...layout, bottomTab: 'sql', bottomCollapsed: false }

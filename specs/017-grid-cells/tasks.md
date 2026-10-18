@@ -122,8 +122,8 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 
 ## Phase 9: Polish and cross-cutting
 
-- [ ] T042 [P] Persist the last system and measure kind with `HostAdapter.saveState('binCells')`, normalized on read, in `packages/ui/src/viewerStore.svelte.ts`; unit-test the normalizer in `tests/core/grid-style.test.ts` or a new `grid-preference.test.ts`.
-- [ ] T043 [P] Accessibility: add the dialog to the axe scans (`tests/web/specs/accessibility.spec.ts` style), keyboard-only run through the dialog, high-contrast check.
+- [x] T042 [P] Persist the last system and measure kind with `HostAdapter.saveState('binCells')`, normalized on read, in `packages/ui/src/viewerStore.svelte.ts`; unit-test the normalizer in `tests/core/grid-style.test.ts` or a new `grid-preference.test.ts`.
+- [x] T043 [P] Accessibility: add the dialog to the axe scans (`tests/web/specs/accessibility.spec.ts` style), keyboard-only run through the dialog, high-contrast check.
 - [ ] T044 [P] Performance check at 6x CPU throttle with a 1M-point layer (opening the dialog, moving the resolution, applying) following the project's responsiveness rule; fix what shows up; note numbers in `research.md`.
 - [ ] T045 [P] Extension-host smoke test `tests/vscode-ext/src/suite/grid-cells.test.ts`: open a fixture, open the dialog, apply, read the status bar; confirm the a5 telemetry host is never contacted.
 - [ ] T046 Update `CHANGELOG.md` and `apps/vscode-ext/CHANGELOG.md`, `README.md` (and the extension README), and `CLAUDE.md` (a "Grid cells (spec 017)" paragraph and the allowed-scope line); add the memory entry for spec 017.
