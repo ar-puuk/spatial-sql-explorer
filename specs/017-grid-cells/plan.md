@@ -108,6 +108,6 @@ tests/vscode-ext/src/suite/grid-cells.test.ts
 2. **Date line, poles and non-points**: spike S2, centroid assignment, projected layers; tests.
 3. **Measures and filters**: sum, avg, min, max, median, column filters, shape filter, selected rows only (S3), the skipped-rows count.
 4. **Store and default style**: `applyBin`, graduated style, legend title; the result drawn in both draw modes.
-5. **Dialog and entry points**: system, resolution with sizes and estimate, measure, SQL shown; keyboard and a11y; the disabled state.
+5. **Dialog and entry points**: system, resolution with sizes and estimate, measure; the SQL goes to the SQL tab (no box in the dialog); keyboard and a11y; the disabled state.
 6. **Live preview and cancel**: debounce, the 5,000 threshold, restore on cancel; the warning above 100,000.
 7. **Polish and release notes**: preference persistence, docs, CHANGELOG, the extension-host smoke test.

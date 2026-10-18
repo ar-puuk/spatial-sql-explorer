@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
-import { choose, editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery, writeParcels } from './helpers'
+import { choose, editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery, setQuery, writeParcels } from './helpers'
 
 type Row = Record<string, unknown>
 
@@ -238,41 +238,38 @@ test.describe('Bin into cells dialog (spec 017)', () => {
     expect(await editor(page).innerText()).toBe(queryBefore)
   })
 
-  test('the dialog shows the SQL it writes; Keep puts the same text in the query panel', async ({ page }) => {
+  test('the query goes to the SQL tab as the preview runs, without Keep; Cancel brings back what was there', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await openQueryPanel(page)
+    // What the user had in the editor, run or not.
+    await setQuery(page, 'SELECT * FROM layer -- my own work')
+    const before = await editor(page).innerText()
+    expect(before).toContain('my own work')
+    await binButton(page).click()
+    await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBe('3000')
+    // Open the SQL tab with the dialog still open: the bin's query is already in the editor.
+    await page.getByRole('tab', { name: 'SQL' }).click()
+    await expect(editor(page)).toContainText('SELECT cell_id, resolution, value, n,')
+    await expect(editor(page)).toContainText('h3_latlng_to_cell')
+    await expect(dialog(page)).toBeVisible()
+    // Cancel: the old query comes straight back, and so does the original view.
+    await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(editor(page)).not.toContainText('h3_latlng_to_cell')
+    expect(await editor(page).innerText()).toBe(before)
+    await expect.poll(() => rendered(page), { timeout: 30000 }).toBe('3000')
+  })
+
+  test('Keep leaves the query in the SQL tab, selected', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, fixture('crashes.geojson'))
     await openQueryPanel(page)
     await binButton(page).click()
-    await dialog(page).getByText('SQL', { exact: true }).click()
-    const shown = await dialog(page).getByLabel('The query this writes').innerText()
-    expect(shown).toMatch(/^SELECT cell_id, resolution, value, n,/)
-    expect(shown).toContain('h3_latlng_to_cell')
     await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(dialog(page)).toBeHidden()
     await expect(editor(page)).toContainText('SELECT cell_id, resolution, value, n,')
-    expect((await editor(page).innerText()).replace(/\s+/g, ' ')).toBe(shown.replace(/\s+/g, ' '))
-  })
-
-  test('the SQL in the dialog is colored like the editor: keywords, functions, numbers, strings and operators', async ({ page }) => {
-    test.setTimeout(120000)
-    await openFile(page, fixture('crashes.geojson'))
-    await page.getByRole('button', { name: 'Bin into cells…' }).click()
-    await dialog(page).getByText('SQL', { exact: true }).click()
-    const box = dialog(page).getByLabel('The query this writes')
-    await expect(box.locator('.tok-keyword').first()).toHaveText('SELECT')
-    for (const token of ['keyword', 'function', 'number', 'string', 'operator']) await expect(box.locator(`.tok-${token}`).first(), token).toBeVisible()
-    await expect(box.locator('.tok-function', { hasText: 'h3_latlng_to_cell' }).first()).toBeVisible()
-    await expect(box.locator('.tok-function', { hasText: 'ST_SetCRS' })).toHaveCount(1)
-    // Column names, tables and aliases are plain: only calls are functions.
-    await expect(box.locator('.tok-function', { hasText: /^(layer|cell_id|ring)$/ })).toHaveCount(0)
-    await expect(box.locator('.tok-string', { hasText: 'EPSG:4326' }).first()).toBeVisible()
-    // Colors come from the theme's SQL tokens: a keyword differs from plain text, and from a string.
-    const color = (selector: string) => box.locator(selector).first().evaluate((el) => getComputedStyle(el).color)
-    const [plain, keyword, fn, string, number] = [await box.evaluate((el) => getComputedStyle(el).color), await color('.tok-keyword'), await color('.tok-function'), await color('.tok-string'), await color('.tok-number')]
-    expect(new Set([plain, keyword, fn, string, number]).size).toBe(5)
-    // Coloring changes no text: the box reads exactly as the query.
-    const text = await box.innerText()
-    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
-    expect((await editor(page).innerText()).replace(/\s+/g, ' ')).toBe(text.replace(/\s+/g, ' '))
+    await expect(editor(page)).toContainText('h3_latlng_to_cell')
   })
 
   test('editing the resolution in the SQL and rerunning keeps the style and the legend of the cells', async ({ page }) => {

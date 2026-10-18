@@ -26,9 +26,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'bin: A5')
 
     await choose(page, dialog(page).getByRole('button', { name: 'What each cell shows' }), 'Sum of a column')
-    await dialog(page).getByText('SQL', { exact: true }).click()
-    await expect(dialog(page).getByLabel('The query this writes')).toBeVisible()
-    await audit(page, 'bin: a column measure, SQL open')
+    await audit(page, 'bin: a column measure')
 
     await dialog(page).getByRole('switch', { name: 'All resolutions' }).click()
     await audit(page, 'bin: all resolutions')
@@ -68,7 +66,7 @@ test('keyboard: every control is reachable, Enter keeps the bin, Esc closes and 
       })
     )
   }
-  for (const name of ['Resolution', 'What each cell shows', 'SQL', 'Cancel', 'Keep']) {
+  for (const name of ['Resolution', 'What each cell shows', 'Cancel', 'Keep']) {
     expect([...reached].some((label) => label.startsWith(name)), `Tab should reach "${name}" (reached: ${[...reached].join(' | ')})`).toBe(true)
   }
 

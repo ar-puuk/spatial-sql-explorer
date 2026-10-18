@@ -1,11 +1,10 @@
 <script lang="ts">
-  // Spec 017: Bin into cells. The choices write a query (shown in the query panel once kept) and, while the result
-  // would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
+  // Spec 017: Bin into cells. The choices write a query that goes to the SQL tab as it runs (a preview is a run, and Esc
+  // brings the old query back) and, while the result would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
   // it floats over its top left corner. Esc cancels (and puts everything back), Enter keeps the bin.
   import { onDestroy, onMount, tick } from 'svelte'
   import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
-  import { highlightSql } from './sqlHighlight.js'
   import Segmented from './kit/Segmented.svelte'
   import Select from './kit/Select.svelte'
   import Slider from './kit/Slider.svelte'
@@ -58,21 +57,6 @@
   const estimateText = $derived(bin.estimate === 0 ? '' : `About ${nf2.format(bin.estimate)} ${bin.estimate === 1 ? 'cell' : 'cells'}`)
 
   let panel = $state<HTMLDivElement>()
-  /** The query in colored runs: the same parser and colors as the editor. */
-  const runs = $derived(highlightSql(bin.sql ?? ''))
-  /** The query was just copied: the button shows a check for a moment. */
-  let copied = $state(false)
-  async function copySql(): Promise<void> {
-    if (!bin.sql) return
-    try {
-      await navigator.clipboard.writeText(bin.sql)
-      copied = true
-      setTimeout(() => (copied = false), 1500)
-    } catch {
-      // No clipboard (a restricted webview): the text is in the box to select.
-    }
-  }
-
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -160,19 +144,6 @@
         <p class="notice" role="status"><Icon name="info" size={14} /><span>The filters are on a query result, not on the layer, so every row of the layer is used.</span></p>
       {/if}
 
-      {#if bin.sql}
-        <!-- The query is the product: this is what Keep puts in the query panel to read, edit and rerun. -->
-        <details class="sql">
-          <summary>SQL</summary>
-          <div class="sql-box">
-            <!-- A scrollable box must be reachable by keyboard (axe: scrollable-region-focusable). -->
-            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-            <pre aria-label="The query this writes" tabindex="0">{#each runs as run, i (i)}<span class={run.token ? `tok-${run.token}` : undefined}>{run.text}</span>{/each}</pre>
-            <button type="button" class="icon-button copy" onclick={copySql} title="Copy the query" aria-label="Copy the query"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>
-          </div>
-        </details>
-      {/if}
-
       {#if bin.skipped}
         <p class="notice" role="status"><Icon name="info" size={14} /><span>{nf2.format(bin.skipped)} {bin.skipped === 1 ? 'row has' : 'rows have'} no location and {bin.skipped === 1 ? 'is' : 'are'} not counted.</span></p>
       {/if}
@@ -182,7 +153,7 @@
       {:else if bin.overLimit}
         <p class="notice warn" role="alert"><Icon name="info" size={14} /><span>That is more than 100,000 cells: it draws from tiles and takes longer. Pick a coarser size, or run it anyway.</span></p>
       {:else if bin.estimate > 5000}
-        <p class="notice" role="status"><Icon name="info" size={14} /><span>Many cells: press Show to draw them.</span></p>
+        <p class="notice" role="status"><Icon name="info" size={14} /><span>Many cells: press Show to draw them and put the SQL in the SQL tab.</span></p>
       {/if}
     {/if}
   </div>
@@ -258,55 +229,6 @@
     margin: 0;
     color: var(--se-text-secondary);
     font-size: 0.9em;
-  }
-  .sql summary {
-    cursor: pointer;
-    color: var(--se-text-secondary);
-  }
-  .sql-box {
-    position: relative;
-    margin-top: 6px;
-  }
-  .sql-box pre {
-    margin: 0;
-    max-height: 160px;
-    overflow: auto;
-    padding: 6px 28px 6px 8px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-sql-bg, var(--se-input-bg));
-    color: var(--se-sql-fg, var(--se-text-primary));
-    font-family: var(--se-font-mono);
-    font-size: 0.9em;
-    white-space: pre-wrap;
-    word-break: break-word;
-    user-select: text;
-  }
-  /* The editor's colors (--se-sql-*), so the query reads the same here and in the query panel. */
-  .sql-box pre :global(.tok-keyword) {
-    color: var(--se-sql-keyword);
-  }
-  .sql-box pre :global(.tok-string) {
-    color: var(--se-sql-string);
-  }
-  .sql-box pre :global(.tok-number),
-  .sql-box pre :global(.tok-type) {
-    color: var(--se-sql-number);
-  }
-  .sql-box pre :global(.tok-function) {
-    color: var(--se-sql-function);
-  }
-  .sql-box pre :global(.tok-operator) {
-    color: var(--se-sql-operator);
-  }
-  .sql-box pre :global(.tok-comment) {
-    color: var(--se-sql-comment);
-    font-style: italic;
-  }
-  .icon-button.copy {
-    position: absolute;
-    top: 2px;
-    right: 2px;
   }
   .all {
     display: flex;

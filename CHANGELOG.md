@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bin into cells (H3 and A5).** A button in the query panel and one on the map turn the open layer into a grid of hexagons (H3) or
   equal-area pentagons (A5) and color each cell by the number of features, or the sum, average, minimum, maximum or median of a number
   column. The dialog shows each size in your units and about how many cells it gives, previews on the map while the result is small
-  (under 5,000 cells), warns before more than 100,000, and shows the SQL it writes, which Keep puts in the query panel to edit and rerun. It
+  (under 5,000 cells), warns before more than 100,000, and sends the SQL it writes to the SQL tab as it previews, to edit and rerun (Cancel brings your old query back). It
   follows the column filters and the shape filter, can use only the selected rows (as the table `selected_rows`), says how many rows
   have no location, and remembers the grid and measure you used last. Cells across the date line are split in two, and the cells over a
   pole are drawn as caps. A clicked cell shows its id, with a button to copy it.
