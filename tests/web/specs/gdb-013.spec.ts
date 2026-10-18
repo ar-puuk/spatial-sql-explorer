@@ -158,6 +158,21 @@ test.describe('the reader and its storage', () => {
     await expect(statusBar(page)).toContainText('6 features')
   })
 
+  test('a geodatabase open shows what it is doing and can be cancelled', async ({ page }) => {
+    await start(page)
+    // Hold the reader's download back so the open is still going when Cancel appears (after one second).
+    await page.route('**/engine-mirror/npm/gdal3.js@*/**', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000))
+      await route.continue()
+    })
+    await pickFolder(page, fixture('network.gdb'))
+    const progress = page.getByRole('status').filter({ hasText: /geodatabase reader|Reading the geodatabase|Converting layer|Reading layer/ })
+    await expect(progress).toBeVisible({ timeout: 10000 })
+    await page.getByRole('button', { name: 'Cancel opening' }).click()
+    await expect(page.getByRole('heading', { name: /Open a map file/ })).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+  })
+
   test('a reader that cannot be downloaded says so, and nothing stays half-open', async ({ page }) => {
     await start(page)
     await page.route('**/engine-mirror/npm/gdal3.js@*/**', (route) => route.abort())
