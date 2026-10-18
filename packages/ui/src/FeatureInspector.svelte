@@ -97,12 +97,7 @@
       {#each shown as [key, value] (key)}
         <dt title={key}>{key}</dt>
         {@const kind = valueKind(value, types?.[key])}
-        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>
-          {display(value)}
-          {#if key === copyKey && value !== null && value !== undefined}
-            <button type="button" class="copy" title="Copy {key}" aria-label="Copy {key}" onclick={() => void copyValue(key, value)}><Icon name={copied === key ? 'check' : 'copy'} size={12} /></button>
-          {/if}
-        </dd>
+        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>{display(value)}{#if key === copyKey && value !== null && value !== undefined}<button type="button" class="copy" title="Copy {key}" aria-label="Copy {key}" onclick={() => void copyValue(key, value)}><Icon name={copied === key ? 'check' : 'copy'} size={12} /></button>{/if}</dd>
       {/each}
     </dl>
   {/if}
