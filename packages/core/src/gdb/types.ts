@@ -57,6 +57,8 @@ export type GdbProgress =
   | { phase: 'cache'; layer: string }
 
 export interface GdbCallOptions {
+  /** The converted layer as bytes in memory, not a file to read in parts (FlatGeobuf "load for queries"). */
+  whole?: boolean
   signal?: AbortSignal
   onProgress?: (step: GdbProgress) => void
 }

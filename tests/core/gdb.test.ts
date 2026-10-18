@@ -15,9 +15,13 @@ import {
   geometryTypeFromOgr,
   hasDomains,
   isFileGeodatabase,
+  convertedViewSql,
+  gdbFileName,
   isGdbSystemTable,
   layerDomains,
+  namedLayers,
   parseCatalog,
+  placeholderViewSql,
   tableFiles,
   type GdalApi,
   type OgrInfoJson,
@@ -150,5 +154,47 @@ describe('what counts as a geodatabase', () => {
     expect(isFileGeodatabase('C:\\data\\network.gdb\\a00000001.gdbtable')).toBe(true)
     expect(isFileGeodatabase('network.gdb.zip')).toBe(true)
     expect(isFileGeodatabase('network.gpkg')).toBe(false)
+  })
+})
+
+describe('layers read on demand', () => {
+  const names = new Map([
+    ['Roads', 'net.roads'],
+    ['Odd Name', 'net."2020_nodes"'],
+    ['Select', '"select_file"."order"'],
+  ])
+
+  it('finds the geodatabase layers a statement names, quoted or not, in any case', () => {
+    expect(namedLayers('SELECT * FROM net.roads', names)).toEqual(['Roads'])
+    expect(namedLayers('select * from NET . Roads r join "net"."2020_nodes" n on true', names)).toEqual(['Roads', 'Odd Name'])
+    expect(namedLayers('SELECT * FROM "select_file"."order"', names)).toEqual(['Select'])
+  })
+
+  it('ignores a name that only looks similar', () => {
+    expect(namedLayers('SELECT * FROM layer', names)).toEqual([])
+    expect(namedLayers('SELECT * FROM net.roads_old', names)).toEqual([])
+    expect(namedLayers('SELECT * FROM other.net.roads', names)).toEqual([])
+    expect(namedLayers("SELECT 'net.roadsx'", names)).toEqual([])
+  })
+
+  it('stands in for a layer not read yet with its columns and no rows, then becomes the converted file', () => {
+    const roads = {
+      name: 'Roads', geometryType: 'LineString', geometryColumn: 'geom', featureCount: 5, srid: 26912, featureDataset: null, spatial: true, crsWkt: null,
+      fields: [
+        { name: 'class', type: 'Integer', domain: null },
+        { name: 'len', type: 'Real', domain: null },
+        { name: 'built', type: 'DateTime', domain: null },
+        { name: 'name', type: 'String', domain: null },
+      ],
+    } as const
+    expect(placeholderViewSql('net.roads', roads as never)).toBe(
+      'CREATE OR REPLACE VIEW net.roads AS SELECT NULL::BIGINT AS "class", NULL::DOUBLE AS "len", NULL::TIMESTAMP AS "built", NULL::VARCHAR AS "name", NULL::GEOMETRY AS "geom" WHERE false'
+    )
+    expect(convertedViewSql('net.roads', "/se-source/it's.fgb")).toBe(`CREATE OR REPLACE VIEW net.roads AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ST_Read('/se-source/it''s.fgb')`)
+  })
+
+  it('a geodatabase is named without .zip', () => {
+    expect(gdbFileName('network.gdb.zip')).toBe('network.gdb')
+    expect(gdbFileName('network.gdb')).toBe('network.gdb')
   })
 })

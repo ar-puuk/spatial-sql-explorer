@@ -29,6 +29,8 @@ export interface Feature {
  * this one shape.
  */
 export interface Layer {
+  /** Spec 013: a File Geodatabase layer's coded domains (column to code to description), for display only. */
+  columnDomains?: Record<string, Record<string, string>>
   id: string
   sourceUri: string
   sourceFormat: string
@@ -142,7 +144,7 @@ export interface StyleStats {
 }
 
 /** The open pipeline's visible phases (data-model.md OpenPhase). */
-export type OpenPhase = 'registering' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
+export type OpenPhase = 'registering' | 'converting' | 'facts' | 'announce' | 'reading' | 'indexing' | 'ready' | 'cancelled' | 'failed'
 
 // --- Spec 002: query ------------------------------------------------------------
 
