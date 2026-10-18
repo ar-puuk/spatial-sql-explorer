@@ -144,7 +144,8 @@ describe('explainGdalError', () => {
     expect(explainGdalError('Failed to open dataset').code).toBe('unreadable')
     expect(explainGdalError('Failed to open dataset').message).toContain('.gdb')
     expect(explainGdalError(new Error('boom')).message).toContain('boom')
-    expect(explainGdalError([]).message).toContain('could not be read')
+    expect(explainGdalError([]).message).toContain('.gdb')
+    expect(explainGdalError([{ no: 0, message: '' }]).message).toContain('not a readable File Geodatabase')
   })
 })
 

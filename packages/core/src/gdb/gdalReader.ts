@@ -16,8 +16,9 @@ export interface GdalApi {
 /** Turns a failure from GDAL into a message that says what to do. */
 export function explainGdalError(err: unknown): GdbError {
   if (err instanceof GdbError) return err
-  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : JSON.stringify(err)
-  const text = raw && raw !== '[]' && raw !== '{}' ? raw : 'GDAL could not read it'
+  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : Array.isArray(err) ? err.map((e) => (typeof e === 'object' && e !== null && 'message' in e ? String((e as { message: unknown }).message) : String(e))).filter(Boolean).join('; ') : JSON.stringify(err)
+  const text = raw && raw !== '{}' ? raw : ''
+  if (!text) return new GdbError('This folder is not a readable File Geodatabase. Pick the folder that ends in .gdb (or a .gdb.zip).', 'unreadable')
   if (/uncompress|compressed|CDF|\.cdf|SDC/i.test(text)) {
     return new GdbError('This geodatabase is compressed, which no open-source reader can open. In ArcGIS, run "Uncompress File Geodatabase Data" on it, then open it again.', 'compressed')
   }

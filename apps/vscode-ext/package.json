@@ -46,6 +46,12 @@
           "type": "boolean",
           "default": true,
           "description": "Offer place results in the map's search box. A place search sends only the typed text to OpenStreetMap Nominatim, and only when you ask for it. Off: the box searches the layer and coordinates only."
+        },
+        "spatialExplorer.gdb.cacheLimitMB": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 256,
+          "description": "The most disk space (in MB) the converted layers of File Geodatabases may use. The least recently used geodatabases are removed first."
         }
       }
     },
@@ -102,6 +108,12 @@
           },
           {
             "filenamePattern": "*.db"
+          },
+          {
+            "filenamePattern": "*.zip"
+          },
+          {
+            "filenamePattern": "*.gdbtable"
           }
         ],
         "priority": "option"
@@ -130,13 +142,18 @@
         "title": "Open Sample Data (US Counties)",
         "category": "Spatial Explorer",
         "icon": "$(map)"
+      },
+      {
+        "command": "spatialExplorer.clearGdbCache",
+        "title": "Clear Geodatabase Cache",
+        "category": "Spatial Explorer"
       }
     ],
     "menus": {
       "explorer/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i && !explorerResourceIsFolder",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && !explorerResourceIsFolder",
           "group": "navigation@20"
         },
         {
@@ -148,21 +165,21 @@
       "editor/title/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i",
           "group": "1_open@20"
         }
       ],
       "editor/title": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i && activeEditor == workbench.editors.files.textFileEditor",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && activeEditor == workbench.editors.files.textFileEditor",
           "group": "navigation@20"
         }
       ],
       "commandPalette": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db)$/i"
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i"
         },
         {
           "command": "spatialExplorer.exportData",

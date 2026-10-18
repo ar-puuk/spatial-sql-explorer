@@ -4,6 +4,8 @@ import * as sourceServer from './sourceServer'
 import * as path from 'path'
 import * as fs from 'fs'
 import { BASEMAP_HOSTS } from './basemapHosts.generated'
+import { DEFAULT_CACHE_LIMIT_MB, GdbNodeReader, type GdbSource } from './gdbReader'
+import type { GdbCatalog, GdbLayerInfo, GdbProgress } from '../../../packages/core/src/gdb/types'
 
 // SpatialExplorerDocument — minimal CustomDocument wrapper. No in-memory
 // model beyond the URI: DuckDB-WASM (inside the webview) owns the actual
@@ -46,6 +48,9 @@ type WebviewToHostMessage =
   | { type: 'exportState'; state: unknown }
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
+  | { type: 'gdbList'; requestId: number }
+  | { type: 'gdbConvert'; requestId: number; layer: GdbLayerInfo }
+  | { type: 'gdbCancel'; requestId: number }
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
   | { type: 'getSecret'; requestId: number; name: string }
@@ -97,14 +102,20 @@ const FEATURED_TILE_HOSTS = 'https://server.arcgisonline.com https://*.tile.open
 /** Spec 014: the terrain DEM tiles (packages/core/src/terrain.ts TERRAIN_HOSTS). */
 const TERRAIN_HOSTS = 'https://s3.amazonaws.com'
 
-/**
- * Spec 008 FR-018: the same text as GDB_UNSUPPORTED in
- * packages/core/src/source/layers.ts (the extension host doesn't import core).
- */
-const GDB_UNSUPPORTED =
-  "File Geodatabase (.gdb) isn't supported yet: this build has no reader for it. Convert it to GeoPackage, for example: ogr2ogr -f GPKG out.gpkg in.gdb"
-/** Test hook: the last File Geodatabase message shown. */
-let lastGdbMessage: string | null = null
+/** Spec 013: the File Geodatabase a document stands for (a .gdb folder is opened through a file inside it). */
+function gdbSourceOf(uri: vscode.Uri): GdbSource | null {
+  if (uri.scheme !== 'file') return null
+  const lower = uri.fsPath.toLowerCase()
+  if (lower.endsWith('.zip')) return { fsPath: uri.fsPath, zip: true }
+  const folder = path.dirname(uri.fsPath)
+  return folder.toLowerCase().endsWith('.gdb') ? { fsPath: folder, zip: false } : null
+}
+
+/** What the viewer calls the document: a geodatabase by its folder's name. */
+function displayNameOf(uri: vscode.Uri): string {
+  const gdb = gdbSourceOf(uri)
+  return gdb && !gdb.zip ? path.basename(gdb.fsPath) : path.basename(uri.fsPath)
+}
 
 /** Spec 008: the setting the webview needs (contracts/host-and-shells.md). */
 function placeSearchEnabled(): boolean {
@@ -258,6 +269,13 @@ export function resolveInside(rootFsPath: string, p: string): string | null {
   return resolved.startsWith(rootFsPath.endsWith(path.sep) ? rootFsPath : rootFsPath + path.sep) ? resolved : null
 }
 
+let gdbReaderInstance: GdbNodeReader | null = null
+/** The one geodatabase reader of this extension host (set in activate). */
+function gdbReader(): GdbNodeReader {
+  if (!gdbReaderInstance) throw new Error('The geodatabase reader is not ready.')
+  return gdbReaderInstance
+}
+
 class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvider<SpatialExplorerDocument> {
   private panels = new Set<vscode.WebviewPanel>()
   /** Spec 007: each viewer's loopback-server registration, and the files a whole-transfer fallback would send. */
@@ -382,6 +400,10 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
             void reply({ error: err instanceof Error ? err.message : String(err) })
           }
         )
+      } else if (msg.type === 'gdbList' || msg.type === 'gdbConvert') {
+        void this.handleGdb(panel, document.uri, msg)
+      } else if (msg.type === 'gdbCancel') {
+        this.gdbAborts.get(msg.requestId)?.abort()
       } else if (msg.type === 'pruneEngineFiles') {
         void pruneEngineFiles(this.context, msg.keep)
       } else if (msg.type === 'loadState') {
@@ -593,11 +615,12 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     // Spec 008 research §15: the SQL engine isn't shipped; the webview downloads it (hash-checked).
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
     const primaryName = path.basename(documentUri.fsPath)
+    panel.title = displayNameOf(documentUri)
     await panel.webview.postMessage({
       type: 'assets',
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
       placeSearchEnabled: placeSearchEnabled(),
-      primaryFileName: primaryName,
+      primaryFileName: displayNameOf(documentUri),
       // Stable per-file key for persisted webview state (spec 002 history).
       primaryFileUri: documentUri.toString(),
     })
@@ -608,6 +631,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
       const files: Array<{ name: string; uri: vscode.Uri; isPrimary: boolean }> = [{ name: primaryName, uri: documentUri, isPrimary: true }]
       try {
+        if (gdbSourceOf(documentUri)?.zip === false) throw new Error('a geodatabase table file has no sidecars')
         const entries = await vscode.workspace.fs.readDirectory(dirUri)
         for (const [entryName] of entries) {
           if (entryName === primaryName) continue
@@ -792,6 +816,42 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     return out
   }
 
+  /** Spec 013: requests in flight, so the webview's Cancel can stop one. */
+  private gdbAborts = new Map<number, AbortController>()
+  /** The catalog of each geodatabase listed in this window (convert needs its domains). */
+  private gdbCatalogs = new Map<string, GdbCatalog>()
+
+  /** Lists a geodatabase's layers, or converts one layer into the cache and serves it to the webview. */
+  private async handleGdb(panel: vscode.WebviewPanel, documentUri: vscode.Uri, msg: Extract<WebviewToHostMessage, { type: 'gdbList' | 'gdbConvert' }>): Promise<void> {
+    const reply = (result: unknown): Thenable<boolean> => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+    const progress = (step: GdbProgress): void => void panel.webview.postMessage({ type: 'gdbProgress', requestId: msg.requestId, step })
+    const abort = new AbortController()
+    this.gdbAborts.set(msg.requestId, abort)
+    try {
+      const source = gdbSourceOf(documentUri)
+      if (!source) return void reply({ error: 'This geodatabase is not on a disk this window can read.', code: 'unreadable' })
+      const name = displayNameOf(documentUri)
+      const reader = gdbReader()
+      const catalog = this.gdbCatalogs.get(source.fsPath) ?? (await reader.list(source, name, { signal: abort.signal, onProgress: progress }))
+      this.gdbCatalogs.set(source.fsPath, catalog)
+      if (msg.type === 'gdbList') return void reply({ catalog })
+      const layer = catalog.layers.find((l) => l.name === msg.layer.name)
+      if (!layer) return void reply({ error: `The layer "${msg.layer.name}" is not in this geodatabase.`, code: 'unreadable' })
+      const converted = await reader.convert(source, catalog, layer, { signal: abort.signal, onProgress: progress })
+      const token = this.sources.get(panel)?.token
+      if (!token) return void reply({ error: "This window can't serve files to the viewer, so the geodatabase can't be shown.", code: 'unreadable' })
+      const served = `gdb/${path.basename(converted.path)}`
+      sourceServer.addFiles(token, [{ name: served, fsPath: converted.path }])
+      return void reply({ name: path.basename(converted.path), size: converted.size, url: this.sourceUrl(panel, served), domains: converted.domains })
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? 'unreadable'
+      log(`geodatabase: ${err instanceof Error ? err.message : String(err)}`)
+      return void reply({ error: err instanceof Error ? err.message : String(err), code })
+    } finally {
+      this.gdbAborts.delete(msg.requestId)
+    }
+  }
+
   /** The URL of a file served under a viewer's token. */
   private sourceUrl(panel: vscode.WebviewPanel, name: string): string {
     const base = this.sources.get(panel)?.urlBase ?? ''
@@ -909,6 +969,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   output = vscode.window.createOutputChannel('Spatial Explorer')
   context.subscriptions.push(output)
   const provider = new SpatialExplorerEditorProvider(context)
+  // Spec 013: File Geodatabases. The reader's files come from the same pinned downloads as the SQL engine.
+  gdbReaderInstance = new GdbNodeReader(
+    path.join(context.globalStorageUri.fsPath, 'gdb-cache'),
+    async (file) => ({ fsPath: (await ensureEngineFile(context, file, false)).fsPath, fresh: false }),
+    () => Math.max(256, vscode.workspace.getConfiguration('spatialExplorer').get<number>('gdb.cacheLimitMB', DEFAULT_CACHE_LIMIT_MB)) * 1024 * 1024,
+    log
+  )
+  context.subscriptions.push({ dispose: () => gdbReaderInstance?.stop() })
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('spatialExplorer.placeSearch.enabled')) provider.postPreferences()
@@ -946,19 +1014,31 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       if (!target) return
       const ext = path.posix.extname(target.path).toLowerCase()
       if (ext === '.gdb') {
-        // Spec 008 FR-018 (research §2): no File Geodatabase reader in this runtime. Say so, with a way forward.
-        const command = `ogr2ogr -f GPKG "${path.basename(target.fsPath, '.gdb')}.gpkg" "${target.fsPath}"`
-        lastGdbMessage = GDB_UNSUPPORTED
-        void vscode.window.showInformationMessage(GDB_UNSUPPORTED, 'Copy command').then(async (choice) => {
-          if (choice === 'Copy command') await vscode.env.clipboard.writeText(command)
-        })
+        // Spec 013: a File Geodatabase is a folder, which a custom editor cannot open: open a table file inside it.
+        let marker: vscode.Uri | undefined
+        try {
+          const entries = await vscode.workspace.fs.readDirectory(target)
+          const tables = entries.filter(([n, t]) => t === vscode.FileType.File && /^a[0-9a-f]{8}.gdbtable$/i.test(n)).map(([n]) => n)
+          marker = vscode.Uri.joinPath(target, tables.find((n) => n.toLowerCase() === 'a00000001.gdbtable') ?? tables[0] ?? '')
+          if (!tables.length) marker = undefined
+        } catch {
+          marker = undefined
+        }
+        if (!marker) {
+          void vscode.window.showWarningMessage(`"${path.basename(target.fsPath)}" doesn't look like a File Geodatabase: it holds no table files (a0000000N.gdbtable).`)
+          return
+        }
+        await vscode.commands.executeCommand('vscode.openWith', marker, 'spatialExplorer.editorOption')
         return
       }
       const viewType = DEFAULT_EDITOR_EXTENSIONS.has(ext) ? 'spatialExplorer.editor' : 'spatialExplorer.editorOption'
       await vscode.commands.executeCommand('vscode.openWith', target, viewType)
     }),
     vscode.commands.registerCommand('spatialExplorer._getLoadState', () => lastLoadState),
-    vscode.commands.registerCommand('spatialExplorer._getGdbMessage', () => lastGdbMessage),
+    vscode.commands.registerCommand('spatialExplorer.clearGdbCache', () => {
+      const removed = gdbReader().clearCache()
+      void vscode.window.showInformationMessage(removed.files ? `Cleared the geodatabase cache (${(removed.bytes / 1024 / 1024).toFixed(0)} MB).` : 'The geodatabase cache is empty.')
+    }),
     // Spec 008 T066: the active viewer's Content-Security-Policy.
     vscode.commands.registerCommand('spatialExplorer._getCsp', () => provider.activeCsp()),
     vscode.commands.registerCommand('spatialExplorer._getViewState', () => lastViewState),
