@@ -137,7 +137,7 @@
             {#each FORMATS as f (f)}<li>{f}</li>{/each}
           </ul>
         </div>
-        <p class="fine">For a Shapefile, select the .shp with its .shx, .dbf and .prj. A .qml with the same name brings its QGIS style. A File Geodatabase (experimental) is the folder that ends in .gdb: use the arrow next to Choose a file. A zip opens like the file inside it. If your browser says it will “upload” the folder, nothing is sent anywhere: the files are read in this tab.</p>
+        <p class="fine">For a Shapefile, select the .shp with its .shx, .dbf and .prj. A .qml with the same name brings its QGIS style. A File Geodatabase (experimental) is the folder that ends in .gdb: open it from the arrow beside the file button. A zip opens like the file inside it. If your browser says it will “upload” the folder, nothing is sent anywhere: the files are read in this tab.</p>
       </section>
 
       <section class="demo" aria-label="A query coloring a map of the world">

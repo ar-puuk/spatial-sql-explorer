@@ -9,17 +9,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-18
+
+File Geodatabases and zipped data (experimental), and a fix for Firefox.
+
 ### Added
 
 - **File Geodatabase (experimental).** Open an Esri `.gdb` folder or a `.gdb.zip`: in VS Code, right-click it and choose Open in Spatial Explorer; on the web, choose or drop the folder. A layer that records no coordinate system asks for one. Its layers (and attribute tables) are listed, grouped by feature dataset, and each layer is a table in the geodatabase's schema (`network.roads`), read the first time a query names it, so layers can be joined. Every column is kept. Converted layers are cached (VS Code's storage, the browser's origin-private storage) so opening one again is immediate, and can be cleared (Spatial Explorer: Clear Geodatabase Cache; "Clear stored layers" in the web header). The reader is gdal3.js (GDAL in WebAssembly, LGPL, about 40 MB): downloaded once the first time, checked against a recorded hash, kept for offline use, run in a separate process in VS Code and in a worker on the web.
-- **Firefox.** The web app's SQL engine never finished starting in Firefox (every file stuck on "Reading file facts…"): the block on the a5 extension's phone-home was a POST to a blob: URL, which Firefox never answers. It now goes to a URL that fails at once in every browser.
-- **Geodatabases without browser storage.** Where the browser refuses origin-private storage (Firefox private windows, blocked site data: "Security error when calling GetDirectory"), a converted layer is kept in memory for the tab's life instead of failing; nothing is cached across visits there.
 - **Domain descriptions.** A geodatabase column with a coded domain shows its description in the table, the selected feature's card, the hover tooltip and the column filter; a switch in the table toolbar shows the stored codes instead (remembered). SQL, filters and exports always use the code.
 - **Zipped data.** A zip holding a Shapefile (with its parts), GeoPackage, GeoJSON, FlatGeobuf, GeoParquet, CSV, GML, SQLite or Excel opens as if unzipped; a zip with several datasets asks which. A zip never opens by itself: right-click it or use Open With.
+
+### Changed
+
+- The web app has one Open button with a menu: the label opens the file picker, the arrow offers **Geodatabase folder** (marked Experimental), which a file picker cannot choose. The separate geodatabase button is gone. Chrome and Edge use the directory picker for it, whose prompt is accurate (Firefox still shows its "upload" wording, which the landing page explains: nothing leaves the tab).
+
+### Fixed
+
+- **Firefox.** The web app's SQL engine never finished starting in Firefox (every file stuck on "Reading file factsâ€¦"): the block on the a5 extension's phone-home was a POST to a blob: URL, which Firefox never answers. It now goes to a URL that fails at once in every browser.
+- **Geodatabases without browser storage.** Where the browser refuses origin-private storage (Firefox private windows, blocked site data: "Security error when calling GetDirectory"), a converted layer is kept in memory for the tab's life instead of failing; nothing is cached across visits there.
 
 ### Notes
 
 - Compressed geodatabases can't be read by any open-source reader (uncompress them in ArcGIS first); tables with 64-bit ObjectIDs (ArcGIS Pro 3.2+) are untested. In the browser a layer's table files and its converted copy must fit in memory (about 3 GB).
+- Firefox prints "The WebAssembly exception handling 'try' instruction is deprecated" for the SQL engine: it comes from the engine's build and goes away with an upstream rebuild.
 
 ## [0.8.0] - 2026-10-18
 

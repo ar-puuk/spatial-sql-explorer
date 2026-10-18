@@ -61,7 +61,7 @@
 </script>
 
 <div class="split {size}" bind:this={root}>
-  <button type="button" class="main" bind:this={button} onclick={onFile}><Icon name="import" size={size === 'large' ? 16 : 14} />{label}</button>
+  <button type="button" class="label" bind:this={button} onclick={onFile}><Icon name="import" size={size === 'large' ? 16 : 14} />{label}</button>
   <button
     type="button"
     class="arrow"
@@ -120,14 +120,14 @@
     font-size: 14px;
     font-weight: 600;
   }
-  .small .main {
+  .small .label {
     padding: 0 10px 0 11px;
   }
-  .large .main {
+  .large .label {
     gap: 8px;
     padding: 0 14px 0 16px;
   }
-  .main {
+  .label {
     border-radius: var(--se-radius-sm) 0 0 var(--se-radius-sm);
   }
   .arrow {
