@@ -90,8 +90,10 @@ export interface DatasetFacts {
    * one opened as `layer`.
    */
   /** `sqlName`: what a query names the layer by (`us_boundaries.counties`). */
-  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null; sqlName?: string }>
+  layers?: Array<{ name: string; geometryType: GeometryType | null; featureCount: number | null; sqlName?: string; /** Spec 013: the geodatabase's feature dataset holding the layer. */ group?: string | null }>
   activeLayer?: string
+  /** Spec 013: the file is a geodatabase read through the experimental reader. */
+  experimental?: boolean
   rows: number
   /** True only while a count is still pending. */
   rowsEstimated: boolean

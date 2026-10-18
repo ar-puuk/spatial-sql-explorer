@@ -4,7 +4,7 @@
 // name, feature count, geometry type and CRS, attribute-only tables included.
 // One layer is read as `layer`; every layer is a view in the file's schema
 // (`us_boundaries.counties`), the others read only when a query uses them. File Geodatabase has no driver in this
-// runtime (research §2): it is refused with a conversion hint.
+// runtime (research §2): the shells read it themselves (spec 013, packages/core/src/gdb/).
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { GeometryType } from '../models.js'
 import { normalizeGeometryType, quoteLiteral } from '../query/util.js'
@@ -23,17 +23,6 @@ export interface FileLayer {
 /** A format GDAL may hold several layers in (ST_Read_Meta applies). */
 export function mayHaveLayers(format: string): boolean {
   return format === 'geopackage' || format === 'gml' || format === 'sqlite'
-}
-
-/** The message for a File Geodatabase (FR-018: not readable in this runtime). */
-export const GDB_UNSUPPORTED =
-  "File Geodatabase (.gdb) isn't supported yet: this build has no reader for it. Convert it to GeoPackage, for example: ogr2ogr -f GPKG out.gpkg in.gdb"
-
-export class UnsupportedFormatError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'UnsupportedFormatError'
-  }
 }
 
 /** A path inside a File Geodatabase folder, the folder itself, or a zip of one. */

@@ -5,7 +5,7 @@
   // map click also opens this card with every attribute of that feature,
   // like QGIS's Identify results. It sits in the map's top-left corner rather
   // than following the feature, so it never covers what was clicked.
-  import type { Feature } from '@spatial-explorer/core'
+  import { describeCode, type ColumnDomains, type DomainDisplay, type Feature } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import { valueKind, isNumericKind } from './valueKind.js'
 
@@ -17,10 +17,13 @@
     collapsed?: boolean
     /** An attribute whose value is an identifier worth copying (spec 017: a grid cell's `cell_id`): it gets a copy button. */
     copyKey?: string | null
+    /** Spec 013: a geodatabase layer's coded domains, and whether values show descriptions or codes. */
+    domains?: ColumnDomains
+    domainMode?: DomainDisplay
     onZoom: () => void
     onClose: () => void
   }
-  let { feature, types, collapsed = false, copyKey = null, onZoom, onClose }: Props = $props()
+  let { feature, types, collapsed = false, copyKey = null, domains = {}, domainMode = 'descriptions', onZoom, onClose }: Props = $props()
 
   /** The key whose value was just copied: its button shows a check for a moment. */
   let copied = $state<string | null>(null)
@@ -96,8 +99,9 @@
     <dl>
       {#each shown as [key, value] (key)}
         <dt title={key}>{key}</dt>
-        {@const kind = valueKind(value, types?.[key])}
-        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>{display(value)}{#if key === copyKey && value !== null && value !== undefined}<button type="button" class="copy" title="Copy {key}" aria-label="Copy {key}" onclick={() => void copyValue(key, value)}><Icon name={copied === key ? 'check' : 'copy'} size={12} /></button>{/if}</dd>
+        {@const words = domainMode === 'descriptions' ? describeCode(domains, key, value) : null}
+        {@const kind = words !== null ? 'text' : valueKind(value, types?.[key])}
+        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)} title={words !== null ? `${words} (${display(value)})` : undefined}>{words ?? display(value)}{#if key === copyKey && value !== null && value !== undefined}<button type="button" class="copy" title="Copy {key}" aria-label="Copy {key}" onclick={() => void copyValue(key, value)}><Icon name={copied === key ? 'check' : 'copy'} size={12} /></button>{/if}</dd>
       {/each}
     </dl>
   {/if}

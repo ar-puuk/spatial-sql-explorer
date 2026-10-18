@@ -11,9 +11,11 @@
     type: string
     /** The applied filter on this column, as the session parsed it. */
     filter: ColumnFilter | null
+    /** Spec 013: the column's coded domain (code to description) while descriptions are shown: pick a description, filter on its code. */
+    domain?: Record<string, string>
     onChange: (filter: ColumnFilter | null) => void
   }
-  let { column, type, filter, onChange }: Props = $props()
+  let { column, type, filter, domain, onChange }: Props = $props()
 
   const kinds = $derived(filterKindsFor(type))
   const numeric = $derived(kinds.includes('between'))
@@ -61,12 +63,23 @@
     onChange(draft)
   }
 
+  function setCoded(code: string): void {
+    onChange(code === '' ? null : { column, kind: 'eq', value: code })
+  }
+
   function setBool(v: string): void {
     onChange(v === '' ? null : { column, kind: 'bool', value: v === 'true' })
   }
 </script>
 
-{#if kinds.length === 0}
+{#if domain && Object.keys(domain).length && kinds.includes('eq')}
+  <select class="input" aria-label={`Filter ${column}`} value={filter && typeof filter.value !== 'boolean' ? String(filter.value) : ''} onchange={(e) => setCoded(e.currentTarget.value)}>
+    <option value="">Any</option>
+    {#each Object.entries(domain) as [code, description] (code)}
+      <option value={code}>{description}</option>
+    {/each}
+  </select>
+{:else if kinds.length === 0}
   <span class="none" aria-hidden="true"></span>
 {:else if kinds[0] === 'bool'}
   <select class="input" aria-label={`Filter ${column}`} value={filter ? String(filter.value) : ''} onchange={(e) => setBool(e.currentTarget.value)}>

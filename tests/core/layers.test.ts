@@ -2,7 +2,7 @@
 // and named, and File Geodatabase detection. Listing runs in the real engine
 // in tests/web/specs/layers.spec.ts.
 import { describe, expect, it } from 'vitest'
-import { activeLayerOf, GDB_UNSUPPORTED, isFileGeodatabase, mayHaveLayers, readLayerSql, type FileLayer } from '@spatial-explorer/core'
+import { activeLayerOf, GDB_NO_READER, isFileGeodatabase, mayHaveLayers, readLayerSql, type FileLayer } from '@spatial-explorer/core'
 
 const L = (name: string, geometryType: FileLayer['geometryType']): FileLayer => ({ name, geometryType, geometryColumn: geometryType ? 'geom' : null, featureCount: 1, srid: 4326 })
 const layers = [L('lookup', null), L('roads', 'LineString'), L('parcels', 'Polygon')]
@@ -34,8 +34,8 @@ describe('File Geodatabase', () => {
     for (const n of ['two.gdb', 'C:/data/two.gdb', 'two.gdb/a00000001.gdbtable', 'two.gdb.zip', 'a00000004.gdbtable']) expect(isFileGeodatabase(n)).toBe(true)
     for (const n of ['two.gpkg', 'gdb.geojson', 'gdbx.zip']) expect(isFileGeodatabase(n)).toBe(false)
   })
-  it('the message says why and how to convert', () => {
-    expect(GDB_UNSUPPORTED).toMatch(/isn't supported yet/)
-    expect(GDB_UNSUPPORTED).toContain('ogr2ogr -f GPKG')
+  it('a host without a reader says so and how to convert', () => {
+    expect(GDB_NO_READER).toMatch(/can't read File Geodatabases/)
+    expect(GDB_NO_READER).toContain('ogr2ogr -f GPKG')
   })
 })

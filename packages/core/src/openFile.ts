@@ -25,7 +25,7 @@ import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows 
 import { planSqliteSource } from './source/sqlite.js'
 import { fileSqlNames, RESERVED_NAMES_SQL, type FileSqlNames } from './sql/names.js'
 import { activeLayerOf, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, type FileLayer } from './source/layers.js'
-import { chooseDataset, extractDataset, inspectZip, isZipName } from './source/zip.js'
+import { chooseDataset, extractDataset, inspectZip, isZipName, ZipChoiceError, type ZipDataset } from './source/zip.js'
 import { convertedViewSql, openGeodatabaseLayer, placeholderViewSql, type GdbOpened } from './gdb/open.js'
 import { GdbError, type GdbLayerInfo, type GdbProgress } from './gdb/types.js'
 import type { FileSource } from './hostAdapter.js'
@@ -269,6 +269,8 @@ export interface OpenHooks {
   confirmWholeRead?(sizeBytes: number, format: string): Promise<boolean>
   /** Receives a function that interrupts the engine statement in flight (FR-002: Cancel within 3 s). */
   onCancelHandle?(interrupt: () => Promise<void>): void
+  /** Spec 013: a zip holding several datasets asks which to open; null cancels the open. */
+  chooseDataset?(datasets: Array<{ name: string; size: number }>): Promise<string | null>
   /** Polled between steps; true stops the open with QueryCancelledError. */
   isCancelled?(): boolean
 }
@@ -350,7 +352,17 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       gdb = await openGdb(ref, deps, hooks, options, abort.signal)
       source = gdb.converted.source
     } else if (contents.kind === 'datasets') {
-      source = extractDataset(zip.bytes, chooseDataset(contents.datasets, options.dataset))
+      let dataset: ZipDataset
+      try {
+        dataset = chooseDataset(contents.datasets, options.dataset)
+      } catch (err) {
+        // Several datasets: the person chooses (the shell's dialog), or there is nobody to ask.
+        if (!(err instanceof ZipChoiceError) || !hooks.chooseDataset) throw err
+        const picked = await hooks.chooseDataset(err.datasets.map((d) => ({ name: d.name, size: d.size })))
+        if (picked === null) throw new QueryCancelledError()
+        dataset = chooseDataset(contents.datasets, picked)
+      }
+      source = extractDataset(zip.bytes, dataset)
     } else {
       throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel or a File Geodatabase).`)
     }
@@ -504,7 +516,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       loadTimings: timings,
       facts: {
         ...factsOf(table, opened, mode.mode, fallback),
-        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name) })), activeLayer: active.name } : {}),
+        ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name), ...(gdb ? { group: (l as GdbLayerInfo).featureDataset } : {}) })), activeLayer: active.name } : {}),
+        ...(gdb ? { experimental: true } : {}),
       },
     }
     hooks.onPhase?.('ready', detail)

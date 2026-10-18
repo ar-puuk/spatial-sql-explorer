@@ -36,7 +36,12 @@ export async function geodatabaseFiles(files: readonly File[]): Promise<GdbFiles
   }
   const zip = files.length === 1 && /\.zip$/i.test(files[0].name) ? files[0] : null
   if (!zip) return null
-  const names = await listZipNames(zip.size, async (offset, length) => new Uint8Array(await zip.slice(offset, offset + length).arrayBuffer()))
+  let names: string[]
+  try {
+    names = await listZipNames(zip.size, async (offset, length) => new Uint8Array(await zip.slice(offset, offset + length).arrayBuffer()))
+  } catch {
+    return null
+  }
   const inner = gdbFolderOf(names)
   if (inner === null && !names.some((n) => /(^|\/)a[0-9a-f]{8}\.gdbtable$/i.test(n))) return null
   return { kind: 'zip', files: [zip], zipFolder: inner, name: zip.name.replace(/\.zip$/i, '') }
