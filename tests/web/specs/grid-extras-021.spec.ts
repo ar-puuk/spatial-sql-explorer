@@ -233,7 +233,7 @@ test.describe('the dialog (spec 021)', () => {
     await expect.poll(() => sqlText(page), { timeout: 30000 }).toContain('ST_Boundary')
   })
 
-  test('smoothing is a switch and a number of rings: any whole number up to 10, with arrows; H3 only, and not for a median', async ({ page }) => {
+  test('smoothing is a switch and a number of rings: any whole number up to 9, with arrows; H3 only, and not for a median', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, fixture('crashes.geojson'))
     await openQueryPanel(page)
@@ -247,7 +247,7 @@ test.describe('the dialog (spec 021)', () => {
     await expect(rings).toHaveValue('1')
     await expect.poll(() => sqlText(page), { timeout: 30000 }).toContain('h3_grid_disk(cell, 1)')
     await expect(page.getByText('with neighbors within 1 ring').first()).toBeVisible({ timeout: 30000 })
-    // The arrow keys step the number, and any whole number up to 10 is allowed (not only 1 to 3).
+    // The arrow keys step the number, and any whole number up to 9 is allowed (not only 1 to 3).
     await rings.focus()
     await page.keyboard.press('ArrowUp')
     await expect(rings).toHaveValue('2')
@@ -262,10 +262,10 @@ test.describe('the dialog (spec 021)', () => {
     await expect(rings).toHaveValue('4')
     await rings.fill('999')
     await rings.press('Enter')
-    await expect(rings).toHaveValue('10')
+    await expect(rings).toHaveValue('9')
     await rings.fill('abc')
     await rings.press('Tab')
-    await expect(rings).toHaveValue('10')
+    await expect(rings).toHaveValue('9')
     await rings.fill('4')
     await rings.press('Enter')
     await expect(rings).toHaveValue('4')

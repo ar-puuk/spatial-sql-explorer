@@ -21,9 +21,9 @@ describe('the spec (spec 021)', () => {
     expect(binSpecProblem({ ...base, smooth: 1, assign: 'cover' }, FACTS)).toContain('cannot be combined')
     expect(binSpecProblem({ ...base, system: 'a5', resolution: 8, smooth: 1 }, FACTS)).toContain('H3 only')
   })
-  it('warns past 5 rings and stops at 10', () => {
+  it('warns past 5 rings and stops at 9', () => {
     expect(SMOOTH_WARN_RINGS).toBe(5)
-    expect(MAX_SMOOTH_RINGS).toBe(10)
+    expect(MAX_SMOOTH_RINGS).toBe(9)
     expect(diskSize(6)).toBe(127)
   })
   it('keeps a median without smoothing, and A5 without it', () => {

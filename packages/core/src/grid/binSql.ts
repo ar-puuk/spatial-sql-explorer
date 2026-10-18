@@ -29,7 +29,7 @@ export interface BinSpec {
 }
 
 /** The most rings of neighbors (user decision 2026-10-17: a quick-look summary, not advanced analysis). A disk has 3k(k+1)+1 cells. */
-export const MAX_SMOOTH_RINGS = 10
+export const MAX_SMOOTH_RINGS = 9
 /** More rings than this draws a warning in the dialog (each cell becomes a disk of 3k(k+1)+1 cells, and the work grows with it). */
 export const SMOOTH_WARN_RINGS = 5
 
