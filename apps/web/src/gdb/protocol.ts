@@ -25,6 +25,8 @@ export type ListResult = GdbCatalog
 export interface ConvertResult {
   /** The converted file's name inside the OPFS folder `gdb-cache/<key>/`. */
   file: string
+  /** Only where the browser has no origin-private storage: the converted layer itself, kept in memory by the app. */
+  bytes?: ArrayBuffer
 }
 
 /** OPFS: where converted layers live. */

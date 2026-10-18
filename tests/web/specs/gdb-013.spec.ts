@@ -53,6 +53,34 @@ test.describe('a geodatabase folder', () => {
     await expect(page.getByRole('button', { name: 'Choose a geodatabase folder' })).toBeVisible()
   })
 
+  test('without origin-private storage (a Firefox private window) the layer is kept in memory and still opens', async ({ page }) => {
+    // Firefox answers navigator.storage.getDirectory() with a SecurityError there. A worker cannot be patched
+    // from the page, so the reader's worker is started through a wrapper that breaks it first.
+    await page.addInitScript(() => {
+      const refuse = "navigator.storage.getDirectory = () => Promise.reject(new DOMException('Security error when calling GetDirectory', 'SecurityError'));"
+      navigator.storage.getDirectory = () => Promise.reject(new DOMException('Security error when calling GetDirectory', 'SecurityError'))
+      const Real = window.Worker
+      window.Worker = class extends Real {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          let target = url
+          if (String(url).includes('gdbWorker')) {
+            const patch = URL.createObjectURL(new Blob([refuse], { type: 'text/javascript' }))
+            target = URL.createObjectURL(new Blob([`import ${JSON.stringify(patch)};\nimport ${JSON.stringify(new URL(String(url), location.href).href)};`], { type: 'text/javascript' }))
+          }
+          super(target, options)
+        }
+      } as typeof Worker
+    })
+    await start(page)
+    await pickFolder(page, fixture('network.gdb'))
+    await rendered(page)
+    await expect(layerPicker(page)).toHaveValue('roads')
+    await expect(statusBar(page)).toContainText('6 features')
+    await openQueryPanel(page)
+    await runQuery(page, 'SELECT count(*) AS n FROM network.nodes')
+    expect((await column(page, 0))[0]).toBe('5')
+  })
+
   test('when the directory picker fails, the input chooser takes over', async ({ page }) => {
     await page.addInitScript(() => {
       ;(window as unknown as Record<string, unknown>).showDirectoryPicker = () => Promise.reject(new DOMException('blocked', 'SecurityError'))

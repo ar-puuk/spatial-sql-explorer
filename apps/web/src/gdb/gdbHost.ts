@@ -80,6 +80,8 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
   let idle: ReturnType<typeof setTimeout> | null = null
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; progress?: (p: GdbProgress) => void }>()
   const catalogs = new Map<string, GdbCatalog>()
+  /** Converted layers held in memory where the browser has no origin-private storage (keyed `<key>/<file>`). */
+  const inMemory = new Map<string, File>()
   /** One command at a time: a worker runs one GDAL call at a time anyway. */
   let queue: Promise<unknown> = Promise.resolve()
 
@@ -211,6 +213,10 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
         }
       }
     }
+    for (const f of inMemory.values()) {
+      files++
+      bytes += f.size
+    }
     return { files, bytes }
   }
 
@@ -241,21 +247,32 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       const key = await keyOf(source)
       const catalog = catalogs.get(key) ?? (await this.list(ref, callOptions))
       const file = `${convertedName(layer.name, callOptions.assumeCrs)}.fgb`
+      const memoryKey = `${key}/${file}`
       let dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key).catch(() => null) ?? null)
-      const cached = dir !== null && (await readText(dir, `${file}.done`)) !== null
+      let handle: File | undefined = inMemory.get(memoryKey)
+      const cached = handle !== undefined || (dir !== null && (await readText(dir, `${file}.done`)) !== null)
       if (!cached) {
+        let result: ConvertResult
         try {
-          await run<ConvertResult>((id) => ({ op: 'convert', id, source, key, layer: { name: layer.name, spatial: layer.spatial }, assumeCrs: callOptions.assumeCrs, file }), callOptions)
+          result = await run<ConvertResult>((id) => ({ op: 'convert', id, source, key, layer: { name: layer.name, spatial: layer.spatial }, assumeCrs: callOptions.assumeCrs, file }), callOptions)
         } catch (err) {
           if (err instanceof DOMException && err.name === 'QuotaExceededError') throw new GdbError('The browser has no room to keep the converted layer. Clear the stored layers (the button in the header) or free some disk space.', 'too-large')
           throw err
         }
-        dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key) ?? null)
-        void prune(key)
-        void navigator.storage?.persist?.().catch(() => false)
+        if (result.bytes) {
+          // No origin-private storage here (a Firefox private window, blocked site data): kept in memory until the tab closes.
+          handle = new File([result.bytes], file)
+          inMemory.set(memoryKey, handle)
+        } else {
+          dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key) ?? null)
+          void prune(key)
+          void navigator.storage?.persist?.().catch(() => false)
+        }
       }
-      if (!dir) throw new GdbError('The converted layer could not be found in the browser storage.', 'unreadable')
-      const handle = await (await dir.getFileHandle(file)).getFile()
+      if (!handle) {
+        if (!dir) throw new GdbError('The converted layer could not be found in the browser storage.', 'unreadable')
+        handle = await (await dir.getFileHandle(file)).getFile()
+      }
       const domains = layerDomains(layer, catalog.domains)
       const sourceFile: FileSource = callOptions.whole
         ? { kind: 'bytes', name: file, size: handle.size, bytes: new Uint8Array(await handle.arrayBuffer()), sidecars: [], styleSidecar: null }
@@ -271,6 +288,7 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       stop()
       catalogs.clear()
       const { files, bytes } = await measure()
+      inMemory.clear()
       try {
         await (await navigator.storage.getDirectory()).removeEntry(CACHE_DIR, { recursive: true })
       } catch {

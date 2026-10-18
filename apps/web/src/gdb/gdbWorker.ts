@@ -18,6 +18,7 @@ interface Fs {
   unmount(mountpoint: string): void
   writeFile(path: string, data: Uint8Array): void
   readFile(path: string, opts: { encoding: 'utf8' }): string
+  readFile(path: string, opts: { encoding: 'binary' }): Uint8Array
   readdir(path: string): string[]
   unlink(path: string): void
   stat(path: string): { size: number }
@@ -38,8 +39,8 @@ let gdal: Gdal | null = null
 const recent: string[] = []
 let mounts = 0
 
-function reply(message: FromWorker): void {
-  postMessage(message)
+function reply(message: FromWorker, transfer: Transferable[] = []): void {
+  postMessage(message, transfer)
 }
 
 /** Loads gdal3.js from the bytes the app verified (hash-checked), without any network request of its own. */
@@ -128,9 +129,15 @@ async function openMounted(g: Gdal, mounted: { open: string; vfs: string[] }, op
   return opened.datasets[0]
 }
 
-async function cacheDir(key: string): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory()
-  return (await root.getDirectoryHandle(CACHE_DIR, { create: true })).getDirectoryHandle(key, { create: true })
+/** The folder for this geodatabase's converted layers, or null where the browser has no origin-private storage (Firefox private windows, blocked site data). */
+async function cacheDir(key: string): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    const root = await navigator.storage.getDirectory()
+    return await (await root.getDirectoryHandle(CACHE_DIR, { create: true })).getDirectoryHandle(key, { create: true })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'QuotaExceededError') throw err
+    return null
+  }
 }
 
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, write: (handle: FileSystemSyncAccessHandle) => void | Promise<void>): Promise<void> {
@@ -153,8 +160,10 @@ async function list(id: number, source: GdbFiles, key: string): Promise<unknown>
     try {
       const catalog = await readCatalog(g, dataset, source.name)
       const dir = await cacheDir(key)
-      const bytes = new TextEncoder().encode(JSON.stringify(catalog))
-      await writeFile(dir, 'catalog.json', (h) => void h.write(bytes, { at: 0 }))
+      if (dir) {
+        const bytes = new TextEncoder().encode(JSON.stringify(catalog))
+        await writeFile(dir, 'catalog.json', (h) => void h.write(bytes, { at: 0 }))
+      }
       return catalog
     } finally {
       await g.close(dataset).catch(() => {})
@@ -207,6 +216,13 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
     reply({ id, progress: { phase: 'cache', layer: layer.name } })
     const dir = await cacheDir(key)
     const size = FS.stat(out).size
+    if (!dir) {
+      // No storage to keep it in: the app holds the layer in memory for this session.
+      const bytes = FS.readFile(out, { encoding: 'binary' })
+      FS.unlink(out)
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      return { file, bytes: buffer }
+    }
     const stream = FS.open(out, 'r')
     try {
       await writeFile(dir, file, (handle) => {
@@ -240,7 +256,10 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
     return convert(m.id, m.source, m.key, m.layer, m.assumeCrs, m.file)
   }
   run().then(
-    (result) => reply({ id: m.id, ok: true, result }),
+    (result) => {
+      const bytes = (result as Partial<ConvertResult> | undefined)?.bytes
+      reply({ id: m.id, ok: true, result }, bytes ? [bytes] : [])
+    },
     (err: unknown) => {
       const e = explainGdalError(recent.length && !(err instanceof GdbError) ? new Error(`${err instanceof Error ? err.message : String(err)} ${recent.join(' ')}`) : err)
       reply({ id: m.id, ok: false, message: e.message, code: e.code })
