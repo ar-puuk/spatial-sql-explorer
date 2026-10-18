@@ -605,7 +605,7 @@ async function setUpGeodatabaseLayers(session: QuerySession, db: AsyncDuckDB, gd
       const converted = await host.convert(ref, info, { signal, onProgress: (step) => hooks.onPhase?.('converting', { note: gdbNote(step) }) })
       const registered = await registerSource(db, converted.source)
       session.adoptPaths(registered.paths)
-      await session.conn.query(convertedViewSql(sqlName, registered.primaryPath))
+      await session.conn.query(convertedViewSql(sqlName, registered.primaryPath, info.spatial))
     },
   })
 }

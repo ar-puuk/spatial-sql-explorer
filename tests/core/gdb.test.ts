@@ -191,6 +191,7 @@ describe('layers read on demand', () => {
     expect(placeholderViewSql('net.roads', roads as never)).toBe(
       'CREATE OR REPLACE VIEW net.roads AS SELECT NULL::BIGINT AS "class", NULL::DOUBLE AS "len", NULL::TIMESTAMP AS "built", NULL::VARCHAR AS "name", NULL::GEOMETRY AS "geom" WHERE false'
     )
+    expect(convertedViewSql('net.codes', '/se-source/codes.fgb', false)).toBe("CREATE OR REPLACE VIEW net.codes AS SELECT COLUMNS(c -> c NOT IN ('OGC_FID', 'geom')) FROM ST_Read('/se-source/codes.fgb')")
     expect(convertedViewSql('net.roads', "/se-source/it's.fgb")).toBe(`CREATE OR REPLACE VIEW net.roads AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ST_Read('/se-source/it''s.fgb')`)
   })
 

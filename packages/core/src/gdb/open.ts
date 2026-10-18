@@ -69,9 +69,13 @@ export function placeholderViewSql(sqlName: string, layer: GdbLayerInfo): string
   return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT ${columns.join(', ')} WHERE false`
 }
 
-/** The view of a converted layer: GDAL's synthetic OGC_FID dropped, like every other multi-layer file's views. */
-export function convertedViewSql(sqlName: string, path: string): string {
-  return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ST_Read(${quoteLiteral(path)})`
+/**
+ * The view of a converted layer: GDAL's synthetic OGC_FID dropped, like every other multi-layer file's views.
+ * A table without shapes comes back from the reader with an empty `geom` column; it is left out.
+ */
+export function convertedViewSql(sqlName: string, path: string, spatial = true): string {
+  const dropped = spatial ? `c <> 'OGC_FID'` : `c NOT IN ('OGC_FID', 'geom')`
+  return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT COLUMNS(c -> ${dropped}) FROM ST_Read(${quoteLiteral(path)})`
 }
 
 /**
