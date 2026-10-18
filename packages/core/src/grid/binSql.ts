@@ -28,10 +28,10 @@ export interface BinSpec {
   smooth?: number
 }
 
-/** A safety limit, not a design one: a disk has 3k(k+1)+1 cells, and the dialog's estimate asks before drawing a huge result. */
-export const MAX_SMOOTH_RINGS = 50
+/** The most rings of neighbors (user decision 2026-10-17: a quick-look summary, not advanced analysis). A disk has 3k(k+1)+1 cells. */
+export const MAX_SMOOTH_RINGS = 10
 /** More rings than this draws a warning in the dialog (each cell becomes a disk of 3k(k+1)+1 cells, and the work grows with it). */
-export const SMOOTH_WARN_RINGS = 10
+export const SMOOTH_WARN_RINGS = 5
 
 /** What the SQL needs to know about the open layer. */
 export interface BinLayerFacts {

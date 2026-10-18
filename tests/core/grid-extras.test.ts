@@ -10,7 +10,7 @@ const a5 = getGridSystem('a5')!
 describe('the spec (spec 021)', () => {
   it('has no problem with covering, or with smoothing within the limits', () => {
     expect(binSpecProblem({ ...base, assign: 'cover' }, FACTS)).toBeNull()
-    for (const k of [0, 1, 2, 3, 10, MAX_SMOOTH_RINGS]) expect(binSpecProblem({ ...base, smooth: k }, FACTS)).toBeNull()
+    for (const k of [0, 1, 2, 3, 5, MAX_SMOOTH_RINGS]) expect(binSpecProblem({ ...base, smooth: k }, FACTS)).toBeNull()
   })
   it('refuses what cannot work, in words', () => {
     expect(binSpecProblem({ ...base, smooth: MAX_SMOOTH_RINGS + 1 }, FACTS)).toContain(`0 to ${MAX_SMOOTH_RINGS} rings`)
@@ -21,10 +21,10 @@ describe('the spec (spec 021)', () => {
     expect(binSpecProblem({ ...base, smooth: 1, assign: 'cover' }, FACTS)).toContain('cannot be combined')
     expect(binSpecProblem({ ...base, system: 'a5', resolution: 8, smooth: 1 }, FACTS)).toContain('H3 only')
   })
-  it('warns from 10 rings, well under the limit', () => {
-    expect(SMOOTH_WARN_RINGS).toBe(10)
-    expect(SMOOTH_WARN_RINGS).toBeLessThan(MAX_SMOOTH_RINGS)
-    expect(diskSize(11)).toBe(397)
+  it('warns past 5 rings and stops at 10', () => {
+    expect(SMOOTH_WARN_RINGS).toBe(5)
+    expect(MAX_SMOOTH_RINGS).toBe(10)
+    expect(diskSize(6)).toBe(127)
   })
   it('keeps a median without smoothing, and A5 without it', () => {
     expect(binSpecProblem({ ...base, measure: { kind: 'median', column: 'pop' } }, FACTS)).toBeNull()

@@ -13,7 +13,7 @@ aggregating up, neighbor analysis. This spec reverses spec 017's "centroid only"
 
 ## Behavior
 - The Bin into cells dialog gains **Features** (Center, or Every cell touched), for a layer with lines or polygons, and **Smooth**, for H3: a switch, and when it is on
-  a whole number of rings (an integer field with themed up and down buttons and the arrow keys; 1 to 50, a safety limit. A disk has 3k(k+1)+1 cells: over 10 rings the dialog warns what it costs, and the estimate asks before a huge result). The query it writes is the product, as before: the SQL tab holds it and it can be edited.
+  a whole number of rings (an integer field with themed up and down buttons and the arrow keys; 1 to 10: this is a quick-look tool, not advanced analysis (user decision 2026-10-17). A disk has 3k(k+1)+1 cells: past 5 rings the dialog warns what it costs, and the estimate asks before a huge result). The query it writes is the product, as before: the SQL tab holds it and it can be edited.
 - **Every cell touched.** A feature counts once in each cell it touches (so a count adds up to more than the features, and a sum counts a
   feature's value in every cell). A polygon smaller than a cell gets its center's cell. Points are in one cell either way. A shape outside the
   world is left out and counted, as before.
