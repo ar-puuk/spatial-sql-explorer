@@ -1,6 +1,6 @@
 // Spec 021: covering and smoothing in the bin query (grid/binSql.ts), the estimate (grid/binEstimate.ts) and the registry.
 import { describe, expect, it } from 'vitest'
-import { MAX_SMOOTH_RINGS, binQuerySql, binSkippedSql, binSpecProblem, diskSize, estimateCells, featureSizeSql, getGridSystem, type BinSpec } from '@spatial-explorer/core'
+import { MAX_SMOOTH_RINGS, SMOOTH_WARN_RINGS, binQuerySql, binSkippedSql, binSpecProblem, diskSize, estimateCells, featureSizeSql, getGridSystem, type BinSpec } from '@spatial-explorer/core'
 
 const FACTS = { geom: '"geom"', srid: 4326, columns: [{ name: 'pop', type: 'DOUBLE' }] }
 const base: BinSpec = { system: 'h3', resolution: 7, measure: { kind: 'count' } }
@@ -20,6 +20,11 @@ describe('the spec (spec 021)', () => {
     expect(binSpecProblem({ ...base, smooth: 1, measure: { kind: 'median', column: 'pop' } }, FACTS)).toContain('median')
     expect(binSpecProblem({ ...base, smooth: 1, assign: 'cover' }, FACTS)).toContain('cannot be combined')
     expect(binSpecProblem({ ...base, system: 'a5', resolution: 8, smooth: 1 }, FACTS)).toContain('H3 only')
+  })
+  it('warns from 10 rings, well under the limit', () => {
+    expect(SMOOTH_WARN_RINGS).toBe(10)
+    expect(SMOOTH_WARN_RINGS).toBeLessThan(MAX_SMOOTH_RINGS)
+    expect(diskSize(11)).toBe(397)
   })
   it('keeps a median without smoothing, and A5 without it', () => {
     expect(binSpecProblem({ ...base, measure: { kind: 'median', column: 'pop' } }, FACTS)).toBeNull()

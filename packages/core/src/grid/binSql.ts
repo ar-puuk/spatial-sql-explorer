@@ -30,6 +30,8 @@ export interface BinSpec {
 
 /** A safety limit, not a design one: a disk has 3k(k+1)+1 cells, and the dialog's estimate asks before drawing a huge result. */
 export const MAX_SMOOTH_RINGS = 50
+/** More rings than this draws a warning in the dialog (each cell becomes a disk of 3k(k+1)+1 cells, and the work grows with it). */
+export const SMOOTH_WARN_RINGS = 10
 
 /** What the SQL needs to know about the open layer. */
 export interface BinLayerFacts {

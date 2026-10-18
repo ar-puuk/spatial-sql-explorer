@@ -3,10 +3,11 @@
   // brings the old query back) and, while the result would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
   // it floats over its top left corner. Esc cancels (and puts everything back), Enter keeps the bin.
   import { onDestroy, onMount, tick } from 'svelte'
-  import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind, MAX_SMOOTH_RINGS } from '@spatial-explorer/core'
+  import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind, MAX_SMOOTH_RINGS, SMOOTH_WARN_RINGS, diskSize } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import Segmented from './kit/Segmented.svelte'
   import Select from './kit/Select.svelte'
+  import NumberField from './kit/NumberField.svelte'
   import Slider from './kit/Slider.svelte'
   import Switch from './kit/Switch.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -169,18 +170,10 @@
             <div class="all">
               <Switch checked={smoothing} label="Smooth with neighbors" disabled={spec.measure.kind === 'median'} onChange={chooseSmooth} />
               {#if smoothing}
-                <label class="rings">
-                  <input
-                    type="number"
-                    min="1"
-                    max={MAX_SMOOTH_RINGS}
-                    step="1"
-                    value={spec.smooth}
-                    aria-label="Rings of neighbors"
-                    onchange={(e) => chooseRings(e.currentTarget.valueAsNumber)}
-                  />
+                <span class="rings">
+                  <NumberField label="Rings of neighbors" value={spec.smooth ?? 1} min={1} max={MAX_SMOOTH_RINGS} onChange={chooseRings} />
                   <span class="hint" aria-hidden="true">{spec.smooth === 1 ? 'ring' : 'rings'}</span>
-                </label>
+                </span>
               {:else}
                 <span class="hint" aria-hidden="true">Neighbors</span>
               {/if}
@@ -211,6 +204,10 @@
 
       {#if bin.skipped}
         <p class="notice" role="status"><Icon name="info" size={14} /><span>{nf2.format(bin.skipped)} {bin.skipped === 1 ? 'row has' : 'rows have'} no location and {bin.skipped === 1 ? 'is' : 'are'} not counted.</span></p>
+      {/if}
+
+      {#if (spec.smooth ?? 0) > SMOOTH_WARN_RINGS}
+        <p class="notice warn" role="status"><Icon name="info" size={14} /><span>{spec.smooth} rings makes each cell a disk of {nf2.format(diskSize(spec.smooth ?? 0))} cells: slow for a lot of data, and the cells spread far past it.</span></p>
       {/if}
 
       {#if bin.problem}
@@ -281,22 +278,6 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-  }
-  .rings input {
-    width: 56px;
-    box-sizing: border-box;
-    height: 24px;
-    padding: 0 4px;
-    font: inherit;
-    font-family: var(--se-font-mono);
-    color: var(--se-text-primary);
-    background: var(--se-input-bg);
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-  }
-  .rings input:focus-visible {
-    outline: 1px solid var(--se-focus);
-    outline-offset: 1px;
   }
   .field {
     display: grid;
