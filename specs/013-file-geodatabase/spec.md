@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-file-geodatabase`
 **Created**: 2026-10-18
-**Status**: Draft, for review (research and spikes: `research.md` §1-9)
+**Status**: Implemented on branch `013-file-geodatabase` (research and spikes: `research.md` §1-9; what was built and where it differs from the plan: `plan.md` "As built")
 **Experimental**: shown as experimental in both shells until the SQL engine reads the format natively.
 
 ## Summary

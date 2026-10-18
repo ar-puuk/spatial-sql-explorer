@@ -69,3 +69,19 @@ Amend the constitution (new version) and CLAUDE.md: GDAL (gdal3.js) is allowed i
 4. Domain display and switch (US3).
 5. Zips (US4), cache clear and cap (US5), error messages (US6).
 6. Docs, constitution amendment, notices, CHANGELOG, experimental label.
+
+## As built (2026-10-18)
+
+Everything in the spec is implemented, in both shells. Where it differs from the plan above:
+
+- **VS Code runs gdal3.js in a child process, not a worker thread.** gdal3.js's Node build reads its `.data` file relative to the working directory, which a thread cannot change; a process can (`fork(..., { cwd })`). It also means a layer too big for memory ends that process, not VS Code, and Cancel is `kill()`. Files: `apps/vscode-ext/src/gdbReader.ts` (host side, cache, zip table of contents), `gdbWorker.ts` (the process; bundled to `out/gdbWorker.cjs`).
+- **Reading the geodatabase in a zip uses the zip's table of contents only** (`listZipNames` in core, ranges of the file), to find the `.gdb` folder inside; the zip is never read whole by the reader.
+- **The web reader's cache uses a `.done` marker** next to each converted layer, because `FileSystemFileHandle.move` is not available in every browser: a layer is usable once its marker exists.
+- **Lazy layers are placeholder views** with the layer's columns (OGR types mapped to DuckDB types) and no rows, so autocomplete and DESCRIBE work before a layer is read; `QuerySession.prepareLazyLayers` converts a layer named by a statement (found by a case-insensitive, quote-tolerant match on the schema-qualified name) and replaces the view. A non-spatial layer's view leaves out the reader's empty `geom` column.
+- **A layer over 100 MB goes through the existing whole-read prompt** ("Geodatabase layers must be read in full…"), like any big FlatGeobuf.
+- **Domains** reach the table, the selected feature's card, the hover tooltip and the column filter (a list of descriptions that filters on the code); not the legend, the print layout or the export. A range domain changes nothing.
+- **Layer picker**: feature datasets are `optgroup`s, and an "experimental" badge shows for geodatabases.
+- **Web**: "Choose a geodatabase folder" (landing page), "Open geodatabase" (header), folder drops, and "Clear stored layers (N MB)" in the header while layers are stored. The browser cache has a fixed 2 GiB limit (least recently used first); VS Code's is `spatialExplorer.gdb.cacheLimitMB`.
+- **Measured** (Chrome, the 111 MB sample, reader already cached): first layer on the map in 5.0 s from picking the folder, the 58,195-line Link layer (109 MB) in 3.8 s, another layer read by name in a query in a few seconds; VS Code's host reads a layer of that size in 1.9 s.
+- **Still untested**: 64-bit ObjectIDs (ArcGIS Pro 3.2+), subtypes, tables over about 3 GB in the browser. A compressed geodatabase is refused with the instruction to uncompress it.
+- **Tests**: `tests/core/gdb.test.ts`, `zip.test.ts`, `engine-assets.test.ts`; `tests/web/specs/gdb-013.spec.ts` (14 tests) and the `SE_GDB_SAMPLE` acceptance spec; `tests/vscode-ext/src/suite/layers.test.ts` (geodatabase folder, `.gdb.zip`, a file inside the folder, zipped data, another geodatabase, the cache).
