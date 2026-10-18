@@ -53,6 +53,8 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
+import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
+import type { GridSystemId } from '../grid/gridSystems.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
@@ -628,6 +630,85 @@ export class QuerySession {
     const lv = this.layerView
     if (!lv || shapes.length === 0) return null
     return `SELECT *\nFROM layer\nWHERE ${spatialPredicateSql(predicate, lv.geom, shapesInCrsSql(shapes, this.table.srid))}`
+  }
+
+  // --- Spec 017: grid cells (H3 and A5) -----------------------------------------
+
+  /**
+   * The query "Bin into cells" writes: the layer's rows assigned to grid cells, a measure per cell, the cell
+   * outlines (grid/binSql.ts). Null when the spec is not valid for this layer, or it has no geometry.
+   */
+  binQuerySql(spec: BinSpec): BinQuery | null {
+    const lv = this.layerView
+    if (!lv) return null
+    return buildBinQuery(spec, this.binFacts(lv.geom))
+  }
+
+  /**
+   * The rows the layer currently shows, as the bin reads them: the column filters and the shape filter, inlined as
+   * WHERE text. They are written for the layer's own columns, so they apply while the layer itself is displayed; over
+   * a query result (other columns) the bin reads the whole layer and the dialog says so.
+   */
+  private binRestriction(): { where: string | null; ignored: boolean } {
+    const parts = [this.filterWhere, this.spatialWhere].filter((p): p is string => !!p)
+    if (parts.length === 0) return { where: null, ignored: false }
+    if (this.facts && !this.facts.defaultView) return { where: null, ignored: true }
+    return { where: parts.map((p) => `(${p})`).join(' AND '), ignored: false }
+  }
+
+  private binFacts(geom: string): BinLayerFacts {
+    return { geom, srid: this.table.srid, columns: this.table.columns, where: this.binRestriction().where, selectedSource: SELECTED_ROWS_TABLE }
+  }
+
+  /**
+   * Publishes the selected rows as the temp table `selected_rows` (the layer's columns), so a bin of "the selected rows
+   * only" reads a readable name instead of the engine's hidden row ids. Returns false when nothing is selected.
+   */
+  async prepareBinSelection(selection: Selection): Promise<boolean> {
+    if (selection.kind !== 'ids' || selection.ids.size === 0) return false
+    const where = selectionPredicate(selection)
+    if (!where) return false
+    const fill = selectionTableSql(selection)
+    await this.exclusive(async () => {
+      if (fill) for (const sql of fill) await this.conn.query(sql)
+      await this.conn.query(`CREATE OR REPLACE TEMP TABLE ${SELECTED_ROWS_TABLE} AS SELECT * EXCLUDE (__se_rowid, __se_xmin, __se_ymin, __se_xmax, __se_ymax) FROM ${INTERNAL_LAYER} WHERE ${where}`)
+    }, 'background')
+    return true
+  }
+
+  /** How many rows the bin leaves out for having no usable location. */
+  async binSkippedRows(spec: BinSpec): Promise<number> {
+    const lv = this.layerView
+    const sql = lv ? binSkippedSql(spec, this.binFacts(lv.geom)) : null
+    if (!sql) return 0
+    return this.exclusive(async (isCancelled) => Number((await singleRow<{ skipped: number | bigint }>(this.conn, sql, isCancelled)).skipped), 'background')
+  }
+
+  private gridSupportCache: Promise<Record<GridSystemId, boolean>> | null = null
+
+  /** Which grid systems the engine has loaded (the `h3` and `a5` extensions are optional downloads). Asked once. */
+  gridSupport(): Promise<Record<GridSystemId, boolean>> {
+    this.gridSupportCache ??= this.exclusive(async () => {
+      const result = await this.conn.query(`SELECT extension_name FROM duckdb_extensions() WHERE loaded AND extension_name IN ('h3', 'a5')`)
+      const loaded = new Set(result.toArray().map((r) => String(r.toJSON().extension_name)))
+      return { h3: loaded.has('h3'), a5: loaded.has('a5') }
+    }, 'background')
+    this.gridSupportCache.catch(() => {
+      this.gridSupportCache = null
+    })
+    return this.gridSupportCache
+  }
+
+  /** What the Bin into cells dialog shows about the open layer. */
+  layerFactsForBin(): BinLayerInfo | null {
+    if (!this.layerView) return null
+    return {
+      geometryType: this.table.geometryType,
+      extent: this.table.extent,
+      rows: this.table.totals.rows,
+      numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
+      filtersIgnored: this.binRestriction().ignored,
+    }
   }
 
   /** Row ids of the displayed rows meeting `predicate` against the shapes (the map's "select by shape"). */

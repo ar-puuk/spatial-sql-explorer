@@ -11,7 +11,7 @@ export type ExtensionName = keyof typeof assets.extensions.files
 
 /** Where engine files come from: the pinned CDNs, or (tests) a local mirror with the same paths and the same hashes. */
 export interface EngineSource {
-  /** e.g. `/engine-mirror`: `https://cdn.jsdelivr.net/npm/…` → `<mirror>/npm/…`, `https://extensions.duckdb.org/…` → `<mirror>/extensions/…`. */
+  /** e.g. `/engine-mirror`: `https://cdn.jsdelivr.net/npm/…` → `<mirror>/npm/…`, `https://extensions.duckdb.org/…` → `<mirror>/extensions/…`, `https://community-extensions.duckdb.org/…` → `<mirror>/community-extensions/…`. */
   mirror?: string
   /** The host's local copy (offline after first use); without it, every start downloads. */
   host?: Pick<HostAdapter, 'engineFile' | 'pruneEngineFiles'>
@@ -22,12 +22,15 @@ export function engineHashes(): string[] {
   return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256)]
 }
 
-const CDN_HOSTS = ['cdn.jsdelivr.net', 'extensions.duckdb.org']
+const CDN_HOSTS = ['cdn.jsdelivr.net', 'extensions.duckdb.org', 'community-extensions.duckdb.org']
 
 export function engineUrl(url: string, source: EngineSource = {}): string {
   if (!source.mirror) return url
   const m = source.mirror.replace(/\/$/, '')
-  return url.replace('https://cdn.jsdelivr.net/', `${m}/`).replace('https://extensions.duckdb.org/', `${m}/extensions/`)
+  return url
+    .replace('https://cdn.jsdelivr.net/', `${m}/`)
+    .replace('https://extensions.duckdb.org/', `${m}/extensions/`)
+    .replace('https://community-extensions.duckdb.org/', `${m}/community-extensions/`)
 }
 
 /** The engine could not be downloaded, or a download didn't match its recorded hash. */

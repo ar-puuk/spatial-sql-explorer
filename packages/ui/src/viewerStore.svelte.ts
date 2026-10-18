@@ -5,6 +5,20 @@
 import { untrack } from 'svelte'
 import {
   DEFAULT_LAYER_STYLE,
+  BIN_PREFERENCE_KEY,
+  CELL_LIMIT,
+  normalizeBinPreference,
+  PREVIEW_CELL_LIMIT,
+  binSpecProblem,
+  estimateCells,
+  getGridSystem,
+  gridStyle,
+  isBinResult,
+  patchEncoding,
+  suggestResolution,
+  type BinLayerInfo,
+  type BinSpec,
+  type GridSystemId,
   createInitialViewerSession,
   exportStyle,
   importStyle,
@@ -162,6 +176,32 @@ export function readLayout(saved: unknown): LayoutState {
     bottomCollapsed: typeof s.bottomCollapsed === 'boolean' ? s.bottomCollapsed : DEFAULT_LAYOUT.bottomCollapsed,
     bottomFraction: num(s.bottomFraction, 0.15, 0.85, DEFAULT_LAYOUT.bottomFraction),
   }
+}
+
+/** The Bin into cells dialog (spec 017): the choices, what they mean for the layer, and what the map shows. */
+export interface BinDialogState {
+  open: boolean
+  spec: BinSpec
+  info: BinLayerInfo | null
+  /** Which grid systems the engine could load. */
+  support: Record<GridSystemId, boolean>
+  /** About how many cells the spec gives. */
+  estimate: number
+  /** The query the spec writes, or null when it is not valid. */
+  sql: string | null
+  /** What `value` means ("Number of features"). */
+  valueLabel: string
+  problem: string | null
+  /** A preview or the final run is in progress. */
+  running: boolean
+  /** The map shows exactly this spec. */
+  previewed: boolean
+  /** More cells than are drawn without asking. */
+  overLimit: boolean
+  /** Rows the user has selected (what "Selected rows only" would bin). */
+  selectedCount: number
+  /** Rows the shown cells leave out for having no location; null until a run has finished. */
+  skipped: number | null
 }
 
 export interface ViewerStore {
@@ -394,6 +434,17 @@ export interface ViewerStore {
   setShapeFilter(on: boolean): void
   /** Selects the rows meeting the predicate against all the shapes; resolves to how many. */
   selectInShapes(additive?: boolean): Promise<number>
+  // --- Spec 017: Bin into cells (H3 and A5) ---
+  readonly binDialog: BinDialogState
+  /** Why Bin into cells is not available for what is open, or null. */
+  readonly binUnavailable: string | null
+  openBinDialog(): Promise<void>
+  /** Changes the choices; the preview redraws when the result would be small. */
+  setBinSpec(patch: Partial<BinSpec>): void
+  /** Keeps the bin (running it if the map does not show it yet), shows its SQL, closes the dialog. `confirmed` allows a very large result. */
+  applyBin(confirmed?: boolean): Promise<void>
+  /** Closes the dialog and restores the query, the result and the style from before. */
+  cancelBin(): Promise<void>
   /** Puts a query for the shapes into the SQL editor. */
   insertShapesQuery(): boolean
   /** Shows the shapes as a layer (`SELECT * FROM drawn`), so every export format applies. */
@@ -1249,6 +1300,184 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     runCount++
   }
 
+  async function resetQuery(): Promise<void> {
+    if (queryPhase === 'running') await querySession?.cancel()
+    const original = initialLayer
+    resetQueryState()
+    querySession?.showDefaultView()
+    if (original) {
+      setLayer(original)
+      session.selectedFeatureId = null
+      applySidecar(original.styleSidecar)
+      loadedAll = false
+      void refreshDraw()
+    }
+    queryStatus = 'Reset to the original view'
+  }
+
+  // --- Spec 017: Bin into cells -------------------------------------------------
+  // The dialog only writes a query (QuerySession.binQuerySql) and runs it like any query, so the result has the
+  // table, drawing, style panel and exports of every result. A preview is that same run, started after a pause.
+  const closedBin = (): BinDialogState => ({
+    open: false,
+    spec: { system: 'h3', resolution: 5, measure: { kind: 'count' } },
+    info: null,
+    support: { h3: false, a5: false },
+    estimate: 0,
+    sql: null,
+    valueLabel: '',
+    problem: null,
+    running: false,
+    previewed: false,
+    overLimit: false,
+    selectedCount: 0,
+    skipped: null,
+  })
+  let binDialog = $state<BinDialogState>(closedBin())
+  /** What to put back when the dialog is cancelled. */
+  let binPrev: { text: string; ranText: string | null; style: LayerStyle; styleDirty: boolean; bottomTab: LayoutState["bottomTab"]; bottomCollapsed: boolean } | null = null
+  let binTimer: ReturnType<typeof setTimeout> | null = null
+  let binRunId = 0
+  /** The legend title the last bin gave its style (replaced only while the user has not renamed it). */
+  let binTitle: string | null = null
+
+  function binUnavailable(): string | null {
+    // `queryTable` is reactive state set when a layer opens; the session itself is a plain variable.
+    if (!queryTable) return 'Open a layer first.'
+    if (querySession && !querySession.layerFactsForBin()) return 'This layer has no geometry to put in cells.'
+    return null
+  }
+
+  /** The dialog's derived fields for `spec`; schedules the preview when the result would be small. */
+  function updateBin(spec: BinSpec): void {
+    const qs = querySession
+    const info = binDialog.info
+    const system = getGridSystem(spec.system)
+    const estimate = system && info ? estimateCells(system, spec.resolution, info.extent, info.rows) : 0
+    const query = qs?.binQuerySql(spec) ?? null
+    const problem = query ? null : qs ? binSpecProblem(spec, qs.table) : 'Open a layer first.'
+    binDialog = { ...binDialog, spec, estimate, sql: query?.sql ?? null, valueLabel: query?.valueLabel ?? '', problem, overLimit: estimate > CELL_LIMIT, previewed: false, skipped: null }
+    if (binTimer) clearTimeout(binTimer)
+    binTimer = null
+    if (binDialog.open && query && binDialog.support[spec.system] && estimate <= PREVIEW_CELL_LIMIT) {
+      binTimer = setTimeout(() => void runBin(), 250)
+    }
+  }
+
+  /** Runs the dialog's query; the first bin after a normal result gets the grid style, a rerun keeps the user's. */
+  async function runBin(): Promise<void> {
+    const qs = querySession
+    const { sql, problem, valueLabel } = binDialog
+    if (!qs || !sql || problem) return
+    const id = ++binRunId
+    if (queryPhase === 'running') {
+      await qs.cancel()
+      for (let i = 0; i < 40 && queryPhase === 'running'; i++) await new Promise((r) => setTimeout(r, 50))
+      if (id !== binRunId) return
+    }
+    const wasBin = isBinResult(qs.lastResult?.columns ?? [])
+    // "Selected rows only" reads a table of the selected rows (their ids are the engine's, not the query's).
+    if (binDialog.spec.selectedOnly && !(await retryWhenBusy(qs, () => qs.prepareBinSelection(selection)))) {
+      binDialog = { ...binDialog, spec: { ...binDialog.spec, selectedOnly: false }, previewed: false }
+      return
+    }
+    if (id !== binRunId) return
+    queryText = sql
+    binDialog = { ...binDialog, running: true }
+    await runQuery({ from: 0, to: queryText.length })
+    if (id !== binRunId) return
+    const ok = queryPhase === 'succeeded'
+    if (ok) {
+      previewBase = null
+      if (!wasBin) {
+        style = sanitizeStyle(gridStyle(valueLabel))
+        styleDirty = true
+      } else {
+        // A rerun keeps the user's style; the legend title follows the measure unless they renamed it.
+        style = sanitizeStyle(patchEncoding(style, 'color', (e) => (e.source.kind === 'column' && e.source.column === 'value' && e.legend?.title === binTitle ? { ...e, legend: { ...e.legend, title: valueLabel } } : e)))
+      }
+      binTitle = valueLabel
+    }
+    binDialog = { ...binDialog, running: false, previewed: ok }
+    if (ok) {
+      // Rows with no usable location are left out of the cells: say how many, in the dialog and the status line.
+      const spec = binDialog.spec
+      const skipped = await retryWhenBusy(qs, () => qs.binSkippedRows(spec)).catch(() => null)
+      if (id !== binRunId) return
+      binDialog = { ...binDialog, skipped }
+      if (skipped) queryStatus = `${queryStatus} · ${skipped.toLocaleString('en-US')} ${skipped === 1 ? 'row has' : 'rows have'} no location and ${skipped === 1 ? 'is' : 'are'} not counted`
+    }
+  }
+
+  async function openBinDialog(): Promise<void> {
+    const qs = querySession
+    if (!qs || binUnavailable()) return
+    const info = qs.layerFactsForBin()
+    const support = await retryWhenBusy(qs, () => qs.gridSupport()).catch(() => ({ h3: false, a5: false }))
+    if (!info) return
+    // The grid system and kind of measure last kept, when they still make sense here.
+    const saved = normalizeBinPreference(await hostAdapter.loadState<unknown>(BIN_PREFERENCE_KEY).catch(() => undefined))
+    const system: GridSystemId = support[saved.system] ? saved.system : support.h3 || !support.a5 ? 'h3' : 'a5'
+    const grid = getGridSystem(system)!
+    const column = info.numericColumns[0]
+    const measure: BinSpec['measure'] = saved.measureKind !== 'count' && column !== undefined ? { kind: saved.measureKind, column } : { kind: 'count' }
+    const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure }
+    binPrev = { text: queryText, ranText: lastRunText, style, styleDirty, bottomTab: layout.bottomTab, bottomCollapsed: layout.bottomCollapsed }
+    binDialog = { ...closedBin(), open: true, info, support, selectedCount: selection.kind === 'ids' ? selection.ids.size : 0 }
+    updateBin(spec)
+  }
+
+  function setBinSpec(patch: Partial<BinSpec>): void {
+    if (!binDialog.open) return
+    let spec: BinSpec = { ...binDialog.spec, ...patch }
+    if (patch.system && patch.system !== binDialog.spec.system && binDialog.info && patch.resolution === undefined) {
+      // Resolution numbers mean different sizes in the two systems: the other one starts from its own suggestion.
+      const grid = getGridSystem(patch.system)
+      if (grid) spec = { ...spec, resolution: suggestResolution(grid, binDialog.info.extent, binDialog.info.rows) }
+    }
+    updateBin(spec)
+  }
+
+  async function applyBin(confirmed = false): Promise<void> {
+    if (!binDialog.open || binDialog.problem || !binDialog.sql) return
+    if (binDialog.overLimit && !confirmed) return
+    if (binTimer) clearTimeout(binTimer)
+    binTimer = null
+    if (!binDialog.previewed) await runBin()
+    if (!binDialog.previewed) return
+    void hostAdapter.saveState(BIN_PREFERENCE_KEY, { system: binDialog.spec.system, measureKind: binDialog.spec.measure.kind }).catch(() => {})
+    binDialog = { ...binDialog, open: false }
+    binPrev = null
+    layout = { ...layout, bottomTab: 'sql', bottomCollapsed: false }
+  }
+
+  async function cancelBin(): Promise<void> {
+    if (binTimer) clearTimeout(binTimer)
+    binTimer = null
+    const prev = binPrev
+    binPrev = null
+    const ran = binDialog.previewed || binDialog.running
+    ++binRunId
+    binDialog = { ...binDialog, open: false, running: false }
+    if (!prev) return
+    if (!ran) {
+      queryText = prev.text
+      return
+    }
+    if (queryPhase === 'running') await querySession?.cancel()
+    style = prev.style
+    styleDirty = prev.styleDirty
+    if (prev.ranText === null) {
+      await resetQuery()
+    } else {
+      queryText = prev.ranText
+      await runQuery({ from: 0, to: queryText.length })
+    }
+    queryText = prev.text
+    // Putting the original result back switches the bottom panel to its table; the user was on the tab they opened the dialog from.
+    layout = { ...layout, bottomTab: prev.bottomTab, bottomCollapsed: prev.bottomCollapsed }
+  }
+
   let outsideFeature = $state.raw<Feature | null>(null)
   /** The full record of a map-selected feature (tiles carry only the style's columns). */
   let detailFeature = $state.raw<Feature | null>(null)
@@ -1680,20 +1909,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get defaultQuery() {
       return defaultQuery()
     },
-    async resetQuery() {
-      if (queryPhase === 'running') await this.cancelQuery()
-      const original = initialLayer
-      resetQueryState()
-      querySession?.showDefaultView()
-      if (original) {
-        setLayer(original)
-        session.selectedFeatureId = null
-        applySidecar(original.styleSidecar)
-        loadedAll = false
-        void refreshDraw()
-      }
-      queryStatus = 'Reset to the original view'
-    },
+    resetQuery,
     get resultSeq() {
       return resultSeq
     },
@@ -2250,6 +2466,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     async selectInShapes(additive = false) {
       return selectShapes(shapes, additive)
     },
+    get binDialog() {
+      return binDialog
+    },
+    get binUnavailable() {
+      return binUnavailable()
+    },
+    openBinDialog,
+    setBinSpec,
+    applyBin,
+    cancelBin,
     insertShapesQuery() {
       const sql = querySession?.shapesQuerySql(shapes, shapePredicate)
       if (!sql) return false

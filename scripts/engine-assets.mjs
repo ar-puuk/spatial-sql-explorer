@@ -3,7 +3,8 @@
 // a SHA-256 recorded here, at build time:
 //   - DuckDB-WASM's worker and wasm, from jsDelivr (byte-identical to npm:
 //     hashed from node_modules);
-//   - the spatial, parquet, json and excel extensions, from extensions.duckdb.org
+//   - the spatial, parquet, json, excel, sqlite_scanner and fts extensions, from extensions.duckdb.org, and
+//     the h3 and a5 community extensions (spec 017), from community-extensions.duckdb.org
 //     (not on npm: downloaded once, hashed, and cached for the test mirror);
 //   - sql.js's wasm (the GeoPackage writer), from jsDelivr.
 //
@@ -21,7 +22,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 /** The DuckDB release inside @duckdb/duckdb-wasm 1.33.1-dev65.0 (checked against `pragma_version()` at start-up). */
 const DUCKDB_VERSION = 'v1.5.6'
 const PLATFORM = 'wasm_eh'
-const EXTENSIONS = ['spatial', 'parquet', 'json', 'excel', 'sqlite_scanner']
+const OFFICIAL = 'https://extensions.duckdb.org'
+const COMMUNITY = 'https://community-extensions.duckdb.org'
+/** [name, host]: community extensions are a different host with a different signing key (spec 017). */
+const EXTENSION_HOSTS = [
+  ['spatial', OFFICIAL],
+  ['parquet', OFFICIAL],
+  ['json', OFFICIAL],
+  ['excel', OFFICIAL],
+  ['sqlite_scanner', OFFICIAL],
+  ['fts', OFFICIAL],
+  ['h3', COMMUNITY],
+  ['a5', COMMUNITY],
+]
+const EXTENSIONS = EXTENSION_HOSTS.map(([name]) => name)
+const hostOf = (name) => EXTENSION_HOSTS.find(([n]) => n === name)[1]
+/** Where an extension is kept in the test mirror (official ones keep their old cache path). */
+const subdir = (name) => (hostOf(name) === COMMUNITY ? 'community-extensions' : 'extensions')
+const cachePath = (name) => path.join(CACHE, ...(hostOf(name) === COMMUNITY ? ['community'] : []), DUCKDB_VERSION, PLATFORM, `${name}.duckdb_extension.wasm`)
 const CACHE = path.join(ROOT, 'scripts', '.engine-cache')
 
 const pkgDir = (name) => {
@@ -58,8 +76,8 @@ const previous = (() => {
 
 const extensions = {}
 for (const name of EXTENSIONS) {
-  const url = `https://extensions.duckdb.org/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`
-  const cached = path.join(CACHE, DUCKDB_VERSION, PLATFORM, `${name}.duckdb_extension.wasm`)
+  const url = `${hostOf(name)}/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`
+  const cached = cachePath(name)
   let buf = fs.existsSync(cached) ? fs.readFileSync(cached) : null
   if (!buf) {
     const res = await fetch(url)
@@ -87,7 +105,7 @@ if (mirror) {
   put(worker.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-browser-eh.worker.js`)
   put(wasm.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-eh.wasm`)
   put(sqlWasm.local, `npm/sql.js@${sqljsVersion}/dist/sql-wasm.wasm`)
-  for (const name of EXTENSIONS) put(path.join(CACHE, DUCKDB_VERSION, PLATFORM, `${name}.duckdb_extension.wasm`), `extensions/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`)
+  for (const name of EXTENSIONS) put(cachePath(name), `${subdir(name)}/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`)
 }
 
 const strip = ({ local: _local, ...rest }) => rest

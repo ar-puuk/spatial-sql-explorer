@@ -15,10 +15,24 @@
     types?: Record<string, string>
     /** The map is too short for the attributes: only the header shows, and stays so until the map is taller. */
     collapsed?: boolean
+    /** An attribute whose value is an identifier worth copying (spec 017: a grid cell's `cell_id`): it gets a copy button. */
+    copyKey?: string | null
     onZoom: () => void
     onClose: () => void
   }
-  let { feature, types, collapsed = false, onZoom, onClose }: Props = $props()
+  let { feature, types, collapsed = false, copyKey = null, onZoom, onClose }: Props = $props()
+
+  /** The key whose value was just copied: its button shows a check for a moment. */
+  let copied = $state<string | null>(null)
+  async function copyValue(key: string, value: unknown): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(display(value))
+      copied = key
+      setTimeout(() => (copied = null), 1500)
+    } catch {
+      // No clipboard (a restricted webview): the value is selectable text.
+    }
+  }
 
   let entries = $derived(Object.entries(feature.attributes))
   // Spec 008 (user request): wide data scrolls, and many attributes get a filter.
@@ -83,7 +97,7 @@
       {#each shown as [key, value] (key)}
         <dt title={key}>{key}</dt>
         {@const kind = valueKind(value, types?.[key])}
-        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>{display(value)}</dd>
+        <dd class="v-{kind}" class:null={kind === 'null'} class:num={isNumericKind(kind)}>{display(value)}{#if key === copyKey && value !== null && value !== undefined}<button type="button" class="copy" title="Copy {key}" aria-label="Copy {key}" onclick={() => void copyValue(key, value)}><Icon name={copied === key ? 'check' : 'copy'} size={12} /></button>{/if}</dd>
       {/each}
     </dl>
   {/if}
@@ -252,5 +266,27 @@
   }
   .icon-button:focus-visible {
     outline: 1px solid var(--se-focus);
+  }
+  .copy {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    vertical-align: middle;
+    cursor: pointer;
+  }
+  .copy:hover {
+    background: var(--se-bg-hover);
+    color: var(--se-text-primary);
+  }
+  .copy:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
   }
 </style>

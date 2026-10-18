@@ -42,6 +42,21 @@
         "url": "https://extensions.duckdb.org/v1.5.6/wasm_eh/sqlite_scanner.duckdb_extension.wasm",
         "sha256": "64c3a7174365a2fbc6ce25d914c213fedc3dc15050e2394d7cb63ab53288c8ea",
         "bytes": 1691748
+      },
+      "fts": {
+        "url": "https://extensions.duckdb.org/v1.5.6/wasm_eh/fts.duckdb_extension.wasm",
+        "sha256": "bc48aead0cf08658248cb18947f69b423908da4506158890776ccbe2d18f1047",
+        "bytes": 474177
+      },
+      "h3": {
+        "url": "https://community-extensions.duckdb.org/v1.5.6/wasm_eh/h3.duckdb_extension.wasm",
+        "sha256": "1ec22c7b0fb7e0497ec80ec5df5a793a924258cb4e1919e910206f057dc1aa97",
+        "bytes": 247803
+      },
+      "a5": {
+        "url": "https://community-extensions.duckdb.org/v1.5.6/wasm_eh/a5.duckdb_extension.wasm",
+        "sha256": "6ac1d8f59d9c434f6f13319b99af67c9b6d755aca3cd8cedbdd38bf1991ddcff",
+        "bytes": 708174
       }
     }
   },

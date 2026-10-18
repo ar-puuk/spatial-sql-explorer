@@ -1,0 +1,18 @@
+import json,sys
+def h3unwrap(cell):
+    # a polygon WKT with longitudes taken nearest to the cell centre's
+    return f"""('POLYGON((' || list_aggr(list_transform(regexp_extract_all(h3_cell_to_boundary_wkt({cell}), '-?[0-9]+[.]?[0-9]*[ ]-?[0-9]+[.]?[0-9]*'), p -> (CAST(split_part(p,' ',1) AS DOUBLE) + 360*round((h3_cell_to_lng({cell}) - CAST(split_part(p,' ',1) AS DOUBLE))/360)) || ' ' || split_part(p,' ',2)), 'string_agg', ',') || '))')"""
+def split(g):
+    return f"""CASE WHEN ST_XMax({g}) > 180 THEN ST_Union(ST_Intersection({g}, ST_MakeEnvelope(-180,-90,180,90)), ST_Affine(ST_Intersection({g}, ST_MakeEnvelope(180,-90,540,90)), 1,0,0,1,-360,0))
+ WHEN ST_XMin({g}) < -180 THEN ST_Union(ST_Intersection({g}, ST_MakeEnvelope(-180,-90,180,90)), ST_Affine(ST_Intersection({g}, ST_MakeEnvelope(-540,-90,-180,90)), 1,0,0,1,360,0))
+ ELSE {g} END"""
+qs=[
+"SELECT function_name FROM duckdb_functions() WHERE function_name ILIKE 'st_affine%' OR function_name ILIKE 'st_translate%' OR function_name ILIKE 'h3_cell_to_l%' OR function_name ILIKE '%boundary%' GROUP BY 1 ORDER BY 1",
+]
+for name,cell in [('H3 dateline +','h3_latlng_to_cell(0.0,179.99,3)'),('H3 dateline -','h3_latlng_to_cell(10.0,-179.99,4)'),('H3 normal','h3_latlng_to_cell(47.0,8.0,7)'),('H3 north pole','h3_latlng_to_cell(89.99,10.0,2)'),('H3 south pole','h3_latlng_to_cell(-89.99,10.0,3)'),('H3 res0 pole','h3_latlng_to_cell(89.99,10.0,0)')]:
+    g=f"ST_GeomFromText({h3unwrap(cell)})"
+    qs.append(f"SELECT '{name}' n, ST_AsText(raw) raw_wkt, ST_IsValid(res) is_ok, ST_XMin(res) xmin, ST_XMax(res) xmax, ST_YMin(res) ymin, ST_YMax(res) ymax, ST_GeometryType(res)::VARCHAR t, round(ST_Area(res),3) planar_area FROM (SELECT {g} AS raw, {split(g)} AS res)")
+for name,cell in [('A5 dateline','a5_lonlat_to_cell(179.99,0.0,6)'),('A5 dateline res3','a5_lonlat_to_cell(179.99,0.0,3)'),('A5 dateline -','a5_lonlat_to_cell(-179.99,10.0,6)'),('A5 normal','a5_lonlat_to_cell(8.0,47.0,6)'),('A5 north pole','a5_lonlat_to_cell(10.0,89.99,3)'),('A5 south pole','a5_lonlat_to_cell(10.0,-89.99,5)'),('A5 res0','a5_lonlat_to_cell(10.0,89.99,0)')]:
+    g=f"a5_cell_to_geometry({cell})"
+    qs.append(f"SELECT '{name}' n, ST_AsText(raw) raw_wkt, ST_IsValid(res) is_ok, ST_XMin(res) xmin, ST_XMax(res) xmax, ST_YMin(res) ymin, ST_YMax(res) ymax, ST_GeometryType(res)::VARCHAR t, round(ST_Area(res),3) planar_area FROM (SELECT {g} AS raw, {split(g)} AS res)")
+json.dump(qs,open(sys.argv[1],'w'))

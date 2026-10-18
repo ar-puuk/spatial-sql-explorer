@@ -52,6 +52,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   never overlap. Drawn with
   the system's fonts (nothing downloaded), saved with the style, written to
   QML, SLD and Mapbox GL, and included in the map image.
+- **Grid cells**: bin a layer into H3 hexagons or A5 equal-area pentagons, counted
+  or averaged per cell, with a live preview, the SQL it writes, and the same
+  styling and export as any result.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;
   all, filtered or selected rows. The web app can also copy a share link (the
@@ -67,8 +70,8 @@ See [CHANGELOG.md](CHANGELOG.md) for everything in each release.
 ## Network use
 
 Data stays on your machine. The network is used for the SQL engine's code
-(DuckDB-WASM, its extensions and sql.js, downloaded once from pinned jsDelivr
-and extensions.duckdb.org URLs, checked against SHA-256 hashes, then kept
+(DuckDB-WASM, its extensions and sql.js, downloaded once from pinned jsDelivr,
+extensions.duckdb.org and community-extensions.duckdb.org URLs, checked against SHA-256 hashes, then kept
 locally so later starts work offline), for basemap tiles, and for the opt-out
 place search, which sends only the text you type.
 

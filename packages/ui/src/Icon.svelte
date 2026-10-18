@@ -28,6 +28,7 @@
   import Funnel from '@lucide/svelte/icons/funnel'
   import Globe from '@lucide/svelte/icons/globe'
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
+  import Hexagon from '@lucide/svelte/icons/hexagon'
   import Image from '@lucide/svelte/icons/image'
   import Printer from '@lucide/svelte/icons/printer'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
@@ -114,6 +115,7 @@
     filter: Funnel,
     columns: Columns3,
     globe: Globe,
+    grid: Hexagon,
     cube: Box,
     tag: Tag,
     image: Image,
