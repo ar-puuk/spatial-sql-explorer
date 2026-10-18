@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Search by words: a switch in the search box ranks the rows of the open layer or result whose text has every word you type, in any form ("bridges" finds "bridge"), best match first. It uses the `fts` extension; the index is built on first use, per result, and follows the column filters. The query editor now colors function calls.
+- Search by words: a switch in the search box ranks the rows of the open layer or result whose text has every word you type, in any form ("bridges" finds "bridge"), best match first. It uses the `fts` extension; the index is built on first use, per result, and follows the column filters. The query editor now colors function calls. Bin into cells is only on the map (the duplicate button in the query panel is gone).
 
 ## [0.7.0] - 2026-10-17
 

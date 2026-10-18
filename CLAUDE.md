@@ -128,8 +128,8 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   (a point by its place, a line or polygon by its centroid), a measure per cell (count, or sum, average, minimum, maximum, median of a number
   column), and the cells are drawn like any result. It is QUERY plus STYLE of a result, never a second layer; polyfill of polygons, neighbor
   analysis and joins between grids are out of scope.
-- The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the query panel
-  and a map control `binCells`) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
+- The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the map control `binCells`;
+  user decision 2026-10-17: no button in the query panel) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
   a query (`openBinDialog`, `setBinSpec`, `applyBin`, `cancelBin`) and the user can edit and rerun it. A fresh bin gets the style in `gridStyle`
   (quantile classes on `value`, the legend titled with the measure); a rerun of an edited bin keeps the user's style.
 - Sizes and estimates come from the engine's own tables (`gridSizes.ts`, checked by a core test against specs/017-grid-cells/spikes/cell-sizes.json). A5 starts at

@@ -160,17 +160,6 @@
       >
         <Icon name="history" size={14} />
       </button>
-      <button
-        type="button"
-        class="icon-button"
-        onclick={() => void store.openBinDialog()}
-        title={store.binUnavailable ?? 'Bin into cells (H3 or A5 grid)'}
-        aria-label="Bin into cells"
-        aria-haspopup="dialog"
-        disabled={busy || !!store.binUnavailable}
-      >
-        <Icon name="grid" size={14} />
-      </button>
       <button type="button" class="icon-button" onclick={reset} title="Reset to the original view" aria-label="Reset to the original view">
         <Icon name="reset" size={14} />
       </button>

@@ -49,7 +49,7 @@ test('keyboard: every control is reachable, Enter keeps the bin, Esc closes and 
   test.setTimeout(120000)
   await openFile(page, fixture('crashes.geojson'))
   await openQueryPanel(page)
-  const opener = page.getByRole('button', { name: 'Bin into cells', exact: true })
+  const opener = page.getByRole('button', { name: 'Bin into cells…' })
   await opener.focus()
   await page.keyboard.press('Enter')
   await expect(dialog(page)).toBeVisible()
