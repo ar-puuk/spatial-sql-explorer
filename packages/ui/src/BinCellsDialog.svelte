@@ -5,6 +5,7 @@
   import { onDestroy, onMount, tick } from 'svelte'
   import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
+  import { highlightSql } from './sqlHighlight.js'
   import Segmented from './kit/Segmented.svelte'
   import Select from './kit/Select.svelte'
   import Slider from './kit/Slider.svelte'
@@ -57,6 +58,8 @@
   const estimateText = $derived(bin.estimate === 0 ? '' : `About ${nf2.format(bin.estimate)} ${bin.estimate === 1 ? 'cell' : 'cells'}`)
 
   let panel = $state<HTMLDivElement>()
+  /** The query in colored runs: the same parser and colors as the editor. */
+  const runs = $derived(highlightSql(bin.sql ?? ''))
   /** The query was just copied: the button shows a check for a moment. */
   let copied = $state(false)
   async function copySql(): Promise<void> {
@@ -162,7 +165,9 @@
         <details class="sql">
           <summary>SQL</summary>
           <div class="sql-box">
-            <pre aria-label="The query this writes" tabindex="0">{bin.sql}</pre>
+            <!-- A scrollable box must be reachable by keyboard (axe: scrollable-region-focusable). -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <pre aria-label="The query this writes" tabindex="0">{#each runs as run, i (i)}<span class={run.token ? `tok-${run.token}` : undefined}>{run.text}</span>{/each}</pre>
             <button type="button" class="icon-button copy" onclick={copySql} title="Copy the query" aria-label="Copy the query"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>
           </div>
         </details>
@@ -269,12 +274,34 @@
     padding: 6px 28px 6px 8px;
     border: 1px solid var(--se-input-border);
     border-radius: var(--se-radius-sm);
-    background: var(--se-input-bg);
+    background: var(--se-sql-bg, var(--se-input-bg));
+    color: var(--se-sql-fg, var(--se-text-primary));
     font-family: var(--se-font-mono);
     font-size: 0.9em;
     white-space: pre-wrap;
     word-break: break-word;
     user-select: text;
+  }
+  /* The editor's colors (--se-sql-*), so the query reads the same here and in the query panel. */
+  .sql-box pre :global(.tok-keyword) {
+    color: var(--se-sql-keyword);
+  }
+  .sql-box pre :global(.tok-string) {
+    color: var(--se-sql-string);
+  }
+  .sql-box pre :global(.tok-number),
+  .sql-box pre :global(.tok-type) {
+    color: var(--se-sql-number);
+  }
+  .sql-box pre :global(.tok-function) {
+    color: var(--se-sql-function);
+  }
+  .sql-box pre :global(.tok-operator) {
+    color: var(--se-sql-operator);
+  }
+  .sql-box pre :global(.tok-comment) {
+    color: var(--se-sql-comment);
+    font-style: italic;
   }
   .icon-button.copy {
     position: absolute;

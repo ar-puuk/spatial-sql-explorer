@@ -12,7 +12,7 @@
   import { autocompletion, closeCompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
   import { sql, StandardSQL, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql'
   import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
-  import { tags } from '@lezer/highlight'
+  import { SQL_TOKEN_RULES } from './sqlHighlight.js'
 
   interface Props {
     value: string
@@ -36,15 +36,7 @@
   const language = new Compartment()
   const completion = new Compartment()
 
-  const highlight = HighlightStyle.define([
-    { tag: [tags.keyword, tags.operatorKeyword, tags.modifier], color: 'var(--se-sql-keyword)' },
-    { tag: [tags.string, tags.special(tags.string)], color: 'var(--se-sql-string)' },
-    { tag: [tags.number, tags.bool, tags.null], color: 'var(--se-sql-number)' },
-    { tag: [tags.function(tags.variableName), tags.standard(tags.name)], color: 'var(--se-sql-function)' },
-    { tag: [tags.operator, tags.punctuation, tags.bracket], color: 'var(--se-sql-operator)' },
-    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--se-sql-comment)', fontStyle: 'italic' },
-    { tag: [tags.typeName, tags.special(tags.name)], color: 'var(--se-sql-number)' },
-  ])
+  const highlight = HighlightStyle.define(SQL_TOKEN_RULES.map((r) => ({ tag: r.tags, color: `var(--se-sql-${r.color})`, ...(r.italic ? { fontStyle: 'italic' } : {}) })))
 
   const theme = EditorView.theme({
     '&': {
