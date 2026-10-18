@@ -1,0 +1,22 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+process.on('unhandledRejection', (e) => console.log('UNHANDLED', (e && e.message) || e))
+;(async () => {
+  const G = await initGdalJs()
+  const FS = G.Module.FS
+  FS.mkdir('/disk'); FS.mount(FS.filesystems.NODEFS, { root: path.resolve('out') }, '/disk')
+  const z = path.resolve('zips/wf.gdb.zip').replace(/\\/g, '/')
+  for (const p of [z, '/vsizip/' + z]) {
+    try {
+      const t = Date.now()
+      const r = await G.open(p)
+      console.log(p, 'datasets', r.datasets.length, JSON.stringify(r.errors), Date.now() - t, 'ms')
+      if (r.datasets[0]) {
+        const i = await G.getInfo(r.datasets[0])
+        console.log(' layers', i.layerCount, i.driverName)
+        await G.ogr2ogr(r.datasets[0], ['-f', 'FlatGeobuf', 'WFv1000_MasterNet_20260903_Node'], '../disk/zipnode')
+        console.log(' converted', fs.statSync('out/zipnode.fgb').size)
+      }
+    } catch (e) { console.log(p, 'ERR', String((e && (e.message || JSON.stringify(e))) || e).slice(0, 200)) }
+  }
+})()

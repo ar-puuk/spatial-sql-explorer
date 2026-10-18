@@ -1,0 +1,26 @@
+// SPIKE (temporary, never committed): do zips read in the WASM engine through /vsizip/?
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const dir = 'C:/Users/PUKAR~1.BHA/AppData/Local/Temp/claude/D--GitHub-spatial-sql-explorer/7ca60a29-6d9d-4dd5-abfb-bb5384d35274/scratchpad/gdal/z'
+test('zips in the engine', async ({ page }) => {
+  test.setTimeout(300000)
+  await page.goto('/?e2e=1&nolock=1')
+  const names = ['nodes.shp.zip', 'nodes.gpkg.zip', 'nodes.geojson.zip', 'wf.gdb.zip']
+  const files = names.map((n) => ({ path: `/se-source/s/${n}`, base64: fs.readFileSync(path.join(dir, n)).toString('base64') }))
+  const z = (n: string) => `/vsizip//se-source/s/${n}`
+  const sqls = [
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.shp.zip')}')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.shp.zip')}/nodes.shp')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.gpkg.zip')}')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.gpkg.zip')}/nodes.gpkg')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.geojson.zip')}')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('nodes.geojson.zip')}/nodes.geojson')`,
+    `SELECT count(*) AS n FROM ST_Read_Meta('${z('nodes.gpkg.zip')}/nodes.gpkg')`,
+    `SELECT count(*) AS n FROM ST_Read('${z('wf.gdb.zip')}')`,
+    `SELECT count(*) AS n FROM glob('/vsizip//se-source/s/nodes.shp.zip/*')`,
+  ]
+  const out = await page.evaluate(([f, s]) => (window as unknown as { __spatialExplorerE2E: { spike(f: unknown, s: string[]): Promise<unknown> } }).__spatialExplorerE2E.spike(f, s), [files, sqls] as const)
+  fs.writeFileSync('C:/Users/PUKAR~1.BHA/AppData/Local/Temp/claude/D--GitHub-spatial-sql-explorer/7ca60a29-6d9d-4dd5-abfb-bb5384d35274/scratchpad/zip-spike.json', JSON.stringify(out, null, 1))
+})

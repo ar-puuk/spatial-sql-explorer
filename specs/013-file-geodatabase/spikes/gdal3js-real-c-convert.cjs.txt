@@ -1,0 +1,27 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs'), path = require('path')
+const mb = () => Math.round(process.memoryUsage().rss / 1048576)
+;(async () => {
+  const Gdal = await initGdalJs()
+  const FS = Gdal.Module.FS
+  fs.mkdirSync('out', { recursive: true })
+  FS.mkdir('/disk'); FS.mount(FS.filesystems.NODEFS, { root: path.resolve('out') }, '/disk')
+  const ds = (await Gdal.open('D:/WFv1000_MasterNet_20260903.gdb')).datasets[0]
+  const jobs = [
+    ['WFv1000_MasterNet_20260903_Link', 'FlatGeobuf', 'link'],
+    ['WFv1000_MasterNet_20260903_Node', 'FlatGeobuf', 'node'],
+    ['mag_lcl_2032_PTLine', 'FlatGeobuf', 'ptline'],
+    ['WFv1000_MasterNet_20260903_SpdCap', 'FlatGeobuf', 'spdcap'],
+    ['CITILABS_TRANSITGROUPS', 'FlatGeobuf', 'groups'],
+    ['WFv1000_MasterNet_20260903_SpdCap', 'GPKG', 'spdcap_gpkg'],
+  ]
+  for (const [layer, fmt, name] of jobs) {
+    const t = Date.now()
+    try {
+      const ext = fmt === 'GPKG' ? '.gpkg' : '.fgb'
+      await Gdal.ogr2ogr(ds, ['-f', fmt, layer], '../disk/' + name)
+      const f = fs.readdirSync('out').filter((x) => x.startsWith(name))
+      console.log(layer, fmt, 'ok', Date.now() - t, 'ms', f.map((x) => x + ' ' + fs.statSync('out/' + x).size).join(), 'rss', mb())
+    } catch (e) { console.log(layer, fmt, 'ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 300)) }
+  }
+})().catch((e) => console.error('FAIL', e))

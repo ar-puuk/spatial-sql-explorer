@@ -97,3 +97,20 @@ supported format with range reads; over 100 MiB it draws from engine tiles). Rep
    close the §4 risks.
 3. Web scope: same feature, or VS Code first with web later.
 4. Whether SQL must reach unopened layers of the same `.gdb`.
+
+## 8. Spikes on a real geodatabase (2026-10-18, branch 013-file-geodatabase)
+
+Sample: a Cube/Citilabs transit network, 111 MB, 406 files, UTM 12N (EPSG:26912), uncompressed, 14 feature datasets. Scripts and raw output in `spikes/`.
+
+| Test | Result |
+|---|---|
+| gdal3.js 2.8.1 (GDAL 3.8.4) opens the folder | 160 ms, 56 layers (53 spatial, 3 non-spatial), driver OpenFileGDB |
+| `ogrinfo -json` through `Gdal.ogrinfo` | 20 ms: per-layer geometry type, extent, CRS WKT, field list, `domains` and `relationships` keys. This sample has no domains (the key is empty), so domain reading is **still untested** |
+| Link (58,195 lines) to FlatGeobuf on a NODEFS mount | 1.8 s, 109 MB, CRS kept |
+| Node (21,964 points) | 0.26 s, 13 MB |
+| Non-spatial table to FlatGeobuf | fails ("NULL geometry not supported with spatial index"); works with `-lco SPATIAL_INDEX=NO` (geometry "Unknown"); GPKG also works |
+| `.gdb.zip` (the folder at the zip's first level) opened by path | 349 ms, 56 layers, converts identically. (`/vsizip/` prefix by hand fails; gdal3.js detects the zip itself.) |
+| gdal3.js vector drivers (53) | OpenFileGDB, FlatGeobuf, GPKG, GeoJSON, Shapefile, CSV, SQLite, XLSX ... **no Parquet or Arrow writer**, so GeoParquet cannot be the intermediate without a second DuckDB step |
+| DuckDB-WASM engine, `/vsizip/` on .shp.zip, .gpkg.zip, .geojson.zip, .gdb.zip | **All fail.** With the lockdown: "VSI prefix: External access is disabled". With the lockdown skipped: "Could not open GDAL dataset". The engine cannot read zips at all |
+
+Consequence: zipped GIS files are the shell's job (unzip, register the inner files), or gdal3.js's job for geodatabases.

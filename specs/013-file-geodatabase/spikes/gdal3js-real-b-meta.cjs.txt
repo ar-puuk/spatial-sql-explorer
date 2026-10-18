@@ -1,0 +1,18 @@
+const initGdalJs = require('gdal3.js/node.js')
+const fs = require('fs')
+;(async () => {
+  const Gdal = await initGdalJs()
+  const ds = (await Gdal.open('D:/WFv1000_MasterNet_20260903.gdb')).datasets[0]
+  const t = Date.now()
+  let out
+  try { out = await Gdal.ogrinfo(ds, ['-json', '-so', '-al']) } catch (e) { console.log('ERR', e && (e.message || JSON.stringify(e))); return }
+  console.log('ogrinfo ms', Date.now() - t, typeof out)
+  const j = typeof out === 'string' ? JSON.parse(out) : out
+  fs.writeFileSync('meta.json', JSON.stringify(j, null, 1))
+  console.log('top keys', Object.keys(j))
+  console.log('domains', j.domains ? Object.keys(j.domains) : 'none')
+  for (const l of j.layers.slice(0, 3)) console.log(l.name, JSON.stringify(l.geometryFields?.[0])?.slice(0, 300), (l.fields || []).map((f) => f.name + ':' + f.type + (f.domainName ? '[' + f.domainName + ']' : '')).join(','))
+  const withDom = j.layers.flatMap((l) => (l.fields || []).filter((f) => f.domainName).map((f) => l.name + '.' + f.name + '->' + f.domainName))
+  console.log('fields with domains', withDom.length, withDom.slice(0, 10))
+  console.log('subtypes?', JSON.stringify(j.layers.find((l) => l.subtypes || l.fidColumn) ? 'some' : 'none'))
+})().catch((e) => console.error('FAIL', e))
