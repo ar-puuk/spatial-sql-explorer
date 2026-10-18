@@ -242,16 +242,15 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       const catalog = catalogs.get(key) ?? (await this.list(ref, callOptions))
       const file = `${cacheFileName(layer.name)}.fgb`
       let dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key).catch(() => null) ?? null)
-      let cached = dir !== null && (await readText(dir, `${file}.done`)) !== null
+      const cached = dir !== null && (await readText(dir, `${file}.done`)) !== null
       if (!cached) {
         try {
           await run<ConvertResult>((id) => ({ op: 'convert', id, source, key, layer: { name: layer.name, spatial: layer.spatial }, file }), callOptions)
         } catch (err) {
-          if (err instanceof DOMException && err.name === 'QuotaExceededError') throw new GdbError('The browser has no room to keep the converted layer. Clear the geodatabase cache (Settings) or free some disk space.', 'too-large')
+          if (err instanceof DOMException && err.name === 'QuotaExceededError') throw new GdbError('The browser has no room to keep the converted layer. Clear the stored layers (the button in the header) or free some disk space.', 'too-large')
           throw err
         }
         dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key) ?? null)
-        cached = true
         void prune(key)
         void navigator.storage?.persist?.().catch(() => false)
       }

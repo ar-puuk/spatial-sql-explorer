@@ -224,7 +224,7 @@ export class GdbNodeReader {
   }
 
   private entries(): Array<{ key: string; bytes: number; used: number; files: number }> {
-    let keys: string[] = []
+    let keys: string[]
     try {
       keys = fs.readdirSync(this.cacheRoot)
     } catch {
