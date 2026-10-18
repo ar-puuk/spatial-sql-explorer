@@ -4,7 +4,9 @@ name: Package and publish the VS Code extension
 # sideloading and checks). Publishing to the VS Code Marketplace and Open VSX
 # is a public, hard-to-undo action, so it only happens on a manual run with
 # "publish" ticked (Actions > this workflow > Run workflow), as in omx-viewer.
-# Secrets: VSCE_PAT (Marketplace), OVSX_PAT (Open VSX).
+# Secrets: VSCE_PAT (Marketplace), OVSX_PAT (Open VSX). A publish run also
+# creates the GitHub Release for the version's tag (notes from CHANGELOG.md,
+# the .vsix attached); push the tag first.
 
 on:
   push:
@@ -29,6 +31,8 @@ concurrency:
 jobs:
   package:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -71,3 +75,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         working-directory: apps/vscode-ext
         run: npx --yes ovsx publish spatial-explorer.vsix -p "${{ secrets.OVSX_PAT }}"
+
+      # The tag vX.Y.Z must already be pushed. Skipped when the release exists.
+      - name: Create the GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(node -p "require('./apps/vscode-ext/package.json').version")
+          if gh release view "v$V" >/dev/null 2>&1; then echo "Release v$V exists"; exit 0; fi
+          awk -v v="$V" '/^## \[/ { on = index($0, "[" v "]") > 0; next } on' CHANGELOG.md > notes.md
+          gh release create "v$V" --verify-tag --title "Spatial Explorer $V" --notes-file notes.md "apps/vscode-ext/spatial-explorer.vsix#spatial-explorer-$V.vsix"
