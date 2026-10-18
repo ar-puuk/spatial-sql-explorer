@@ -145,6 +145,9 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - The search box has a Words switch (offered when the result has text columns and the optional `fts` extension is loaded). It ranks rows by BM25 over up to 12 text columns, every word required, English stemming and stop words (`packages/core/src/view/textSearch.ts`, `QuerySession.searchWords`). The plain substring search stays the default.
 - The app builds the index itself on the hidden temp table `__se_fts` (`PRAGMA create_fts_index`, schema `fts_main___se_fts`): the SQL policy still refuses PRAGMA from the user. One index per displayed result (rebuilt when the facts change), keyed by `__se_rowid`; the column filters apply when searching, not when indexing.
 
+## Time slider (spec 020)
+- The map control `timeSlider` opens a bar (`TimeSlider.svelte`, at the foot of the map) with a two-handle window over a DATE or TIMESTAMP column of the displayed result, and Play. The window is that column's `between` column filter (`view/timeSlider.ts` `timeFilter`; the whole span is no filter), so every consumer of the filters (map, table, counts, styles, export, tiles) follows without a second path. A new result closes it. Numeric years and text dates are not time columns.
+
 ## Line arrows (spec 019)
 - `LayerStyle.arrows` (placement along or center, spacing px, size, optional color) draws arrowheads along lines in the line's direction (first vertex to last): the map layer `se-line-arrow`, a MapLibre symbol layer with an SDF chevron (`drawArrowIcon`, `ARROW_ICON_ID`) tinted by the line's color. The style panel's Arrows control (lines and mixed layers). Our QML keeps it in `spatialExplorer/style`; SLD and Mapbox GL leave it out, with a note.
 

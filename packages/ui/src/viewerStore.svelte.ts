@@ -92,7 +92,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
+import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
 import type { MapCapture, MapShot } from './mapImage.js'
 import type { PrintCamera } from './print/camera.js'
@@ -177,6 +177,23 @@ export function readLayout(saved: unknown): LayoutState {
     bottomFraction: num(s.bottomFraction, 0.15, 0.85, DEFAULT_LAYOUT.bottomFraction),
   }
 }
+
+/** The time slider (spec 020): a window over a date column, applied as that column's filter. */
+export interface TimeSliderState {
+  open: boolean
+  /** The date and timestamp columns of the displayed result. */
+  columns: TimeColumn[]
+  column: string | null
+  /** The column's whole span; null while it is read, or when no row has a time. */
+  domain: TimeDomain | null
+  loading: boolean
+  /** The window, epoch milliseconds. */
+  from: number
+  to: number
+  playing: boolean
+}
+
+const closedTime = (): TimeSliderState => ({ open: false, columns: [], column: null, domain: null, loading: false, from: 0, to: 0, playing: false })
 
 /** The Bin into cells dialog (spec 017): the choices, what they mean for the layer, and what the map shows. */
 export interface BinDialogState {
@@ -442,6 +459,14 @@ export interface ViewerStore {
   readonly binDialog: BinDialogState
   /** Why Bin into cells is not available for what is open, or null. */
   readonly binUnavailable: string | null
+  /** Spec 020: the time slider's state, why it is not available for what is open (or null), and its actions. */
+  readonly timeSlider: TimeSliderState
+  readonly timeSliderUnavailable: string | null
+  openTimeSlider(): Promise<void>
+  closeTimeSlider(): void
+  setTimeColumn(column: string): Promise<void>
+  setTimeWindow(from: number, to: number): void
+  toggleTimePlay(): void
   openBinDialog(): Promise<void>
   /** Changes the choices; the preview redraws when the result would be small. */
   setBinSpec(patch: Partial<BinSpec>): void
@@ -814,6 +839,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     tableRevision++
     // ... and so do its filters and selection (the session clears its own).
     filters = []
+    resetTimeSlider()
     filterCounts = null
     selection = EMPTY_SELECTION
     showSelectedOnly = false
@@ -1344,6 +1370,54 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let binRunId = 0
   /** The legend title the last bin gave its style (replaced only while the user has not renamed it). */
   let binTitle: string | null = null
+
+  // --- Spec 020: the time slider ------------------------------------------------
+  let timeSlider = $state<TimeSliderState>(closedTime())
+  let timeTimer: ReturnType<typeof setTimeout> | null = null
+  let playTimer: ReturnType<typeof setTimeout> | null = null
+  let timeRun = 0
+  const PLAY_MS = 700
+  const TIME_DEBOUNCE_MS = 120
+
+  function temporalOfLayer(): TimeColumn[] {
+    return temporalColumns(displayedLayer?.columns ?? [])
+  }
+  function timeSliderUnavailable(): string | null {
+    if (!queryTable) return 'Open a layer first.'
+    return temporalOfLayer().length ? null : 'This layer has no date or time column.'
+  }
+  function stopPlay(): void {
+    if (playTimer) clearTimeout(playTimer)
+    playTimer = null
+    if (timeSlider.playing) timeSlider = { ...timeSlider, playing: false }
+  }
+  /** A new result (its filters are cleared with it) or a closed slider: nothing keeps running. */
+  function resetTimeSlider(): void {
+    stopPlay()
+    if (timeTimer) clearTimeout(timeTimer)
+    timeTimer = null
+    timeRun++
+    if (timeSlider.open || timeSlider.column) timeSlider = closedTime()
+  }
+  /** The window as the column's filter (none when it is the whole span), at once. */
+  function applyTimeWindow(): void {
+    if (timeTimer) clearTimeout(timeTimer)
+    timeTimer = null
+    const t = timeSlider
+    const col = t.columns.find((c) => c.name === t.column)
+    if (!col || !t.domain) return
+    const f = timeFilter(col.name, col.kind, t.from, t.to, t.domain)
+    applyFilters([...filters.filter((x) => x.column !== col.name), ...(f ? [f] : [])])
+  }
+  async function loadTimeDomain(column: string): Promise<void> {
+    const qs = querySession
+    if (!qs) return
+    const run = ++timeRun
+    timeSlider = { ...timeSlider, column, domain: null, loading: true }
+    const domain = await retryWhenBusy(qs, () => qs.timeExtent(column)).catch(() => null)
+    if (run !== timeRun) return
+    timeSlider = { ...timeSlider, domain, loading: false, from: domain?.min ?? 0, to: domain?.max ?? 0 }
+  }
 
   function binUnavailable(): string | null {
     // `queryTable` is reactive state set when a layer opens; the session itself is a plain variable.
@@ -2485,6 +2559,59 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get binDialog() {
       return binDialog
+    },
+    get timeSlider() {
+      return timeSlider
+    },
+    get timeSliderUnavailable() {
+      return timeSliderUnavailable()
+    },
+    async openTimeSlider() {
+      if (timeSliderUnavailable()) return
+      const columns = temporalOfLayer()
+      const keep = timeSlider.column && columns.some((c) => c.name === timeSlider.column) ? timeSlider.column : columns[0].name
+      timeSlider = { ...closedTime(), open: true, columns }
+      await loadTimeDomain(keep)
+    },
+    closeTimeSlider() {
+      const column = timeSlider.column
+      resetTimeSlider()
+      // Closing lifts the slider's own filter; any other column's filter stays.
+      if (column) applyFilters(filters.filter((f) => f.column !== column))
+    },
+    async setTimeColumn(column) {
+      if (!timeSlider.open || column === timeSlider.column) return
+      stopPlay()
+      const previous = timeSlider.column
+      if (previous) applyFilters(filters.filter((f) => f.column !== previous))
+      await loadTimeDomain(column)
+    },
+    setTimeWindow(from, to) {
+      if (!timeSlider.open || !timeSlider.domain) return
+      stopPlay()
+      timeSlider = { ...timeSlider, from: Math.min(from, to), to: Math.max(from, to) }
+      if (timeTimer) clearTimeout(timeTimer)
+      timeTimer = setTimeout(applyTimeWindow, TIME_DEBOUNCE_MS)
+    },
+    toggleTimePlay() {
+      const t = timeSlider
+      if (!t.open || !t.domain) return
+      if (t.playing) {
+        stopPlay()
+        return
+      }
+      const col = t.columns.find((c) => c.name === t.column)
+      if (!col) return
+      timeSlider = { ...t, playing: true }
+      const step = (): void => {
+        const now = timeSlider
+        if (!now.playing || !now.domain) return
+        const next = nextWindow(now.from, now.to, now.domain, col.kind)
+        timeSlider = { ...now, from: next.from, to: next.to }
+        applyTimeWindow()
+        playTimer = setTimeout(step, PLAY_MS)
+      }
+      step()
     },
     get binUnavailable() {
       return binUnavailable()
