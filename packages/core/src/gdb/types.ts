@@ -72,6 +72,8 @@ export interface GdbHost {
   list(ref: OpenedFileRef, options?: GdbCallOptions): Promise<GdbCatalog>
   /** Reads one layer into a cached FlatGeobuf (once; later calls return the cache) and returns it with the layer's domains. */
   convert(ref: OpenedFileRef, layer: GdbLayerInfo, options?: GdbCallOptions): Promise<GdbConverted>
+  /** What the converted layers kept for later use now. */
+  cacheInfo?(): Promise<{ files: number; bytes: number }>
   /** Deletes every converted layer; resolves with what was removed. */
   clearCache?(): Promise<{ files: number; bytes: number }>
 }

@@ -211,6 +211,25 @@
     }
   }
 
+  // Spec 013: converted geodatabase layers are kept in the browser; this offers to clear them.
+  let gdbCache = $state<{ files: number; bytes: number } | null>(null)
+  async function refreshGdbCache(): Promise<void> {
+    const info = await hostAdapter.gdb?.cacheInfo?.().catch(() => null)
+    gdbCache = info && info.files > 0 ? info : null
+  }
+  async function clearGdbCache(): Promise<void> {
+    const removed = await hostAdapter.gdb?.clearCache?.().catch(() => null)
+    gdbCache = null
+    if (removed) {
+      copyStatus = `Cleared ${removed.files} stored layer${removed.files === 1 ? '' : 's'} (${(removed.bytes / 1024 / 1024).toFixed(0)} MB)`
+      setTimeout(() => (copyStatus = null), 4000)
+    }
+  }
+  void refreshGdbCache()
+  $effect(() => {
+    if (store.session.loadState === 'ready') void refreshGdbCache()
+  })
+
   let isDragOver = $state(false)
   let fileName = $state<string | null>(null)
   let input: HTMLInputElement
@@ -408,6 +427,9 @@
       <span class="divider" aria-hidden="true"></span>
     {/if}
     <div class="utilities">
+      {#if gdbCache}
+        <button type="button" class="open" title="Converted geodatabase layers are kept in this browser so opening them again is quick. Clear them to free the space." onclick={() => void clearGdbCache()}><Icon name="trash" size={14} />Clear stored layers ({(gdbCache.bytes / 1024 / 1024).toFixed(gdbCache.bytes < 10 * 1024 * 1024 ? 1 : 0)} MB)</button>
+      {/if}
       <ThemeMenu value={themePreference} onChange={chooseTheme} />
       <a class="icon-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="Spatial Explorer on GitHub (opens a new tab)" title="Source code on GitHub">
         <!-- GitHub's mark (Octicons mark-github, MIT; see THIRD-PARTY-NOTICES.md). -->

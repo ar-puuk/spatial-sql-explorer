@@ -132,6 +132,41 @@ test.describe('a geodatabase folder', () => {
   })
 })
 
+test.describe('the reader and its storage', () => {
+  test.setTimeout(180000)
+
+  test('stored layers are listed in the header and can be cleared', async ({ page }) => {
+    await openGdb(page)
+    const clear = page.getByRole('button', { name: /Clear stored layers/ })
+    await expect(clear).toBeVisible()
+    await clear.click()
+    await expect(page.getByRole('status').filter({ hasText: /^Cleared [0-9]+ stored layers?/ })).toBeVisible()
+    await expect(clear).toHaveCount(0)
+    // Layers are converted again on the next open.
+    await page.reload()
+    await pickFolder(page, fixture('network.gdb'))
+    await rendered(page)
+    await expect(statusBar(page)).toContainText('6 features')
+  })
+
+  test('the reader is downloaded once: after the first open it works with the network blocked', async ({ page }) => {
+    await openGdb(page)
+    await page.route('**/engine-mirror/npm/gdal3.js@*/**', (route) => route.abort())
+    await page.reload()
+    await pickFolder(page, fixture('network.gdb'))
+    await rendered(page)
+    await expect(statusBar(page)).toContainText('6 features')
+  })
+
+  test('a reader that cannot be downloaded says so, and nothing stays half-open', async ({ page }) => {
+    await start(page)
+    await page.route('**/engine-mirror/npm/gdal3.js@*/**', (route) => route.abort())
+    await pickFolder(page, fixture('network.gdb'))
+    await expect(page.getByRole('alert')).toContainText('geodatabase reader could not be loaded')
+    await expect(page.getByRole('alert')).toContainText('internet connection')
+  })
+})
+
 test.describe('zipped data', () => {
   test.setTimeout(180000)
 

@@ -196,6 +196,24 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
     }
   }
 
+  /** The converted layers kept in the origin-private file system (the catalogs are not counted). */
+  const measure = async (): Promise<{ files: number; bytes: number }> => {
+    const root = await cacheRoot(false)
+    let files = 0
+    let bytes = 0
+    if (root) {
+      for await (const [, handle] of root.entries()) {
+        if (handle.kind !== 'directory') continue
+        for await (const [name, entry] of (handle as FileSystemDirectoryHandle).entries()) {
+          if (entry.kind !== 'file' || !name.endsWith('.fgb')) continue
+          files++
+          bytes += (await (entry as FileSystemFileHandle).getFile()).size
+        }
+      }
+    }
+    return { files, bytes }
+  }
+
   return {
     async list(ref: OpenedFileRef, callOptions: GdbCallOptions = {}): Promise<GdbCatalog> {
       const source = await filesOf(ref)
@@ -246,22 +264,14 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       return { source: sourceFile, domains }
     },
 
+    async cacheInfo(): Promise<{ files: number; bytes: number }> {
+      return measure()
+    },
+
     async clearCache(): Promise<{ files: number; bytes: number }> {
       stop()
       catalogs.clear()
-      const root = await cacheRoot(false)
-      let files = 0
-      let bytes = 0
-      if (root) {
-        for await (const [, handle] of root.entries()) {
-          if (handle.kind !== 'directory') continue
-          for await (const [, entry] of (handle as FileSystemDirectoryHandle).entries()) {
-            if (entry.kind !== 'file') continue
-            files++
-            bytes += (await (entry as FileSystemFileHandle).getFile()).size
-          }
-        }
-      }
+      const { files, bytes } = await measure()
       try {
         await (await navigator.storage.getDirectory()).removeEntry(CACHE_DIR, { recursive: true })
       } catch {
