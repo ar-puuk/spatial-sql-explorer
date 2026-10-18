@@ -21,6 +21,7 @@
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import BinCellsDialog from './BinCellsDialog.svelte'
+  import DotDensityDialog from './DotDensityDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import PrintComposer from './print/PrintComposer.svelte'
   import type { LegendSpec } from './mapImage.js'
@@ -453,6 +454,8 @@
           onExportImage={() => store.openMapImage()}
           onBinCells={() => void store.openBinDialog()}
           binUnavailable={store.binUnavailable}
+          onDotDensity={() => void store.openDotDialog()}
+          dotUnavailable={store.dotUnavailable}
           onTimeSlider={() => (store.timeSlider.open ? store.closeTimeSlider() : void store.openTimeSlider())}
           timeSliderOpen={store.timeSlider.open}
           timeSliderUnavailable={store.timeSliderUnavailable}
@@ -750,6 +753,9 @@
   {/if}
   {#if store.binDialog.open}
     <BinCellsDialog {store} mapHeight={mapPaneHeight} />
+  {/if}
+  {#if store.dotDialog.open}
+    <DotDensityDialog {store} mapHeight={mapPaneHeight} />
   {/if}
   {#if store.exportOpen}
     <ExportDialog

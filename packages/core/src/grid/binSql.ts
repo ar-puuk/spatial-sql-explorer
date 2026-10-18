@@ -162,10 +162,10 @@ function whereSql(facts: BinLayerFacts): string {
 const USABLE_POINT = 'p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90'
 
 /** Covering: the whole geometry in longitude/latitude, and a usable one lies inside the world. */
-const USABLE_GEOMETRY = 'g IS NOT NULL AND NOT ST_IsEmpty(g) AND ST_XMin(g) >= -180 AND ST_XMax(g) <= 180 AND ST_YMin(g) >= -90 AND ST_YMax(g) <= 90'
+export const USABLE_GEOMETRY = 'g IS NOT NULL AND NOT ST_IsEmpty(g) AND ST_XMin(g) >= -180 AND ST_XMax(g) <= 180 AND ST_YMin(g) >= -90 AND ST_YMax(g) <= 90'
 
 /** The whole geometry in longitude/latitude (covering reads all of it, not the center). */
-function wholeGeometrySql(geom: string, srid: number | null): string {
+export function wholeGeometrySql(geom: string, srid: number | null): string {
   return srid === null || srid === 4326 ? geom : `ST_Transform(${geom}, 'EPSG:${Math.floor(srid)}', 'EPSG:4326', always_xy := true)`
 }
 

@@ -6,6 +6,16 @@ import { untrack } from 'svelte'
 import {
   DEFAULT_LAYER_STYLE,
   BIN_PREFERENCE_KEY,
+  DOT_LIMIT,
+  MAX_DOTS,
+  PREVIEW_DOT_LIMIT,
+  dotSpecProblem,
+  dotStyle,
+  estimateDots,
+  isDotResult,
+  suggestPerDot,
+  type DotLayerInfo,
+  type DotSpec,
   CELL_LIMIT,
   normalizeBinPreference,
   PREVIEW_CELL_LIMIT,
@@ -219,6 +229,26 @@ export interface BinDialogState {
   selectedCount: number
   /** Rows the shown cells leave out for having no location; null until a run has finished. */
   skipped: number | null
+}
+
+/** The Dot density dialog (spec 022): the choices, what they mean for the layer, and what the map shows. */
+export interface DotDialogState {
+  open: boolean
+  spec: DotSpec
+  info: DotLayerInfo | null
+  /** About how many dots the spec gives. */
+  estimate: number
+  /** The query the spec writes, or null when it is not valid. */
+  sql: string | null
+  /** The legend title ("One dot = 500"). */
+  label: string
+  problem: string | null
+  /** A preview or the final run is in progress. */
+  running: boolean
+  /** The map shows exactly this spec. */
+  previewed: boolean
+  /** More dots than are drawn without asking. */
+  overLimit: boolean
 }
 
 export interface ViewerStore {
@@ -474,6 +504,17 @@ export interface ViewerStore {
   applyBin(confirmed?: boolean): Promise<void>
   /** Closes the dialog and restores the query, the result and the style from before. */
   cancelBin(): Promise<void>
+  // --- Spec 022: Dot density ---
+  readonly dotDialog: DotDialogState
+  /** Why Dot density is not available for what is open (it needs a layer of polygons with a number column), or null. */
+  readonly dotUnavailable: string | null
+  openDotDialog(): Promise<void>
+  /** Changes the choices; the preview redraws when the result would be small. */
+  setDotSpec(patch: Partial<DotSpec>): void
+  /** Keeps the dots (running them if the map does not show them yet), shows the SQL, closes the dialog. `confirmed` allows a very large result. */
+  applyDots(confirmed?: boolean): Promise<void>
+  /** Closes the dialog and restores the query, the result and the style from before. */
+  cancelDots(): Promise<void>
   /** Puts a query for the shapes into the SQL editor. */
   insertShapesQuery(): boolean
   /** Shows the shapes as a layer (`SELECT * FROM drawn`), so every export format applies. */
@@ -1563,6 +1604,139 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     layout = { ...layout, bottomTab: prev.bottomTab, bottomCollapsed: prev.bottomCollapsed }
   }
 
+  // --- Spec 022: Dot density ----------------------------------------------------
+  // As with the bin: the dialog only writes a query (QuerySession.dotQuerySql) and runs it like any query.
+  const closedDots = (): DotDialogState => ({
+    open: false,
+    spec: { columns: [], perDot: 1 },
+    info: null,
+    estimate: 0,
+    sql: null,
+    label: '',
+    problem: null,
+    running: false,
+    previewed: false,
+    overLimit: false,
+  })
+  let dotDialog = $state<DotDialogState>(closedDots())
+  /** What to put back when the dialog is cancelled. */
+  let dotPrev: { text: string; ranText: string | null; style: LayerStyle; styleDirty: boolean; bottomTab: LayoutState['bottomTab']; bottomCollapsed: boolean } | null = null
+  let dotTimer: ReturnType<typeof setTimeout> | null = null
+  let dotRunId = 0
+  /** The legend title the last dots gave their style (replaced only while the user has not renamed it). */
+  let dotTitle: string | null = null
+
+  function dotUnavailable(): string | null {
+    if (!queryTable) return 'Open a layer first.'
+    return querySession?.dotUnavailable() ?? null
+  }
+
+  /** The dialog's derived fields for `spec`; schedules the preview when the result would be small. */
+  function updateDots(spec: DotSpec): void {
+    const qs = querySession
+    const info = dotDialog.info
+    const total = info ? spec.columns.reduce((sum, c) => sum + (info.totals[c] ?? 0), 0) : 0
+    const estimate = estimateDots(total, spec.perDot)
+    const query = qs?.dotQuerySql(spec) ?? null
+    let problem = query ? null : qs ? dotSpecProblem(spec, qs.table) : 'Open a layer first.'
+    if (!problem && estimate > MAX_DOTS) problem = `That is about ${estimate.toLocaleString('en-US')} dots, more than the ${MAX_DOTS.toLocaleString('en-US')} this tool draws: let one dot stand for more.`
+    dotDialog = { ...dotDialog, spec, estimate, sql: problem ? null : (query?.sql ?? null), label: query?.label ?? '', problem, overLimit: estimate > DOT_LIMIT, previewed: false }
+    if (dotTimer) clearTimeout(dotTimer)
+    dotTimer = null
+    if (dotDialog.open && query && !problem && estimate <= PREVIEW_DOT_LIMIT) dotTimer = setTimeout(() => void runDots(), 250)
+  }
+
+  /** Runs the dialog's query; the first dots after a normal result get the dot style, a rerun keeps the user's. */
+  async function runDots(): Promise<void> {
+    const qs = querySession
+    const { sql, problem, label } = dotDialog
+    if (!qs || !sql || problem) return
+    const id = ++dotRunId
+    if (queryPhase === 'running') {
+      await qs.cancel()
+      for (let i = 0; i < 40 && queryPhase === 'running'; i++) await new Promise((r) => setTimeout(r, 50))
+      if (id !== dotRunId) return
+    }
+    const wasDots = isDotResult(qs.lastResult?.columns ?? [])
+    queryText = sql
+    dotDialog = { ...dotDialog, running: true }
+    await runQuery({ from: 0, to: queryText.length })
+    if (id !== dotRunId) return
+    const ok = queryPhase === 'succeeded'
+    if (ok) {
+      previewBase = null
+      if (!wasDots) {
+        style = sanitizeStyle(dotStyle(label))
+        styleDirty = true
+      } else {
+        // A rerun keeps the user's style; the legend title follows the amount per dot unless they renamed it.
+        style = sanitizeStyle(patchEncoding(style, 'color', (e) => (e.source.kind === 'column' && e.source.column === 'category' && e.legend?.title === dotTitle ? { ...e, legend: { ...e.legend, title: label } } : e)))
+      }
+      dotTitle = label
+    }
+    dotDialog = { ...dotDialog, running: false, previewed: ok }
+  }
+
+  async function openDotDialog(): Promise<void> {
+    const qs = querySession
+    if (!qs || dotUnavailable()) return
+    const info = await retryWhenBusy(qs, () => qs.layerFactsForDots()).catch(() => null)
+    if (!info) return
+    const column = info.numericColumns[0]
+    if (column === undefined) return
+    const spec: DotSpec = { columns: [column], perDot: suggestPerDot(info.totals[column] ?? 0) }
+    dotPrev = { text: queryText, ranText: lastRunText, style, styleDirty, bottomTab: layout.bottomTab, bottomCollapsed: layout.bottomCollapsed }
+    dotDialog = { ...closedDots(), open: true, info }
+    updateDots(spec)
+  }
+
+  function setDotSpec(patch: Partial<DotSpec>): void {
+    if (!dotDialog.open) return
+    let spec: DotSpec = { ...dotDialog.spec, ...patch }
+    const info = dotDialog.info
+    // Another set of columns has another total: the amount per dot is chosen again for it.
+    if (patch.columns && patch.perDot === undefined && info) spec = { ...spec, perDot: suggestPerDot(spec.columns.reduce((sum, c) => sum + (info.totals[c] ?? 0), 0)) }
+    updateDots(spec)
+  }
+
+  async function applyDots(confirmed = false): Promise<void> {
+    if (!dotDialog.open || dotDialog.problem || !dotDialog.sql) return
+    if (dotDialog.overLimit && !confirmed) return
+    if (dotTimer) clearTimeout(dotTimer)
+    dotTimer = null
+    if (!dotDialog.previewed) await runDots()
+    if (!dotDialog.previewed) return
+    dotDialog = { ...dotDialog, open: false }
+    dotPrev = null
+    layout = { ...layout, bottomTab: 'sql', bottomCollapsed: false }
+  }
+
+  async function cancelDots(): Promise<void> {
+    if (dotTimer) clearTimeout(dotTimer)
+    dotTimer = null
+    const prev = dotPrev
+    dotPrev = null
+    const ran = dotDialog.previewed || dotDialog.running
+    ++dotRunId
+    dotDialog = { ...dotDialog, open: false, running: false }
+    if (!prev) return
+    if (!ran) {
+      queryText = prev.text
+      return
+    }
+    if (queryPhase === 'running') await querySession?.cancel()
+    style = prev.style
+    styleDirty = prev.styleDirty
+    if (prev.ranText === null) {
+      await resetQuery()
+    } else {
+      queryText = prev.ranText
+      await runQuery({ from: 0, to: queryText.length })
+    }
+    queryText = prev.text
+    layout = { ...layout, bottomTab: prev.bottomTab, bottomCollapsed: prev.bottomCollapsed }
+  }
+
   let outsideFeature = $state.raw<Feature | null>(null)
   /** The full record of a map-selected feature (tiles carry only the style's columns). */
   let detailFeature = $state.raw<Feature | null>(null)
@@ -2627,6 +2801,16 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setBinSpec,
     applyBin,
     cancelBin,
+    get dotDialog() {
+      return dotDialog
+    },
+    get dotUnavailable() {
+      return dotUnavailable()
+    },
+    openDotDialog,
+    setDotSpec,
+    applyDots,
+    cancelDots,
     insertShapesQuery() {
       const sql = querySession?.shapesQuerySql(shapes, shapePredicate)
       if (!sql) return false

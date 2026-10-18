@@ -58,7 +58,7 @@ describe('registry', () => {
 
 describe('stacks', () => {
   it('a corner stacks its controls in registry order', () => {
-    expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'timeSlider', 'exportImage'])
+    expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'bottom-left')).toEqual(['legend', 'logo', 'scale'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-left')).toEqual(['search'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'bottom-right')).toEqual([])

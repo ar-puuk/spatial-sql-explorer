@@ -19,7 +19,7 @@
     type StyleSpecification,
   } from 'maplibre-gl'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { onMount, onDestroy, tick, untrack } from 'svelte'
+  import { onMount, onDestroy, tick, untrack } from'svelte'
   import {
     BasemapHealth,
     basemapFailureMessage,
@@ -70,7 +70,7 @@
     type ControlGroupId,
     type MapControlsPrefs,
   } from '@spatial-explorer/core'
-  import type { Snippet } from 'svelte'
+  import type { Snippet } from'svelte'
   import Icon, { type IconName } from './Icon.svelte'
   import type { DrawController, DrawTool } from './draw/controller.js'
   import ProgressBar from './ProgressBar.svelte'
@@ -162,6 +162,9 @@
     onExportImage?: () => void
     /** Spec 017: opens the Bin into cells dialog. */
     onBinCells?: () => void
+    /** Spec 022: opens the Dot density dialog; why it can't open (or null). */
+    onDotDensity?: () => void
+    dotUnavailable?: string | null
     /** Spec 020: opens (or closes) the time slider; whether it is open; why it can't open (or null). */
     onTimeSlider?: () => void
     timeSliderOpen?: boolean
@@ -218,6 +221,8 @@
     onCameraReady,
     onExportImage,
     onBinCells,
+    onDotDensity,
+    dotUnavailable = null,
     onTimeSlider,
     timeSliderOpen = false,
     timeSliderUnavailable = null,
@@ -229,21 +234,21 @@
   let mapReady = $state(false)
 
   // Spec 010: our sources and layers are `se-`; everything else in the style is the basemap.
-  const SOURCE_ID = 'se-data'
+  const SOURCE_ID ='se-data'
   /**
    * GeoJSON mode: the dots (option C) in a source of their own. MapLibre gives
    * each source its own worker, so the dots are tiled alongside the features
    * instead of after them in one source (77k parcels: 2.3 s to 1.3 s).
    */
-  const DOT_SOURCE = 'se-dots'
-  const DOT_LAYER = 'se-circle-dots'
+  const DOT_SOURCE ='se-dots'
+  const DOT_LAYER ='se-circle-dots'
   /** MapLibre's workers (its default is one outside Safari). */
   const MAP_WORKERS = 2
   /** Tiles mode: the selected feature's geometry, fetched by id (a tile may clip it, or not hold it). */
   /** GeoJSON mode: polygons' label points (one label each), filled only while labels are on. */
-  const LABEL_SOURCE = 'se-labels'
-  const SELECTION_SOURCE = 'se-selection'
-  const SELECTION_HALO = 'se-selection-halo'
+  const LABEL_SOURCE ='se-labels'
+  const SELECTION_SOURCE ='se-selection'
+  const SELECTION_HALO ='se-selection-halo'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   // Feature ids are promoted from this property so selection/hover use
   // feature-state (no per-selection filter rebuild — GeoLibre-style perf, see
@@ -272,14 +277,14 @@
     return getComputedStyle(container).getPropertyValue('--se-map-selection').trim() || '#f59e0b'
   }
 
-  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion' | 'symbol' | 'heatmap'; filter: unknown; layout?: Record<string, unknown> }> = [
+  const LAYER_DEFS: Array<{ id: string; type: 'fill' | 'line' | 'circle' | 'fill-extrusion' |'symbol' | 'heatmap'; filter: unknown; layout?: Record<string, unknown> }> = [
     { id: 'fill', type: 'fill', filter: POLYGON },
     // Selection halo (spec 003 FR-019): under the outline, polygons and lines.
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
     // Spec 019: direction arrows along the lines (not interactive: the line under them takes the hover and the click).
-    { id: 'line-arrow', type: 'symbol', filter: LINE },
+    { id: 'line-arrow', type:'symbol', filter: LINE },
     // A heatmap style: the points' density, under their (then hidden) circles, which keep hover and selection.
     { id: 'heatmap', type: 'heatmap', filter: MARKER_POINT },
     { id: 'circle', type: 'circle', filter: ['all', POINT, DOT_SHOWN] },
@@ -287,20 +292,20 @@
     { id: 'marker-select', type: 'circle', filter: MARKER_POINT },
     {
       id: 'marker',
-      type: 'symbol',
+      type:'symbol',
       filter: MARKER_POINT,
       layout: { 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport' },
     },
     // Clusters: groups of points as bubbles, and their counts (points not in a group draw as usual).
     { id: 'cluster', type: 'circle', filter: CLUSTER_FILTER },
-    { id: 'cluster-count', type: 'symbol', filter: CLUSTER_FILTER },
+    { id: 'cluster-count', type:'symbol', filter: CLUSTER_FILTER },
     // Spec 008 US6: raised polygons, shown instead of the fill while extruded.
     { id: 'extrusion', type: 'fill-extrusion', filter: POLYGON },
     // Spec 011 US6: labels, above everything (on the ground in 3D: research §3); not interactive.
-    { id: 'label', type: 'symbol', filter: ['any', POINT, POLYGON] },
-    { id: 'label-line', type: 'symbol', filter: LINE },
+    { id: 'label', type:'symbol', filter: ['any', POINT, POLYGON] },
+    { id: 'label-line', type:'symbol', filter: LINE },
     // Polygons' labels, over their label points (the engine's: one per feature); PMTiles have none, `label` takes them there.
-    { id: 'label-area', type: 'symbol', filter: true },
+    { id: 'label-area', type:'symbol', filter: true },
   ]
   const LABEL_DEFS = new Set(['label', 'label-line', 'label-area'])
   /** A label point shows while its polygon isn't a dot (__se_dotz, GeoJSON mode; tiles send none for dots). */
@@ -352,9 +357,9 @@
     // GeoJSON mode: the circle layer once more, over the dots' own source; polygons' labels over theirs.
     return LAYER_DEFS.flatMap((def) =>
       def.id === 'circle'
-        ? [{ id: 'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }]
+        ? [{ id:'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }]
         : def.id === 'label-area'
-          ? [{ id: 'se-label-area', def, source: LABEL_SOURCE }]
+          ? [{ id:'se-label-area', def, source: LABEL_SOURCE }]
           : [{ id: `se-${def.id}`, def }]
     )
   }
@@ -572,7 +577,7 @@
       id: l.id,
       type: l.def.type,
       source: l.source ?? SOURCE_ID,
-      ...(l.sourceLayer !== undefined ? { 'source-layer': l.sourceLayer } : {}),
+      ...(l.sourceLayer !== undefined ? {'source-layer': l.sourceLayer } : {}),
       filter: layerFilter(l.def),
       layout: layerLayout(l.def, layouts),
       paint: Object.fromEntries(Object.entries(layerPaint(l.def.id, p)).filter(([, v]) => v !== undefined)),
@@ -624,7 +629,7 @@
     return {
       sources,
       layers: copy.layers as BasemapDoc['layers'],
-      glyphs: typeof copy.glyphs === 'string' ? copy.glyphs : undefined,
+      glyphs: typeof copy.glyphs ==='string' ? copy.glyphs : undefined,
       sprite: copy.sprite,
     }
   }
@@ -1697,7 +1702,7 @@
       let marker = labelMarkers.get(s.id)
       if (!marker) {
         const el = document.createElement('div')
-        el.className = 'shape-label'
+        el.className ='shape-label'
         marker = new Marker({ element: el, anchor: 'center' }).setLngLat(at).addTo(m)
         labelMarkers.set(s.id, marker)
       }
@@ -1722,7 +1727,7 @@
     measure: ['line', 'polygon', 'rectangle', 'circle'],
     select: ['rectangle', 'polygon', 'circle', 'freehand'],
   }
-  const TOOL_ICON: Record<DrawTool, IconName> = { point: 'shape-point', line: 'shape-line', polygon: 'shape-polygon', rectangle: 'shape-rect', circle: 'shape-circle', freehand: 'shape-freehand', edit: 'pointer' }
+  const TOOL_ICON: Record<DrawTool, IconName> = { point:'shape-point', line:'shape-line', polygon:'shape-polygon', rectangle:'shape-rect', circle:'shape-circle', freehand:'shape-freehand', edit: 'pointer' }
   const TOOL_LABEL: Record<DrawTool, string> = { point: 'Point', line: 'Line', polygon: 'Polygon', rectangle: 'Rectangle', circle: 'Circle', freehand: 'Freehand', edit: 'Edit shapes' }
   const TOOL_HINT: Record<DrawTool, string> = {
     point: 'Click to place a point',
@@ -1813,9 +1818,9 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'timeSlider', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure','select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
-  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
+  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select:'select' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
   /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
   function cornerSegments(corner: ControlPosition): Segment[] {
@@ -1905,7 +1910,7 @@
           {#if seg.kind === 'buttons'}
                     <!-- The tools of an open purpose (draw, measure, select) form a second column beside the buttons, on the side away from the map's edge. -->
             <div class="pair">
-      <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls">
+      <div class="group" role="toolbar" aria-label="{GROUP_LABEL[seg.group]} controls" class:rows={seg.ids.length > 6} style:--cols={Math.ceil(seg.ids.length / 2)}>
                 {#each seg.ids as id (id)}
                   {#if id === 'zoom'}
                     {@render mapButton('Zoom in', 'Zoom in', 'plus', corner, { onclick: () => map?.zoomIn() })}
@@ -1916,9 +1921,9 @@
                     {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
                   {:else if id === 'terrain'}
                     {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
-                  {:else if id === 'draw' || id === 'measure' || id === 'select'}
+                  {:else if id === 'draw' || id === 'measure' || id ==='select'}
                     {@const purpose: ShapePurpose = id}
-                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' : 'select-shape', corner, {
+                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' :'select-shape', corner, {
                       pressed: drawTool?.purpose === purpose,
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
@@ -1926,6 +1931,8 @@
                     {@render mapButton('Time slider', timeSliderUnavailable ?? 'Time slider: show the rows within a window of a date column', 'timeSlider', corner, { pressed: timeSliderOpen, disabled: !layer || !onTimeSlider || !!timeSliderUnavailable, onclick: () => onTimeSlider?.() })}
                   {:else if id === 'binCells'}
                     {@render mapButton('Bin into cells…', binUnavailable ?? 'Bin into cells (H3 or A5 grid)', 'grid', corner, { disabled: !layer || !onBinCells || !!binUnavailable, onclick: () => onBinCells?.() })}
+                  {:else if id === 'dotDensity'}
+                    {@render mapButton('Dot density…', dotUnavailable ?? 'Dot density: draw a count as dots inside its polygons', 'dots', corner, { disabled: !layer || !onDotDensity || !!dotUnavailable, onclick: () => onDotDensity?.() })}
                   {:else if id === 'exportImage'}
                     {@render mapButton('Print map…', 'Print map…', 'printer', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}
@@ -1960,7 +1967,7 @@
               <span class="pos">{cursorText ?? 'lat, lon'}</span>
               {#if typeof lastCursor?.elevation === 'number'}<span class="elev">{formatElevation(lastCursor.elevation)}</span>{/if}
             </output>
-          {:else if seg.id === 'scale'}
+          {:else if seg.id ==='scale'}
             <div class="native" bind:this={scaleHost}></div>
           {:else if seg.id === 'logo'}
             <div class="native" bind:this={logoHost}></div>
@@ -2322,7 +2329,16 @@
       gap: 1px;
       /* A box of up to six buttons stays one row (the navigation group, with Reset view, is six). */
       max-width: 190px;
+      /* More than six buttons lie in two even rows (seven are four and three, the last row's buttons wider), never six and one. */
       background: var(--se-border);
+    }
+    .map-view .group.rows {
+      width: calc(var(--cols) * 31px - 1px);
+    }
+    .map-view .group.rows :global(button) {
+      flex: 1 1 0;
+      width: auto;
+      min-width: 30px;
     }
     .map-view .group :global(button) {
       background: var(--se-control-bg);

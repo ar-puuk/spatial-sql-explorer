@@ -149,6 +149,10 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 ## Time slider (spec 020)
 - The map control `timeSlider` opens a bar (`TimeSlider.svelte`, at the foot of the map) with a two-handle window over a DATE or TIMESTAMP column of the displayed result, and Play. The window is that column's `between` column filter (`view/timeSlider.ts` `timeFilter`; the whole span is no filter), so every consumer of the filters (map, table, counts, styles, export, tiles) follows without a second path. A new result closes it. Numeric years and text dates are not time columns.
 
+## Dot density (spec 022)
+- The map control `dotDensity` (user request 2026-10-17) opens a dialog (`DotDensityDialog.svelte`, like Bin into cells: floating over the map, the SQL tab holds the query, Esc restores) for a polygon layer: one to six number columns (each its own color, `category`) and the amount one dot stands for (a 1, 2, 5 ladder, first chosen for about 5,000 dots). The result is a points layer `feature, category, one_dot, geom`, a user-editable query like the bin (`packages/core/src/dots/dotSql.ts`, `QuerySession.dotQuerySql`, store `openDotDialog`, `setDotSpec`, `applyDots`, `cancelDots`).
+- The engine has no point-in-polygon generator (`ST_GeneratePoints` takes a box), so the SQL samples each polygon's box with `hash(feature, column, k)` (the same map every time) and keeps the first n points that are `ST_Within`; a remainder is one more dot with that chance. Limits: preview to 20,000 dots, asks over 100,000, refuses over 1,000,000. Very detailed polygons are slow (cost is vertices times candidates: specs/022-dot-density/spec.md).
+
 ## Line arrows (spec 019)
 - `LayerStyle.arrows` (placement along or center, spacing px, size, optional color) draws arrowheads along lines in the line's direction (first vertex to last): the map layer `se-line-arrow`, a MapLibre symbol layer with an SDF chevron (`drawArrowIcon`, `ARROW_ICON_ID`) tinted by the line's color. The style panel's Arrows control (lines and mixed layers). Our QML keeps it in `spatialExplorer/style`; SLD and Mapbox GL leave it out, with a note.
 

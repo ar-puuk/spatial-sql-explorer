@@ -27,6 +27,7 @@
   import Flame from '@lucide/svelte/icons/flame'
   import Funnel from '@lucide/svelte/icons/funnel'
   import Globe from '@lucide/svelte/icons/globe'
+  import ChartScatter from '@lucide/svelte/icons/chart-scatter'
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Hexagon from '@lucide/svelte/icons/hexagon'
   import Image from '@lucide/svelte/icons/image'
@@ -130,6 +131,7 @@
     play: Play,
     pause: Pause,
     timeSlider: CalendarRange,
+    dots: ChartScatter,
     link: Link,
     sun: Sun,
     moon: Moon,

@@ -19,6 +19,7 @@ export type MapControlId =
   | 'measure'
   | 'select'
   | 'binCells'
+  | 'dotDensity'
   | 'timeSlider'
   | 'exportImage'
   | 'legend'
@@ -28,7 +29,7 @@ export type MapControlId =
   | 'tooltip'
 
 /** A heading in the panel, and the box buttons of the same heading share when they sit side by side. */
-export type ControlGroupId = 'navigation' | 'tools' | 'display'
+export type ControlGroupId = 'navigation' | 'tools' | 'output' | 'display'
 
 export type ControlPosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
 
@@ -62,6 +63,7 @@ export const CONTROL_POSITIONS: ReadonlyArray<{ id: ControlPosition; label: stri
 export const CONTROL_GROUPS: readonly ControlGroupDef[] = [
   { id: 'navigation', label: 'Navigation' },
   { id: 'tools', label: 'Tools' },
+  { id: 'output', label: 'Output' },
   { id: 'display', label: 'Display' },
 ]
 
@@ -90,8 +92,9 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   control('measure', 'tools', 'Measure', 'Distances and areas, live while you draw.', true, CORNERS, 'top-right'),
   control('select', 'tools', 'Select by shape', 'Draw a shape to select the rows inside it.', true, CORNERS, 'top-right'),
   control('binCells', 'tools', 'Bin into cells', 'Counts or averages the layer in H3 or A5 grid cells and draws them (spec 017).', true, CORNERS, 'top-right'),
+  control('dotDensity', 'tools', 'Dot density', 'Draws a count as dots placed inside its polygons: one dot stands for a fixed amount (spec 022).', true, CORNERS, 'top-right'),
   control('timeSlider', 'tools', 'Time slider', 'Shows the rows within a window of a date column, and plays the window across time (spec 020).', true, CORNERS, 'top-right'),
-  control('exportImage', 'tools', 'Print map', 'Saves the map as a PNG, PDF or SVG, with a title, legend, scale bar and north arrow.', true, CORNERS, 'top-right'),
+  control('exportImage', 'output', 'Print map', 'Saves the map as a PNG, PDF or SVG, with a title, legend, scale bar and north arrow.', true, CORNERS, 'top-right'),
   control('legend', 'display', 'Legend', 'What the colors, sizes and shapes mean.', true, CORNERS, 'bottom-left'),
   // A wide, short readout: along the top or the bottom edge.
   control('coordinates', 'display', 'Coordinates', 'Shows the cursor position (and elevation). To copy a position, right-click the map.', false, EDGES, 'bottom-center'),
