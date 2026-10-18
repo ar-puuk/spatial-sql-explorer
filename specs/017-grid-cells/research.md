@@ -75,3 +75,17 @@ A5's functions answer in meters and m^2 and were converted). The core tests comp
   reruns in the session; after a reload the table is gone, as with `drawn`.
 - Background engine work (`gridSupport`, `prepareBinSelection`, `binSkippedRows`) can be preempted by a map redraw, so the store asks again
   (`retryWhenBusy`). Without it the skipped-rows count was silently lost.
+
+## 6. Responsiveness at 6x CPU (T044, 2026-10-17; tests/web/specs/grid-performance.spec.ts, performance project)
+
+A 300,000-point layer (a million points take over five minutes just to open as GeoJSON in the web app; the test takes `SE_GRID_PERF_POINTS` to try more).
+Long tasks (PerformanceObserver) with the CPU throttled 6x, through open dialog, four slider steps (each a preview) and Keep:
+- **The dialog answers.** Opening it costs one task of 97 to 107 ms (mounting H3/A5 toggle, slider, two selects; the profile shows focus and style
+  recalculation, the map's container measurements and theme color reads, with no single hot spot), and a slider key leaves nothing over 100 ms.
+  The test allows 150 ms for this: the 100 ms bar of the gallery test is met on average, not on every run.
+- **The redraw is the heavy part.** When a result arrives (new cells to the map, the legend's classes, the table), tasks of 100 to 250 ms follow, a
+  few 300 to 350 ms around Keep (the SQL tab's editor mounts then). No task reached 500 ms after the page had loaded; the load itself has tasks of 600 ms.
+  This is the cost of any new result, not of binning: the engine work runs in the worker.
+- Without the SQL tab switch the tasks did not shrink (an experiment, reverted), so that is not the cause.
+- Timing tests on this machine are noisy (the existing ~10 MB-file warm-open test sits at 2.0 to 2.1 s against its 2 s limit, with and without the
+  new extensions).
