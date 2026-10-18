@@ -103,6 +103,10 @@
     MARKER_SHAPES,
     MARKER_SHAPE_NAMES,
     type LineDash,
+    type ArrowSettings,
+    ARROW_SIZE,
+    ARROW_SPACING,
+    DEFAULT_ARROWS,
     type MarkerShape,
     validateStyle,
     previewExportNotice,
@@ -515,6 +519,15 @@
   // --- Marker shape and line pattern.
   const shape = $derived<MarkerShape>(style.markerShape ?? 'circle')
   const dash = $derived<LineDash>(style.lineDash ?? 'solid')
+  // Spec 019: direction arrows on lines (a layer of lines, or a mix with lines in it).
+  const arrowMode = $derived<'none' | 'along' | 'center'>(style.arrows ? style.arrows.placement : 'none')
+  function setArrows(mode: string): void {
+    if (mode === 'none') onChange({ arrows: undefined })
+    else onChange({ arrows: { ...DEFAULT_ARROWS, ...style.arrows, placement: mode === 'center' ? 'center' : 'along' } })
+  }
+  function patchArrows(patch: Partial<ArrowSettings>): void {
+    if (style.arrows) onChange({ arrows: { ...style.arrows, ...patch } })
+  }
   const preview = $derived(baseSymbol(style))
   function shapeKeydown(e: KeyboardEvent): void {
     const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
@@ -1100,6 +1113,48 @@
             {/each}
           </select>
         </div>
+        <div class="row">
+          <label class="label" for="style-arrows">Arrows</label>
+          <select id="style-arrows" class="span" value={arrowMode} onchange={(e) => setArrows(e.currentTarget.value)}>
+            <option value="none">None</option>
+            <option value="along">Along the line</option>
+            <option value="center">Middle of the line</option>
+          </select>
+        </div>
+        {#if style.arrows}
+          {#if style.arrows.placement === 'along'}
+            <div class="row">
+              <span class="label" id="arrow-spacing-label">Spacing</span>
+              <input
+                type="range"
+                class="wide"
+                aria-labelledby="arrow-spacing-label"
+                aria-valuetext="{style.arrows.spacing} pixels"
+                min={ARROW_SPACING.min}
+                max="300"
+                step="10"
+                value={style.arrows.spacing}
+                oninput={(e) => patchArrows({ spacing: Number(e.currentTarget.value) })}
+              />
+              <span class="value">{style.arrows.spacing} px</span>
+            </div>
+          {/if}
+          <div class="row">
+            <span class="label" id="arrow-size-label">Arrow size</span>
+            <input
+              type="range"
+              class="wide"
+              aria-labelledby="arrow-size-label"
+              aria-valuetext="{style.arrows.size} times"
+              min={ARROW_SIZE.min}
+              max={ARROW_SIZE.max}
+              step="0.1"
+              value={style.arrows.size}
+              oninput={(e) => patchArrows({ size: Number(e.currentTarget.value) })}
+            />
+            <span class="value">{style.arrows.size}×</span>
+          </div>
+        {/if}
       {/if}
 
       {#if hasPoints}

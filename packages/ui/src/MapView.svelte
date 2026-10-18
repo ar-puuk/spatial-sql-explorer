@@ -32,6 +32,8 @@
     CLUSTER_FILTER,
     layoutFor,
     isMarkerIconId,
+    ARROW_ICON_ID,
+    drawsArrows,
     markerIconIds,
     drawsMarkerIcons,
     layerFilters,
@@ -79,7 +81,7 @@
   import { paintAtlasMask } from './print/mask.js'
   import { clearPrintExtent, drawPrintExtent, setPrintExtentVisible, showPrintExtent } from './print/extent.js'
   import type { TilesArchive } from './pmtilesSource.js'
-  import { drawMarkerIcon } from './markerIcon.js'
+  import { drawArrowIcon, drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
 
   interface Props {
@@ -269,6 +271,8 @@
     { id: 'halo', type: 'line', filter: ['any', POLYGON, LINE], layout: { 'line-join': 'round', 'line-cap': 'round' } },
     { id: 'fill-outline', type: 'line', filter: POLYGON, layout: { 'line-join': 'round' } },
     { id: 'line', type: 'line', filter: LINE, layout: { 'line-join': 'round', 'line-cap': 'round' } },
+    // Spec 019: direction arrows along the lines (not interactive: the line under them takes the hover and the click).
+    { id: 'line-arrow', type: 'symbol', filter: LINE },
     // A heatmap style: the points' density, under their (then hidden) circles, which keep hover and selection.
     { id: 'heatmap', type: 'heatmap', filter: MARKER_POINT },
     { id: 'circle', type: 'circle', filter: ['all', POINT, DOT_SHOWN] },
@@ -320,6 +324,7 @@
     if (id === 'extrusion') return extruded && !styledTiles ? 'visible' : 'none'
     const heat = drawsHeatmap(style, resolved)
     if (id === 'heatmap') return heat ? 'visible' : 'none'
+    if (id === 'line-arrow') return drawsArrows(style) ? 'visible' : 'none'
     if (id === 'cluster' || id === 'cluster-count') return drawsClusters(style, resolved) ? 'visible' : 'none'
     if (id === 'marker' || id === 'marker-select') return drawsMarkerIcons(style, resolved) && !heat ? 'visible' : 'none'
     if (extruded && (id === 'fill-outline' || id === 'halo')) return 'none'
@@ -1167,6 +1172,10 @@
     // Shaped marker icons, on demand (also after a basemap switch replaces the style's images).
     map.on('styleimagemissing', (e: { id: string }) => {
       if (map && isMarkerIconId(e.id)) addMarkerIcon(map, e.id)
+      else if (map && e.id === ARROW_ICON_ID && !map.hasImage(e.id)) {
+        const icon = drawArrowIcon()
+        if (icon) map.addImage(e.id, icon.image, { pixelRatio: icon.pixelRatio, sdf: true })
+      }
     })
     map.on('load', () => {
       registerHandlers()

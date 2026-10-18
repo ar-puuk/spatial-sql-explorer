@@ -69,6 +69,43 @@ export interface LayerStyle {
   height?: { meters: number; scale?: number }
   /** Spec 011 US6: labels. */
   labels?: LabelSettings
+  /** Spec 019: direction arrows along lines. Absent: none. */
+  arrows?: ArrowSettings
+}
+
+// --- Spec 019: direction arrows on lines -------------------------------------
+
+/**
+ * Arrowheads drawn along every line, pointing the way the line is digitized (its first vertex to its last), so a
+ * flow, a one-way street or a river reads in its direction. MapLibre's line-placed symbols; lines only.
+ */
+export interface ArrowSettings {
+  /** 'along': repeated every `spacing` px; 'center': one at the middle of each line. */
+  placement: 'along' | 'center'
+  /** px between arrows ('along'). */
+  spacing: number
+  /** Scale of the arrowhead, 1 = a head as wide as a 4 px line draws it (it follows the line width). */
+  size: number
+  /** `#rrggbb`. Absent: the line's own color (also per feature, when the color varies by data). */
+  color?: string
+}
+
+export const ARROW_SPACING = { min: 20, max: 500, default: 80 } as const
+export const ARROW_SIZE = { min: 0.5, max: 4, default: 1 } as const
+export const DEFAULT_ARROWS: Readonly<ArrowSettings> = Object.freeze({ placement: 'along', spacing: ARROW_SPACING.default, size: ARROW_SIZE.default })
+
+/** Arrow settings made valid, or undefined (none). */
+export function sanitizeArrows(raw: unknown): ArrowSettings | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const a = raw as Partial<ArrowSettings>
+  const num = (v: unknown, b: { min: number; max: number; default: number }): number => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, b.min, b.max) : b.default)
+  const rgba = typeof a.color === 'string' ? parseColor(a.color) : null
+  return {
+    placement: a.placement === 'center' ? 'center' : 'along',
+    spacing: Math.round(num(a.spacing, ARROW_SPACING)),
+    size: Math.round(num(a.size, ARROW_SIZE) * 10) / 10,
+    ...(rgba ? { color: rgbToHex(rgba) } : {}),
+  }
 }
 
 // --- Renderers (spec 003, data-model.md) ----------------------------------
@@ -661,6 +698,7 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
   const clustersRaw = style.clusters ?? (draw.points === 'clusters' ? {} : undefined)
   const clusters = clustersRaw && typeof clustersRaw === 'object' ? clusterSettings(sanitizeRenderer({ ...clustersRaw, kind: 'clusters' } as Partial<Renderer>) as ClusterRenderer) : undefined
   const labels = sanitizeLabels(style.labels)
+  const arrows = sanitizeArrows(style.arrows)
   let out: LayerStyle = {
     fillColor: pick(style.fillColor, DEFAULT_LAYER_STYLE.fillColor),
     fillOpacity: num(style.fillOpacity, DEFAULT_LAYER_STYLE.fillOpacity, 0, 1),
@@ -682,6 +720,7 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
       ? { height: { meters: Math.max(0, style.height.meters), ...(finite(style.height.scale) && style.height.scale > 0 && style.height.scale !== 1 ? { scale: style.height.scale } : {}) } }
       : {}),
     ...(labels ? { labels } : {}),
+    ...(arrows ? { arrows } : {}),
   }
   // Pre-011 keys win over the channels they map to (a sidecar, or a patch from an edit).
   if (has('renderer')) out = withRenderer(out, sanitizeRenderer(style.renderer))
