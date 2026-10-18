@@ -482,3 +482,35 @@ test.describe('Bin into cells of the rows shown (spec 017)', () => {
     fs.rmSync(file, { force: true })
   })
 })
+
+// US6: reading a cell.
+test.describe('Reading a cell (spec 017)', () => {
+  test('clicking a cell shows its id, size, value and count; the id can be copied', async ({ page, context }) => {
+    test.setTimeout(120000)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.setViewportSize({ width: 1280, height: 1000 }) // tall enough that the card is open, not collapsed to its header
+    await openFile(page, fixture('crashes.geojson'))
+    await page.getByRole('button', { name: 'Bin into cells…' }).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect.poll(async () => Number(await rendered(page)), { timeout: 30000 }).toBeGreaterThan(0)
+    // Click where the data is: the middle of the map first, then a grid around it until a cell answers.
+    const box = (await page.locator('.canvas-host').boundingBox())!
+    const card = page.getByRole('region', { name: 'Feature attributes' })
+    outer: for (const dy of [0, -0.12, 0.12, -0.25, 0.25]) {
+      for (const dx of [0, -0.12, 0.12, -0.25, 0.25]) {
+        await page.mouse.click(box.x + box.width * (0.5 + dx), box.y + box.height * (0.5 + dy))
+        // The card opens with its header and fills in once the record is read.
+        if (await card.getByText('cell_id', { exact: true }).waitFor({ timeout: 2500 }).then(() => true, () => false)) break outer
+      }
+    }
+    await expect(card).toBeVisible()
+    for (const column of ['cell_id', 'resolution', 'value', 'n']) await expect(card.getByText(column, { exact: true })).toBeVisible()
+    const id = await card.locator('dd').first().innerText()
+    expect(id.trim()).toMatch(/^[0-9a-f]{15}$/) // an H3 cell id
+    await card.getByRole('button', { name: 'Copy cell_id' }).click()
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(id.trim())
+    // Only the id has a copy button.
+    await expect(card.getByRole('button', { name: /^Copy / })).toHaveCount(1)
+  })
+})
+

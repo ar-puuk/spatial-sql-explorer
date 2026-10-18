@@ -117,8 +117,8 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 **Goal**: clicking a cell shows its attributes and the id can be copied.
 **Independent test**: click a cell; the card shows `cell_id`, `resolution`, `value`, `n`.
 
-- [ ] T040 [P] [US6] Test first: `tests/web/specs/grid-cells-017.spec.ts` click a cell and read the feature card; the copy action puts the id on the clipboard.
-- [ ] T041 [US6] Check `packages/ui/src/FeatureInspector.svelte` already shows the columns and offers copy for text values; add only what is missing (a copy button on `cell_id`).
+- [x] T040 [P] [US6] Test first: `tests/web/specs/grid-cells-017.spec.ts` click a cell and read the feature card; the copy action puts the id on the clipboard.
+- [x] T041 [US6] Check `packages/ui/src/FeatureInspector.svelte` already shows the columns and offers copy for text values; add only what is missing (a copy button on `cell_id`).
 
 ## Phase 9: Polish and cross-cutting
 

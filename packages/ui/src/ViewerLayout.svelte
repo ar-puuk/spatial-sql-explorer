@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import './kit/base.css'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
@@ -353,7 +353,7 @@
     <!-- The selected feature's card. Not a control: it shows whenever a feature is selected. -->
     {#if inspected && !inspectorClosed}
       <div class="inspector-slot">
-        <FeatureInspector collapsed={shortCard} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
+        <FeatureInspector collapsed={shortCard} copyKey={isBinResult(layer?.columns ?? []) ? 'cell_id' : null} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
       </div>
     {/if}
   {:else if id === 'legend' && layer && showLegend}
