@@ -88,10 +88,10 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 **Goal**: the query is visible, editable and rerunnable; the result is a normal result.
 **Independent test**: edit the resolution in the SQL and rerun; the style stays; "As layer" and export work.
 
-- [ ] T029 [P] [US3] Test first: `tests/web/specs/grid-cells-017.spec.ts`: after Apply the query panel shows the generated SQL; editing the resolution number and running keeps the graduated style on `value`; the export dialog lists the usual formats for the result.
-- [ ] T030 [US3] Show the generated SQL read-only in the dialog (a collapsible block in `packages/ui/src/BinCellsDialog.svelte`) with a "Copy" button using the existing copy affordance from `QueryPanel.svelte`.
-- [ ] T031 [US3] Make the "previous result was a bin" check in `applyBin` (T018) depend on the result's columns (`cell_id`, `value`, `geom`) rather than on a flag, so a rerun of an edited query keeps the user's style and a bin after a normal query gets the default style.
-- [ ] T032 [P] [US3] Test: SC-4 in `tests/web/specs/grid-cells-017.spec.ts`: export the cells to GeoParquet, read it back with `inspectParquet` from the e2e hook, and compare the row count and the `geo` metadata.
+- [x] T029 [P] [US3] Test first: `tests/web/specs/grid-cells-017.spec.ts`: after Apply the query panel shows the generated SQL; editing the resolution number and running keeps the graduated style on `value`; the export dialog lists the usual formats for the result.
+- [x] T030 [US3] Show the generated SQL read-only in the dialog (a collapsible block in `packages/ui/src/BinCellsDialog.svelte`) with a "Copy" button using the existing copy affordance from `QueryPanel.svelte`.
+- [x] T031 [US3] Make the "previous result was a bin" check in `applyBin` (T018) depend on the result's columns (`cell_id`, `value`, `geom`) rather than on a flag, so a rerun of an edited query keeps the user's style and a bin after a normal query gets the default style.
+- [x] T032 [P] [US3] Test: SC-4 in `tests/web/specs/grid-cells-017.spec.ts`: export the cells to GeoParquet, read it back with `inspectParquet` from the e2e hook, and compare the row count and the `geo` metadata.
 
 ## Phase 6: User Story 4 - Style the cells (Priority: P2)
 

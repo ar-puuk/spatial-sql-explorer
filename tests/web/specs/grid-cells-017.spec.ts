@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
-import { editor, fixture, openFile, openQueryPanel } from './helpers'
+import { editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery } from './helpers'
 
 type Row = Record<string, unknown>
 
@@ -221,16 +221,58 @@ test.describe('Bin into cells dialog (spec 017)', () => {
     expect(await editor(page).innerText()).toBe(queryBefore)
   })
 
-  test('editing the resolution in the SQL and rerunning keeps the style of the cells', async ({ page }) => {
+  test('the dialog shows the SQL it writes; Keep puts the same text in the query panel', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, fixture('crashes.geojson'))
     await openQueryPanel(page)
     await binButton(page).click()
-    await dialog(page).getByRole('button', { name: 'Keep' }).click()
-    await expect(legend(page).getByRole('button', { name: /^Number of features/ })).toBeVisible()
+    await dialog(page).getByText('SQL', { exact: true }).click()
+    const shown = await dialog(page).getByLabel('The query this writes').innerText()
+    expect(shown).toMatch(/^SELECT cell_id, resolution, value, n,/)
+    expect(shown).toContain('h3_latlng_to_cell')
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(editor(page)).toContainText('SELECT cell_id, resolution, value, n,')
+    expect((await editor(page).innerText()).replace(/\s+/g, ' ')).toBe(shown.replace(/\s+/g, ' '))
+  })
+
+  test('editing the resolution in the SQL and rerunning keeps the style and the legend of the cells', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await openQueryPanel(page)
+    await binButton(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    const head = legend(page).getByRole('button', { name: /^Number of features/ })
+    await expect(head).toBeVisible()
+    const cellsBefore = await rendered(page)
     const text = await editor(page).innerText()
-    const m = /AS resolution/.exec(text)
-    expect(m).not.toBeNull()
+    const res = Number(/(\d+) AS resolution/.exec(text)![1])
+    // One step coarser everywhere the resolution appears: the cell function and the `resolution` column.
+    const edited = text.replace(new RegExp(`h3_latlng_to_cell\(ST_Y\(p\), ST_X\(p\), ${res}\)`), `h3_latlng_to_cell(ST_Y(p), ST_X(p), ${res - 1})`).replace(`${res} AS resolution`, `${res - 1} AS resolution`)
+    expect(edited).not.toBe(text)
+    await runQuery(page, edited)
+    await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBe(cellsBefore)
+    // The style is the cells' own, not reset: same legend title, still graduated on value.
+    await expect(head).toBeVisible()
+  })
+
+  test('the result exports like any other: the usual formats, and a GeoParquet that reads back', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+    await openQueryPanel(page)
+    await binButton(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(legend(page).getByRole('button', { name: /^Number of features/ })).toBeVisible()
+    // The table's rows are the cells (the map's rendered count also counts a cell once per tile it crosses).
+    await expect.poll(() => rowCount(page), { timeout: 30000 }).toBeGreaterThan(0)
+    const cells = await rowCount(page)
+    await page.getByRole('button', { name: 'Export data…' }).click()
+    const formats = await exportDialog(page).getByLabel('Format', { exact: true }).locator('option').allTextContents()
+    expect(formats).toEqual(expect.arrayContaining(['GeoParquet', 'GeoPackage', 'GeoJSON', 'FlatGeobuf']))
+    const { bytes } = await exportVia(page, { format: 'GeoParquet' })
+    const back = await inspectParquet(page, bytes)
+    expect(back.rows).toBe(cells)
+    expect(back.columns).toEqual(expect.arrayContaining(['cell_id', 'resolution', 'value', 'n']))
+    expect(back.geo).not.toBeNull()
   })
 
   test('the map has the same action as a button, which opens the same dialog', async ({ page }) => {

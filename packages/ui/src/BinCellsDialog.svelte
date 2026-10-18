@@ -57,6 +57,18 @@
   const estimateText = $derived(bin.estimate === 0 ? '' : `About ${nf2.format(bin.estimate)} ${bin.estimate === 1 ? 'cell' : 'cells'}`)
 
   let panel = $state<HTMLDivElement>()
+  /** The query was just copied: the button shows a check for a moment. */
+  let copied = $state(false)
+  async function copySql(): Promise<void> {
+    if (!bin.sql) return
+    try {
+      await navigator.clipboard.writeText(bin.sql)
+      copied = true
+      setTimeout(() => (copied = false), 1500)
+    } catch {
+      // No clipboard (a restricted webview): the text is in the box to select.
+    }
+  }
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -124,6 +136,17 @@
           {/if}
         </div>
       </div>
+
+      {#if bin.sql}
+        <!-- The query is the product: this is what Keep puts in the query panel to read, edit and rerun. -->
+        <details class="sql">
+          <summary>SQL</summary>
+          <div class="sql-box">
+            <pre aria-label="The query this writes">{bin.sql}</pre>
+            <button type="button" class="icon-button copy" onclick={copySql} title="Copy the query" aria-label="Copy the query"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>
+          </div>
+        </details>
+      {/if}
 
       {#if bin.problem}
         <p class="notice invalid" role="alert"><Icon name="info" size={14} /><span>{bin.problem}</span></p>
@@ -206,6 +229,33 @@
     margin: 0;
     color: var(--se-text-secondary);
     font-size: 0.9em;
+  }
+  .sql summary {
+    cursor: pointer;
+    color: var(--se-text-secondary);
+  }
+  .sql-box {
+    position: relative;
+    margin-top: 6px;
+  }
+  .sql-box pre {
+    margin: 0;
+    max-height: 160px;
+    overflow: auto;
+    padding: 6px 28px 6px 8px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-input-bg);
+    font-family: var(--se-font-mono);
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+  }
+  .icon-button.copy {
+    position: absolute;
+    top: 2px;
+    right: 2px;
   }
   .all {
     display: flex;
