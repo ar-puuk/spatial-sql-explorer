@@ -53,6 +53,7 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
+import { binQuerySql as buildBinQuery, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
@@ -628,6 +629,29 @@ export class QuerySession {
     const lv = this.layerView
     if (!lv || shapes.length === 0) return null
     return `SELECT *\nFROM layer\nWHERE ${spatialPredicateSql(predicate, lv.geom, shapesInCrsSql(shapes, this.table.srid))}`
+  }
+
+  // --- Spec 017: grid cells (H3 and A5) -----------------------------------------
+
+  /**
+   * The query "Bin into cells" writes: the layer's rows assigned to grid cells, a measure per cell, the cell
+   * outlines (grid/binSql.ts). Null when the spec is not valid for this layer, or it has no geometry.
+   */
+  binQuerySql(spec: BinSpec): BinQuery | null {
+    const lv = this.layerView
+    if (!lv) return null
+    return buildBinQuery(spec, { geom: lv.geom, srid: this.table.srid, columns: this.table.columns, where: null, selectedWhere: null })
+  }
+
+  /** What the Bin into cells dialog shows about the open layer. */
+  layerFactsForBin(): BinLayerInfo | null {
+    if (!this.layerView) return null
+    return {
+      geometryType: this.table.geometryType,
+      extent: this.table.extent,
+      rows: this.table.totals.rows,
+      numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
+    }
   }
 
   /** Row ids of the displayed rows meeting `predicate` against the shapes (the map's "select by shape"). */

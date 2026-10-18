@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`binQuerySql (spec 017) > writes the A5 count query for a projected polygon layer 1`] = `
+"SELECT cell_id, resolution, value, n,
+  ST_SetCRS(CASE WHEN ST_XMax(ring) > 180 THEN ST_Union(ST_Intersection(ring, ST_MakeEnvelope(-180, -90, 180, 90)), ST_Affine(ST_Intersection(ring, ST_MakeEnvelope(180, -90, 540, 90)), 1, 0, 0, 1, -360, 0)) WHEN ST_XMin(ring) < -180 THEN ST_Union(ST_Intersection(ring, ST_MakeEnvelope(-180, -90, 180, 90)), ST_Affine(ST_Intersection(ring, ST_MakeEnvelope(-540, -90, -180, 90)), 1, 0, 0, 1, 360, 0)) ELSE ring END, 'EPSG:4326') AS geom
+FROM (
+  SELECT a5_u64_to_hex(cell) AS cell_id, 9 AS resolution, count(*)::DOUBLE AS value, count(*) AS n,
+    a5_cell_to_geometry(cell) AS ring
+  FROM (
+    SELECT a5_lonlat_to_cell(ST_X(p), ST_Y(p), 9) AS cell
+    FROM (
+      SELECT ST_Transform(ST_Centroid("geom"), 'EPSG:26912', 'EPSG:4326', always_xy := true) AS p
+      FROM layer
+    )
+    WHERE p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90
+  )
+  GROUP BY cell
+)"
+`;
+
+exports[`binQuerySql (spec 017) > writes the H3 count query for a WGS84 layer 1`] = `
+"SELECT cell_id, resolution, value, n,
+  ST_SetCRS(CASE WHEN ST_XMax(ring) > 180 THEN ST_Union(ST_Intersection(ring, ST_MakeEnvelope(-180, -90, 180, 90)), ST_Affine(ST_Intersection(ring, ST_MakeEnvelope(180, -90, 540, 90)), 1, 0, 0, 1, -360, 0)) WHEN ST_XMin(ring) < -180 THEN ST_Union(ST_Intersection(ring, ST_MakeEnvelope(-180, -90, 180, 90)), ST_Affine(ST_Intersection(ring, ST_MakeEnvelope(-540, -90, -180, 90)), 1, 0, 0, 1, 360, 0)) ELSE ring END, 'EPSG:4326') AS geom
+FROM (
+  SELECT h3_h3_to_string(cell) AS cell_id, 7 AS resolution, count(*)::DOUBLE AS value, count(*) AS n,
+    ST_GeomFromText('POLYGON((' || list_aggr(list_transform(regexp_extract_all(h3_cell_to_boundary_wkt(cell), '-?[0-9]+[.]?[0-9]*[ ]-?[0-9]+[.]?[0-9]*'), p -> (CAST(split_part(p, ' ', 1) AS DOUBLE) + 360 * round((h3_cell_to_lng(cell) - CAST(split_part(p, ' ', 1) AS DOUBLE)) / 360)) || ' ' || split_part(p, ' ', 2)), 'string_agg', ',') || '))') AS ring
+  FROM (
+    SELECT h3_latlng_to_cell(ST_Y(p), ST_X(p), 7) AS cell
+    FROM (
+      SELECT ST_Centroid("geom") AS p
+      FROM layer
+    )
+    WHERE p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90
+  )
+  GROUP BY cell
+)"
+`;

@@ -44,7 +44,7 @@ Probe scripts: `spikes/dateline-split.py.txt` (builds the SQL), sizes: `spikes/c
 
 **S4, cell sizes.** The engine's average sizes for H3 resolutions 0..15 and A5 resolutions 0..30 are saved in `spikes/cell-sizes.json` (km and km^2;
 A5's functions answer in meters and m^2 and were converted). The core tests compare the registry against this file. H3 res 5 is about 253 km^2
-(edge 9.9 km); A5 res 10 is about 32 km^2; A5 areas fall by exactly 4x per step, H3 by about 7x.
+(edge 9.9 km); A5 res 10 is about 32 km^2; A5 areas fall by exactly 4x per step from resolution 1 (0 to 1 is 5x), H3 by about 7x.
 
 **S2, the date line and the poles.**
 - **A5** returns a continuous ring already unwrapped past the date line (longitudes such as 180.32 or -176 beside 179.5), so it needs no unwrapping.

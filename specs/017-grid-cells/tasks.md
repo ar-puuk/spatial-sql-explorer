@@ -28,18 +28,18 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `packages/core/src/grid/` with `index.ts` (empty exports) and export it from `packages/core/src/index.ts`.
-- [ ] T002 [P] Add a `grid` entry (Lucide `Hexagon`) to the icon map in `packages/ui/src/Icon.svelte`.
-- [ ] T003 [P] Spike S4: in a temporary Playwright probe (not committed) read `h3_get_hexagon_area_avg(res, 'km^2')`, `h3_get_hexagon_edge_length_avg(res, 'km')` for res 0..15 and `a5_cell_area(res)`, `a5_cell_edge_length_avg(res)` for res 0..30 (cast the resolution to INTEGER) and save them as JSON in `specs/017-grid-cells/spikes/cell-sizes.json`; add the outcome to `research.md` section 4.
-- [ ] T004 [P] Spike S2: in the same kind of probe, try the date-line split SQL for H3 and A5 cells at lon 179.99, lon -179.99, lat 89 and lat -89 (unwrap longitudes, intersect with the two half-world boxes, return a MultiPolygon); record the working SQL and any failures in `research.md` section 4 and keep the probe under `specs/017-grid-cells/spikes/` as a `.txt` so no build picks it up.
+- [x] T001 Create `packages/core/src/grid/` with `index.ts` (empty exports) and export it from `packages/core/src/index.ts`.
+- [x] T002 [P] Add a `grid` entry (Lucide `Hexagon`) to the icon map in `packages/ui/src/Icon.svelte`.
+- [x] T003 [P] Spike S4: in a temporary Playwright probe (not committed) read `h3_get_hexagon_area_avg(res, 'km^2')`, `h3_get_hexagon_edge_length_avg(res, 'km')` for res 0..15 and `a5_cell_area(res)`, `a5_cell_edge_length_avg(res)` for res 0..30 (cast the resolution to INTEGER) and save them as JSON in `specs/017-grid-cells/spikes/cell-sizes.json`; add the outcome to `research.md` section 4.
+- [x] T004 [P] Spike S2: in the same kind of probe, try the date-line split SQL for H3 and A5 cells at lon 179.99, lon -179.99, lat 89 and lat -89 (unwrap longitudes, intersect with the two half-world boxes, return a MultiPolygon); record the working SQL and any failures in `research.md` section 4 and keep the probe under `specs/017-grid-cells/spikes/` as a `.txt` so no build picks it up.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T005 [P] Test first: `tests/core/grid-systems.test.ts` checks the registry (ids `h3` and `a5`, resolution ranges 0..15 and 0..30, argument order `latlng` and `lonlat`, `equalArea` only for A5) and that the size tables are the T003 numbers within 0.5%.
-- [ ] T006 Implement `packages/core/src/grid/gridSystems.ts`: the `GridSystem` registry from data-model.md with `cellAreaKm2[]` and `edgeKm[]` taken from `specs/017-grid-cells/spikes/cell-sizes.json`, plus `GridSystemId`, `getGridSystem(id)` and `GRID_SYSTEMS`.
-- [ ] T007 [P] Test first: `tests/core/grid-bin-sql.test.ts` (golden strings) for `binQuerySql`: H3 and A5, count, a 4326 point layer; asserts the output columns `cell_id, resolution, value, n, geom`, the argument order of each system, `ST_SetCRS(..., 'EPSG:4326')`, and that an out-of-range resolution or a non-numeric measure column returns null.
-- [ ] T008 Implement `packages/core/src/grid/binSql.ts`: `BinSpec`, `BinQuery`, `binQuerySql(spec, facts)` (pure, no engine) for points in EPSG:4326 with the count measure, per contracts/bin-cells.md section 1; quote identifiers with `quoteIdent` from `packages/core/src/query/util.ts`.
-- [ ] T009 Add `QuerySession.binQuerySql(spec)` and `layerFactsForBin()` in `packages/core/src/query/session.ts` (geometry column, layer SRID, geometry type, WGS84 extent, row count, numeric columns), beside `shapesQuerySql`; unit-test it with the existing session test harness in `tests/core`.
+- [x] T005 [P] Test first: `tests/core/grid-systems.test.ts` checks the registry (ids `h3` and `a5`, resolution ranges 0..15 and 0..30, argument order `latlng` and `lonlat`, `equalArea` only for A5) and that the size tables are the T003 numbers within 0.5%.
+- [x] T006 Implement `packages/core/src/grid/gridSystems.ts`: the `GridSystem` registry from data-model.md with `cellAreaKm2[]` and `edgeKm[]` taken from `specs/017-grid-cells/spikes/cell-sizes.json`, plus `GridSystemId`, `getGridSystem(id)` and `GRID_SYSTEMS`.
+- [x] T007 [P] Test first: `tests/core/grid-bin-sql.test.ts` (golden strings) for `binQuerySql`: H3 and A5, count, a 4326 point layer; asserts the output columns `cell_id, resolution, value, n, geom`, the argument order of each system, `ST_SetCRS(..., 'EPSG:4326')`, and that an out-of-range resolution or a non-numeric measure column returns null.
+- [x] T008 Implement `packages/core/src/grid/binSql.ts`: `BinSpec`, `BinQuery`, `binQuerySql(spec, facts)` (pure, no engine) for points in EPSG:4326 with the count measure, per contracts/bin-cells.md section 1; quote identifiers with `quoteIdent` from `packages/core/src/query/util.ts`.
+- [x] T009 Add `QuerySession.binQuerySql(spec)` and `layerFactsForBin()` in `packages/core/src/query/session.ts` (geometry column, layer SRID, geometry type, WGS84 extent, row count, numeric columns), beside `shapesQuerySql`; unit-test it with the existing session test harness in `tests/core`.
 
 **Checkpoint**: a hand-typed or generated bin query runs in the engine.
 
@@ -110,7 +110,7 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 - [ ] T036 [P] [US5] Test first: `tests/web/specs/grid-cells-017.spec.ts`: with a column filter the sum of `n` equals `filterCounts().matching`; with a drawn-shape filter likewise; with selected-rows-only it equals the selection size; rows without a location are reported.
 - [ ] T037 [US5] Spike S3 (selection predicate inside a query that reads `layer`): run it in a probe, record the result in `research.md`, and extend `binQuerySql` / `QuerySession.binQuerySql` in `packages/core/src/query/session.ts` to inline `filterWhere`, `spatialWhere` and (when `selectedOnly`) the selection predicate.
 - [ ] T038 [US5] Add `QuerySession.binSkippedRows(spec)` and show "N rows had no location and are not counted" in the dialog and in the query status after a run (`packages/ui/src/BinCellsDialog.svelte`, `viewerStore.svelte.ts`).
-- [ ] T039 [US5] Add the measures sum, avg, min, max, median to `binSql.ts` and the measure and column selects to the dialog; null handling per the spec edge cases; unit tests in `tests/core/grid-bin-sql.test.ts`.
+- [ ] T039 [US5] (the measures sum, avg, min, max, median in `binSql.ts` with unit tests were built early, in T008) Add the measure and column selects to the dialog; null handling per the spec edge cases; unit tests in `tests/core/grid-bin-sql.test.ts`.
 
 ## Phase 8: User Story 6 - Read a cell (Priority: P3)
 
