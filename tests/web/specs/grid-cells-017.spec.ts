@@ -554,3 +554,22 @@ test('the last grid system and measure are remembered for the next bin', async (
   await expect(again.getByRole('button', { name: 'What each cell shows' })).toContainText('Average of a column')
   await next.keyboard.press('Escape')
 })
+
+// Layout: the dialog shares the width and the left edge of the search box and the other panels in the map's top left.
+test('the dialog is as wide as the search box and the feature card, on the same left edge', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openFile(page, fixture('crashes.geojson'))
+  await page.getByRole('button', { name: 'Bin into cells…' }).click()
+  await expect(dialog(page)).toBeVisible()
+  // The search box is the field inside its 300 px wide stack: take the stack's own box (the search region's parent).
+  const stack = await page.getByRole('search').boundingBox()
+  const box = await dialog(page).boundingBox()
+  expect(stack).not.toBeNull()
+  expect(Math.abs(box!.width - stack!.width)).toBeLessThanOrEqual(2)
+  expect(Math.abs(box!.x - stack!.x)).toBeLessThanOrEqual(2)
+  // And it sits below the search box, not over it.
+  expect(box!.y).toBeGreaterThanOrEqual(stack!.y + stack!.height)
+  await page.keyboard.press('Escape')
+})
+

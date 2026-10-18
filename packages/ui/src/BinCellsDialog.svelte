@@ -171,13 +171,15 @@
 <style>
   .panel {
     position: absolute;
-    top: 56px;
-    left: 12px;
+    /* Under the search box, on its left edge. */
+    top: 48px;
+    left: 10px;
     z-index: 25;
     display: flex;
     flex-direction: column;
-    width: min(340px, calc(100% - 24px));
-    max-height: calc(100% - 72px);
+    /* The width of the search box, the layer picker and the feature card at the map's top left (--se-stack-width, MapView). */
+    width: min(var(--se-stack-width, 300px), calc(100% - 24px));
+    max-height: calc(100% - 64px);
     background: var(--se-bg-elevated);
     color: var(--se-text-primary);
     border: 1px solid var(--se-control-border);
