@@ -8,6 +8,7 @@
   import { createWebHostAdapter, pickFolder, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
   import { dropHasFolder, filesFromDrop } from './dropFiles.js'
   import ThemeMenu from './ThemeMenu.svelte'
+  import OpenMenu from './OpenMenu.svelte'
   import Landing from './Landing.svelte'
   /** The project's source code, linked from the header. */
   const REPO_URL = 'https://github.com/ar-puuk/spatial-sql-explorer'
@@ -421,8 +422,7 @@
         <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
           ><Icon name="link" size={14} />Copy link</button
         >
-        <button type="button" class="open" title="Open a File Geodatabase, a folder that ends in .gdb (experimental)" onclick={() => void chooseFolder()}><Icon name="folder" size={14} />Open geodatabase</button>
-        <button type="button" class="open primary" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
+        <OpenMenu label="Open file" onFile={() => input.click()} onFolder={() => void chooseFolder()} />
       </div>
       <span class="divider" aria-hidden="true"></span>
     {/if}

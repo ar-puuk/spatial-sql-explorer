@@ -75,6 +75,7 @@
   // locally: no network and no map engine before a file is chosen. VS Code never renders this.
   import { onMount } from 'svelte'
   import { Icon } from '@spatial-explorer/ui'
+  import OpenMenu from './OpenMenu.svelte'
   // Inline, so each class of hexagons can be colored on its own as the query "runs" (an <img> cannot be animated inside).
   import worldSvg from './landing/world-population.svg?raw'
 
@@ -126,8 +127,7 @@
           </p>
         {/if}
         <div class="actions">
-          <button type="button" class="primary" bind:this={chooseButton} onclick={onChoose}><Icon name="import" size={16} />Choose a file</button>
-          <button type="button" class="secondary" title="A File Geodatabase is a folder that ends in .gdb (experimental)" onclick={onChooseFolder}><Icon name="folder" size={16} />Choose a geodatabase folder</button>
+          <OpenMenu size="large" label="Choose a file" bind:button={chooseButton} onFile={onChoose} onFolder={onChooseFolder} />
           <button type="button" class="secondary" onclick={onSample}>Try sample data <small>US counties</small></button>
         </div>
         <p class="drop" aria-live="polite">{isDragOver ? 'Release to open' : 'Drag a geospatial file here'}, anywhere on this page.</p>
@@ -137,7 +137,7 @@
             {#each FORMATS as f (f)}<li>{f}</li>{/each}
           </ul>
         </div>
-        <p class="fine">For a Shapefile, select the .shp with its .shx, .dbf and .prj. A .qml with the same name brings its QGIS style. A File Geodatabase is the folder that ends in .gdb (experimental); a zip opens like the file inside it. If your browser says it will “upload” the folder, nothing is sent anywhere: the files are read in this tab.</p>
+        <p class="fine">For a Shapefile, select the .shp with its .shx, .dbf and .prj. A .qml with the same name brings its QGIS style. A File Geodatabase (experimental) is the folder that ends in .gdb: use the arrow next to Choose a file. A zip opens like the file inside it. If your browser says it will “upload” the folder, nothing is sent anywhere: the files are read in this tab.</p>
       </section>
 
       <section class="demo" aria-label="A query coloring a map of the world">

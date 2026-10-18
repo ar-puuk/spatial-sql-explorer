@@ -20,7 +20,8 @@ async function start(page: Page, keepDirectoryPicker = false): Promise<void> {
 /** Picks the geodatabase folder the way a user does: the folder button, then the browser's chooser. */
 async function pickFolder(page: Page, folder: string): Promise<void> {
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Choose a geodatabase folder' }).click()
+  await page.getByRole('button', { name: 'More ways to open' }).click()
+  await page.getByRole('menuitem', { name: /Geodatabase folder/ }).click()
   await (await chooser).setFiles(folder)
 }
 
@@ -47,10 +48,11 @@ test.describe('a geodatabase folder', () => {
       }
     })
     await start(page, true)
-    await page.getByRole('button', { name: 'Choose a geodatabase folder' }).click()
+    await page.getByRole('button', { name: 'More ways to open' }).click()
+    await page.getByRole('menuitem', { name: /Geodatabase folder/ }).click()
     await expect.poll(() => page.evaluate(() => (window as unknown as { pickerCalls: number }).pickerCalls)).toBe(1)
     // Cancelled: still on the landing page.
-    await expect(page.getByRole('button', { name: 'Choose a geodatabase folder' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'More ways to open' })).toBeVisible()
   })
 
   test('without origin-private storage (a Firefox private window) the layer is kept in memory and still opens', async ({ page }) => {
@@ -318,5 +320,31 @@ test.describe('zipped data', () => {
     await dialog.getByRole('button', { name: 'Open' }).click()
     await rendered(page)
     await expect(page.locator('.file')).toContainText('two-datasets.zip')
+  })
+})
+
+test.describe('the open menu', () => {
+  test('one button opens files; its arrow offers the experimental geodatabase folder', async ({ page }) => {
+    await start(page)
+    await expect(page.getByRole('button', { name: 'Choose a file' })).toBeVisible()
+    await page.getByRole('button', { name: 'More ways to open' }).click()
+    const items = page.getByRole('menuitem')
+    await expect(items).toHaveCount(2)
+    await expect(items.nth(1)).toContainText('Geodatabase folder')
+    await expect(items.nth(1)).toContainText('Experimental')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'More ways to open' })).toBeFocused()
+  })
+
+  test('the header has the same menu once a file is open', async ({ page }) => {
+    await start(page)
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Choose a file' }).click()
+    await (await chooser).setFiles(fixture('network.gdb.zip'))
+    await rendered(page)
+    await expect(page.getByRole('button', { name: 'Open file' })).toBeVisible()
+    await page.getByRole('button', { name: 'More ways to open' }).click()
+    await expect(page.getByRole('menuitem', { name: /Geodatabase folder/ })).toContainText('Experimental')
   })
 })
