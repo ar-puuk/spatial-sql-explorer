@@ -53,6 +53,7 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
+import { snippetContextFor, type SnippetContext } from '../snippets/snippets.js'
 import { dotQuerySql as buildDotQuery, dotTotalsSql, type DotLayerFacts, type DotLayerInfo, type DotQuery, type DotSpec } from '../dots/dotSql.js'
 import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, featureSizeSql, type FeatureSize, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
 import type { GridSystemId } from '../grid/gridSystems.js'
@@ -712,6 +713,13 @@ export class QuerySession {
       numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
       filtersIgnored: this.binRestriction().ignored,
     }
+  }
+
+  /** Spec 023: what the snippet library fills its queries with; null when no layer is open or it has no geometry. `files` are the workspace's other files (paths from its root). */
+  snippetContext(files: readonly string[]): SnippetContext | null {
+    const lv = this.layerView
+    if (!lv) return null
+    return snippetContextFor({ table: this.table.alias ?? 'layer', geom: lv.geom, srid: this.table.srid, geometryType: this.table.geometryType, extent: this.table.extent, columns: this.table.columns, files })
   }
 
   // --- Spec 022: dot density ------------------------------------------------------

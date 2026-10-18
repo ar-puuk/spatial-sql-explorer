@@ -15,6 +15,7 @@ import {
   isDotResult,
   suggestPerDot,
   type DotLayerInfo,
+  type SnippetContext,
   type DotSpec,
   CELL_LIMIT,
   normalizeBinPreference,
@@ -485,6 +486,8 @@ export interface ViewerStore {
   setShapeFilter(on: boolean): void
   /** Selects the rows meeting the predicate against all the shapes; resolves to how many. */
   selectInShapes(additive?: boolean): Promise<number>
+  /** Spec 023: what the snippet library fills its queries with (null before a layer is open). */
+  readonly snippetContext: SnippetContext | null
   // --- Spec 017: Bin into cells (H3 and A5) ---
   readonly binDialog: BinDialogState
   /** Why Bin into cells is not available for what is open, or null. */
@@ -2793,6 +2796,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         playTimer = setTimeout(step, PLAY_MS)
       }
       step()
+    },
+    get snippetContext() {
+      void queryTable // a new layer is a new context
+      // The workspace's other files (as paths from its root) stand in for "another file" in the combining snippets.
+      return querySession?.snippetContext(workspaceFiles.filter((f) => !f.open).map((f) => f.path)) ?? null
     },
     get binUnavailable() {
       return binUnavailable()
