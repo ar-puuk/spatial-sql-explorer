@@ -6,9 +6,22 @@
   // webview CSP as-is.
   import { onDestroy, onMount } from 'svelte'
   import { EditorState, Compartment } from '@codemirror/state'
-  import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from '@codemirror/view'
+  import {
+    EditorView,
+    keymap,
+    lineNumbers,
+    highlightActiveLine,
+    highlightActiveLineGutter,
+    drawSelection,
+    placeholder,
+    Decoration,
+    MatchDecorator,
+    ViewPlugin,
+    type DecorationSet,
+    type ViewUpdate,
+  } from '@codemirror/view'
   import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands'
-  import { bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
+  import { bracketMatching, syntaxHighlighting, syntaxTree, HighlightStyle } from '@codemirror/language'
   import { autocompletion, closeCompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
   import { sql, StandardSQL, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql'
   import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
@@ -36,6 +49,28 @@
   const language = new Compartment()
   const completion = new Compartment()
 
+  // The SQL grammar leaves function names it doesn't know (ST_Union(, h3_latlng_to_cell() as plain identifiers, so a name
+  // followed by "(" is colored as a function here. Keywords (IN (, AND () and anything in a string or comment keep their own color.
+  const callMatcher = new MatchDecorator({
+    regexp: /\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\()/g,
+    decorate: (add, from, to, _match, v) => {
+      const node = syntaxTree(v.state).resolveInner(from, 1)
+      if (node.name === 'Identifier') add(from, to, Decoration.mark({ class: 'cm-sql-call' }))
+    },
+  })
+  const callColors = ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+      constructor(v: EditorView) {
+        this.decorations = callMatcher.createDeco(v)
+      }
+      update(u: ViewUpdate) {
+        this.decorations = callMatcher.updateDeco(u, this.decorations)
+      }
+    },
+    { decorations: (p) => p.decorations }
+  )
+
   const highlight = HighlightStyle.define(SQL_TOKEN_RULES.map((r) => ({ tag: r.tags, color: `var(--se-sql-${r.color})`, ...(r.italic ? { fontStyle: 'italic' } : {}) })))
 
   const theme = EditorView.theme({
@@ -54,6 +89,7 @@
     '.cm-activeLineGutter': { backgroundColor: 'var(--se-sql-active-line)', color: 'var(--se-sql-gutter-active-fg)' },
     '&.cm-focused': { outline: 'none' },
     '.cm-matchingBracket': { backgroundColor: 'var(--se-sql-selection)', outline: '1px solid var(--se-border)' },
+    '.cm-sql-call': { color: 'var(--se-sql-function)' },
     '.cm-placeholder': { color: 'var(--se-text-muted)' },
     '.cm-tooltip': {
       backgroundColor: 'var(--se-menu-bg)',
@@ -97,6 +133,7 @@
           language.of(languageExtension(schema)),
           completion.of(completionExtension(schema, completionSources)),
           syntaxHighlighting(highlight),
+          callColors,
           linter(null),
           lintGutter(),
           theme,
