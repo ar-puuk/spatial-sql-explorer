@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
+Grid cells: bin a layer into H3 hexagons or A5 equal-area pentagons.
+
 ### Added
 
 - **Bin into cells (H3 and A5).** A button in the query panel and one on the map turn the open layer into a grid of hexagons (H3) or
