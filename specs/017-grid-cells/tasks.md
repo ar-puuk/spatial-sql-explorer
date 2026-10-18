@@ -127,7 +127,7 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 - [x] T044 [P] Performance check at 6x CPU throttle with a 1M-point layer (opening the dialog, moving the resolution, applying) following the project's responsiveness rule; fix what shows up; note numbers in `research.md`.
 - [x] T045 [P] Extension-host smoke test `tests/vscode-ext/src/suite/grid-cells.test.ts`: open a fixture, open the dialog, apply, read the status bar; confirm the a5 telemetry host is never contacted.
 - [x] T046 Update `CHANGELOG.md` and `apps/vscode-ext/CHANGELOG.md`, `README.md` (and the extension README), and `CLAUDE.md` (a "Grid cells (spec 017)" paragraph and the allowed-scope line); add the memory entry for spec 017.
-- [ ] T047 Run the full suites (`npm run test:core`, `npm run lint`, typecheck, the web suite on Chrome, the extension suite) and fix regressions; then ask the user before merging `017-grid-cells` into main.
+- [x] T047 Run the full suites (`npm run test:core`, `npm run lint`, typecheck, the web suite on Chrome, the extension suite) and fix regressions; then ask the user before merging `017-grid-cells` into main.
 
 ---
 
