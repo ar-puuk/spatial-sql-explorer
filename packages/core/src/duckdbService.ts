@@ -62,6 +62,8 @@ const __duckdbWasmBytesPromise = new Promise((resolve) => {
   self.addEventListener('message', function handler(e) {
     if (e && e.data && e.data.__duckdbWasmBytes) {
       self.removeEventListener('message', handler);
+      // Not for the engine's own message handler, which would log it as a response nobody asked for.
+      e.stopImmediatePropagation();
       resolve(e.data.__duckdbWasmBytes);
     }
   });
@@ -72,11 +74,20 @@ const __duckdbWasmBytesPromise = new Promise((resolve) => {
 const __telemetry = /(^|\\.)query-farm\\.services$/i;
 const __blocked = (u) => { try { return __telemetry.test(new URL(String(u), self.location.href).hostname); } catch { return false; } };
 const __origOpen = XMLHttpRequest.prototype.open;
+const __origSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-  // Not a throw (that would trap inside the engine): the request goes to a URL that cannot load, an ordinary network failure.
-  // An unsupported scheme fails at once in every browser; a POST to a blob: URL never returns in Firefox (the engine hung loading a5).
-  return __origOpen.call(this, method, __blocked(url) ? 'ftp://blocked.invalid/telemetry' : url, ...rest);
+  this.__blocked = __blocked(url);
+  return __origOpen.call(this, method, url, ...rest);
 };
+XMLHttpRequest.prototype.send = function (...args) {
+  // Nothing is sent: it fails the way an unreachable host does (a NetworkError), which the extension tolerates.
+  // (Sending the POST to a dead blob: URL instead never returned in Firefox, and the engine hung loading a5.)
+  if (this.__blocked) throw new DOMException('blocked: telemetry', 'NetworkError');
+  return __origSend.apply(this, args);
+};
+// The engine's note that it runs without progress tracking is intended (TransformStream is switched off above).
+const __warn = console.warn.bind(console);
+console.warn = (...args) => { if (!String(args[0]).startsWith('instantiating without progress handler')) __warn(...args); };
 const __origFetch = self.fetch.bind(self);
 self.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input.url;

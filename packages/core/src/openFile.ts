@@ -336,9 +336,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (hooks.isCancelled?.()) throw new QueryCancelledError()
   }
   hooks.onPhase?.('registering')
-  const opened0 = performance.now()
-  // Timings of a slow open, in the browser console (F12).
-  const trace = (what: string): void => console.info(`[open] ${((performance.now() - opened0) / 1000).toFixed(1)} s  ${what}`)
   // Spec 013: a File Geodatabase (a folder, a .gdb.zip, or a zip holding one) is read by the shell's
   // reader into a FlatGeobuf, which then opens like any file; a zip of ordinary data is unzipped here.
   const abort = new AbortController()
@@ -375,7 +372,6 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     source = await hostAdapter.getFileSource(ref)
   }
   checkCancelled()
-  trace(`source ready: ${source.name}, ${source.size} bytes`)
   const strategy = detectStrategy(source.name)
   const format = formatFromFileName(source.name)
   if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
@@ -395,12 +391,10 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   // FlatGeobuf is ~1,500x faster from memory (research §4).
   if (mode.mode === 'whole' && source.kind !== 'bytes' && (format === 'flatgeobuf' || source.size <= (testOverrides().wholeBytes ?? MATERIALIZE_MAX_BYTES))) {
     source = await refetchWhole()
-    trace('source read whole')
   }
 
   const styleSidecar = source.styleSidecar
   const db = await getDuckDb(duckdbAssets)
-  trace('SQL engine loaded')
   const conn: AsyncDuckDBConnection = await db.connect()
   hooks.onCancelHandle?.(async () => {
     await conn.cancelSent().catch(() => false)
