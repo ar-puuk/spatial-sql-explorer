@@ -62,3 +62,16 @@ A5's functions answer in meters and m^2 and were converted). The core tests comp
   up to the pole (a cap polygon). Test with `h3_latlng_to_cell(89.99, 10, r)` for r 0..5.
 - `TRY()` cannot wrap a scalar subquery, so the generated SQL must not use `(SELECT ...)` for the unwrapped WKT; use plain expressions.
 - Speed note: the unwrap-and-split runs per cell after the GROUP BY, so it costs per occupied cell, not per input point.
+
+## 5. Spike S3 (2026-10-17): the selection and the filters inside a bin query
+
+- **Filters and the shape filter inline cleanly.** `filterWhere` and `spatialWhere` are plain WHERE text over the layer's own columns and geometry (no hidden
+  names), so they are written into the query as `WHERE (...)`. They are written for the layer, so they apply only while the layer itself is shown
+  (`facts.defaultView`); over a query result (other columns) the bin reads the whole layer and the dialog says so (`filtersIgnored`).
+- **The selection cannot be inlined.** Selected rows are held as the engine's hidden `__se_rowid`, and the SQL policy protects every `__se_` name
+  (`sql/policy.ts`), so a query using them is refused when the user runs it. The `layer` view has no row ids at all (spec 007 research §9).
+- **Decision:** "Selected rows only" first publishes the selected rows as the temp table `selected_rows` (the layer's columns, hidden ones left out;
+  `QuerySession.prepareBinSelection`), the same pattern as the `drawn` table, and the bin reads `FROM selected_rows`. The query stays readable and
+  reruns in the session; after a reload the table is gone, as with `drawn`.
+- Background engine work (`gridSupport`, `prepareBinSelection`, `binSkippedRows`) can be preempted by a map redraw, so the store asks again
+  (`retryWhenBusy`). Without it the skipped-rows count was silently lost.

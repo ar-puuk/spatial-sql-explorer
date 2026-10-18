@@ -107,10 +107,10 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 **Goal**: the cells are built from the rows the layer currently shows.
 **Independent test**: with a column filter active, the counts add up to the filtered row count.
 
-- [ ] T036 [P] [US5] Test first: `tests/web/specs/grid-cells-017.spec.ts`: with a column filter the sum of `n` equals `filterCounts().matching`; with a drawn-shape filter likewise; with selected-rows-only it equals the selection size; rows without a location are reported.
-- [ ] T037 [US5] Spike S3 (selection predicate inside a query that reads `layer`): run it in a probe, record the result in `research.md`, and extend `binQuerySql` / `QuerySession.binQuerySql` in `packages/core/src/query/session.ts` to inline `filterWhere`, `spatialWhere` and (when `selectedOnly`) the selection predicate.
-- [ ] T038 [US5] Add `QuerySession.binSkippedRows(spec)` and show "N rows had no location and are not counted" in the dialog and in the query status after a run (`packages/ui/src/BinCellsDialog.svelte`, `viewerStore.svelte.ts`).
-- [ ] T039 [US5] (the measures sum, avg, min, max, median in `binSql.ts` with unit tests were built early, in T008) Add the measure and column selects to the dialog; null handling per the spec edge cases; unit tests in `tests/core/grid-bin-sql.test.ts`.
+- [x] T036 [P] [US5] Test first: `tests/web/specs/grid-cells-017.spec.ts`: with a column filter the sum of `n` equals `filterCounts().matching`; with a drawn-shape filter likewise; with selected-rows-only it equals the selection size; rows without a location are reported.
+- [x] T037 [US5] Spike S3 (selection predicate inside a query that reads `layer`): run it in a probe, record the result in `research.md`, and extend `binQuerySql` / `QuerySession.binQuerySql` in `packages/core/src/query/session.ts` to inline `filterWhere`, `spatialWhere` and (when `selectedOnly`) the selection predicate.
+- [x] T038 [US5] Add `QuerySession.binSkippedRows(spec)` and show "N rows had no location and are not counted" in the dialog and in the query status after a run (`packages/ui/src/BinCellsDialog.svelte`, `viewerStore.svelte.ts`).
+- [x] T039 [US5] (the measures sum, avg, min, max, median in `binSql.ts` with unit tests were built early, in T008) Add the measure and column selects to the dialog; null handling per the spec edge cases; unit tests in `tests/core/grid-bin-sql.test.ts`.
 
 ## Phase 8: User Story 6 - Read a cell (Priority: P3)
 

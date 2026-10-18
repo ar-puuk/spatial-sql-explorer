@@ -14,7 +14,7 @@ export interface BinSpec {
   system: GridSystemId
   resolution: number
   measure: BinMeasure
-  /** Only the rows the user has selected (the selection predicate is in `BinLayerFacts.selectedWhere`). */
+  /** Only the rows the user has selected (read from `BinLayerFacts.selectedSource`). */
   selectedOnly?: boolean
 }
 
@@ -27,9 +27,12 @@ export interface BinLayerFacts {
   columns: ReadonlyArray<{ name: string; type: string }>
   /** The WHERE text for the rows the layer currently shows (column filters and shape filter), or null. */
   where?: string | null
-  /** The WHERE text for the selected rows, used with `selectedOnly`. */
-  selectedWhere?: string | null
+  /** The table holding the selected rows (SELECTED_ROWS_TABLE), read instead of `layer` when the spec asks for the selected rows only. */
+  selectedSource?: string | null
 }
+
+/** The temporary table "selected rows only" reads: the rows the user selected, with the layer's columns. */
+export const SELECTED_ROWS_TABLE = 'selected_rows'
 
 /** What the dialog needs to know about the open layer (QuerySession.layerFactsForBin). */
 export interface BinLayerInfo {
@@ -40,6 +43,8 @@ export interface BinLayerInfo {
   rows: number
   /** Columns a measure can use. */
   numericColumns: string[]
+  /** Filters are active on a query result, whose columns are not the layer's: the bin reads the whole layer and says so. */
+  filtersIgnored: boolean
 }
 
 export interface BinQuery {
@@ -101,10 +106,23 @@ function pointSql(geom: string, srid: number | null): string {
   return srid === null || srid === 4326 ? centre : `ST_Transform(${centre}, 'EPSG:${Math.floor(srid)}', 'EPSG:4326', always_xy := true)`
 }
 
-/** The WHERE clause for the rows to bin, or ''. */
-function whereSql(spec: BinSpec, facts: BinLayerFacts): string {
-  const parts = [facts.where, spec.selectedOnly ? facts.selectedWhere : null].filter((p): p is string => !!p)
-  return parts.length ? `\n    WHERE ${parts.map((p) => `(${p})`).join(' AND ')}` : ''
+/** The relation to bin: `layer`, or the selected rows. */
+function sourceOf(spec: BinSpec, facts: BinLayerFacts): string {
+  return spec.selectedOnly && facts.selectedSource ? facts.selectedSource : 'layer'
+}
+
+/** The WHERE clause for the rows to bin (the filters the layer currently shows), or ''. */
+function whereSql(facts: BinLayerFacts): string {
+  return facts.where ? `\n      WHERE (${facts.where})` : ''
+}
+
+/** A location a grid can use: a point inside the world. */
+const USABLE_POINT = 'p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90'
+
+/** How many of the rows to bin have no usable location (and so are left out of the cells); null for a spec that is not valid. */
+export function binSkippedSql(spec: BinSpec, facts: BinLayerFacts): string | null {
+  if (binSpecProblem(spec, facts) !== null) return null
+  return `SELECT count(*) AS skipped FROM (SELECT ${pointSql(facts.geom, facts.srid)} AS p FROM ${sourceOf(spec, facts)}${whereSql(facts)}) WHERE NOT coalesce(${USABLE_POINT}, false)`
 }
 
 /**
@@ -127,9 +145,9 @@ export function binQuerySql(spec: BinSpec, facts: BinLayerFacts): BinQuery | nul
     `    SELECT ${cell} AS cell${carriedUp}`,
     '    FROM (',
     `      SELECT ${pointSql(facts.geom, facts.srid)} AS p${carried}`,
-    `      FROM layer${whereSql(spec, facts)}`,
+    `      FROM ${sourceOf(spec, facts)}${whereSql(facts)}`,
     '    )',
-    '    WHERE p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90',
+    `    WHERE ${USABLE_POINT}`,
     '  )',
     '  GROUP BY cell',
     ')',

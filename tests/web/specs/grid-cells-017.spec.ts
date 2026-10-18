@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
-import { editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery } from './helpers'
+import { editor, exportDialog, exportVia, fixture, inspectParquet, openFile, openQueryPanel, rowCount, runQuery, writeParcels } from './helpers'
 
 type Row = Record<string, unknown>
 
@@ -60,6 +60,23 @@ test.describe('Bin into cells in the engine (spec 017)', () => {
       expect(num(r.cells), kind).toBeGreaterThan(1)
       expect(num(r.wrong), kind).toBe(0)
     }
+  })
+
+  test('nulls in the measured column are ignored; a cell holding only nulls has no value but still counts its features', async ({ page }) => {
+    test.setTimeout(120000)
+    const run = await openEngine(page)
+    await run(
+      `CREATE OR REPLACE TEMP TABLE pts AS
+       SELECT ST_Point(8.0, 47.0) AS geom, 10.0::DOUBLE AS v UNION ALL SELECT ST_Point(8.0001, 47.0001), NULL UNION ALL SELECT ST_Point(8.0002, 47.0002), 30.0
+       UNION ALL SELECT ST_Point(-100.0, 10.0), NULL UNION ALL SELECT ST_Point(-100.0001, 10.0001), NULL`
+    )
+    await run(`CREATE OR REPLACE TEMP TABLE binned AS ${binSql({ system: 'h3', resolution: 6, measure: { kind: 'avg', column: 'v' } })}`)
+    const rows = await run(`SELECT n, value FROM binned ORDER BY n DESC`)
+    expect(rows).toHaveLength(2)
+    expect(num(rows[0].n)).toBe(3)
+    expect(num(rows[0].value)).toBe(20) // the null is left out of the average
+    expect(num(rows[1].n)).toBe(2)
+    expect(rows[1].value).toBeNull()
   })
 
   test('A5 cells have the same area at 10 and at 60 degrees north (SC-3); H3 cells do not', async ({ page }) => {
@@ -389,6 +406,79 @@ test.describe('Bin into cells with many cells (spec 017)', () => {
     await expect(dialog(page)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog(page)).toBeHidden()
+    fs.rmSync(file, { force: true })
+  })
+})
+
+// US5: the cells are built from the rows the layer currently shows.
+test.describe('Bin into cells of the rows shown (spec 017)', () => {
+  const raw = (page: Page, sql: string) =>
+    page.evaluate((q) => (window as unknown as { __spatialExplorerE2E: { runRaw: (s: string) => Promise<Array<Record<string, unknown>>> } }).__spatialExplorerE2E.runRaw(q), sql)
+  /** The features the kept bin counts: the sum of its `n`. */
+  const binned = async (page: Page): Promise<number> => {
+    const sql = (await editor(page).innerText()).trim()
+    const [row] = await raw(page, `SELECT sum(n)::BIGINT AS t FROM (${sql})`)
+    return Number(row.t)
+  }
+  const mapBin = (page: Page) => page.getByRole('button', { name: 'Bin into cells…' })
+
+  test('a column filter narrows the cells: the counts add up to the matching rows', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeParcels(2000), '?e2e=1')
+    await page.getByRole('textbox', { name: 'Filter zone' }).fill('r1')
+    await expect(page.locator('.drawer-header > .count')).toHaveText('400 of 2,000 rows')
+    await mapBin(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(editor(page)).toContainText('WHERE (')
+    expect(await binned(page)).toBe(400)
+  })
+
+  test('with no filter the cells count every row', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeParcels(2000), '?e2e=1')
+    await mapBin(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(editor(page)).not.toContainText('WHERE (')
+    expect(await binned(page)).toBe(2000)
+  })
+
+  test('Selected rows only bins the ticked rows, from a table named selected_rows', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeParcels(2000), '?e2e=1')
+    for (const n of [1, 2, 3]) await page.getByRole('checkbox', { name: `Select row ${n}`, exact: true }).check()
+    await mapBin(page).click()
+    const only = dialog(page).getByRole('switch', { name: 'Selected rows only' })
+    await expect(dialog(page)).toContainText('3 selected')
+    await expect(only).toHaveAttribute('aria-checked', 'false')
+    await only.click()
+    await expect(only).toHaveAttribute('aria-checked', 'true')
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(editor(page)).toContainText('FROM selected_rows')
+    expect(await binned(page)).toBe(3)
+  })
+
+  test('without a selection the switch is not offered', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeParcels(200), '?e2e=1')
+    await mapBin(page).click()
+    await expect(dialog(page)).toBeVisible()
+    await expect(dialog(page).getByRole('switch', { name: 'Selected rows only' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+  })
+
+  test('rows with no location are left out, and the number is said', async ({ page }) => {
+    test.setTimeout(120000)
+    const file = path.join(os.tmpdir(), 'se-grid-gaps.geojson')
+    const point = (i: number) => `{"type":"Feature","properties":{"id":${i}},"geometry":{"type":"Point","coordinates":[${-111.9 + i / 100},${40.7 + i / 100}]}}`
+    const gap = (i: number) => `{"type":"Feature","properties":{"id":${i}},"geometry":null}`
+    const rows = [...Array.from({ length: 10 }, (_, i) => point(i)), gap(10), gap(11)]
+    fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${rows.join(',')}]}`)
+    await openFile(page, file, '?e2e=1')
+    await mapBin(page).click()
+    await expect(dialog(page).getByText('2 rows have no location and are not counted.')).toBeVisible()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(page.locator('.query-status')).toContainText('2 rows have no location and are not counted')
+    expect(await binned(page)).toBe(10)
     fs.rmSync(file, { force: true })
   })
 })

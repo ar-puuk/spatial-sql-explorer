@@ -196,6 +196,10 @@ export interface BinDialogState {
   previewed: boolean
   /** More cells than are drawn without asking. */
   overLimit: boolean
+  /** Rows the user has selected (what "Selected rows only" would bin). */
+  selectedCount: number
+  /** Rows the shown cells leave out for having no location; null until a run has finished. */
+  skipped: number | null
 }
 
 export interface ViewerStore {
@@ -1324,6 +1328,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     running: false,
     previewed: false,
     overLimit: false,
+    selectedCount: 0,
+    skipped: null,
   })
   let binDialog = $state<BinDialogState>(closedBin())
   /** What to put back when the dialog is cancelled. */
@@ -1348,7 +1354,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const estimate = system && info ? estimateCells(system, spec.resolution, info.extent, info.rows) : 0
     const query = qs?.binQuerySql(spec) ?? null
     const problem = query ? null : qs ? binSpecProblem(spec, qs.table) : 'Open a layer first.'
-    binDialog = { ...binDialog, spec, estimate, sql: query?.sql ?? null, valueLabel: query?.valueLabel ?? '', problem, overLimit: estimate > CELL_LIMIT, previewed: false }
+    binDialog = { ...binDialog, spec, estimate, sql: query?.sql ?? null, valueLabel: query?.valueLabel ?? '', problem, overLimit: estimate > CELL_LIMIT, previewed: false, skipped: null }
     if (binTimer) clearTimeout(binTimer)
     binTimer = null
     if (binDialog.open && query && binDialog.support[spec.system] && estimate <= PREVIEW_CELL_LIMIT) {
@@ -1368,6 +1374,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       if (id !== binRunId) return
     }
     const wasBin = isBinResult(qs.lastResult?.columns ?? [])
+    // "Selected rows only" reads a table of the selected rows (their ids are the engine's, not the query's).
+    if (binDialog.spec.selectedOnly && !(await retryWhenBusy(qs, () => qs.prepareBinSelection(selection)))) {
+      binDialog = { ...binDialog, spec: { ...binDialog.spec, selectedOnly: false }, previewed: false }
+      return
+    }
+    if (id !== binRunId) return
     queryText = sql
     binDialog = { ...binDialog, running: true }
     await runQuery({ from: 0, to: queryText.length })
@@ -1385,19 +1397,27 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       binTitle = valueLabel
     }
     binDialog = { ...binDialog, running: false, previewed: ok }
+    if (ok) {
+      // Rows with no usable location are left out of the cells: say how many, in the dialog and the status line.
+      const spec = binDialog.spec
+      const skipped = await retryWhenBusy(qs, () => qs.binSkippedRows(spec)).catch(() => null)
+      if (id !== binRunId) return
+      binDialog = { ...binDialog, skipped }
+      if (skipped) queryStatus = `${queryStatus} · ${skipped.toLocaleString('en-US')} ${skipped === 1 ? 'row has' : 'rows have'} no location and ${skipped === 1 ? 'is' : 'are'} not counted`
+    }
   }
 
   async function openBinDialog(): Promise<void> {
     const qs = querySession
     if (!qs || binUnavailable()) return
     const info = qs.layerFactsForBin()
-    const support = await qs.gridSupport().catch(() => ({ h3: false, a5: false }))
+    const support = await retryWhenBusy(qs, () => qs.gridSupport()).catch(() => ({ h3: false, a5: false }))
     if (!info) return
     const system: GridSystemId = support.h3 || !support.a5 ? 'h3' : 'a5'
     const grid = getGridSystem(system)!
     const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure: { kind: 'count' } }
     binPrev = { text: queryText, ranText: lastRunText, style, styleDirty, bottomTab: layout.bottomTab, bottomCollapsed: layout.bottomCollapsed }
-    binDialog = { ...closedBin(), open: true, info, support }
+    binDialog = { ...closedBin(), open: true, info, support, selectedCount: selection.kind === 'ids' ? selection.ids.size : 0 }
     updateBin(spec)
   }
 

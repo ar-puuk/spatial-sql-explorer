@@ -137,6 +137,21 @@
         </div>
       </div>
 
+      {#if bin.selectedCount > 0}
+        <div class="field">
+          <span class="label">Rows</span>
+          <div class="control">
+            <div class="all">
+              <Switch checked={spec.selectedOnly === true} label="Selected rows only" onChange={(on) => store.setBinSpec({ selectedOnly: on })} />
+              <span class="hint" aria-hidden="true">Selected rows only ({nf2.format(bin.selectedCount)} selected)</span>
+            </div>
+          </div>
+        </div>
+      {/if}
+      {#if bin.info?.filtersIgnored}
+        <p class="notice" role="status"><Icon name="info" size={14} /><span>The filters are on a query result, not on the layer, so every row of the layer is used.</span></p>
+      {/if}
+
       {#if bin.sql}
         <!-- The query is the product: this is what Keep puts in the query panel to read, edit and rerun. -->
         <details class="sql">
@@ -146,6 +161,10 @@
             <button type="button" class="icon-button copy" onclick={copySql} title="Copy the query" aria-label="Copy the query"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>
           </div>
         </details>
+      {/if}
+
+      {#if bin.skipped}
+        <p class="notice" role="status"><Icon name="info" size={14} /><span>{nf2.format(bin.skipped)} {bin.skipped === 1 ? 'row has' : 'rows have'} no location and {bin.skipped === 1 ? 'is' : 'are'} not counted.</span></p>
       {/if}
 
       {#if bin.problem}

@@ -1,6 +1,6 @@
 // Spec 017: the query "Bin into cells" writes (grid/binSql.ts), as text; the engine tests are in tests/web.
 import { describe, expect, it } from 'vitest'
-import { QuerySession, binQuerySql, binSpecProblem, measureLabel, type BinLayerFacts, type BinSpec, type QueryableTable } from '@spatial-explorer/core'
+import { QuerySession, SELECTED_ROWS_TABLE, binQuerySql, binSkippedSql, binSpecProblem, measureLabel, type BinLayerFacts, type BinSpec, type QueryableTable } from '@spatial-explorer/core'
 
 const facts: BinLayerFacts = {
   geom: '"geom"',
@@ -76,11 +76,30 @@ describe('binQuerySql (spec 017)', () => {
     expect(measureLabel({ kind: 'median', column: 'area' })).toBe('Median of area')
   })
 
-  it('inlines the rows the layer currently shows (filters), and the selection when asked', () => {
-    const f = { ...facts, where: '"pop" > 10', selectedWhere: '__se_rowid IN (1,2)' }
-    expect(binQuerySql(count(), f)!.sql).toContain('FROM layer\n    WHERE ("pop" > 10)')
-    expect(binQuerySql(count({ selectedOnly: true }), f)!.sql).toContain('WHERE ("pop" > 10) AND (__se_rowid IN (1,2))')
-    expect(binQuerySql(count(), facts)!.sql).not.toContain('WHERE (')
+  it('inlines the rows the layer currently shows (the filters)', () => {
+    const where = `("pop" > 10) AND (CAST("name" AS VARCHAR) ILIKE '%a%')`
+    const sql = binQuerySql(count(), { ...facts, where })!.sql
+    expect(sql).toContain(`FROM layer\n      WHERE (${where})`)
+    expect(binQuerySql(count(), facts)!.sql).not.toContain('WHERE ((')
+    expect(binQuerySql(count(), facts)!.sql).toContain('FROM layer\n    )')
+  })
+
+  it('reads the selected rows from their own table when asked, with the filters on top', () => {
+    const f = { ...facts, where: '"pop" > 10', selectedSource: SELECTED_ROWS_TABLE }
+    expect(binQuerySql(count({ selectedOnly: true }), f)!.sql).toContain('FROM selected_rows\n      WHERE ("pop" > 10)')
+    // Not asked for: the layer, even when a selection table exists.
+    expect(binQuerySql(count(), f)!.sql).toContain('FROM layer')
+    // Asked for but no table named: the layer (the caller says there is no selection).
+    expect(binQuerySql(count({ selectedOnly: true }), facts)!.sql).toContain('FROM layer')
+  })
+
+  it('counts the rows with no usable location, over the same rows', () => {
+    const sql = binSkippedSql(count(), { ...facts, where: '"pop" > 10' })!
+    expect(sql).toBe(
+      'SELECT count(*) AS skipped FROM (SELECT ST_Centroid("geom") AS p FROM layer\n      WHERE ("pop" > 10)) WHERE NOT coalesce(p IS NOT NULL AND NOT ST_IsEmpty(p) AND ST_X(p) BETWEEN -180 AND 180 AND ST_Y(p) BETWEEN -90 AND 90, false)'
+    )
+    expect(binSkippedSql(count({ resolution: 99 }), facts)).toBeNull()
+    expect(binSkippedSql(count({ selectedOnly: true }), { ...facts, selectedSource: SELECTED_ROWS_TABLE })).toContain('FROM selected_rows')
   })
 
   it('refuses a spec that is not valid for the layer', () => {
@@ -140,6 +159,6 @@ describe('QuerySession bin methods (spec 017)', () => {
   it('tells the dialog what the layer holds', () => {
     const qs = session()
     qs.setLayerView({ index: 'columns', geom: '"geom"', attrs: ['name', 'pop'] })
-    expect(qs.layerFactsForBin()).toEqual({ geometryType: 'Point', extent: [-112, 40, -111, 41], rows: 1234, numericColumns: ['pop'] })
+    expect(qs.layerFactsForBin()).toEqual({ geometryType: 'Point', extent: [-112, 40, -111, 41], rows: 1234, numericColumns: ['pop'], filtersIgnored: false })
   })
 })
