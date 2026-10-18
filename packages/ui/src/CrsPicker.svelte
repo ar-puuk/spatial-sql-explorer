@@ -77,7 +77,7 @@
       const pinned: Item[] = [
         { choice: 'result', label: `${resultLabel} · as the result`, code: resultSrid ?? null },
         ...PINNED_CRS.filter((c) => c !== resultSrid).flatMap((c) => {
-          const e = catalog!.byCode.get(c)
+          const e = catalog?.byCode.get(c)
           return e ? [itemOf(e)] : []
         }),
       ]

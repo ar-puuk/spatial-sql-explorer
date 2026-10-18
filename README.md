@@ -54,7 +54,15 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   QML, SLD and Mapbox GL, and included in the map image.
 - **Grid cells**: bin a layer into H3 hexagons or A5 equal-area pentagons, counted
   or averaged per cell, with a live preview, the SQL it writes, and the same
-  styling and export as any result.
+  styling and export as any result. Lines and polygons can count in every cell
+  they touch, and H3 cells can take in their neighbors (smoothing).
+- **Dot density**: a count drawn as dots placed at random inside its polygons;
+  one dot stands for an amount you choose, with up to six columns in their own colors.
+- **Time slider**: a window over a date column that filters the map and table,
+  and plays across time. **Arrows** show the direction of lines.
+- **Snippets and search**: 24 ready-made queries for the open layer, filled with
+  its own table and column names; search by words (ranked, with stemming) beside
+  the plain text search; function names are colored in the SQL editor.
 - **Export**: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
   FlatGeobuf, Shapefile, KML, CSV, Parquet, Excel and JSON, in any EPSG CRS;
   all, filtered or selected rows. The web app can also copy a share link (the

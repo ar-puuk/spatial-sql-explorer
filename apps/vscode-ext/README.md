@@ -105,13 +105,28 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   spatial functions, errors are underlined where they happen, recent
   queries are kept per file, and a **Copy** button copies the query. A query can read **other files in the
   workspace** by their path from the workspace root, listed beside the editor.
-- **Grid cells.** **Bin into cells** (a button above the query editor, and one on the map)
+- **Snippets.** The library button in the query panel's header lists 24 ready-made queries
+  for the open layer (buffer, dissolve, area in km², value per km², nearest feature in another
+  file, clip, and more), filled with the layer's own table and column names. Choosing one fills
+  the editor; **Tab** moves between the values to change, **Ctrl+Z** brings your old query back.
+- **Grid cells.** **Bin into cells** (a button on the map)
   turns the layer into a grid of H3 hexagons or A5 equal-area pentagons, colored by the
   number of features or by the sum, average, minimum, maximum or median of a number column.
   Choose a size (shown in km or miles, with about how many cells it gives) and the map
   previews it; **Keep** puts the SQL it wrote in the query editor for you to change and
   rerun. It follows your column filters and shape filter, can use only the selected rows,
-  and a clicked cell shows its id. The result styles and exports like any other.
+  and a clicked cell shows its id. For lines and polygons, **Every cell touched** counts a
+  feature in each cell it touches, and for H3, **Smooth** gives each cell the value of its
+  neighbors within up to 9 rings. The result styles and exports like any other.
+- **Dot density.** **Dot density…** (a button on the map, for polygon layers) draws a count as
+  dots placed at random inside each polygon: choose up to six number columns (each its own
+  color) and what one dot stands for. The same layer always gives the same dots, and the SQL is
+  in the query editor to change and rerun.
+- **Time slider.** A window over a date or timestamp column filters the map, table and
+  counts, and **Play** moves it across time.
+- **Search by words.** In the search box, **Words** ranks the rows whose text has every word
+  you type, in any form ("bridges" finds "bridge"), best match first. Lines can show
+  **arrows** in their direction (style panel), and function names are colored in the query editor.
 - **Export.** From the **Export** button above the table, or **Spatial
   Explorer: Export Data…**:
   - with geometry: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,

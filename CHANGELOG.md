@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-18
+
+Queries and maps: a snippet library, dot density, a time slider, and more ways to use grid cells.
+
 ### Added
 
 - Snippet library: a button in the query panel opens a searchable list of 24 ready-made queries for the open layer (buffer, dissolve, area in km², nearest feature in another file, and more), filled with the layer's own table and column names. Choosing one fills the editor; Tab moves between the values to change.
@@ -17,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Time slider: a map button opens a bar with a two-handle window over a date or timestamp column and a Play button. The window is that column's filter, so the map, table and counts follow it.
 - Direction arrows on lines: Arrows in the style panel (None, Along the line, Middle of the line) draw arrowheads that follow each line's direction, in its color, from GeoJSON or engine tiles.
 - Search by words: a switch in the search box ranks the rows of the open layer or result whose text has every word you type, in any form ("bridges" finds "bridge"), best match first. It uses the `fts` extension; the index is built on first use, per result, and follows the column filters. The query editor now colors function calls. Bin into cells is only on the map (the duplicate button in the query panel is gone).
+
+### Changed
+
+- **Print map** is in its own box on the map (its own group in the Map controls panel, "Output"), apart from the tools.
+- On a short map, a box of more than six map buttons lies in two even rows.
 
 ## [0.7.0] - 2026-10-17
 

@@ -1543,7 +1543,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     // The grid system and kind of measure last kept, when they still make sense here.
     const saved = normalizeBinPreference(await hostAdapter.loadState<unknown>(BIN_PREFERENCE_KEY).catch(() => undefined))
     const system: GridSystemId = support[saved.system] ? saved.system : support.h3 || !support.a5 ? 'h3' : 'a5'
-    const grid = getGridSystem(system)!
+    const grid = getGridSystem(system)
+    if (!grid) return
     const column = info.numericColumns[0]
     const measure: BinSpec['measure'] = saved.measureKind !== 'count' && column !== undefined ? { kind: saved.measureKind, column } : { kind: 'count' }
     const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure }
