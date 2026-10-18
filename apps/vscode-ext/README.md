@@ -105,6 +105,13 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   spatial functions, errors are underlined where they happen, recent
   queries are kept per file, and a **Copy** button copies the query. A query can read **other files in the
   workspace** by their path from the workspace root, listed beside the editor.
+- **Grid cells.** **Bin into cells** (a button above the query editor, and one on the map)
+  turns the layer into a grid of H3 hexagons or A5 equal-area pentagons, colored by the
+  number of features or by the sum, average, minimum, maximum or median of a number column.
+  Choose a size (shown in km or miles, with about how many cells it gives) and the map
+  previews it; **Keep** puts the SQL it wrote in the query editor for you to change and
+  rerun. It follows your column filters and shape filter, can use only the selected rows,
+  and a clicked cell shows its id. The result styles and exports like any other.
 - **Export.** From the **Export** button above the table, or **Spatial
   Explorer: Export Data…**:
   - with geometry: GeoParquet, GeoPackage, GeoJSON, newline-delimited GeoJSON,
@@ -197,8 +204,8 @@ Your files never leave your machine: they are read by an embedded DuckDB
 engine inside the editor. The network is used only for:
 
 - **The SQL engine, once.** DuckDB-WASM and sql.js from jsDelivr, and the
-  spatial, parquet and json extensions from extensions.duckdb.org, at pinned
-  versions. Each file is checked against a SHA-256 recorded at build time and
+  spatial, parquet, json and the other extensions from extensions.duckdb.org (the
+  H3 and A5 grids from community-extensions.duckdb.org), at pinned versions. Each file is checked against a SHA-256 recorded at build time and
   refused if it doesn't match. A checked copy is kept in the extension's
   storage, so later starts work offline. Downloads follow VS Code's proxy
   settings.

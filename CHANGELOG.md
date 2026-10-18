@@ -9,6 +9,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Bin into cells (H3 and A5).** A button in the query panel and one on the map turn the open layer into a grid of hexagons (H3) or
+  equal-area pentagons (A5) and color each cell by the number of features, or the sum, average, minimum, maximum or median of a number
+  column. The dialog shows each size in your units and about how many cells it gives, previews on the map while the result is small
+  (under 5,000 cells), warns before more than 100,000, and shows the SQL it writes, which Keep puts in the query panel to edit and rerun. It
+  follows the column filters and the shape filter, can use only the selected rows (as the table `selected_rows`), says how many rows
+  have no location, and remembers the grid and measure you used last. Cells across the date line are split in two, and the cells over a
+  pole are drawn as caps. A clicked cell shows its id, with a button to copy it.
+- The `h3`, `a5` and `fts` DuckDB extensions are in the engine, so `h3_*`, `a5_*` and full-text functions work in SQL. They are downloaded
+  once like the others, from pinned URLs and checked against SHA-256 hashes (H3 and A5 from community-extensions.duckdb.org), and the
+  app starts without them if a download fails.
+
+### Changed
+
+- A color given a legend title now names the legend (the heading reads "Number of features · Quantile, 5 classes", not "value · ...").
+
+### Security
+
+- The A5 extension reports its name and version to Query.Farm when it loads. The engine blocks that request, so nothing leaves the
+  machine but the pinned downloads.
+
 ## [0.6.1] - 2026-10-17
 
 ### Fixed

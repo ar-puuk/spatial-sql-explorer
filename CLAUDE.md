@@ -123,6 +123,24 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
   Serializers live in packages/core/src/style/.
 - Export: via DuckDB COPY/ST_Write: GeoJSON, GeoParquet, CSV, and others only if the WASM build supports them.
 
+## Grid cells (spec 017)
+- "Bin into cells" (user decision 2026-10-17; step 1 the `fts`, `h3` and `a5` extensions, step 2 the action): the open layer's rows are assigned to H3 or A5 cells
+  (a point by its place, a line or polygon by its centroid), a measure per cell (count, or sum, average, minimum, maximum, median of a number
+  column), and the cells are drawn like any result. It is QUERY plus STYLE of a result, never a second layer; polyfill of polygons, neighbor
+  analysis and joins between grids are out of scope.
+- The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the query panel
+  and a map control `binCells`) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
+  a query (`openBinDialog`, `setBinSpec`, `applyBin`, `cancelBin`) and the user can edit and rerun it. A fresh bin gets the style in `gridStyle`
+  (quantile classes on `value`, the legend titled with the measure); a rerun of an edited bin keeps the user's style.
+- Sizes and estimates come from the engine's own tables (`gridSizes.ts`, checked by a core test against specs/017-grid-cells/spikes/cell-sizes.json). A5 starts at
+  resolution 1 (0 fails the date-line split). Cells across the date line are cut into a MultiPolygon in SQL; H3's two pole cells are drawn as caps.
+  Under 5,000 estimated cells the dialog previews on change; over 100,000 it asks first.
+- The rows binned are those the layer shows: the column filters and the shape filter are inlined as WHERE (only while the layer itself is displayed); "selected
+  rows only" first publishes them as the temp table `selected_rows` (the SQL policy protects the engine's hidden row ids). Rows without a location are
+  left out and counted.
+- h3 and a5 are community extensions (constitution v1.4.0): pinned, hash-checked, optional. The a5 extension phones home to Query.Farm when it loads; the engine
+  worker blocks that host (duckdbService.ts) and a test checks no request reaches it.
+
 ## Map controls and quality-of-life tools (spec 014)
 - The map's controls are a registry (packages/core/src/mapControls.ts): id, group, label, default on and default corner. A fourth right-rail tab, "Map controls" (sliders icon), has a row per control: an on/off switch, its name and a dropdown for its position. Each control declares the positions that suit it (user decision 2026-10-15): buttons, search, legend, scale bar and logo take the four corners; the coordinates readout takes the middle of the top or bottom edge; the hover tooltip has none. The user is treated as the developer of the map, as with mapgl, where every control has a `position`. Search (with the selected feature's card under it), zoom, zoom to layer, reset view, globe, terrain, draw, measure, select by shape, export image, legend, coordinates, the MapLibre logo (on by default) and the scale bar are all positionable; the hover tooltip has no place; the attribution stays at the bottom right (licences). Controls at a position stack in registry order, and buttons of one group side by side share a box. A global user preference through `HostAdapter.saveState('mapControls')` (`visible`, `positions`; the first version's group corners are migrated, and a saved position a control no longer offers is dropped). Adding a control is adding a row, plus its element in MapView (a button, or `extra` for something ViewerLayout owns).
 - Drawing is Terra Draw (MIT) with its MapLibre adapter, lazy-loaded (packages/ui/src/draw/controller.ts). Tools: point, line, polygon, rectangle, circle, freehand, edit. Three purposes share one palette: Draw, Measure (labels with length, or area and perimeter, metric or imperial) and Select by shape (a finished shape selects the rows it covers; Ctrl or Cmd adds).
