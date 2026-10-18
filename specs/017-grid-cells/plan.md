@@ -59,9 +59,10 @@ No violations; Complexity Tracking is empty. Re-checked after design: unchanged.
    above it, Run. Cancel restores the previous query and view.
 8. **Resolution picker** shows size (edge or area, metric or imperial as the Measure tool does) and the estimate; resolutions within a usable
    range for the extent are listed first ("All resolutions" reveals the rest); above 100,000 estimated cells a warning comes before running.
-9. **Entry points**: a button in the query panel's header and an item among the layer-level actions (same dialog, `store.openBinDialog()`).
-   The exact home of the second entry is settled in task 5 by looking at the layer actions that exist (the layer picker only shows for
-   multi-layer files). If an extension did not load, both are disabled with the reason.
+9. **Entry points**: a button in the query panel's header and a **map control** ("Bin into cells", in the Tools group, on by default,
+   positionable like the others; the app has no layer menu, and the controls registry is where layer-level actions live). Both call
+   `store.openBinDialog()`. Both are disabled with the reason when no layer with geometry is open; a grid system whose extension did not load is
+   unavailable inside the dialog.
 
 ## Project Structure
 

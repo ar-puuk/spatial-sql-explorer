@@ -54,6 +54,7 @@ import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { binQuerySql as buildBinQuery, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
+import type { GridSystemId } from '../grid/gridSystems.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
 import { clampWgs84, recordByIdSql, viewBoxSql, type ViewTarget } from '../view/viewport.js'
@@ -641,6 +642,21 @@ export class QuerySession {
     const lv = this.layerView
     if (!lv) return null
     return buildBinQuery(spec, { geom: lv.geom, srid: this.table.srid, columns: this.table.columns, where: null, selectedWhere: null })
+  }
+
+  private gridSupportCache: Promise<Record<GridSystemId, boolean>> | null = null
+
+  /** Which grid systems the engine has loaded (the `h3` and `a5` extensions are optional downloads). Asked once. */
+  gridSupport(): Promise<Record<GridSystemId, boolean>> {
+    this.gridSupportCache ??= this.exclusive(async () => {
+      const result = await this.conn.query(`SELECT extension_name FROM duckdb_extensions() WHERE loaded AND extension_name IN ('h3', 'a5')`)
+      const loaded = new Set(result.toArray().map((r) => String(r.toJSON().extension_name)))
+      return { h3: loaded.has('h3'), a5: loaded.has('a5') }
+    }, 'background')
+    this.gridSupportCache.catch(() => {
+      this.gridSupportCache = null
+    })
+    return this.gridSupportCache
   }
 
   /** What the Bin into cells dialog shows about the open layer. */

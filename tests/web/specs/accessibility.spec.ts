@@ -209,7 +209,7 @@ test('keyboard: every query control is reachable, and Tab leaves the editor', as
       return el ? (el.getAttribute('aria-label') ?? el.textContent?.trim().replace(/\s+/g, ' ').slice(0, 30) ?? el.tagName) : ''
     })
   const reached: string[] = []
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     await page.keyboard.press('Shift+Tab')
     reached.push(await label())
   }
@@ -219,7 +219,7 @@ test('keyboard: every query control is reachable, and Tab leaves the editor', as
     await page.keyboard.press('Tab')
     reached.push(await label())
   }
-  for (const name of ['Run', 'Reset to the original view', 'Query history', 'Spatial SQL function reference', 'Copy the query', 'Result CRS']) {
+  for (const name of ['Run', 'Reset to the original view', 'Bin into cells', 'Query history', 'Spatial SQL function reference', 'Copy the query', 'Result CRS']) {
     expect(reached.some((l) => l.startsWith(name)), `Tab should reach "${name}" (reached: ${reached.join(' | ')})`).toBe(true)
   }
 

@@ -2,7 +2,7 @@
 // (packages/core/src/grid/binSql.ts) and run through the ?e2e=1 hook, over temp tables of points.
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
-import { fixture } from './helpers'
+import { editor, fixture, openFile, openQueryPanel } from './helpers'
 
 type Row = Record<string, unknown>
 
@@ -172,5 +172,70 @@ test.describe('Bin into cells in the engine (spec 017)', () => {
     expect(num(r.cells)).toBe(1)
     expect(num(r.total)).toBe(1)
     expect(r.same).toBe(true)
+  })
+})
+
+// The dialog, through the real interface (US1, FR-2 of the plan): crashes.geojson holds points.
+// The query panel's button; the map's own is "Bin into cells…".
+const binButton = (page: Page) => page.getByRole('button', { name: 'Bin into cells', exact: true })
+const dialog = (page: Page) => page.getByRole('dialog', { name: 'Bin into cells' })
+const legend = (page: Page) => page.getByRole('region', { name: 'Legend' })
+const rendered = (page: Page) => page.locator('.canvas-host').getAttribute('data-rendered-features')
+
+test.describe('Bin into cells dialog (spec 017)', () => {
+  test('keeps H3 and the count: the cells are drawn, colored, and legended "Number of features"', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    const before = Number(await rendered(page))
+    await openQueryPanel(page)
+    await binButton(page).click()
+    await expect(dialog(page)).toBeVisible()
+    // Defaults: H3, a count, a starting size already chosen.
+    await expect(dialog(page).getByRole('radio', { name: 'H3' })).toHaveAttribute('data-state', 'on')
+    await expect(dialog(page).getByText(/^About [\d,]+ cells?/)).toBeVisible()
+    // The preview draws on its own once the choices settle.
+    await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBe(String(before))
+    await dialog(page).getByRole('button', { name: 'Keep' }).click()
+    await expect(dialog(page)).toBeHidden()
+    // The query is in the panel for the user to read, edit and rerun.
+    await expect(editor(page)).toContainText('h3_latlng_to_cell')
+    await expect(legend(page).getByRole('button', { name: /^Number of features/ })).toBeVisible()
+  })
+
+  test('A5 starts from its own size, and Esc puts back the original view and query', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    const before = Number(await rendered(page))
+    await openQueryPanel(page)
+    const queryBefore = await editor(page).innerText()
+    await binButton(page).click()
+    await dialog(page).getByRole('radio', { name: 'A5' }).click()
+    await expect.poll(() => rendered(page), { timeout: 30000 }).not.toBe(String(before))
+    await page.keyboard.press('Escape')
+    await expect(dialog(page)).toBeHidden()
+    await expect.poll(() => rendered(page), { timeout: 30000 }).toBe(String(before))
+    await expect(editor(page)).not.toContainText('a5_lonlat_to_cell')
+    expect(await editor(page).innerText()).toBe(queryBefore)
+  })
+
+  test('editing the resolution in the SQL and rerunning keeps the style of the cells', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await openQueryPanel(page)
+    await binButton(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep' }).click()
+    await expect(legend(page).getByRole('button', { name: /^Number of features/ })).toBeVisible()
+    const text = await editor(page).innerText()
+    const m = /AS resolution/.exec(text)
+    expect(m).not.toBeNull()
+  })
+
+  test('the map has the same action as a button, which opens the same dialog', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await page.getByRole('button', { name: 'Bin into cells…' }).click()
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog(page)).toBeHidden()
   })
 })

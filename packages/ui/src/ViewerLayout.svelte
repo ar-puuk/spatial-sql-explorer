@@ -20,6 +20,7 @@
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import QueryPanel from './QueryPanel.svelte'
+  import BinCellsDialog from './BinCellsDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import PrintComposer from './print/PrintComposer.svelte'
   import type { LegendSpec } from './mapImage.js'
@@ -449,6 +450,8 @@
           onCaptureReady={(capture) => store.setMapCapture(capture)}
           onCameraReady={(camera) => store.setPrintCamera(camera)}
           onExportImage={() => store.openMapImage()}
+          onBinCells={() => void store.openBinDialog()}
+          binUnavailable={store.binUnavailable}
         />
         {#if store.shapes.length > 0}
           <div class="shapes-slot"><ShapesBar {store} /></div>
@@ -737,6 +740,9 @@
         void tick().then(() => document.querySelector<HTMLElement>('.more-button')?.focus())
       }}
     />
+  {/if}
+  {#if store.binDialog.open}
+    <BinCellsDialog {store} />
   {/if}
   {#if store.exportOpen}
     <ExportDialog

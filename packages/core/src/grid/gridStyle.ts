@@ -7,10 +7,13 @@ import { setEncoding, startEncoding } from '../style/edit.js'
 /** The columns a bin query returns (data-model.md). */
 export const BIN_COLUMNS = ['cell_id', 'resolution', 'value', 'n', 'geom'] as const
 
-/** Whether a result has the shape of a bin query's (so a rerun of an edited bin keeps the user's style). */
+/** The attribute columns (the geometry column is not one of a result's attributes). */
+export const BIN_ATTRIBUTES = ['cell_id', 'resolution', 'value', 'n'] as const
+
+/** Whether a result has the shape of a bin query's (so a rerun of an edited bin keeps the user's style). `columns` are the result's attribute columns. */
 export function isBinResult(columns: ReadonlyArray<{ name: string }>): boolean {
   const names = new Set(columns.map((c) => c.name))
-  return BIN_COLUMNS.every((c) => names.has(c))
+  return BIN_ATTRIBUTES.every((c) => names.has(c))
 }
 
 /** The whole style a fresh bin result opens with. */

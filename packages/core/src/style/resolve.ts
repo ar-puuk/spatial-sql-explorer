@@ -128,8 +128,15 @@ export function fallback(style: LayerStyle, layer: ResolveInput | null, reason: 
 }
 
 export function resolveStyle(style: LayerStyle, layer: ResolveInput | null): ResolvedStyle {
+  // A title given to the color property (spec 017: a bin's "Number of features") replaces its column's name in the caption.
+  const given = style.channels?.color?.legend?.title
   style = legacyView(style)
-  const color = resolveColor(style, layer)
+  let color = resolveColor(style, layer)
+  const kind = rendererOf(style).kind
+  if (given && (kind === 'graduated' || kind === 'categorized') && color.status === 'ok' && color.caption) {
+    const rest = color.caption.split(' · ').slice(1).join(' · ')
+    color = { ...color, caption: rest ? `${given} · ${rest}` : given }
+  }
   // Spec 009: the size channel, next to any color channel but bivariate.
   const size = resolveSizeChannel(style, layer)
   const out = size ? { ...color, size } : color

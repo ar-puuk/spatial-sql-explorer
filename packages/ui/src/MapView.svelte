@@ -158,6 +158,10 @@
     onCameraReady?: (camera: PrintCamera) => void
     /** Spec 008 US7: opens the map image dialog. */
     onExportImage?: () => void
+    /** Spec 017: opens the Bin into cells dialog. */
+    onBinCells?: () => void
+    /** Why Bin into cells is not available, or null. */
+    binUnavailable?: string | null
   }
   let {
     layer,
@@ -207,6 +211,8 @@
     onCaptureReady,
     onCameraReady,
     onExportImage,
+    onBinCells,
+    binUnavailable = null,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -1791,7 +1797,7 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
   const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
@@ -1900,6 +1906,8 @@
                       pressed: drawTool?.purpose === purpose,
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
+                  {:else if id === 'binCells'}
+                    {@render mapButton('Bin into cells…', binUnavailable ?? 'Bin into cells (H3 or A5 grid)', 'grid', corner, { disabled: !layer || !onBinCells || !!binUnavailable, onclick: () => onBinCells?.() })}
                   {:else if id === 'exportImage'}
                     {@render mapButton('Print map…', 'Print map…', 'printer', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}

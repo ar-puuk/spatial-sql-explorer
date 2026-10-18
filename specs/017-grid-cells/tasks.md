@@ -50,22 +50,22 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 
 ### Tests for User Story 1 (write first, they must fail)
 
-- [ ] T010 [P] [US1] `tests/web/specs/grid-cells-017.spec.ts`: bin `sample.geojson` (points) by H3 and by A5 through the generated SQL; assert the sum of `n` equals the rows with a location (SC-2) and that every `geom` is a valid polygon.
-- [ ] T011 [P] [US1] Same file: A5 cells at about 10 and 60 degrees north have equal `ST_Area` on the sphere within 1% (SC-3), using `a5_cell_area` as the reference.
-- [ ] T012 [P] [US1] Same file: a layer with points on both sides of the date line draws no polygon wider than 180 degrees, for H3 and A5, and the result passes `ST_IsValid`.
-- [ ] T013 [P] [US1] `tests/core/grid-bin-sql.test.ts`: projected layer (EPSG:26912) uses `ST_Transform` to 4326; polygon and line layers use `ST_Centroid`; a layer with no geometry returns null.
-- [ ] T014 [P] [US1] `tests/web/specs/grid-cells-017.spec.ts`: the dialog flow end to end: open the dialog from the query panel button, keep H3 and count, apply; the result is drawn and the legend title reads "Number of features".
+- [x] T010 [P] [US1] `tests/web/specs/grid-cells-017.spec.ts`: bin `sample.geojson` (points) by H3 and by A5 through the generated SQL; assert the sum of `n` equals the rows with a location (SC-2) and that every `geom` is a valid polygon.
+- [x] T011 [P] [US1] Same file: A5 cells at about 10 and 60 degrees north have equal `ST_Area` on the sphere within 1% (SC-3), using `a5_cell_area` as the reference.
+- [x] T012 [P] [US1] Same file: a layer with points on both sides of the date line draws no polygon wider than 180 degrees, for H3 and A5, and the result passes `ST_IsValid`.
+- [x] T013 [P] [US1] `tests/core/grid-bin-sql.test.ts`: projected layer (EPSG:26912) uses `ST_Transform` to 4326; polygon and line layers use `ST_Centroid`; a layer with no geometry returns null.
+- [x] T014 [P] [US1] `tests/web/specs/grid-cells-017.spec.ts`: the dialog flow end to end: open the dialog from the query panel button, keep H3 and count, apply; the result is drawn and the legend title reads "Number of features".
 
 ### Implementation for User Story 1
 
-- [ ] T015 [US1] Extend `binQuerySql` in `packages/core/src/grid/binSql.ts` for projected layers (`ST_Transform` from the layer CRS) and non-point layers (`ST_Centroid`), per contracts/bin-cells.md.
-- [ ] T016 [US1] Add the date-line and polar split to the cell geometry SQL in `packages/core/src/grid/gridSystems.ts` using the T004 outcome, so every `geom` is a valid polygon or MultiPolygon.
-- [ ] T017 [US1] Add the default graduated style in `packages/core/src/grid/gridStyle.ts`: `gridStyle(valueLabel)` returns the `LayerStyle` patch (graduated renderer on `value`, quantile, 5 classes, a sequential ramp from `packages/core/src/style/ramps.ts`, a thin outline) and the legend title; unit-test it in `tests/core/grid-style.test.ts`.
-- [ ] T018 [US1] Store actions in `packages/ui/src/viewerStore.svelte.ts`: `binDialog` state (`open, spec, estimate, previewing, error`), `openBinDialog`, `closeBinDialog`, `setBinSpec`, `applyBin` (writes `binQuerySql` into `queryText`, opens the SQL tab, runs it with `runQuery`, applies `gridStyle` through `setStyle` when the previous result was not a bin), `cancelBin`; declare them on the store interface near `runQuery`.
-- [ ] T019 [US1] Create `packages/ui/src/BinCellsDialog.svelte` from the kit (`Segmented` for H3/A5, `Slider` or `Select` for the resolution, `Select` for the measure, Apply and Cancel); first version without sizes or the estimate; Esc cancels, Enter applies, focus starts on the system control; styled from tokens only.
-- [ ] T020 [US1] Mount the dialog in `packages/ui/src/ViewerLayout.svelte` and add the "Bin into cells" button (icon `grid`) to the query panel header in `packages/ui/src/QueryPanel.svelte`; disable it with a reason through `UnavailableNotice` when the layer has no geometry or the `h3`/`a5` extension did not load (read `duckdb_extensions()` once per session in the session class).
-- [ ] T021 [US1] Settle and build the second entry point: look at the existing layer-level actions (`packages/ui/src/LayerStylePanel.svelte`, `ActivityRail.svelte`, `SidePanel.svelte`), put an item "Bin into cells" in the most natural one, and record the choice in `plan.md` decision 9.
-- [ ] T022 [US1] Pick the first resolution from the layer: add `suggestResolution(extent, rows, system)` to `packages/core/src/grid/binEstimate.ts` (aim for about 2,000 cells, bounded by the row count) with `tests/core/grid-estimate.test.ts`; use it when the dialog opens.
+- [x] T015 [US1] Extend `binQuerySql` in `packages/core/src/grid/binSql.ts` for projected layers (`ST_Transform` from the layer CRS) and non-point layers (`ST_Centroid`), per contracts/bin-cells.md.
+- [x] T016 [US1] Add the date-line and polar split to the cell geometry SQL in `packages/core/src/grid/gridSystems.ts` using the T004 outcome, so every `geom` is a valid polygon or MultiPolygon.
+- [x] T017 [US1] Add the default graduated style in `packages/core/src/grid/gridStyle.ts`: `gridStyle(valueLabel)` returns the `LayerStyle` patch (graduated renderer on `value`, quantile, 5 classes, a sequential ramp from `packages/core/src/style/ramps.ts`, a thin outline) and the legend title; unit-test it in `tests/core/grid-style.test.ts`.
+- [x] T018 [US1] Store actions in `packages/ui/src/viewerStore.svelte.ts`: `binDialog` state (`open, spec, estimate, previewing, error`), `openBinDialog`, `closeBinDialog`, `setBinSpec`, `applyBin` (writes `binQuerySql` into `queryText`, opens the SQL tab, runs it with `runQuery`, applies `gridStyle` through `setStyle` when the previous result was not a bin), `cancelBin`; declare them on the store interface near `runQuery`.
+- [x] T019 [US1] Create `packages/ui/src/BinCellsDialog.svelte` from the kit (`Segmented` for H3/A5, `Slider` or `Select` for the resolution, `Select` for the measure, Apply and Cancel); first version without sizes or the estimate; Esc cancels, Enter applies, focus starts on the system control; styled from tokens only.
+- [x] T020 [US1] Mount the dialog in `packages/ui/src/ViewerLayout.svelte` and add the "Bin into cells" button (icon `grid`) to the query panel header in `packages/ui/src/QueryPanel.svelte`; disable it with a reason through `UnavailableNotice` when the layer has no geometry or the `h3`/`a5` extension did not load (read `duckdb_extensions()` once per session in the session class).
+- [x] T021 [US1] Settle and build the second entry point: look at the existing layer-level actions (`packages/ui/src/LayerStylePanel.svelte`, `ActivityRail.svelte`, `SidePanel.svelte`), put an item "Bin into cells" in the most natural one, and record the choice in `plan.md` decision 9.
+- [x] T022 [US1] Pick the first resolution from the layer: add `suggestResolution(extent, rows, system)` to `packages/core/src/grid/binEstimate.ts` (aim for about 2,000 cells, bounded by the row count) with `tests/core/grid-estimate.test.ts`; use it when the dialog opens.
 
 **Checkpoint**: US1 works alone: open a layer, bin it, see a colored, legended grid.
 
