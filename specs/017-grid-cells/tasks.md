@@ -98,9 +98,9 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 **Goal**: the cells open with the graduated default and keep every polygon style option.
 **Independent test**: change ramp, classes and opacity, and turn on extrusion by `value`.
 
-- [ ] T033 [P] [US4] Test first: `tests/web/specs/grid-cells-017.spec.ts` after a bin the style panel shows a graduated style on `value`, a ramp change redraws, and extrusion by `value` is available.
-- [ ] T034 [US4] Name the legend after the measure: pass `valueLabel` ("Number of features", "Average of population") into the style's legend title in `packages/core/src/grid/gridStyle.ts` and check `packages/core/src/style/legend.ts` and `packages/ui/src/MapLegend.svelte` show it; adjust only if the title is not already taken from the renderer.
-- [ ] T035 [US4] Confirm the style survives a rerun with the same columns and falls back safely when the column is missing; add the case to `tests/core/grid-style.test.ts`.
+- [x] T033 [P] [US4] Test first: `tests/web/specs/grid-cells-017.spec.ts` after a bin the style panel shows a graduated style on `value`, a ramp change redraws, and extrusion by `value` is available.
+- [x] T034 [US4] Name the legend after the measure: pass `valueLabel` ("Number of features", "Average of population") into the style's legend title in `packages/core/src/grid/gridStyle.ts` and check `packages/core/src/style/legend.ts` and `packages/ui/src/MapLegend.svelte` show it; adjust only if the title is not already taken from the renderer.
+- [x] T035 [US4] Confirm the style survives a rerun with the same columns and falls back safely when the column is missing; add the case to `tests/core/grid-style.test.ts`.
 
 ## Phase 7: User Story 5 - Respect what the user already narrowed (Priority: P2)
 

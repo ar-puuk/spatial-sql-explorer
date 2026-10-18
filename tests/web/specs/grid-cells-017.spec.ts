@@ -275,6 +275,33 @@ test.describe('Bin into cells dialog (spec 017)', () => {
     expect(back.geo).not.toBeNull()
   })
 
+  test('the cells keep every polygon style option: graduated on value, a ramp change redraws, extrusion by value', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await openQueryPanel(page)
+    await binButton(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await page.getByRole('button', { name: 'Style', exact: true }).click()
+    const panel = page.getByRole('region', { name: 'Layer style' })
+    await expect(page.getByRole('button', { name: 'Color: Graduated' })).toBeVisible()
+    await expect(panel.getByLabel('Column', { exact: true })).toContainText('value')
+    // A ramp change redraws the legend swatches.
+    const rows = legend(page).locator('li')
+    const swatch = (i: number) => rows.nth(i).locator('.swatch').evaluate((el) => getComputedStyle(el).getPropertyValue('--swatch').trim())
+    await expect(rows).toHaveCount(5)
+    const before = await swatch(0)
+    await page.getByRole('button', { name: /^Colors:/ }).click()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => swatch(0)).not.toBe(before)
+    // Cells are polygons: extrusion is offered, and its height can be the value.
+    const toggle = panel.getByRole('switch', { name: 'Extrude polygons' })
+    await expect(toggle).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await expect(panel.getByLabel('Height from')).toContainText('value')
+  })
+
   test('the map has the same action as a button, which opens the same dialog', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, fixture('crashes.geojson'))

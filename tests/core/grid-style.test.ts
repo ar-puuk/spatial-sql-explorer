@@ -1,6 +1,6 @@
 // Spec 017: how a binned result opens (grid/gridStyle.ts).
 import { describe, expect, it } from 'vitest'
-import { BIN_ATTRIBUTES, gridStyle, isBinResult, rendererOf, resolveStyle, sanitizeStyle } from '@spatial-explorer/core'
+import { BIN_ATTRIBUTES, gridStyle, isBinResult, rendererOf, resolveStyle, sanitizeStyle, setChannelRamp } from '@spatial-explorer/core'
 
 describe('gridStyle (spec 017)', () => {
   it('colors the cells by value in quantile classes, with the measure as the legend title', () => {
@@ -46,5 +46,19 @@ describe('gridStyle (spec 017)', () => {
     expect(resolved.status).toBe('ok')
     expect(resolved.caption).toMatch(/^Number of features · /)
     expect(resolved.caption).not.toMatch(/^value/)
+  })
+
+  it('keeps the ramp and class choices of the user when the same columns come back (a rerun), and the legend title', () => {
+    const edited = setChannelRamp(gridStyle('Number of features'), 'color', { id: 'magma', reversed: true })
+    const clean = sanitizeStyle(edited)
+    expect(clean.channels?.color?.scale).toMatchObject({ ramp: { id: 'magma', reversed: true } })
+    expect(clean.channels?.color?.legend?.title).toBe('Number of features')
+  })
+
+  it('falls back to a plain look, not an error, when the value column is missing (an edited query)', () => {
+    const rows = Array.from({ length: 20 }, (_, i) => ({ id: i, geometry: null, attributes: { n: i } }))
+    const resolved = resolveStyle(gridStyle('Number of features'), { columns: [{ name: 'n', type: 'BIGINT' }], features: rows as never, rowCount: rows.length })
+    expect(resolved.status).toBe('fallback')
+    expect(resolved.reason ?? '').not.toBe('')
   })
 })
