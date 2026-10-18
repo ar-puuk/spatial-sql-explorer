@@ -3,7 +3,7 @@
 // a geodatabase goes to the geodatabase reader.
 import { zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { chooseDataset, extractDataset, inspectZip, isZipName, ZipChoiceError } from '@spatial-explorer/core'
+import { chooseDataset, extractDataset, gdbFolderOf, inspectZip, isZipName, listZipNames, ZipChoiceError } from '@spatial-explorer/core'
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s)
 const zip = (files: Record<string, string>): Uint8Array => zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, text(v)])))
@@ -78,5 +78,25 @@ describe('choosing and extracting', () => {
 
   it('refuses a dataset that would inflate past the limit', () => {
     expect(() => extractDataset(bytes, { ...contents.datasets[0], size: 4 * 1024 ** 3 })).toThrow(/unzipped/)
+  })
+})
+
+describe('listZipNames', () => {
+  it('reads the entry names from the end of the zip, in ranges, without the contents', async () => {
+    const noise = new Uint8Array(200_000) // does not compress, so the zip is big
+    for (let i = 0; i < noise.length; i += 65_536) crypto.getRandomValues(noise.subarray(i, i + 65_536))
+    const bytes = zipSync({ 'net.gdb/a00000001.gdbtable': noise, 'net.gdb/gdb': text('y'), 'other/readme.txt': text('z') })
+    const reads: Array<[number, number]> = []
+    const names = await listZipNames(bytes.byteLength, async (offset, length) => {
+      reads.push([offset, length])
+      return bytes.slice(offset, offset + length)
+    })
+    expect(names).toEqual(['net.gdb/a00000001.gdbtable', 'net.gdb/gdb', 'other/readme.txt'])
+    expect(reads.reduce((sum, [, length]) => sum + length, 0)).toBeLessThan(bytes.byteLength)
+    expect(gdbFolderOf(names)).toBe('net.gdb')
+    expect(gdbFolderOf(['a00000001.gdbtable', 'gdb'])).toBeNull()
+  })
+  it('refuses something that is not a zip', async () => {
+    await expect(listZipNames(100, async (o, l) => new Uint8Array(l))).rejects.toThrow(/not a zip/)
   })
 })

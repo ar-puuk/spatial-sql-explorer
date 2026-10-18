@@ -9,6 +9,7 @@ import { fork, type ChildProcess } from 'child_process'
 import { gdalFileRefs } from '../../../packages/core/src/engineAssets'
 import { cacheFileName } from '../../../packages/core/src/gdb/gdalReader'
 import { layerDomains } from '../../../packages/core/src/gdb/catalog'
+import { gdbFolderOf, listZipNames } from '../../../packages/core/src/source/zip'
 import { GdbError, type ColumnDomains, type GdbCatalog, type GdbLayerInfo, type GdbProgress } from '../../../packages/core/src/gdb/types'
 import type { GdbSourceSpec, WorkerReply, WorkerRequest } from './gdbWorker'
 
@@ -30,56 +31,19 @@ export interface ConvertedLayer {
   domains: ColumnDomains
 }
 
-/** Zip entry names from the central directory only (nothing is inflated, a multi-gigabyte zip is not read). */
-export function zipEntryNames(file: string): string[] {
+/** The `x.gdb` folder inside a zip, or null when the geodatabase's files are at the zip's top level (the zip's table of contents is read, not the zip). */
+export async function gdbFolderInZip(file: string): Promise<string | null> {
   const fd = fs.openSync(file, 'r')
   try {
-    const size = fs.fstatSync(fd).size
-    const tailLen = Math.min(size, 65536 + 22 + 20)
-    const tail = Buffer.alloc(tailLen)
-    fs.readSync(fd, tail, 0, tailLen, size - tailLen)
-    let eocd = -1
-    for (let i = tailLen - 22; i >= 0; i--) {
-      if (tail.readUInt32LE(i) === 0x06054b50) {
-        eocd = i
-        break
-      }
-    }
-    if (eocd < 0) throw new Error('it is not a zip file')
-    let entries = tail.readUInt16LE(eocd + 10)
-    let cdSize = tail.readUInt32LE(eocd + 12)
-    let cdOffset = tail.readUInt32LE(eocd + 16)
-    if ((cdOffset === 0xffffffff || entries === 0xffff) && eocd >= 20 && tail.readUInt32LE(eocd - 20) === 0x07064b50) {
-      const record = Buffer.alloc(56)
-      fs.readSync(fd, record, 0, 56, Number(tail.readBigUInt64LE(eocd - 20 + 8)))
-      entries = Number(record.readBigUInt64LE(32))
-      cdSize = Number(record.readBigUInt64LE(40))
-      cdOffset = Number(record.readBigUInt64LE(48))
-    }
-    const directory = Buffer.alloc(cdSize)
-    fs.readSync(fd, directory, 0, cdSize, cdOffset)
-    const names: string[] = []
-    let p = 0
-    for (let n = 0; n < entries && p + 46 <= directory.length && directory.readUInt32LE(p) === 0x02014b50; n++) {
-      const nameLength = directory.readUInt16LE(p + 28)
-      const extraLength = directory.readUInt16LE(p + 30)
-      const commentLength = directory.readUInt16LE(p + 32)
-      names.push(directory.toString('utf8', p + 46, p + 46 + nameLength))
-      p += 46 + nameLength + extraLength + commentLength
-    }
-    return names
+    const names = await listZipNames(fs.fstatSync(fd).size, async (offset, length) => {
+      const buffer = Buffer.alloc(length)
+      fs.readSync(fd, buffer, 0, length, offset)
+      return new Uint8Array(buffer.buffer, buffer.byteOffset, length)
+    })
+    return gdbFolderOf(names)
   } finally {
     fs.closeSync(fd)
   }
-}
-
-/** The `x.gdb` folder inside a zip, or null when the geodatabase's files are at the zip's top level. */
-export function gdbFolderInZip(file: string): string | null {
-  for (const name of zipEntryNames(file)) {
-    const at = name.toLowerCase().indexOf('.gdb/')
-    if (at >= 0) return name.slice(0, at + 4)
-  }
-  return null
 }
 
 /** What identifies the geodatabase's current contents: its files' names, sizes and modification times. */
@@ -201,8 +165,8 @@ export class GdbNodeReader {
     this.worker = null
   }
 
-  private spec(source: GdbSource): GdbSourceSpec {
-    return source.zip ? { kind: 'zip', path: source.fsPath, folder: gdbFolderInZip(source.fsPath) } : { kind: 'folder', path: source.fsPath }
+  private async spec(source: GdbSource): Promise<GdbSourceSpec> {
+    return source.zip ? { kind: 'zip', path: source.fsPath, folder: await gdbFolderInZip(source.fsPath) } : { kind: 'folder', path: source.fsPath }
   }
 
   /** The geodatabase's layers and domains (kept with the cache: the second open needs no reader at all). */
@@ -214,7 +178,7 @@ export class GdbNodeReader {
     } catch {
       // Not read yet.
     }
-    const catalog = await this.call<GdbCatalog>({ op: 'list', source: this.spec(source), name }, options)
+    const catalog = await this.call<GdbCatalog>({ op: 'list', source: await this.spec(source), name }, options)
     fs.mkdirSync(this.cacheDir(key), { recursive: true })
     fs.writeFileSync(file, JSON.stringify(catalog))
     return catalog
@@ -238,7 +202,7 @@ export class GdbNodeReader {
     this.log(`geodatabase: reading layer ${layer.name} of ${path.basename(source.fsPath)}`)
     const started = Date.now()
     options.onProgress?.({ phase: 'convert', layer: layer.name })
-    await this.call<{ path: string }>({ op: 'convert', source: this.spec(source), layer: { name: layer.name, spatial: layer.spatial }, outDir: dir.replace(/\\/g, '/'), outFile: partial }, options)
+    await this.call<{ path: string }>({ op: 'convert', source: await this.spec(source), layer: { name: layer.name, spatial: layer.spatial }, outDir: dir.replace(/\\/g, '/'), outFile: partial }, options)
     fs.renameSync(path.join(dir, `${partial}.fgb`), target)
     const size = fs.statSync(target).size
     this.log(`geodatabase: ${layer.name}: ${(size / 1024 / 1024).toFixed(1)} MB in ${((Date.now() - started) / 1000).toFixed(1)} s`)

@@ -92,3 +92,54 @@ export function extractDataset(bytes: Uint8Array, dataset: ZipDataset): FileSour
     styleSidecar: styleName ? { fileName: baseOf(styleName), text: new TextDecoder().decode(files[styleName]) } : null,
   }
 }
+
+/**
+ * Entry names from a zip's central directory alone (nothing is inflated and a
+ * multi-gigabyte zip is not read), through a function that reads a byte range.
+ * Used where the whole zip is not in memory: the geodatabase readers.
+ */
+export async function listZipNames(size: number, read: (offset: number, length: number) => Promise<Uint8Array>): Promise<string[]> {
+  const tailLength = Math.min(size, 65536 + 22 + 20)
+  const tailBytes = await read(size - tailLength, tailLength)
+  const tail = new DataView(tailBytes.buffer, tailBytes.byteOffset, tailBytes.byteLength)
+  let eocd = -1
+  for (let i = tailLength - 22; i >= 0; i--) {
+    if (tail.getUint32(i, true) === 0x06054b50) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('it is not a zip file')
+  let entries = tail.getUint16(eocd + 10, true)
+  let directorySize = tail.getUint32(eocd + 12, true)
+  let directoryOffset = tail.getUint32(eocd + 16, true)
+  if ((directoryOffset === 0xffffffff || entries === 0xffff) && eocd >= 20 && tail.getUint32(eocd - 20, true) === 0x07064b50) {
+    const recordBytes = await read(Number(tail.getBigUint64(eocd - 20 + 8, true)), 56)
+    const record = new DataView(recordBytes.buffer, recordBytes.byteOffset, recordBytes.byteLength)
+    entries = Number(record.getBigUint64(32, true))
+    directorySize = Number(record.getBigUint64(40, true))
+    directoryOffset = Number(record.getBigUint64(48, true))
+  }
+  const bytes = await read(directoryOffset, directorySize)
+  const directory = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const names: string[] = []
+  const decoder = new TextDecoder()
+  let p = 0
+  for (let n = 0; n < entries && p + 46 <= bytes.length && directory.getUint32(p, true) === 0x02014b50; n++) {
+    const nameLength = directory.getUint16(p + 28, true)
+    const extraLength = directory.getUint16(p + 30, true)
+    const commentLength = directory.getUint16(p + 32, true)
+    names.push(decoder.decode(bytes.subarray(p + 46, p + 46 + nameLength)))
+    p += 46 + nameLength + extraLength + commentLength
+  }
+  return names
+}
+
+/** The `x.gdb` folder inside a zip (from its entry names), or null when the geodatabase's files are at the top level. */
+export function gdbFolderOf(names: readonly string[]): string | null {
+  for (const name of names) {
+    const at = name.toLowerCase().indexOf('.gdb/')
+    if (at >= 0) return name.slice(0, at + 4)
+  }
+  return null
+}

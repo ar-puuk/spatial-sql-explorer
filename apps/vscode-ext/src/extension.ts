@@ -1018,7 +1018,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         let marker: vscode.Uri | undefined
         try {
           const entries = await vscode.workspace.fs.readDirectory(target)
-          const tables = entries.filter(([n, t]) => t === vscode.FileType.File && /^a[0-9a-f]{8}.gdbtable$/i.test(n)).map(([n]) => n)
+          const tables = entries.filter(([n, t]) => t === vscode.FileType.File && /^a[0-9a-f]{8}\.gdbtable$/i.test(n)).map(([n]) => n)
           marker = vscode.Uri.joinPath(target, tables.find((n) => n.toLowerCase() === 'a00000001.gdbtable') ?? tables[0] ?? '')
           if (!tables.length) marker = undefined
         } catch {

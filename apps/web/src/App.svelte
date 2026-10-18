@@ -5,7 +5,8 @@
   // it has native chrome for each.
   import { ViewerLayout, StatusBar, Icon, createViewerStore, type LegendSpec } from '@spatial-explorer/ui'
   import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
-  import { createWebHostAdapter, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import { createWebHostAdapter, pickFolder, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
+  import { dropHasFolder, filesFromDrop } from './dropFiles.js'
   import ThemeMenu from './ThemeMenu.svelte'
   import Landing from './Landing.svelte'
   /** The project's source code, linked from the header. */
@@ -228,13 +229,23 @@
     // issue (see tasks.md T029/T030's notes).
     void store.load()
     provideFiles(files)
-    fileName = files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+  }
+
+  /** Spec 013: a File Geodatabase is a folder. */
+  async function chooseFolder(): Promise<void> {
+    const files = await pickFolder()
+    if (files.length) handleFiles(files)
   }
 
   function handleDrop(e: DragEvent): void {
     e.preventDefault()
     isDragOver = false
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files)
+    const transfer = e.dataTransfer
+    if (!transfer) return
+    // A dropped folder has to be read from the event itself, before this handler returns.
+    if (dropHasFolder(transfer.items)) void filesFromDrop(transfer.items, transfer.files).then((files) => files.length && handleFiles(files))
+    else if (transfer.files.length > 0) handleFiles(transfer.files)
   }
 
   function handleDragOver(e: DragEvent): void {
@@ -391,6 +402,7 @@
         <button type="button" class="open" disabled={store.session.loadState !== 'ready'} title="Copy a link to this view (the file itself is not shared)" onclick={() => void copyLink()}
           ><Icon name="link" size={14} />Copy link</button
         >
+        <button type="button" class="open" title="Open a File Geodatabase (a folder that ends in .gdb)" onclick={() => void chooseFolder()}><Icon name="folder" size={14} />Open geodatabase</button>
         <button type="button" class="open primary" onclick={() => input.click()}><Icon name="import" size={14} />Open file</button>
       </div>
       <span class="divider" aria-hidden="true"></span>
@@ -424,6 +436,7 @@
         {engine}
         sharedFileName={pendingShare?.state.source?.kind === 'file' ? pendingShare.state.source.name : null}
         onChoose={() => input.click()}
+        onChooseFolder={() => void chooseFolder()}
         onSample={() => void openSample()}
         bind:chooseButton
       />

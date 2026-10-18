@@ -15,6 +15,7 @@
   import ChevronLeft from '@lucide/svelte/icons/chevron-left'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Circle from '@lucide/svelte/icons/circle'
+  import FolderOpen from '@lucide/svelte/icons/folder-open'
   import CircleX from '@lucide/svelte/icons/circle-x'
   import BrushCleaning from '@lucide/svelte/icons/brush-cleaning'
   import Navigation2 from '@lucide/svelte/icons/navigation-2'
@@ -95,6 +96,7 @@
     'arrow-down': ArrowDown,
     close: X,
     file: File,
+    folder: FolderOpen,
     zoom: Search,
     warning: TriangleAlert,
     error: CircleX,
