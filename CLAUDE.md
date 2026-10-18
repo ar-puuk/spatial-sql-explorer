@@ -28,7 +28,7 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
   Not bundled (user decision 2026-10-11, constitution v1.2.0): DuckDB-WASM, its extensions (spatial, parquet,
   json, and, user decision 2026-10-17, spec 017, constitution v1.4.0, the optional fts, h3 and a5, the last two from
   community-extensions.duckdb.org) and sql.js are downloaded from pinned URLs and checked against SHA-256 hashes recorded by
-  scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package.
+  scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package. On an engine upgrade also check whether the new DuckDB-WASM build uses WebAssembly's `try_table` exception instructions: Firefox prints "The WebAssembly exception handling 'try' instruction is deprecated" for the current build, and only an upstream rebuild removes it (the engine files are used unmodified).
   Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
   Each shell keeps a local copy through HostAdapter.engineFile (VS Code: extension host global storage;
   web: Cache Storage), so it works offline after the first start.
