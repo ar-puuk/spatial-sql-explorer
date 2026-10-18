@@ -126,8 +126,8 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 ## Grid cells (spec 017)
 - "Bin into cells" (user decision 2026-10-17; step 1 the `fts`, `h3` and `a5` extensions, step 2 the action): the open layer's rows are assigned to H3 or A5 cells
   (a point by its place, a line or polygon by its centroid), a measure per cell (count, or sum, average, minimum, maximum, median of a number
-  column), and the cells are drawn like any result. It is QUERY plus STYLE of a result, never a second layer; polyfill of polygons, neighbor
-  analysis and joins between grids are out of scope.
+  column), and the cells are drawn like any result. It is QUERY plus STYLE of a result, never a second layer; joins between grids are out of scope
+  (spec 021, user request 2026-10-17, adds Every cell touched for lines and polygons, and Smooth with neighbors for H3: see below).
 - The query is the product (packages/core/src/grid/binSql.ts, `QuerySession.binQuerySql`): the dialog (packages/ui/src/BinCellsDialog.svelte, from the map control `binCells`;
   user decision 2026-10-17: no button in the query panel) writes SQL with the columns `cell_id, resolution, value, n, geom` (`geom` is `ST_SetCRS(..., 'EPSG:4326')`), the store runs it as
   a query (`openBinDialog`, `setBinSpec`, `applyBin`, `cancelBin`) and the user can edit and rerun it. A fresh bin gets the style in `gridStyle`
@@ -138,6 +138,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - The rows binned are those the layer shows: the column filters and the shape filter are inlined as WHERE (only while the layer itself is displayed); "selected
   rows only" first publishes them as the temp table `selected_rows` (the SQL policy protects the engine's hidden row ids). Rows without a location are
   left out and counted.
+- Spec 021: `BinSpec.assign: 'cover'` puts a line or polygon in every cell it touches (H3: `h3_polygon_wkt_to_cells_experimental(..., 'overlap')` per part, lines and A5 by sampled points: `coverSql` in gridSystems.ts); `smooth` (a number of rings, 1 to 50, as a switch and an integer field; H3 only) makes a cell's value that of its neighborhood (`diskSql`). They are alternatives. A5's own polygon and neighbor functions are incomplete (specs/021-grid-extras/spec.md), so A5 is sampled and not smoothed. Lambda names in generated SQL start with `_` (a name like `g` or `v` loses to the query's columns).
 - h3 and a5 are community extensions (constitution v1.4.0): pinned, hash-checked, optional. The a5 extension phones home to Query.Farm when it loads; the engine
   worker blocks that host (duckdbService.ts) and a test checks no request reaches it.
 

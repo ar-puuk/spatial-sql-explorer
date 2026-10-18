@@ -749,7 +749,7 @@
     />
   {/if}
   {#if store.binDialog.open}
-    <BinCellsDialog {store} />
+    <BinCellsDialog {store} mapHeight={mapPaneHeight} />
   {/if}
   {#if store.exportOpen}
     <ExportDialog

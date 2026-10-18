@@ -1431,7 +1431,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const qs = querySession
     const info = binDialog.info
     const system = getGridSystem(spec.system)
-    const estimate = system && info ? estimateCells(system, spec.resolution, info.extent, info.rows) : 0
+    const estimate = system && info ? estimateCells(system, spec.resolution, info.extent, info.rows, { cover: spec.assign === 'cover', smooth: spec.smooth, featureSize: info?.featureSize }) : 0
     const query = qs?.binQuerySql(spec) ?? null
     const problem = query ? null : qs ? binSpecProblem(spec, qs.table) : 'Open a layer first.'
     binDialog = { ...binDialog, spec, estimate, sql: query?.sql ?? null, valueLabel: query?.valueLabel ?? '', problem, overLimit: estimate > CELL_LIMIT, previewed: false, skipped: null }
@@ -1490,7 +1490,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function openBinDialog(): Promise<void> {
     const qs = querySession
     if (!qs || binUnavailable()) return
-    const info = qs.layerFactsForBin()
+    const base = qs.layerFactsForBin()
+    // Lines and polygons: how big a feature is decides how many cells covering gives (the estimate, and so the preview).
+    const featureSize = base && base.geometryType !== 'Point' ? await retryWhenBusy(qs, () => qs.featureSizeForBin()).catch(() => null) : null
+    const info = base ? { ...base, featureSize } : null
     const support = await retryWhenBusy(qs, () => qs.gridSupport()).catch(() => ({ h3: false, a5: false }))
     if (!info) return
     // The grid system and kind of measure last kept, when they still make sense here.
@@ -1513,6 +1516,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       const grid = getGridSystem(patch.system)
       if (grid) spec = { ...spec, resolution: suggestResolution(grid, binDialog.info.extent, binDialog.info.rows) }
     }
+    // Spec 021: smoothing is for H3 and the measures that combine across cells; it and covering are alternatives.
+    if (!getGridSystem(spec.system)?.diskSql || spec.measure.kind === 'median') spec = { ...spec, smooth: 0 }
+    if (patch.assign === 'cover') spec = { ...spec, smooth: 0 }
+    else if (patch.smooth && patch.smooth > 0) spec = { ...spec, assign: 'center' }
     updateBin(spec)
   }
 

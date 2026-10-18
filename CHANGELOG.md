@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Bin into cells: **Every cell touched** puts a line or polygon in every cell it touches (H3 and A5), and **Smooth** (a switch and a number of rings) gives each cell the value of its neighborhood (H3). The A5 extension's own polygon and neighbor functions are incomplete, so A5 is covered by sampling and is not smoothed.
 - Time slider: a map button opens a bar with a two-handle window over a date or timestamp column and a Play button. The window is that column's filter, so the map, table and counts follow it.
 - Direction arrows on lines: Arrows in the style panel (None, Along the line, Middle of the line) draw arrowheads that follow each line's direction, in its color, from GeoJSON or engine tiles.
 - Search by words: a switch in the search box ranks the rows of the open layer or result whose text has every word you type, in any form ("bridges" finds "bridge"), best match first. It uses the `fts` extension; the index is built on first use, per result, and follows the column filters. The query editor now colors function calls. Bin into cells is only on the map (the duplicate button in the query panel is gone).
