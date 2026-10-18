@@ -36,7 +36,7 @@ Where a column has a coded-value domain, the table, the hover tooltip and the se
 - **Independent test**: a layer with a coded domain shows descriptions by default, codes after the switch, and `SELECT class` returns the code.
 
 ### US4 (P2): Zipped data
-Any supported GIS file in a `.zip` opens as if unzipped: Shapefile (all parts), GeoPackage, GeoJSON, FlatGeobuf, GeoParquet, KML, GML, CSV, and a `.gdb` inside a zip or a `.gdb.zip`. A zip that holds several datasets asks which one. Zips are never extracted to disk beyond the cache.
+Any supported GIS file in a `.zip` opens as if unzipped: Shapefile (all parts), GeoPackage, GeoJSON, FlatGeobuf, GeoParquet, KML, GML, CSV, and a `.gdb` inside a zip or a `.gdb.zip`. A zip that holds several datasets asks which one. A zip is never opened by default: the entry is right-click "Open in Spatial Explorer" (or "Open With…") in VS Code, and picking or dropping it on the web. Zips are never extracted to disk beyond the cache.
 - **Independent test**: each format zipped opens with the same result as unzipped.
 
 ### US5 (P2): The one-time download and the cache

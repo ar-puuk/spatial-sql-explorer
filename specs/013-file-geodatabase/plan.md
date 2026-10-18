@@ -34,7 +34,7 @@ apps/web / packages/ui
 
 ### Zips (all shells)
 
-Core `zip.ts` lists entries without extracting (fflate), decides the dataset kind (a `.gdb` folder -> reader; a shapefile's parts; a single data file; several datasets -> ask). Non-geodatabase zips are unzipped into the cache and registered as the inner files (the engine cannot do `/vsizip/`). VS Code: add a custom editor entry for `.zip` with priority `option` (never hijack zips) plus the context command. Large zips stream entry by entry.
+Core `zip.ts` lists entries without extracting (fflate), decides the dataset kind (a `.gdb` folder -> reader; a shapefile's parts; a single data file; several datasets -> ask). Non-geodatabase zips are unzipped into the cache and registered as the inner files (the engine cannot do `/vsizip/`). VS Code: a zip never opens in Spatial Explorer by itself. The way in is the right-click "Open in Spatial Explorer" command on a `.zip` (and on a `.gdb` folder), plus a custom editor for `.zip` at priority `option` so it also appears under "Open With…". Large zips stream entry by entry.
 
 ### Asset, cache, UX
 
