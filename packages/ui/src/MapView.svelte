@@ -162,6 +162,9 @@
     onExportImage?: () => void
     /** Spec 017: opens the Bin into cells dialog. */
     onBinCells?: () => void
+    /** Spec 022: opens the Dot density dialog; why it can't open (or null). */
+    onDotDensity?: () => void
+    dotUnavailable?: string | null
     /** Spec 020: opens (or closes) the time slider; whether it is open; why it can't open (or null). */
     onTimeSlider?: () => void
     timeSliderOpen?: boolean
@@ -218,6 +221,8 @@
     onCameraReady,
     onExportImage,
     onBinCells,
+    onDotDensity,
+    dotUnavailable = null,
     onTimeSlider,
     timeSliderOpen = false,
     timeSliderUnavailable = null,
@@ -1813,7 +1818,7 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'timeSlider', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
   const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
@@ -1926,6 +1931,8 @@
                     {@render mapButton('Time slider', timeSliderUnavailable ?? 'Time slider: show the rows within a window of a date column', 'timeSlider', corner, { pressed: timeSliderOpen, disabled: !layer || !onTimeSlider || !!timeSliderUnavailable, onclick: () => onTimeSlider?.() })}
                   {:else if id === 'binCells'}
                     {@render mapButton('Bin into cells…', binUnavailable ?? 'Bin into cells (H3 or A5 grid)', 'grid', corner, { disabled: !layer || !onBinCells || !!binUnavailable, onclick: () => onBinCells?.() })}
+                  {:else if id === 'dotDensity'}
+                    {@render mapButton('Dot density…', dotUnavailable ?? 'Dot density: draw a count as dots inside its polygons', 'dots', corner, { disabled: !layer || !onDotDensity || !!dotUnavailable, onclick: () => onDotDensity?.() })}
                   {:else if id === 'exportImage'}
                     {@render mapButton('Print map…', 'Print map…', 'printer', corner, { disabled: !layer || !onExportImage, onclick: () => onExportImage?.() })}
                   {:else if id === 'resetView'}

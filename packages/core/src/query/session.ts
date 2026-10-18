@@ -53,6 +53,7 @@ import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, si
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
+import { dotQuerySql as buildDotQuery, dotTotalsSql, type DotLayerFacts, type DotLayerInfo, type DotQuery, type DotSpec } from '../dots/dotSql.js'
 import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, featureSizeSql, type FeatureSize, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
 import type { GridSystemId } from '../grid/gridSystems.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
@@ -711,6 +712,40 @@ export class QuerySession {
       numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
       filtersIgnored: this.binRestriction().ignored,
     }
+  }
+
+  // --- Spec 022: dot density ------------------------------------------------------
+
+  private dotFacts(geom: string): DotLayerFacts {
+    return { geom, srid: this.table.srid, columns: this.table.columns, where: this.binRestriction().where }
+  }
+
+  /** Why dot density is not possible for the open layer (it needs polygons), or null. */
+  dotUnavailable(): string | null {
+    if (!this.layerView) return 'Open a layer first.'
+    const type = this.table.geometryType
+    if (type !== 'Polygon' && type !== 'Mixed') return 'Dot density needs a layer of polygons.'
+    return this.table.columns.some((c) => isNumericType(c.type)) ? null : 'Dot density needs a number column to draw as dots.'
+  }
+
+  /** The query "Dot density" writes (grid/dotSql.ts); null when the spec is not valid for this layer. */
+  dotQuerySql(spec: DotSpec): DotQuery | null {
+    const lv = this.layerView
+    return lv && !this.dotUnavailable() ? buildDotQuery(spec, this.dotFacts(lv.geom)) : null
+  }
+
+  /** What the Dot density dialog shows about the open layer, with the sums of its number columns over the rows shown. */
+  async layerFactsForDots(): Promise<DotLayerInfo | null> {
+    const lv = this.layerView
+    if (!lv || this.dotUnavailable()) return null
+    const numericColumns = this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name)
+    const sql = dotTotalsSql(numericColumns, this.dotFacts(lv.geom))
+    const totals: Record<string, number> = {}
+    if (sql) {
+      const row = await this.exclusive(async (isCancelled) => singleRow<Record<string, number | null>>(this.conn, sql, isCancelled), 'background')
+      numericColumns.forEach((c, i) => (totals[c] = Number(row[`t${i}`] ?? 0)))
+    }
+    return { numericColumns, rows: this.table.totals.rows, filtersIgnored: this.binRestriction().ignored, totals }
   }
 
   /** Spec 021: the average box of the layer's features, for the dialog's estimate of covering; null when it cannot be read. */

@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Dot density: a map button for polygon layers draws a count as dots placed at random inside each polygon. Choose up to six number columns (each its own color) and what one dot stands for; the query is in the SQL tab and the same layer always gives the same dots. Up to 100,000 dots draw without asking, 1,000,000 is the most.
 - Bin into cells: **Every cell touched** puts a line or polygon in every cell it touches (H3 and A5), and **Smooth** (a switch and a number of rings) gives each cell the value of its neighborhood (H3). The A5 extension's own polygon and neighbor functions are incomplete, so A5 is covered by sampling and is not smoothed.
 - Time slider: a map button opens a bar with a two-handle window over a date or timestamp column and a Play button. The window is that column's filter, so the map, table and counts follow it.
 - Direction arrows on lines: Arrows in the style panel (None, Along the line, Middle of the line) draw arrowheads that follow each line's direction, in its color, from GeoJSON or engine tiles.
