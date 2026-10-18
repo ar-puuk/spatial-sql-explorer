@@ -8,7 +8,9 @@ const layerPicker = (page: Page) => page.getByRole('combobox', { name: 'Layer' }
 const statusBar = (page: Page) => page.locator('.status-bar')
 const rendered = (page: Page) => page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 90000 })
 
-async function start(page: Page): Promise<void> {
+async function start(page: Page, keepDirectoryPicker = false): Promise<void> {
+  // Playwright can only drive the <input> chooser: hide Chrome's directory picker unless a test wants it.
+  if (!keepDirectoryPicker) await page.addInitScript(() => delete (window as unknown as Record<string, unknown>).showDirectoryPicker)
   await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
   )
@@ -34,6 +36,32 @@ const column = async (page: Page, index: number): Promise<string[]> =>
 
 test.describe('a geodatabase folder', () => {
   test.setTimeout(180000)
+
+  test('the folder button uses the directory picker when the browser has one (its prompt is not worded as an upload)', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>
+      w.pickerCalls = 0
+      w.showDirectoryPicker = () => {
+        ;(w.pickerCalls as number)++
+        return Promise.reject(new DOMException('cancelled', 'AbortError'))
+      }
+    })
+    await start(page, true)
+    await page.getByRole('button', { name: 'Choose a geodatabase folder' }).click()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { pickerCalls: number }).pickerCalls)).toBe(1)
+    // Cancelled: still on the landing page.
+    await expect(page.getByRole('button', { name: 'Choose a geodatabase folder' })).toBeVisible()
+  })
+
+  test('when the directory picker fails, the input chooser takes over', async ({ page }) => {
+    await page.addInitScript(() => {
+      ;(window as unknown as Record<string, unknown>).showDirectoryPicker = () => Promise.reject(new DOMException('blocked', 'SecurityError'))
+    })
+    await start(page, true)
+    await pickFolder(page, fixture('network.gdb'))
+    await rendered(page)
+    await expect(layerPicker(page)).toHaveValue('roads')
+  })
 
   test('opens: its layers are listed (by feature dataset) and the first one is on the map', async ({ page }) => {
     await openGdb(page)

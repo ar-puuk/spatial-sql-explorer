@@ -95,8 +95,44 @@ export function addWorkspaceFileList(files: File[]): WorkspaceFile[] {
   return added
 }
 
-/** Spec 013: a folder picker (the browser hands over every file in it, with its path inside the folder). */
-export function pickFolder(): Promise<File[]> {
+interface DirectoryHandle {
+  readonly name: string
+  values(): AsyncIterable<{ kind: 'file'; name: string; getFile(): Promise<File> } | (DirectoryHandle & { kind: 'directory' })>
+}
+
+/** Every file under a directory handle, each carrying its path inside the folder like a dropped folder's files. */
+async function filesOf(dir: DirectoryHandle, prefix: string): Promise<File[]> {
+  const out: File[] = []
+  for await (const entry of dir.values()) {
+    if (entry.kind === 'file') {
+      const file = await entry.getFile()
+      Object.defineProperty(file, 'webkitRelativePath', { value: `${prefix}${entry.name}` })
+      out.push(file)
+    } else out.push(...(await filesOf(entry, `${prefix}${entry.name}/`)))
+  }
+  return out
+}
+
+/**
+ * Spec 013: a folder picker. Chrome and Edge get the File System Access picker, whose prompt says the
+ * site may view the files (true); the `<input webkitdirectory>` fallback is worded by the browser as an
+ * upload ("Upload N files to this site"), though nothing leaves the tab.
+ */
+export async function pickFolder(): Promise<File[]> {
+  const show = (window as unknown as { showDirectoryPicker?: (options?: { mode?: 'read' }) => Promise<DirectoryHandle> }).showDirectoryPicker
+  if (show) {
+    try {
+      const dir = await show.call(window, { mode: 'read' })
+      return await filesOf(dir, `${dir.name}/`)
+    } catch (err) {
+      // Cancelled; any other failure (a blocked folder, say) falls back to the input.
+      if (err instanceof DOMException && err.name === 'AbortError') return []
+    }
+  }
+  return pickFolderInput()
+}
+
+function pickFolderInput(): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'

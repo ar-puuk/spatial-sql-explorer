@@ -10,6 +10,7 @@ test.skip(!sample || !fs.existsSync(sample), 'set SE_GDB_SAMPLE to a .gdb folder
 
 test('a real geodatabase: layers listed, a 58,000-line layer on the map, others read by name', async ({ page }) => {
   test.setTimeout(300000)
+  await page.addInitScript(() => delete (window as unknown as Record<string, unknown>).showDirectoryPicker)
   await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } })
   )
