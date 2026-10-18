@@ -39,6 +39,10 @@ let gdal: Gdal | null = null
 const recent: string[] = []
 let mounts = 0
 
+/** Timings in the browser console (F12), to see where a slow open spends its time. */
+const t0 = performance.now()
+const trace = (what: string): void => console.info(`[gdb] ${((performance.now() - t0) / 1000).toFixed(1)} s  ${what}`)
+
 function reply(message: FromWorker, transfer: Transferable[] = []): void {
   postMessage(message, transfer)
 }
@@ -189,6 +193,7 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
     if (source.kind === 'folder') {
       // Which table files hold this layer: the catalog table's row id is the file number.
       reply({ id, progress: { phase: 'copy', layer: layer.name } })
+      trace(`copying the files of ${layer.name}`)
       const all = await openGeodatabase(g, mounted.open, ['LIST_ALL_TABLES=YES'])
       let fileId: string | undefined
       try {
@@ -206,6 +211,7 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
       open = { open: copy, vfs: [], release: () => {} }
     }
     reply({ id, progress: { phase: 'convert', layer: layer.name } })
+    trace(`converting ${layer.name}`)
     const dataset = await openMounted(g, open)
     let out: string
     try {
@@ -214,13 +220,16 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
       await g.close(dataset).catch(() => {})
     }
     reply({ id, progress: { phase: 'cache', layer: layer.name } })
+    trace(`converted ${layer.name}`)
     const dir = await cacheDir(key)
     const size = FS.stat(out).size
+    trace(`storage ${dir ? 'available' : 'unavailable (kept in memory)'}, ${size} bytes`)
     if (!dir) {
       // No storage to keep it in: the app holds the layer in memory for this session.
       const bytes = FS.readFile(out, { encoding: 'binary' })
       FS.unlink(out)
       const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      trace('read into memory')
       return { file, bytes: buffer }
     }
     const stream = FS.open(out, 'r')
@@ -238,12 +247,15 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
       FS.close(stream)
       FS.unlink(out)
     }
+    trace('saved')
     // A layer is usable once this marker exists (a half-written file never is).
     await writeFile(dir, `${file}.done`, (h) => void h.write(new TextEncoder().encode(String(size)), { at: 0 }))
     return { file }
   } finally {
     if (copy) removeTree(FS, copy)
+    trace('copy removed')
     mounted.release()
+    trace('unmounted')
   }
 }
 
