@@ -28,6 +28,7 @@
   import Funnel from '@lucide/svelte/icons/funnel'
   import Globe from '@lucide/svelte/icons/globe'
   import ChartScatter from '@lucide/svelte/icons/chart-scatter'
+  import Library from '@lucide/svelte/icons/library'
   import Grid3x3 from '@lucide/svelte/icons/grid-3x3'
   import Hexagon from '@lucide/svelte/icons/hexagon'
   import Image from '@lucide/svelte/icons/image'
@@ -112,6 +113,7 @@
     copy: Copy,
     list: List,
     history: RotateCcwClock,
+    snippets: Library,
     eye: Eye,
     'eye-off': EyeOff,
     edit: Pencil,

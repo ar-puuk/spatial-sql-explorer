@@ -10,6 +10,8 @@
   import { functionSource, pathSource, schemaFromCatalog } from './completion.js'
   import ResultCrsChip from './ResultCrsChip.svelte'
   import QueryHistory from './QueryHistory.svelte'
+  import SnippetLibrary from './SnippetLibrary.svelte'
+  import { snippetsFor } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
@@ -36,6 +38,16 @@
   let confirmReset = $state(false)
   let historyOpen = $state(false)
   let historyButton = $state<HTMLButtonElement>()
+
+  // Spec 023: ready-made queries for the open layer, filled with its own names.
+  let snippetsOpen = $state(false)
+  let snippetsButton = $state<HTMLButtonElement>()
+  const snippetContext = $derived(store.snippetContext)
+  const snippetList = $derived(snippetContext ? snippetsFor(snippetContext) : [])
+  function closeSnippets(refocus = true): void {
+    snippetsOpen = false
+    if (refocus) snippetsButton?.focus()
+  }
 
   function closeHistory(refocus = true): void {
     historyOpen = false
@@ -149,9 +161,29 @@
       <button
         type="button"
         class="icon-button"
+        class:pressed={snippetsOpen}
+        bind:this={snippetsButton}
+        onclick={() => {
+          historyOpen = false
+          snippetsOpen = !snippetsOpen
+        }}
+        title="Snippets: ready-made queries for this layer"
+        aria-label="Snippet library"
+        aria-haspopup="dialog"
+        aria-expanded={snippetsOpen}
+        disabled={busy || !snippetContext}
+      >
+        <Icon name="snippets" size={14} />
+      </button>
+      <button
+        type="button"
+        class="icon-button"
         class:pressed={historyOpen}
         bind:this={historyButton}
-        onclick={() => (historyOpen = !historyOpen)}
+        onclick={() => {
+          snippetsOpen = false
+          historyOpen = !historyOpen
+        }}
         title="Recent queries for this file"
         aria-label="Query history"
         aria-haspopup="listbox"
@@ -174,6 +206,17 @@
     {/if}
   </header>
 
+  {#if snippetsOpen && !collapsed && snippetContext}
+    <SnippetLibrary
+      snippets={snippetList}
+      context={snippetContext}
+      onClose={() => closeSnippets()}
+      onPick={(_def, template) => {
+        closeSnippets(false)
+        editor?.insertSnippet(template)
+      }}
+    />
+  {/if}
   {#if historyOpen && !collapsed}
     <QueryHistory
       entries={store.history}

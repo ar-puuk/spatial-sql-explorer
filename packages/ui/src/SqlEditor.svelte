@@ -22,7 +22,7 @@
   } from '@codemirror/view'
   import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands'
   import { bracketMatching, syntaxHighlighting, syntaxTree, HighlightStyle } from '@codemirror/language'
-  import { autocompletion, closeCompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
+  import { autocompletion, closeCompletion, completionKeymap, snippet, type CompletionSource } from '@codemirror/autocomplete'
   import { sql, StandardSQL, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql'
   import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
   import { SQL_TOKEN_RULES } from './sqlHighlight.js'
@@ -210,6 +210,13 @@
   /** Focus the editor (used by the panel's keyboard shortcut). */
   export function focus(): void {
     view?.focus()
+  }
+
+  /** Spec 023: replaces the whole query with a snippet (`${1:field}` markers): the first field is selected, Tab moves to the next, Esc leaves them. Ctrl+Z brings the old query back. */
+  export function insertSnippet(template: string): void {
+    if (!view) return
+    snippet(template)(view, null, 0, view.state.doc.length)
+    view.focus()
   }
 
   /** Spec 010: puts text at the selection (replacing it) and the cursor after it. */
