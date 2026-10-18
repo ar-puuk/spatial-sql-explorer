@@ -1,0 +1,50 @@
+importScripts('/gdal3.js')
+const log = (m) => postMessage({ log: m })
+onmessage = async ({ data }) => {
+  const res = { done: true, steps: [] }
+  const step = (n, v) => { res.steps.push([n, v]); log(n + ' ' + JSON.stringify(v)) }
+  try {
+    let t = performance.now()
+    const Gdal = await initGdalJs({ path: '/', useWorker: false })
+    const FS = Gdal.Module.FS
+    const rel = data.files[0].webkitRelativePath.split('/')[0]
+    FS.mkdir('/input/' + rel)
+    FS.mount(Gdal.Module.WORKERFS, { files: data.files }, '/input/' + rel)
+    // 1. catalog: which file holds which layer (GDB_SystemCatalog row id = file number)
+    t = performance.now()
+    const r0 = await Gdal.open('/input/' + rel, ['LIST_ALL_TABLES=YES'])
+    const co = await Gdal.ogr2ogr(r0.datasets[0], ['-f', 'CSV', '-sql', 'SELECT FID, Name FROM GDB_SystemCatalog'], 'cat')
+    const csv = new TextDecoder().decode(await Gdal.getFileBytes(co))
+    const feats = csv.trim().split(String.fromCharCode(10)).map((l) => l.trim()).slice(1)
+    const byName = {}
+    for (const line of feats) { const [fidS, name] = line.split(','); byName[name] = Number(fidS) }
+    step('catalog ms', Math.round(performance.now() - t)); step('catalog rows', feats.length)
+    const layer = 'WFv1000_MasterNet_20260903_Link'
+    const fid = byName[layer]
+    const hex = 'a' + fid.toString(16).padStart(8, '0')
+    step('layer file', hex)
+    // 2. copy into memory: layer's files + every small file
+    t = performance.now()
+    const dst = '/output/' + rel
+    FS.mkdir(dst)
+    let copied = 0, bytes = 0
+    for (const f of data.files) {
+      const mine = f.name.startsWith(hex + '.')
+      if (!mine && f.size > 2 * 1048576) continue
+      const buf = new Uint8Array(await f.arrayBuffer())
+      FS.writeFile(dst + '/' + f.name, buf); copied++; bytes += buf.length
+    }
+    step('copy ms', Math.round(performance.now() - t)); step('copied', [copied, Math.round(bytes / 1048576) + ' MB'])
+    // 3. open the copy, convert
+    t = performance.now()
+    const r = await Gdal.open(dst)
+    step('open copy ms', Math.round(performance.now() - t)); step('errors', r.errors)
+    t = performance.now()
+    const out = await Gdal.ogr2ogr(r.datasets[0], ['-f', 'FlatGeobuf', layer], 'link')
+    step('convert ms', Math.round(performance.now() - t))
+    const size = FS.stat(out.local).size
+    step('fgb bytes', size)
+    step('heap MB', Math.round(Gdal.Module.HEAP8.length / 1048576))
+  } catch (e) { step('ERR', String((e && (e.message || JSON.stringify(e))) || e)) }
+  postMessage(res)
+}
