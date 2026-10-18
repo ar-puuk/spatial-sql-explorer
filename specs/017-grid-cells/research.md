@@ -38,9 +38,27 @@ Results from the real engine (Chrome, DuckDB-WASM 1.5.6) after step 1 shipped th
 - **Cell counts.** The same resolution number means very different sizes in the two systems (A5 res 5 gave 15,320 occupied cells where H3 res 5
   gave 741,117 for the same points), so the picker must show sizes, never numbers alone.
 
-## 4. Spikes still to run during the build (each recorded here)
-- **S2** The antimeridian split in SQL (unwrap longitudes, intersect with the two half-world boxes, back to a MultiPolygon), for H3 and A5,
-  also polar cells; check the result draws on the flat map and the globe.
-- **S3** Selected-rows-only: confirm the selection predicate can be inlined in a query that reads `layer` (the filters and the shape filter are
-  plain WHERE text; the selection uses a helper table).
-- **S4** Cell-size constants against the engine (`h3_get_hexagon_area_avg`, `a5_cell_area`) for every resolution: a core test keeps them honest.
+## 4. Spikes S2 and S4 (run 2026-10-17; S3 still to run, task T037)
+
+Probe scripts: `spikes/dateline-split.py.txt` (builds the SQL), sizes: `spikes/cell-sizes.json`.
+
+**S4, cell sizes.** The engine's average sizes for H3 resolutions 0..15 and A5 resolutions 0..30 are saved in `spikes/cell-sizes.json` (km and km^2;
+A5's functions answer in meters and m^2 and were converted). The core tests compare the registry against this file. H3 res 5 is about 253 km^2
+(edge 9.9 km); A5 res 10 is about 32 km^2; A5 areas fall by exactly 4x per step, H3 by about 7x.
+
+**S2, the date line and the poles.**
+- **A5** returns a continuous ring already unwrapped past the date line (longitudes such as 180.32 or -176 beside 179.5), so it needs no unwrapping.
+- **H3** returns a wrapped ring (179.84 then -179.68). Unwrapping each vertex to the longitude nearest the cell centre works:
+  `lon + 360 * round((cell_lng - lon) / 360)`, computed over the vertices parsed from `h3_cell_to_boundary_wkt` with `regexp_extract_all`.
+- **The split (works for both):** on the unwrapped polygon `g`, if `ST_XMax(g) > 180`, the cell is `ST_Union(ST_Intersection(g, ST_MakeEnvelope(-180,-90,180,90)),
+  ST_Affine(ST_Intersection(g, ST_MakeEnvelope(180,-90,540,90)), 1,0,0,1,-360,0))`; the mirror case for `ST_XMin(g) < -180` shifts by +360.
+  Verified: H3 and A5 cells at lon 179.99 and -179.99 come out as valid MULTIPOLYGONs within [-180, 180]; ordinary cells are untouched POLYGONs.
+- **Poles, A5:** the cell holding a pole has a vertex exactly at latitude 90; the planar polygon is valid and acceptable. A5 **resolution 0** (12 huge cells)
+  fails the split with a GEOS "side location conflict"; resolutions 1 to 4 over a 15-degree grid of 325 positions produced no invalid result.
+  Decision: offer A5 from resolution 1.
+- **Poles, H3:** the cell holding a pole is **wrong but valid** with the recipe above (its unwrapped longitude span is far above 180, vertices end up
+  at nonsense longitudes such as -213). They are two cells per resolution (one per pole). Detection is easy: unwrapped span > 180. The fix to build
+  in T016: for those cells, wrap the vertices to [-180, 180], sort by longitude, close the ring along the date line at the interpolated latitude and
+  up to the pole (a cap polygon). Test with `h3_latlng_to_cell(89.99, 10, r)` for r 0..5.
+- `TRY()` cannot wrap a scalar subquery, so the generated SQL must not use `(SELECT ...)` for the unwrapped WKT; use plain expressions.
+- Speed note: the unwrap-and-split runs per cell after the GROUP BY, so it costs per occupied cell, not per input point.
