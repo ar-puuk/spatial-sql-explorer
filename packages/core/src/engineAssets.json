@@ -67,5 +67,30 @@
       "sha256": "38c14f6e379210bc942bdc4ebca44e7bfdb4318ecc1c72ca666a28fdce96670a",
       "bytes": 658410
     }
+  },
+  "gdal": {
+    "package": "2.8.1",
+    "files": {
+      "gdal3.js": {
+        "url": "https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.js",
+        "sha256": "ec11ced2b626f9738015c3c4e9f3d670d00213a9083c5a06074d39624e6e8921",
+        "bytes": 191138
+      },
+      "gdal3.node.js": {
+        "url": "https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.node.js",
+        "sha256": "5d93e6418005ce42f06b63ba693b565cdedda9ca6013fa2cf5d4ff1d60d58fd1",
+        "bytes": 190638
+      },
+      "gdal3WebAssembly.wasm": {
+        "url": "https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3WebAssembly.wasm",
+        "sha256": "350eec4ce9ae4bc10bcafd8621463e057abdbb8f8372f0d8e0af06e6b8561835",
+        "bytes": 28219835
+      },
+      "gdal3WebAssembly.data": {
+        "url": "https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3WebAssembly.data",
+        "sha256": "e473e1e9f20af114bbb491d9cf7ef154986708a7ec763b22181c5e5f012f889e",
+        "bytes": 11595145
+      }
+    }
   }
 }

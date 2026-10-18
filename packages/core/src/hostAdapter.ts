@@ -2,6 +2,8 @@
 // platform (Constitution Principle II). See
 // specs/001-quick-look/contracts/host-adapter.md for the full contract.
 
+import type { GdbHost } from './gdb/types.js'
+
 export type ThemeKind = 'light' | 'dark' | 'high-contrast' | 'high-contrast-light'
 
 /** Light or dark, for choices that only have two variants (e.g. the default basemap). */
@@ -173,6 +175,9 @@ export interface HostAdapter {
 
   /** Drops local engine copies other than these SHA-256s (an upgrade's leftovers). */
   pruneEngineFiles?(keep: string[]): Promise<void>
+
+  /** Spec 013: reads File Geodatabases (a .gdb folder or .gdb.zip). Hosts without it refuse them. */
+  gdb?: GdbHost
 }
 
 /** One piece of the SQL engine: where it comes from and what it must hash to. */

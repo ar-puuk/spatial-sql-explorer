@@ -19,7 +19,7 @@ export interface EngineSource {
 
 /** Every engine file's SHA-256: what a host keeps (anything else is an old version). */
 export function engineHashes(): string[] {
-  return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256)]
+  return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256), ...Object.values(assets.gdal.files).map((f) => f.sha256)]
 }
 
 const CDN_HOSTS = ['cdn.jsdelivr.net', 'extensions.duckdb.org', 'community-extensions.duckdb.org']
@@ -105,4 +105,20 @@ export function loadSqlWasm(source: EngineSource = {}): Promise<ArrayBuffer> {
     })
   }
   return sqlWasm
+}
+
+// --- Spec 013: gdal3.js (GDAL 3.8.4 in WebAssembly, LGPL-2.1+), which reads File Geodatabases ---
+
+export type GdalFileName = keyof typeof assets.gdal.files
+
+/** The gdal3.js files a shell needs: the browser build (web worker) or the Node build (VS Code's extension host), plus the wasm and the data (PROJ, GDAL data). */
+export function gdalFileRefs(target: 'web' | 'node'): Array<{ file: GdalFileName; name: string; url: string; sha256: string; bytes: number }> {
+  const names: GdalFileName[] = [target === 'web' ? 'gdal3.js' : 'gdal3.node.js', 'gdal3WebAssembly.wasm', 'gdal3WebAssembly.data']
+  return names.map((file) => ({ file, name: file, ...assets.gdal.files[file] }))
+}
+
+/** Downloads (or reads the host's copy of) one gdal3.js file, verified. */
+export function loadGdalFile(file: GdalFileName, source: EngineSource = {}): Promise<ArrayBuffer> {
+  const f = assets.gdal.files[file]
+  return fetchVerified(f.url, f.sha256, `gdal3.js (${file})`, source)
 }
