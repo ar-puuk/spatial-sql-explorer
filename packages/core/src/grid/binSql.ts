@@ -122,7 +122,7 @@ export function binQuerySql(spec: BinSpec, facts: BinLayerFacts): BinQuery | nul
     `  ST_SetCRS(${splitDateLineSql('ring')}, 'EPSG:4326') AS geom`,
     'FROM (',
     `  SELECT ${system.idSql('cell')} AS cell_id, ${spec.resolution} AS resolution, ${aggregateSql(spec.measure)} AS value, count(*) AS n,`,
-    `    ${system.ringSql('cell')} AS ring`,
+    `    ${system.ringSql('cell', spec.resolution)} AS ring`,
     '  FROM (',
     `    SELECT ${cell} AS cell${carriedUp}`,
     '    FROM (',
