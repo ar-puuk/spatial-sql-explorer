@@ -1,5 +1,8 @@
 // Spec 017: Bin into cells, in the real engine. The SQL is built by the same function the app uses
 // (packages/core/src/grid/binSql.ts) and run through the ?e2e=1 hook, over temp tables of points.
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 import { binQuerySql, type BinSpec } from '../../../packages/core/src/grid/binSql'
 import { editor, fixture, openFile, openQueryPanel } from './helpers'
@@ -237,5 +240,86 @@ test.describe('Bin into cells dialog (spec 017)', () => {
     await expect(dialog(page)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog(page)).toBeHidden()
+  })
+
+  test('the size and the estimate follow the resolution, and the sizes use the Measure tool\'s units', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await page.getByRole('button', { name: 'Bin into cells…' }).click()
+    const size = dialog(page).getByText(/^Cells about /)
+    const first = await size.innerText()
+    expect(first).toMatch(/^Cells about [\d.,]+ (m|km|ft|mi) across, [\d.,]+ (m²|ha|km²|ft²|ac|mi²) each$/)
+    const status = dialog(page).getByRole('status').filter({ hasText: /^About / })
+    const estimateBefore = await status.innerText()
+    await dialog(page).getByRole('slider', { name: 'Resolution' }).press('ArrowRight')
+    await expect(size).not.toHaveText(first)
+    await expect(status).not.toHaveText(estimateBefore)
+    // A5 has its own sizes for the same number.
+    await dialog(page).getByRole('radio', { name: 'A5' }).click()
+    await expect(size).toContainText('across')
+    await page.keyboard.press('Escape')
+  })
+
+  test('finer resolutions are behind "All resolutions"', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, fixture('crashes.geojson'))
+    await page.getByRole('button', { name: 'Bin into cells…' }).click()
+    const slider = dialog(page).getByRole('slider', { name: 'Resolution' })
+    const max = Number(await slider.getAttribute('max'))
+    expect(max).toBeLessThan(15)
+    await dialog(page).getByRole('switch', { name: 'All resolutions' }).click()
+    await expect(slider).toHaveAttribute('max', '15')
+    await dialog(page).getByRole('switch', { name: 'All resolutions' }).click()
+    await expect(slider).toHaveAttribute('max', String(max))
+    await page.keyboard.press('Escape')
+  })
+})
+
+// 120,000 points: the estimate passes the 5,000-cell preview limit and then the 100,000-cell drawing limit.
+test.describe('Bin into cells with many cells (spec 017)', () => {
+  const setResolution = (page: Page, n: number) =>
+    dialog(page)
+      .getByRole('slider', { name: 'Resolution' })
+      .evaluate((el, value) => {
+        const input = el as HTMLInputElement
+        input.value = String(value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }, n)
+
+  test('over 5,000 cells it waits for a click; over 100,000 it asks first', async ({ page }) => {
+    test.setTimeout(240000)
+    const file = path.join(os.tmpdir(), 'se-grid-120k.geojson')
+    const features = Array.from({ length: 120_000 }, (_, i) => {
+      const lon = -111.9 + ((i * 7919) % 4000) / 10_000
+      const lat = 40.5 + ((i * 104_729) % 4000) / 10_000
+      return `{"type":"Feature","properties":{"id":${i}},"geometry":{"type":"Point","coordinates":[${lon},${lat}]}}`
+    })
+    fs.writeFileSync(file, `{"type":"FeatureCollection","features":[${features.join(',')}]}`)
+    await openFile(page, file)
+    await page.getByRole('button', { name: 'Bin into cells…' }).click()
+    await dialog(page).getByRole('switch', { name: 'All resolutions' }).click()
+
+    // Between 5,000 and 100,000 cells: no automatic preview; the button says Show.
+    await setResolution(page, 9)
+    const status = dialog(page).getByRole('status').filter({ hasText: /^About / })
+    await expect(status).toContainText(/About [\d,]+ cells/)
+    const count = Number((await status.innerText()).replace(/[^\d]/g, ''))
+    expect(count).toBeGreaterThan(5000)
+    expect(count).toBeLessThan(100_000)
+    await page.waitForTimeout(1500)
+    await expect(dialog(page).getByText('press Show to draw them')).toBeVisible()
+    await expect(dialog(page).getByRole('button', { name: 'Show', exact: true })).toBeVisible()
+
+    // Over 100,000: a warning and "Run anyway" instead of Keep.
+    await setResolution(page, 12)
+    await expect(dialog(page).getByText(/more than 100,000 cells/)).toBeVisible()
+    await expect(dialog(page).getByRole('button', { name: 'Run anyway' })).toBeVisible()
+    await expect(dialog(page).getByRole('button', { name: 'Keep', exact: true })).toHaveCount(0)
+    // Enter must not run it past the warning.
+    await dialog(page).getByRole('slider', { name: 'Resolution' }).press('Enter')
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog(page)).toBeHidden()
+    fs.rmSync(file, { force: true })
   })
 })

@@ -3,11 +3,12 @@
   // would be small, the map previews it as they change. Not a modal: the map has to stay visible and clickable, so
   // it floats over its top left corner. Esc cancels (and puts everything back), Enter keeps the bin.
   import { onMount, tick } from 'svelte'
-  import { GRID_SYSTEMS, getGridSystem, type BinMeasureKind } from '@spatial-explorer/core'
+  import { GRID_SYSTEMS, getGridSystem, resolutionChoices, usableRange, type BinMeasureKind } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
   import Segmented from './kit/Segmented.svelte'
   import Select from './kit/Select.svelte'
   import Slider from './kit/Slider.svelte'
+  import Switch from './kit/Switch.svelte'
   import type { ViewerStore } from './viewerStore.svelte.js'
 
   interface Props {
@@ -15,7 +16,6 @@
   }
   let { store }: Props = $props()
 
-  const nf = new Intl.NumberFormat('en-US')
   const bin = $derived(store.binDialog)
   const spec = $derived(bin.spec)
   const system = $derived(getGridSystem(spec.system)!)
@@ -42,11 +42,19 @@
     if (spec.measure.kind !== 'count') store.setBinSpec({ measure: { kind: spec.measure.kind, column: name } })
   }
 
-  /** Metric sizes: an edge in meters under a kilometer, an area in square meters under one square kilometer. */
-  const edgeText = (km: number): string => (km < 1 ? `${nf.format(Math.round(km * 1000))} m` : `${km < 10 ? km.toFixed(1) : nf.format(Math.round(km))} km`)
-  const areaText = (km2: number): string => (km2 < 1 ? `${nf.format(Math.round(km2 * 1e6))} m²` : `${km2 < 10 ? km2.toFixed(1) : nf.format(Math.round(km2))} km²`)
-  const sizeText = $derived(`Cells about ${edgeText(system.edgeKm[spec.resolution])} across, ${areaText(system.cellAreaKm2[spec.resolution])} each`)
-  const estimateText = $derived(bin.estimate === 0 ? '' : `About ${nf.format(bin.estimate)} ${bin.estimate === 1 ? 'cell' : 'cells'}`)
+  // Sizes follow the units the Measure tool uses. Resolutions that give a few cells up to the drawing limit come
+  // first; "All resolutions" opens the rest (a layer can be binned finer than is drawn without asking).
+  let showAll = $state(false)
+  const choices = $derived(resolutionChoices(system, bin.info?.extent ?? null, bin.info?.rows ?? 0, store.drawUnits))
+  const offered = $derived(usableRange(choices))
+  const range = $derived(
+    showAll ? { min: system.minRes, max: system.maxRes } : { min: Math.min(offered.min, spec.resolution), max: Math.max(offered.max, spec.resolution) }
+  )
+  const hiddenCount = $derived(system.maxRes - system.minRes + 1 - (offered.max - offered.min + 1))
+  const choice = $derived(choices.find((c) => c.res === spec.resolution))
+  const nf2 = new Intl.NumberFormat('en-US')
+  const sizeText = $derived(choice ? `Cells about ${choice.edge} across, ${choice.area} each` : '')
+  const estimateText = $derived(bin.estimate === 0 ? '' : `About ${nf2.format(bin.estimate)} ${bin.estimate === 1 ? 'cell' : 'cells'}`)
 
   let panel = $state<HTMLDivElement>()
 
@@ -95,9 +103,15 @@
       <div class="field">
         <span class="label">Size</span>
         <div class="control">
-          <Slider label="Resolution" value={spec.resolution} min={system.minRes} max={system.maxRes} step={1} onChange={(v) => store.setBinSpec({ resolution: v })} />
+          <Slider label="Resolution" value={spec.resolution} min={range.min} max={range.max} step={1} onChange={(v) => store.setBinSpec({ resolution: v })} />
           <p class="hint">{sizeText}</p>
           <p class="hint estimate" role="status" aria-live="polite">{estimateText}{bin.running ? ' · drawing…' : ''}</p>
+          {#if hiddenCount > 0 || showAll}
+            <div class="all">
+              <Switch checked={showAll} label="All resolutions" onChange={(on) => (showAll = on)} />
+              <span class="hint" aria-hidden="true">All resolutions</span>
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -192,6 +206,11 @@
     margin: 0;
     color: var(--se-text-secondary);
     font-size: 0.9em;
+  }
+  .all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .notice {
     display: flex;

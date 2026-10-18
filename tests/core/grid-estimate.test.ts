@@ -1,6 +1,6 @@
 // Spec 017: cell-count estimates and the starting resolution (grid/binEstimate.ts).
 import { describe, expect, it } from 'vitest'
-import { CELL_LIMIT, PREVIEW_CELL_LIMIT, TARGET_CELLS, estimateCells, extentAreaKm2, getGridSystem, suggestResolution, type Bbox } from '@spatial-explorer/core'
+import { CELL_LIMIT, MIN_USEFUL_CELLS, PREVIEW_CELL_LIMIT, TARGET_CELLS, estimateCells, extentAreaKm2, getGridSystem, resolutionChoices, suggestResolution, usableRange, type Bbox } from '@spatial-explorer/core'
 
 const h3 = getGridSystem('h3')!
 const a5 = getGridSystem('a5')!
@@ -70,5 +70,63 @@ describe('suggestResolution', () => {
   it('has limits the dialog can rely on', () => {
     expect(PREVIEW_CELL_LIMIT).toBeLessThan(CELL_LIMIT)
     expect(TARGET_CELLS).toBeLessThan(PREVIEW_CELL_LIMIT)
+  })
+})
+
+describe('resolutionChoices', () => {
+  it('has a choice for every resolution, with the size in the chosen units and the estimate', () => {
+    const choices = resolutionChoices(h3, utah, 1_000_000, 'metric')
+    expect(choices.map((c) => c.res)).toEqual(Array.from({ length: 16 }, (_, i) => i))
+    const five = choices[5]
+    expect(five.edge).toBe('9.85 km')
+    expect(five.area).toBe('252.9 km²')
+    expect(five.estimate).toBe(estimateCells(h3, 5, utah, 1_000_000))
+    const imperial = resolutionChoices(h3, utah, 1_000_000, 'imperial')[5]
+    expect(imperial.edge).toMatch(/mi$/)
+    expect(imperial.area).toMatch(/mi²$/)
+  })
+
+  it('offers first the resolutions with a few cells and under the drawing limit; the rest are behind "all"', () => {
+    const choices = resolutionChoices(h3, utah, 100_000_000, 'metric')
+    for (const c of choices) {
+      const byArea = extentAreaKm2(utah) / h3.cellAreaKm2[c.res] + 1
+      expect(c.inRange).toBe(byArea >= MIN_USEFUL_CELLS && byArea <= CELL_LIMIT)
+    }
+    expect(choices[0].inRange).toBe(false) // one hexagon covers all of Utah
+    expect(choices[15].inRange).toBe(false) // trillions of cells
+    expect(choices.some((c) => c.inRange)).toBe(true)
+  })
+
+  it('flags a result over the drawing limit, and never more cells than rows', () => {
+    const choices = resolutionChoices(h3, world, 10_000_000, 'metric')
+    expect(choices.find((c) => c.overLimit)?.res).toBeGreaterThan(3)
+    expect(choices.every((c) => c.overLimit === c.estimate > CELL_LIMIT)).toBe(true)
+    for (const c of resolutionChoices(h3, world, 50, 'metric')) expect(c.estimate).toBeLessThanOrEqual(50)
+  })
+
+  it('offers every resolution when nothing is known about where the data is', () => {
+    expect(resolutionChoices(a5, null, 1000, 'metric').every((c) => c.inRange)).toBe(true)
+  })
+
+  it('does not offer A5 resolution 0', () => {
+    expect(resolutionChoices(a5, world, 1000, 'metric')[0].res).toBe(1)
+  })
+})
+
+describe('usableRange', () => {
+  it('is the first to the last resolution offered first', () => {
+    const choices = resolutionChoices(h3, utah, 100_000_000, 'metric')
+    const range = usableRange(choices)
+    expect(choices[range.min].inRange).toBe(true)
+    expect(choices[range.max].inRange).toBe(true)
+    expect(range.min).toBeGreaterThan(0)
+    expect(range.max).toBeLessThan(15)
+  })
+
+  it('is the whole range when none qualifies', () => {
+    const tiny = resolutionChoices(h3, [0, 0, 1e-9, 1e-9], 5, 'metric')
+    // a speck of a layer: only the finest resolutions have at least four cells over it, none within the limit
+    const range = usableRange(tiny.map((c) => ({ ...c, inRange: false })))
+    expect(range).toEqual({ min: 0, max: 15 })
   })
 })

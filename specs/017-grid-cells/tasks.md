@@ -74,12 +74,12 @@ Build the web app from Git Bash with `MSYS_NO_PATHCONV=1`; use `SE_BASE_URL` wit
 **Goal**: the resolution picker shows cell sizes and an estimate, and warns before a huge result.
 **Independent test**: moving the resolution changes the shown size and estimate; the warning appears above 100,000 estimated cells.
 
-- [ ] T023 [P] [US2] Test first: `tests/core/grid-estimate.test.ts` for `estimateCells` (extent area over cell area, never above the row count), `resolutionChoices` (size text in metric and imperial, in-range flag, the "all resolutions" remainder) and the 100,000 limit.
-- [ ] T024 [P] [US2] Test first: `tests/web/specs/grid-cells-017.spec.ts` dialog checks: the size text changes with the resolution, the estimate is in a live region, the warning and "Run anyway" appear above 100,000 estimated cells, finer resolutions are behind "All resolutions".
-- [ ] T025 [US2] Implement `estimateCells` and `resolutionChoices` in `packages/core/src/grid/binEstimate.ts`; reuse the units choice the Measure tool uses (find it in `packages/ui/src/draw/`) via a small shared formatter in core if one does not exist.
-- [ ] T026 [US2] Show sizes, the estimate and the warning in `packages/ui/src/BinCellsDialog.svelte`; announce changes through a live region; add the A5 note that cells are equal area.
-- [ ] T027 [US2] Live preview in `packages/ui/src/viewerStore.svelte.ts`: `setBinSpec` runs the query after a 250 ms pause when the estimate is under 5,000, otherwise waits for Run; each preview cancels the one in flight (`cancelQuery`); `cancelBin` restores the previous query text and view (`showDefaultView` or the saved result).
-- [ ] T028 [P] [US2] Test: `tests/web/specs/grid-cells-017.spec.ts` preview redraws below 5,000 cells, does not run above it, and Cancel restores the previous view and query text.
+- [x] T023 [P] [US2] Test first: `tests/core/grid-estimate.test.ts` for `estimateCells` (extent area over cell area, never above the row count), `resolutionChoices` (size text in metric and imperial, in-range flag, the "all resolutions" remainder) and the 100,000 limit.
+- [x] T024 [P] [US2] Test first: `tests/web/specs/grid-cells-017.spec.ts` dialog checks: the size text changes with the resolution, the estimate is in a live region, the warning and "Run anyway" appear above 100,000 estimated cells, finer resolutions are behind "All resolutions".
+- [x] T025 [US2] Implement `estimateCells` and `resolutionChoices` in `packages/core/src/grid/binEstimate.ts`; reuse the units choice the Measure tool uses (find it in `packages/ui/src/draw/`) via a small shared formatter in core if one does not exist.
+- [x] T026 [US2] Show sizes, the estimate and the warning in `packages/ui/src/BinCellsDialog.svelte`; announce changes through a live region; add the A5 note that cells are equal area.
+- [x] T027 [US2] Live preview in `packages/ui/src/viewerStore.svelte.ts`: `setBinSpec` runs the query after a 250 ms pause when the estimate is under 5,000, otherwise waits for Run; each preview cancels the one in flight (`cancelQuery`); `cancelBin` restores the previous query text and view (`showDefaultView` or the saved result).
+- [x] T028 [P] [US2] Test: `tests/web/specs/grid-cells-017.spec.ts` preview redraws below 5,000 cells, does not run above it, and Cancel restores the previous view and query text.
 
 **Checkpoint**: US1 and US2 work together.
 
