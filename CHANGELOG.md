@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-18
+
+A fix for the heatmap's Automatic setting.
+
+### Fixed
+
+- **Heatmap, Automatic.** On dense data it drew one huge blob. Automatic now also sizes the radius from how close the points lie (kept editable), sets the intensity so the densest 2% of points take the last color (one hot spot no longer sets the scale), and spreads the ramp so sparse areas stay distinguishable. Manual heatmaps are unchanged.
+
 ## [0.9.0] - 2026-10-18
 
 File Geodatabases and zipped data (experimental), and a fix for Firefox.
