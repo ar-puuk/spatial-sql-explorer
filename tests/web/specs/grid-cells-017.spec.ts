@@ -252,19 +252,23 @@ test.describe('Bin into cells dialog (spec 017)', () => {
     expect((await editor(page).innerText()).replace(/\s+/g, ' ')).toBe(shown.replace(/\s+/g, ' '))
   })
 
-  test('the SQL in the dialog is colored like the editor: keywords, numbers, strings and operators', async ({ page }) => {
+  test('the SQL in the dialog is colored like the editor: keywords, functions, numbers, strings and operators', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, fixture('crashes.geojson'))
     await page.getByRole('button', { name: 'Bin into cells…' }).click()
     await dialog(page).getByText('SQL', { exact: true }).click()
     const box = dialog(page).getByLabel('The query this writes')
     await expect(box.locator('.tok-keyword').first()).toHaveText('SELECT')
-    for (const token of ['keyword', 'number', 'string', 'operator']) await expect(box.locator(`.tok-${token}`).first(), token).toBeVisible()
+    for (const token of ['keyword', 'function', 'number', 'string', 'operator']) await expect(box.locator(`.tok-${token}`).first(), token).toBeVisible()
+    await expect(box.locator('.tok-function', { hasText: 'h3_latlng_to_cell' }).first()).toBeVisible()
+    await expect(box.locator('.tok-function', { hasText: 'ST_SetCRS' })).toHaveCount(1)
+    // Column names, tables and aliases are plain: only calls are functions.
+    await expect(box.locator('.tok-function', { hasText: /^(layer|cell_id|ring)$/ })).toHaveCount(0)
     await expect(box.locator('.tok-string', { hasText: 'EPSG:4326' }).first()).toBeVisible()
     // Colors come from the theme's SQL tokens: a keyword differs from plain text, and from a string.
     const color = (selector: string) => box.locator(selector).first().evaluate((el) => getComputedStyle(el).color)
-    const [plain, keyword, string, number] = [await box.evaluate((el) => getComputedStyle(el).color), await color('.tok-keyword'), await color('.tok-string'), await color('.tok-number')]
-    expect(new Set([plain, keyword, string, number]).size).toBe(4)
+    const [plain, keyword, fn, string, number] = [await box.evaluate((el) => getComputedStyle(el).color), await color('.tok-keyword'), await color('.tok-function'), await color('.tok-string'), await color('.tok-number')]
+    expect(new Set([plain, keyword, fn, string, number]).size).toBe(5)
     // Coloring changes no text: the box reads exactly as the query.
     const text = await box.innerText()
     await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
