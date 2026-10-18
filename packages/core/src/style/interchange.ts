@@ -97,6 +97,8 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   const items: string[] = []
   const { thematic, notes } = thematicForExport(style, resolved, format)
   items.push(...notes)
+  // Spec 019: line arrows are a map layer of ours; only our own QML entry keeps them.
+  if (format !== 'qml' && style.arrows) items.push(`Line arrows are not exported to ${format === 'sld' ? 'SLD' : 'Mapbox GL'} (Spatial Explorer keeps them).`)
   // Spec 010: rules and expressions outside QML.
   const r = rendererOf(style)
   if (format !== 'qml' && r.kind === 'graduated' && r.expression && resolved?.status === 'ok') items.push(EXPRESSION_NOTE(format))

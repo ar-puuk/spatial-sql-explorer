@@ -32,3 +32,26 @@ export function drawMarkerIcon(id: string, pixelRatio = ICON_PIXEL_RATIO()): { i
   }
   return { image: ctx.getImageData(0, 0, size, size), pixelRatio }
 }
+
+/**
+ * Spec 019: the arrowhead for direction arrows on lines, a white chevron pointing right (along the line). The map
+ * tints it (an SDF image: only its shape matters), so one image serves every color.
+ */
+export function drawArrowIcon(pixelRatio = ICON_PIXEL_RATIO()): { image: ImageData; pixelRatio: number } | null {
+  const size = 16 * pixelRatio
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.scale(pixelRatio, pixelRatio)
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.moveTo(2.5, 2)
+  ctx.lineTo(14, 8)
+  ctx.lineTo(2.5, 14)
+  ctx.lineTo(5.5, 8)
+  ctx.closePath()
+  ctx.fill()
+  return { image: ctx.getImageData(0, 0, size, size), pixelRatio }
+}

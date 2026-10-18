@@ -21,8 +21,9 @@ import { LABEL_FONT } from './labelLayer.js'
  * (`markerIconId`); `marker-select` is the disc behind them that shows
  * hover and selection (icons can't change with feature state).
  */
-export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion' | 'marker-select' | 'marker' | 'heatmap'
-export type MapPaint = Record<MapLayerId, Record<string, unknown>>
+export type MapLayerId = 'fill' | 'fill-outline' | 'line' | 'circle' | 'halo' | 'extrusion' | 'marker-select' | 'marker' | 'heatmap' | 'line-arrow'
+// `line-arrow` (spec 019) is there only while the style draws arrows.
+export type MapPaint = Record<Exclude<MapLayerId, 'line-arrow'>, Record<string, unknown>> & Partial<Record<'line-arrow', Record<string, unknown>>>
 
 // The focused feature (inspector, table cursor), or a ticked row (spec 008 FR-012): drawn alike.
 const selected = ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'ticked'], false]]
@@ -439,10 +440,40 @@ export function markerIconIds(style: LayerStyle, resolved: ResolvedStyle): strin
 export function layoutFor(style: LayerStyle, resolved: ResolvedStyle): Partial<Record<MapLayerId, Record<string, unknown>>> {
   style = legacyView(style)
   const dashed = (style.lineDash ?? 'solid') !== 'solid' || varies(style, resolved, 'dash')
-  const { icon, iconSize, rotation } = symbolExpressions(style, resolved)
+  const { icon, iconSize, rotation, lineWidth } = symbolExpressions(style, resolved)
   return {
     line: { 'line-cap': dashed ? 'butt' : 'round' },
+    ...(style.arrows ? { 'line-arrow': arrowLayout(style.arrows, lineWidth) } : {}),
     marker: { 'icon-image': icon, ...(iconSize !== null ? { 'icon-size': iconSize } : {}), ...(rotation !== 0 ? { 'icon-rotate': rotation } : {}) },
+  }
+}
+
+// --- Spec 019: direction arrows on lines ---------------------------------------
+
+/** The arrowhead's image id (an SDF image the map makes, so one image takes every color). */
+export const ARROW_ICON_ID = 'se-arrow'
+
+/** True when the style draws arrows along its lines. */
+export function drawsArrows(style: LayerStyle): boolean {
+  return !!legacyView(style).arrows
+}
+
+/**
+ * The arrow layer's layout: line-placed arrowheads that turn with the line, sized from the line's width (a thin line
+ * gets a head you can see, a wide one a head that fits it).
+ */
+export function arrowLayout(a: NonNullable<LayerStyle['arrows']>, lineWidth: number | unknown[]): Record<string, unknown> {
+  const grow = typeof lineWidth === 'number' ? Math.max(1.5, lineWidth / 3) : ['max', 1.5, ['/', lineWidth, 3]]
+  return {
+    'icon-image': ARROW_ICON_ID,
+    'icon-size': times(grow, a.size),
+    'symbol-placement': a.placement === 'center' ? 'line-center' : 'line',
+    'symbol-spacing': a.spacing,
+    'icon-rotation-alignment': 'map',
+    'icon-pitch-alignment': 'map',
+    'icon-keep-upright': false,
+    'icon-allow-overlap': true,
+    'icon-ignore-placement': true,
   }
 }
 
@@ -634,6 +665,15 @@ export function paintFor(style: LayerStyle, resolved: ResolvedStyle, selectionCo
     },
     // The icons carry their own colors and opacities (`markerIconId`).
     marker: opacity === 1 ? {} : { 'icon-opacity': opacity },
+    // Spec 019: the arrows take the line's color (or their own) and opacity; a selected line's arrows turn to the selection color.
+    ...(style.arrows
+      ? {
+          'line-arrow': {
+            'icon-color': ['case', selected, sel, style.arrows.color ?? lineColor],
+            'icon-opacity': ['case', selected, 1, times(s.strokeOpacity, opacity)],
+          },
+        }
+      : {}),
   }
 }
 

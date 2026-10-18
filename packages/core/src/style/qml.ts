@@ -853,6 +853,8 @@ ${symbolXml(kind, style, '0', sizeDd)}
   }
   // Our own size channel, kept whole for a lossless reload here.
   if (style.size) props['spatialExplorer/size'] = JSON.stringify(style.size)
+  // Spec 019: QGIS shows no arrows from this file; ours come back from `spatialExplorer/style`.
+  if (style.arrows && kind === 'line') notes.push('Line arrows are saved in the file for Spatial Explorer; QGIS does not draw them.')
   // Spec 011: the whole channel model (preferred on import; the entries above stay for 0.3.0).
   const own = ownStyle(style)
   if (own) props['spatialExplorer/style'] = own
@@ -1542,7 +1544,7 @@ export function qmlToStyle(text: string): StyleImportResult {
 
 /** Spec 011: the channel model fields, as JSON for `spatialExplorer/style` (null: a single style, nothing to add). */
 function ownStyle(style: LayerStyle): string | null {
-  const keys = ['draw', 'channels', 'heatmap', 'clusters', 'height', 'labels', 'lineWidth', 'rotation', 'opacity'] as const
+  const keys = ['draw', 'channels', 'heatmap', 'clusters', 'height', 'labels', 'arrows', 'lineWidth', 'rotation', 'opacity'] as const
   const out: Partial<LayerStyle> = {}
   for (const k of keys) if (style[k] !== undefined) (out as Record<string, unknown>)[k] = style[k]
   return Object.keys(out).length ? JSON.stringify(out) : null
