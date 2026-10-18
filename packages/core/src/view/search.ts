@@ -16,6 +16,8 @@ export interface SearchHit {
   value: string
   /** Rows with this value in this column. */
   count: number
+  /** Words search only (spec 018): the BM25 rank, higher is better. */
+  score?: number
 }
 
 /** `q` as an ILIKE pattern body: `%`, `_` and `\` matched literally (with ESCAPE '\'). */

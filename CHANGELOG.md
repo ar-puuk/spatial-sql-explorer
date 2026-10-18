@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Search by words: a switch in the search box ranks the rows of the open layer or result whose text has every word you type, in any form ("bridges" finds "bridge"), best match first. It uses the `fts` extension; the index is built on first use, per result, and follows the column filters. The query editor now colors function calls.
+
 ## [0.7.0] - 2026-10-17
 
 Grid cells: bin a layer into H3 hexagons or A5 equal-area pentagons.
