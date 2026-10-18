@@ -7,7 +7,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { fork, type ChildProcess } from 'child_process'
 import { gdalFileRefs } from '../../../packages/core/src/engineAssets'
-import { cacheFileName } from '../../../packages/core/src/gdb/gdalReader'
+import { convertedName } from '../../../packages/core/src/gdb/gdalReader'
 import { layerDomains } from '../../../packages/core/src/gdb/catalog'
 import { gdbFolderOf, listZipNames } from '../../../packages/core/src/source/zip'
 import { GdbError, type ColumnDomains, type GdbCatalog, type GdbLayerInfo, type GdbProgress } from '../../../packages/core/src/gdb/types'
@@ -185,10 +185,10 @@ export class GdbNodeReader {
   }
 
   /** The layer as a FlatGeobuf in the cache (converted the first time). */
-  async convert(source: GdbSource, catalog: GdbCatalog, layer: GdbLayerInfo, options: { signal?: AbortSignal; onProgress?: (p: GdbProgress) => void } = {}): Promise<ConvertedLayer> {
+  async convert(source: GdbSource, catalog: GdbCatalog, layer: GdbLayerInfo, options: { signal?: AbortSignal; assumeCrs?: number; onProgress?: (p: GdbProgress) => void } = {}): Promise<ConvertedLayer> {
     const key = sourceKey(source)
     const dir = this.cacheDir(key)
-    const file = cacheFileName(layer.name)
+    const file = convertedName(layer.name, options.assumeCrs)
     const target = path.join(dir, `${file}.fgb`)
     const domains = layerDomains(layer, catalog.domains)
     if (fs.existsSync(target)) {
@@ -202,7 +202,7 @@ export class GdbNodeReader {
     this.log(`geodatabase: reading layer ${layer.name} of ${path.basename(source.fsPath)}`)
     const started = Date.now()
     options.onProgress?.({ phase: 'convert', layer: layer.name })
-    await this.call<{ path: string }>({ op: 'convert', source: await this.spec(source), layer: { name: layer.name, spatial: layer.spatial }, outDir: dir.replace(/\\/g, '/'), outFile: partial }, options)
+    await this.call<{ path: string }>({ op: 'convert', source: await this.spec(source), layer: { name: layer.name, spatial: layer.spatial }, assumeCrs: options.assumeCrs, outDir: dir.replace(/\\/g, '/'), outFile: partial }, options)
     fs.renameSync(path.join(dir, `${partial}.fgb`), target)
     const size = fs.statSync(target).size
     this.log(`geodatabase: ${layer.name}: ${(size / 1024 / 1024).toFixed(1)} MB in ${((Date.now() - started) / 1000).toFixed(1)} s`)

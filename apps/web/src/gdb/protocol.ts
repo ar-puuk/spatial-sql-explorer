@@ -14,7 +14,7 @@ export interface GdbFiles {
 export type ToWorker =
   | { op: 'init'; id: number; glue: string; wasm: ArrayBuffer; data: ArrayBuffer }
   | { op: 'list'; id: number; source: GdbFiles; key: string }
-  | { op: 'convert'; id: number; source: GdbFiles; key: string; layer: { name: string; spatial: boolean }; file: string }
+  | { op: 'convert'; id: number; source: GdbFiles; key: string; layer: { name: string; spatial: boolean }; assumeCrs?: number; file: string }
 
 export type FromWorker =
   | { id: number; ok: true; result: unknown }

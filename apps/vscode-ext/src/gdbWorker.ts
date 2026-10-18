@@ -25,7 +25,7 @@ export type GdbSourceSpec = { kind: 'folder'; path: string } | { kind: 'zip'; pa
 
 export type WorkerRequest =
   | { id: number; op: 'list'; source: GdbSourceSpec; name: string }
-  | { id: number; op: 'convert'; source: GdbSourceSpec; layer: { name: string; spatial: boolean }; outDir: string; outFile: string }
+  | { id: number; op: 'convert'; source: GdbSourceSpec; layer: { name: string; spatial: boolean }; assumeCrs?: number; outDir: string; outFile: string }
 
 export type WorkerReply =
   | { id: number; ok: true; result: unknown }
@@ -113,7 +113,7 @@ async function handle(req: WorkerRequest): Promise<unknown> {
   const sub = mountOutput(gdal, req.outDir)
   const dataset = await openGeodatabaseVia(gdal, mounted)
   try {
-    const out = await convertLayer(gdal, dataset, req.layer, `../disk/${sub}/${req.outFile}`)
+    const out = await convertLayer(gdal, dataset, req.layer, `../disk/${sub}/${req.outFile}`, req.assumeCrs)
     // gdal3.js returns its own path (/output/../disk/...): the real file is the outDir's.
     const real = `${req.outDir}/${req.outFile}.fgb`
     if (!fs.existsSync(real)) throw new Error(`the converted layer was not written (${out})`)

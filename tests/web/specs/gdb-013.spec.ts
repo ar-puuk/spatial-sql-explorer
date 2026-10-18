@@ -132,6 +132,40 @@ test.describe('a geodatabase folder', () => {
   })
 })
 
+test.describe('a layer with no coordinate system', () => {
+  test.setTimeout(180000)
+
+  test('asks for one; the layer is converted with the answer and drawn there', async ({ page }) => {
+    await start(page)
+    await pickFolder(page, fixture('nocrs.gdb'))
+    const dialog = page.getByRole('dialog', { name: 'Which coordinate system?' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('sketch')
+    await dialog.getByLabel('Coordinate system').click()
+    const search = page.getByRole('combobox', { name: 'Search coordinate reference systems' })
+    await search.fill('26912')
+    await page.getByRole('tree', { name: 'Coordinate reference systems' }).locator('[aria-level="2"]', { hasText: '26912' }).first().click()
+    await expect(dialog.getByLabel('Coordinate system')).toHaveText(/EPSG:26912/)
+    await dialog.getByRole('button', { name: 'Open' }).click()
+    await rendered(page)
+    await expect(statusBar(page)).toContainText('EPSG:26912')
+    await expect(statusBar(page)).not.toContainText('assumed')
+    await expect(statusBar(page)).toContainText('3 features')
+  })
+
+  test('going on without one says the coordinates are assumed; Cancel goes back', async ({ page }) => {
+    await start(page)
+    await pickFolder(page, fixture('nocrs.gdb'))
+    const dialog = page.getByRole('dialog', { name: 'Which coordinate system?' })
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('heading', { name: /Open a map file/ })).toBeVisible()
+    await pickFolder(page, fixture('nocrs.gdb'))
+    await dialog.getByRole('button', { name: 'Open' }).click()
+    await rendered(page)
+    await expect(statusBar(page)).toContainText('assumed')
+  })
+})
+
 test.describe('the reader and its storage', () => {
   test.setTimeout(180000)
 

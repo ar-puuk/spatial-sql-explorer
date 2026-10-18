@@ -15,6 +15,8 @@ export interface GdbOpened {
   /** The geometry layer opened as `layer`. */
   active: GdbLayerInfo
   converted: GdbConverted
+  /** The EPSG code the person gave a layer that records none (the layer was converted with it). */
+  assumedCrs?: number
   /** `network.gdb` for `network.gdb` and `network.gdb.zip` (what SQL names are cleaned from). */
   fileName: string
 }
@@ -25,7 +27,15 @@ export function gdbFileName(name: string): string {
 }
 
 /** Lists the geodatabase and converts the layer to open (the requested one, else the first with geometry). */
-export async function openGeodatabaseLayer(ref: OpenedFileRef, host: GdbHost | undefined, options: GdbCallOptions & { layer?: string }): Promise<GdbOpened> {
+export async function openGeodatabaseLayer(
+  ref: OpenedFileRef,
+  host: GdbHost | undefined,
+  options: GdbCallOptions & {
+    layer?: string
+    /** A layer with no coordinate system: the person's answer (an EPSG code, null to go on without one), or undefined to cancel the open. */
+    chooseCrs?: (layerName: string) => Promise<number | null | undefined>
+  }
+): Promise<GdbOpened> {
   if (!host) throw new GdbError(GDB_NO_READER, 'unreadable')
   options.onProgress?.({ phase: 'list' })
   const catalog = await host.list(ref, options)
@@ -34,8 +44,15 @@ export async function openGeodatabaseLayer(ref: OpenedFileRef, host: GdbHost | u
     options.layer
   )
   if (!active) throw new GdbError('This geodatabase has no layer with geometry. Its tables can only be queried by name, and opening one needs a layer to show.', 'unreadable')
-  const converted = await host.convert(ref, active as GdbLayerInfo, options)
-  return { catalog, active: active as GdbLayerInfo, converted, fileName: gdbFileName(catalog.name || ref.displayName) }
+  const layer = active as GdbLayerInfo
+  let assumeCrs: number | undefined
+  if (layer.spatial && layer.srid === null && !layer.crsWkt && options.chooseCrs) {
+    const chosen = await options.chooseCrs(layer.name)
+    if (chosen === undefined) throw new GdbError('Cancelled.', 'cancelled')
+    if (chosen !== null) assumeCrs = chosen
+  }
+  const converted = await host.convert(ref, layer, { ...options, ...(assumeCrs !== undefined ? { assumeCrs } : {}) })
+  return { catalog, active: layer, converted, ...(assumeCrs !== undefined ? { assumedCrs: assumeCrs } : {}), fileName: gdbFileName(catalog.name || ref.displayName) }
 }
 
 /** OGR field types as DuckDB types, for the empty view that stands in for a layer not read yet. */

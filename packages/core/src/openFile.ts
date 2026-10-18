@@ -269,6 +269,8 @@ export interface OpenHooks {
   confirmWholeRead?(sizeBytes: number, format: string): Promise<boolean>
   /** Receives a function that interrupts the engine statement in flight (FR-002: Cancel within 3 s). */
   onCancelHandle?(interrupt: () => Promise<void>): void
+  /** Spec 013: a geodatabase layer that records no coordinate system asks for one: an EPSG code, null to go on without (WGS84 is assumed, and said), undefined cancels the open. */
+  chooseCrs?(layerName: string): Promise<number | null | undefined>
   /** Spec 013: a zip holding several datasets asks which to open; null cancels the open. */
   chooseDataset?(datasets: Array<{ name: string; size: number }>): Promise<string | null>
   /** Polled between steps; true stops the open with QueryCancelledError. */
@@ -381,7 +383,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   // How the engine reaches this file (research §4); a whole-transfer fallback
   // means partial reads aren't available in this window (FR-015).
   // The same file again, whole: the geodatabase's converted layer, or the picked file.
-  const refetchWhole = (): Promise<FileSource> => (gdb ? gdbWhole(ref, deps, gdb.active) : hostAdapter.getFileSource(ref, { whole: true }))
+  const refetchWhole = (): Promise<FileSource> => (gdb ? gdbWhole(ref, deps, gdb.active, gdb.assumedCrs) : hostAdapter.getFileSource(ref, { whole: true }))
   const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
   const mode = readModeFor(format, source.size, { partialReads: fallback === null })
   // Whole reads from memory: small files read faster from memory than through
@@ -552,18 +554,23 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
 async function openGdb(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenHooks, options: OpenOptions, signal: AbortSignal): Promise<GdbOpened> {
   hooks.onPhase?.('converting', { note: 'Reading the geodatabase…' })
   try {
-    return await openGeodatabaseLayer(ref, deps.hostAdapter.gdb, { layer: options.layer, signal, onProgress: (step) => hooks.onPhase?.('converting', { note: gdbNote(step) }) })
+    return await openGeodatabaseLayer(ref, deps.hostAdapter.gdb, {
+      layer: options.layer,
+      signal,
+      onProgress: (step) => hooks.onPhase?.('converting', { note: gdbNote(step) }),
+      chooseCrs: hooks.chooseCrs,
+    })
   } catch (err) {
-    if (signal.aborted) throw new QueryCancelledError()
+    if (signal.aborted || (err instanceof GdbError && err.code === 'cancelled')) throw new QueryCancelledError()
     throw err
   }
 }
 
 /** The converted layer again, as bytes (FlatGeobuf "load for queries", and re-registering after an out-of-memory). */
-async function gdbWhole(ref: OpenedFileRef, deps: OpenFileDeps, layer: GdbLayerInfo): Promise<FileSource> {
+async function gdbWhole(ref: OpenedFileRef, deps: OpenFileDeps, layer: GdbLayerInfo, assumeCrs?: number): Promise<FileSource> {
   const host = deps.hostAdapter.gdb
   if (!host) throw new GdbError('The geodatabase reader is not available.', 'unreadable')
-  return (await host.convert(ref, layer, { whole: true })).source
+  return (await host.convert(ref, layer, { whole: true, ...(assumeCrs !== undefined ? { assumeCrs } : {}) })).source
 }
 
 const mb = (n: number): string => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)

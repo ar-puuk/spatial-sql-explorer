@@ -312,7 +312,7 @@ function createGdbHost(): GdbHost {
       return (await ask<{ catalog: GdbCatalog }>({ type: 'gdbList' }, options)).catalog
     },
     async convert(_ref: OpenedFileRef, layer: GdbLayerInfo, options?: GdbCallOptions): Promise<GdbConverted> {
-      const r = await ask<{ name: string; size: number; url: string; domains: GdbConverted['domains'] }>({ type: 'gdbConvert', layer }, options)
+      const r = await ask<{ name: string; size: number; url: string; domains: GdbConverted['domains'] }>({ type: 'gdbConvert', layer, assumeCrs: options?.assumeCrs }, options)
       if (options?.whole) {
         const res = await fetch(r.url)
         if (!res.ok) throw new GdbErrorClass(`The converted layer could not be read (${res.status}).`, 'unreadable')

@@ -61,14 +61,19 @@ export async function readCatalog(gdal: GdalApi, dataset: unknown, name: string)
 }
 
 /** ogr2ogr's arguments for one layer: FlatGeobuf, every column kept; an attribute-only table gets no spatial index (FlatGeobuf refuses rows without a shape in an indexed file). */
-export function convertArgs(layer: Pick<GdbLayerInfo, 'name' | 'spatial'>): string[] {
-  return ['-f', 'FlatGeobuf', ...(layer.spatial ? [] : ['-lco', 'SPATIAL_INDEX=NO']), '-nln', layer.name, layer.name]
+export function convertArgs(layer: Pick<GdbLayerInfo, 'name' | 'spatial'>, assumeCrs?: number): string[] {
+  return ['-f', 'FlatGeobuf', ...(layer.spatial ? [] : ['-lco', 'SPATIAL_INDEX=NO']), ...(layer.spatial && assumeCrs !== undefined ? ['-a_srs', `EPSG:${assumeCrs}`] : []), '-nln', layer.name, layer.name]
+}
+
+/** The converted layer's file name (no extension): the layer's, and the CRS it was told to assume (a different file for each). */
+export function convertedName(layerName: string, assumeCrs?: number): string {
+  return `${cacheFileName(layerName)}${assumeCrs !== undefined ? `.epsg${assumeCrs}` : ''}`
 }
 
 /** Converts one layer; `outName` is gdal3.js's output name (no extension). Resolves with gdal3.js's path of the `.fgb`. */
-export async function convertLayer(gdal: GdalApi, dataset: unknown, layer: Pick<GdbLayerInfo, 'name' | 'spatial'>, outName: string): Promise<string> {
+export async function convertLayer(gdal: GdalApi, dataset: unknown, layer: Pick<GdbLayerInfo, 'name' | 'spatial'>, outName: string, assumeCrs?: number): Promise<string> {
   try {
-    const out = await gdal.ogr2ogr(dataset, convertArgs(layer), outName)
+    const out = await gdal.ogr2ogr(dataset, convertArgs(layer, assumeCrs), outName)
     return out.local
   } catch (err) {
     throw explainGdalError(err)

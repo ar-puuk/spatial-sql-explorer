@@ -5,7 +5,7 @@
 // copy); a layer's table files are copied into memory before converting it,
 // because reading them straight from the picked files is 25 times slower
 // (research §9). The result is written to the origin-private file system.
-import { cacheFileName, convertLayer, explainGdalError, GdbError, openGeodatabase, readCatalog, tableFiles, type GdalApi } from '@spatial-explorer/core'
+import { convertedName, convertLayer, explainGdalError, GdbError, openGeodatabase, readCatalog, tableFiles, type GdalApi } from '@spatial-explorer/core'
 import { CACHE_DIR, type ConvertResult, type FromWorker, type GdbFiles, type ToWorker } from './protocol.js'
 
 interface Stream {
@@ -170,7 +170,7 @@ function removeTree(FS: Fs, dir: string): void {
   FS.rmdir(dir)
 }
 
-async function convert(id: number, source: GdbFiles, key: string, layer: { name: string; spatial: boolean }, file: string): Promise<ConvertResult> {
+async function convert(id: number, source: GdbFiles, key: string, layer: { name: string; spatial: boolean }, assumeCrs: number | undefined, file: string): Promise<ConvertResult> {
   const g = need()
   const FS = g.Module.FS
   const mounted = mountSource(g, source)
@@ -200,7 +200,7 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
     const dataset = await openMounted(g, open)
     let out: string
     try {
-      out = await convertLayer(g, dataset, layer, cacheFileName(layer.name))
+      out = await convertLayer(g, dataset, layer, convertedName(layer.name, assumeCrs), assumeCrs)
     } finally {
       await g.close(dataset).catch(() => {})
     }
@@ -237,7 +237,7 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
     if (m.op === 'init') return init(m.glue, m.wasm, m.data)
     recent.length = 0
     if (m.op === 'list') return list(m.id, m.source, m.key)
-    return convert(m.id, m.source, m.key, m.layer, m.file)
+    return convert(m.id, m.source, m.key, m.layer, m.assumeCrs, m.file)
   }
   run().then(
     (result) => reply({ id: m.id, ok: true, result }),

@@ -59,6 +59,8 @@ export type GdbProgress =
 export interface GdbCallOptions {
   /** The converted layer as bytes in memory, not a file to read in parts (FlatGeobuf "load for queries"). */
   whole?: boolean
+  /** A layer that records no coordinate system: the EPSG code its coordinates are in, as the person chose. It is written into the converted layer. */
+  assumeCrs?: number
   signal?: AbortSignal
   onProgress?: (step: GdbProgress) => void
 }

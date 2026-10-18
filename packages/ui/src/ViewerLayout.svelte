@@ -27,6 +27,7 @@
   import type { LegendSpec } from './mapImage.js'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import ZipChoiceDialog from './ZipChoiceDialog.svelte'
+  import GdbCrsDialog from './GdbCrsDialog.svelte'
   import UnavailableNotice from './UnavailableNotice.svelte'
   import ColumnChooser from './ColumnChooser.svelte'
   import SelectionBar from './SelectionBar.svelte'
@@ -383,6 +384,9 @@
 <div class="viewer-layout" class:dragging bind:clientWidth={layoutWidth}>
   {#if loading}
     <OpenProgress phase={store.openPhase} startedAt={store.openStartedAt} facts={store.openFacts} note={store.openNote} onCancel={() => void store.cancelOpen()} />
+  {/if}
+  {#if store.crsPrompt}
+    <GdbCrsDialog layerName={store.crsPrompt.layerName} onAnswer={(epsg) => store.answerCrs(epsg)} />
   {/if}
   {#if store.datasetPrompt}
     <ZipChoiceDialog datasets={store.datasetPrompt.datasets} onAnswer={(name) => store.answerDataset(name)} />

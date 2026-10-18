@@ -49,7 +49,7 @@ type WebviewToHostMessage =
   | { type: 'loadState'; requestId: number; key: string }
   | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
   | { type: 'gdbList'; requestId: number }
-  | { type: 'gdbConvert'; requestId: number; layer: GdbLayerInfo }
+  | { type: 'gdbConvert'; requestId: number; layer: GdbLayerInfo; assumeCrs?: number }
   | { type: 'gdbCancel'; requestId: number }
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
@@ -837,7 +837,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       if (msg.type === 'gdbList') return void reply({ catalog })
       const layer = catalog.layers.find((l) => l.name === msg.layer.name)
       if (!layer) return void reply({ error: `The layer "${msg.layer.name}" is not in this geodatabase.`, code: 'unreadable' })
-      const converted = await reader.convert(source, catalog, layer, { signal: abort.signal, onProgress: progress })
+      const converted = await reader.convert(source, catalog, layer, { signal: abort.signal, assumeCrs: msg.assumeCrs, onProgress: progress })
       const token = this.sources.get(panel)?.token
       if (!token) return void reply({ error: "This window can't serve files to the viewer, so the geodatabase can't be shown.", code: 'unreadable' })
       const served = `gdb/${path.basename(converted.path)}`

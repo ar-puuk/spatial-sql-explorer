@@ -13,10 +13,24 @@ from osgeo import gdal, ogr, osr
 
 gdal.UseExceptions()
 out = sys.argv[1]
+mode = sys.argv[2] if len(sys.argv) > 2 else 'network'
 if os.path.exists(out):
     shutil.rmtree(out)
 
 ds = gdal.GetDriverByName('OpenFileGDB').Create(out, 0, 0, 0, gdal.GDT_Unknown)
+
+if mode == 'nocrs':
+    # nocrs.gdb: one layer of 3 points (coordinates in UTM 12N) that records no coordinate system.
+    sketch = ds.CreateLayer('sketch', None, ogr.wkbPoint)
+    sketch.CreateField(ogr.FieldDefn('label', ogr.OFTString))
+    for label, x, y in [('a', 425000, 4505000), ('b', 426000, 4506000), ('c', 427000, 4507000)]:
+        ft = ogr.Feature(sketch.GetLayerDefn())
+        ft.SetField('label', label)
+        ft.SetGeometry(ogr.CreateGeometryFromWkt(f'POINT({x} {y})'))
+        sketch.CreateFeature(ft)
+    ds = None
+    print('ok')
+    sys.exit(0)
 ds.AddFieldDomain(ogr.CreateCodedFieldDomain('RoadClass', 'Road class', ogr.OFTInteger, ogr.OFSTNone, {1: 'Freeway', 2: 'Arterial', 3: 'Local'}))
 ds.AddFieldDomain(ogr.CreateCodedFieldDomain('NodeKind', 'Node kind', ogr.OFTInteger, ogr.OFSTNone, {10: 'Junction', 20: 'Signal'}))
 ds.AddFieldDomain(ogr.CreateRangeFieldDomain('Lanes', 'Lane count', ogr.OFTInteger, ogr.OFSTNone, 1, True, 12, True))

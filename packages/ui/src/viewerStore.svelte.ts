@@ -580,6 +580,9 @@ export interface ViewerStore {
   /** Spec 013: a zip holding several datasets, waiting for the person to choose one (ZipChoiceDialog). */
   readonly datasetPrompt: { datasets: Array<{ name: string; size: number }> } | null
   answerDataset(name: string | null): void
+  /** Spec 013: a geodatabase layer that records no coordinate system, waiting for the person to name one (GdbCrsDialog). */
+  readonly crsPrompt: { layerName: string } | null
+  answerCrs(epsg: number | null | undefined): void
   /** Spec 013: what the open is doing, in words, while a geodatabase is read (null otherwise). */
   readonly openNote: string | null
   /** Spec 013: the coded domains of the open geodatabase layer (column to code to description), for display. */
@@ -1922,6 +1925,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     datasetPrompt = null
     prompt?.resolve(name)
   }
+  let crsPrompt = $state<{ layerName: string; resolve: (epsg: number | null | undefined) => void } | null>(null)
+  /** What the person said for each layer without a CRS, this session (switching back does not ask again). */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const crsAnswers = new Map<string, number | null>()
+  function answerCrs(epsg: number | null | undefined): void {
+    const prompt = crsPrompt
+    crsPrompt = null
+    prompt?.resolve(epsg)
+  }
   let columnDomains = $state.raw<ColumnDomains>({})
   let domainDisplay = $state<DomainDisplay>(DEFAULT_DOMAIN_DISPLAY)
   void hostAdapter
@@ -2044,6 +2056,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
           },
           confirmWholeRead: (sizeBytes, format) => new Promise<boolean>((resolve) => (wholeReadPrompt = { sizeBytes, format, resolve })),
           chooseDataset: (datasets) => new Promise<string | null>((resolve) => (datasetPrompt = { datasets, resolve })),
+          chooseCrs: async (layerName) => {
+            const key = `${ref.stateKey}#${layerName}`
+            if (crsAnswers.has(key)) return crsAnswers.get(key)
+            const answer = await new Promise<number | null | undefined>((resolve) => (crsPrompt = { layerName, resolve }))
+            if (answer !== undefined) crsAnswers.set(key, answer)
+            return answer
+          },
           onCancelHandle: (interrupt) => {
             openInterrupt = interrupt
           },
@@ -2991,6 +3010,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return datasetPrompt
     },
     answerDataset,
+    get crsPrompt() {
+      return crsPrompt
+    },
+    answerCrs,
     get openNote() {
       return openNote
     },

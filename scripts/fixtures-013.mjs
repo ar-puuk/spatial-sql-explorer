@@ -1,5 +1,6 @@
 // Spec 013 fixtures, written into tests/vscode-ext/fixtures/ (used by the web, extension and core tests):
 //   network.gdb/          a File Geodatabase with a feature dataset, coded and range domains and a plain table
+//   nocrs.gdb/            a File Geodatabase whose one layer records no coordinate system (its points are in UTM 12N)
 //   network.gdb.zip       the same, zipped with the folder at the first level
 //   roads.shp.zip         a Shapefile and its parts, zipped
 //   multi-layer.gpkg.zip  a zipped GeoPackage
@@ -51,6 +52,10 @@ function entries(folder, prefix) {
 if (!exists('network.gdb')) {
   run(`python "${path.join(root, 'scripts', 'fixtures-013.py').replace(/\\/g, '/')}" "${path.join(dir, 'network.gdb').replace(/\\/g, '/')}"`)
   console.log('network.gdb')
+}
+if (!exists('nocrs.gdb')) {
+  run(`python "${path.join(root, 'scripts', 'fixtures-013.py').replace(/\\/g, '/')}" "${path.join(dir, 'nocrs.gdb').replace(/\\/g, '/')}" nocrs`)
+  console.log('nocrs.gdb')
 }
 if (!exists('network.gdb.zip')) {
   fs.writeFileSync(path.join(dir, 'network.gdb.zip'), zipSync(entries(path.join(dir, 'network.gdb'), 'network.gdb/')))

@@ -3,7 +3,7 @@
 // FlatGeobuf kept in the origin-private file system, keyed by the geodatabase's
 // files and their modification times, so opening it again is immediate.
 import {
-  cacheFileName,
+  convertedName,
   gdalFileRefs,
   gdbFolderOf,
   GdbError,
@@ -240,12 +240,12 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       const source = await filesOf(ref)
       const key = await keyOf(source)
       const catalog = catalogs.get(key) ?? (await this.list(ref, callOptions))
-      const file = `${cacheFileName(layer.name)}.fgb`
+      const file = `${convertedName(layer.name, callOptions.assumeCrs)}.fgb`
       let dir = await cacheRoot(false).then((root) => root?.getDirectoryHandle(key).catch(() => null) ?? null)
       const cached = dir !== null && (await readText(dir, `${file}.done`)) !== null
       if (!cached) {
         try {
-          await run<ConvertResult>((id) => ({ op: 'convert', id, source, key, layer: { name: layer.name, spatial: layer.spatial }, file }), callOptions)
+          await run<ConvertResult>((id) => ({ op: 'convert', id, source, key, layer: { name: layer.name, spatial: layer.spatial }, assumeCrs: callOptions.assumeCrs, file }), callOptions)
         } catch (err) {
           if (err instanceof DOMException && err.name === 'QuotaExceededError') throw new GdbError('The browser has no room to keep the converted layer. Clear the stored layers (the button in the header) or free some disk space.', 'too-large')
           throw err
