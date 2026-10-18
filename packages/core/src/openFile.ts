@@ -417,7 +417,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   try {
     if (mode.mode === 'whole' && source.size > mode.wholeReadThresholdBytes && hooks.confirmWholeRead) {
       hooks.onPhase?.('announce', detail)
-      if (!(await hooks.confirmWholeRead(source.size, format))) throw new QueryCancelledError()
+      if (!(await hooks.confirmWholeRead(source.size, gdb ? 'geodatabase' : format))) throw new QueryCancelledError()
     }
     checkCancelled()
     // Research §16: a GeoPackage layer GDAL can't stream is read from a plain
