@@ -74,7 +74,8 @@ const __blocked = (u) => { try { return __telemetry.test(new URL(String(u), self
 const __origOpen = XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open = function (method, url, ...rest) {
   // Not a throw (that would trap inside the engine): the request goes to a URL that cannot load, an ordinary network failure.
-  return __origOpen.call(this, method, __blocked(url) ? 'blob:blocked-telemetry' : url, ...rest);
+  // An unsupported scheme fails at once in every browser; a POST to a blob: URL never returns in Firefox (the engine hung loading a5).
+  return __origOpen.call(this, method, __blocked(url) ? 'ftp://blocked.invalid/telemetry' : url, ...rest);
 };
 const __origFetch = self.fetch.bind(self);
 self.fetch = async (input, init) => {
