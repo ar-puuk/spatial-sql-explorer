@@ -16,11 +16,8 @@
   }
   let { value, min, max, onChange, label, disabled = false }: Props = $props()
 
-  // svelte-ignore state_referenced_locally
-  let text = $state(String(value))
-  $effect(() => {
-    text = String(value)
-  })
+  // What is typed; it follows the number again whenever the number changes.
+  let text = $derived(String(value))
 
   const clamp = (n: number): number => Math.min(max, Math.max(min, Math.round(n)))
 
