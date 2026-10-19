@@ -30,6 +30,7 @@ import { gdbWhole, openGdb, setUpGeodatabaseLayers } from './gdb/integration.js'
 import type { GdbOpened } from './gdb/open.js'
 import type { GdbLayerInfo } from './gdb/types.js'
 import type { FileSource } from './hostAdapter.js'
+import { openGtfsFeed, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -342,6 +343,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   const abort = new AbortController()
   hooks.onCancelHandle?.(async () => abort.abort())
   let gdb: GdbOpened | null = null
+  let gtfs: GtfsOpened | null = null
+  /** Spec 024: the feed's zip, kept to read it again after an out-of-memory. */
+  let gtfsZip: { bytes: Uint8Array; root: string } | null = null
   let source: FileSource
   if (isFileGeodatabase(ref.displayName)) {
     gdb = await openGdb(ref, deps, hooks, options, abort.signal)
@@ -355,8 +359,14 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       gdb = await openGdb(ref, deps, hooks, options, abort.signal)
       source = gdb.converted.source
     } else if (contents.kind === 'gtfs') {
-      // Spec 024: recognized; the reader is not built yet (specs/024-gtfs/tasks.md T006).
-      throw new Error(`"${ref.displayName}" is a GTFS transit feed. Opening feeds is not available yet.`)
+      // Spec 024: a GTFS feed opens as its routes (the open layer) with its stops and tables in a schema.
+      gtfsZip = { bytes: zip.bytes, root: contents.root }
+      hooks.onPhase?.('converting', { note: 'Reading the transit feed…' })
+      gtfs = await openGtfsFeed(zip.bytes, contents.root, ref.displayName, hostAdapter.gdb, {
+        signal: abort.signal,
+        onProgress: (step) => hooks.onPhase?.('converting', { note: step.phase === 'download' ? 'Downloading the reader (first use only)…' : 'Reading the transit feed…' }),
+      })
+      source = gtfs.source
     } else if (contents.kind === 'datasets') {
       let dataset: ZipDataset
       try {
@@ -387,7 +397,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   // How the engine reaches this file (research §4); a whole-transfer fallback
   // means partial reads aren't available in this window (FR-015).
   // The same file again, whole: the geodatabase's converted layer, or the picked file.
-  const refetchWhole = (): Promise<FileSource> => (gdb ? gdbWhole(ref, deps, gdb.active, gdb.assumedCrs) : hostAdapter.getFileSource(ref, { whole: true }))
+  const refetchWhole = (): Promise<FileSource> =>
+    gtfsZip ? openGtfsFeed(gtfsZip.bytes, gtfsZip.root, ref.displayName, hostAdapter.gdb).then((again) => again.source) : gdb ? gdbWhole(ref, deps, gdb.active, gdb.assumedCrs) : hostAdapter.getFileSource(ref, { whole: true })
   const fallback = source.kind === 'bytes' ? (source.fallbackReason ?? null) : null
   const mode = readModeFor(format, source.size, { partialReads: fallback === null })
   // Whole reads from memory: small files read faster from memory than through
@@ -433,7 +444,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     registered = await registerSource(db, source, refetchWhole)
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
-    let layers: FileLayer[] = gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
     // Research §16: how each GeoPackage / SQLite layer is read.
     let readers = new Map<string, string>()
     if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
@@ -460,9 +471,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     }
     checkCancelled()
     const multi = layers.length > 1
-    const active = gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    const active = gtfs ? layers[0] : gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
-    const names = await sqlNamesFor(conn, gdb ? gdb.fileName : source.name, multi ? layers : null, active)
+    const names = await sqlNamesFor(conn, gtfs ? gtfs.fileName : gdb ? gdb.fileName : source.name, multi ? layers : null, active)
     const ctx: ModeContext = {
       conn,
       path: registered.primaryPath,
@@ -474,8 +485,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       checkCancelled,
       isCancelled: () => hooks.isCancelled?.() ?? false,
       // A converted geodatabase layer is a file of its own: read plainly, not by layer name.
-      layer: gdb ? null : active,
-      reader: active ? readers.get(active.name) : undefined,
+      layer: gdb || gtfs ? null : active,
+      reader: gtfs ? gtfs.reader : active ? readers.get(active.name) : undefined,
     }
 
     let opened: OpenedTable
@@ -483,7 +494,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     else {
       opened = await openWhole(ctx, strategy)
       // A multi-layer file stays registered: its other layers are views over it (FR-017).
-      keepRegistered = multi && !gdb
+      keepRegistered = (multi && !gdb) || gtfs !== null
     }
     timings.prepare = lap()
     checkCancelled()
@@ -498,7 +509,8 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // Spec 010: a big file's default view is drawn as tiles whatever its rows (TILE_BYTES).
     session.setFileBytes(source.size)
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
-    if (gdb && multi) await setUpGeodatabaseLayers(session, db, gdb, names, ref, deps, hooks)
+    if (gtfs) await setUpGtfsViews(session.conn, gtfs, names)
+    else if (gdb && multi) await setUpGeodatabaseLayers(session, db, gdb, names, ref, deps, hooks)
     else if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
     const initial = await session.runDefault()
     timings.rows = lap()

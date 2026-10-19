@@ -74,6 +74,12 @@ export interface GdbHost {
   list(ref: OpenedFileRef, options?: GdbCallOptions): Promise<GdbCatalog>
   /** Reads one layer into a cached FlatGeobuf (once; later calls return the cache) and returns it with the layer's domains. */
   convert(ref: OpenedFileRef, layer: GdbLayerInfo, options?: GdbCallOptions): Promise<GdbConverted>
+  /**
+   * Spec 024: GDAL's geometry layers (`stops`, `shapes_geom`, `trips`) of a GTFS feed, each as a
+   * FlatGeobuf. `zip` is the light copy of the feed (gtfs/feed.ts). Hosts that cannot read
+   * feeds omit it.
+   */
+  convertFeed?(zip: Uint8Array, layers: readonly string[], options?: GdbCallOptions): Promise<Record<string, Uint8Array>>
   /** What the converted layers kept for later use now. */
   cacheInfo?(): Promise<{ files: number; bytes: number }>
   /** Deletes every converted layer; resolves with what was removed. */

@@ -210,6 +210,31 @@ export class GdbNodeReader {
     return { path: target, size, domains }
   }
 
+  /**
+   * Spec 024: GDAL's geometry layers of a GTFS feed, as FlatGeobuf files in the cache, keyed by the
+   * feed's light zip (so a changed feed is a new key). Returns the path of each layer's file.
+   */
+  async convertFeed(zip: Uint8Array, layers: readonly string[], options: { signal?: AbortSignal; onProgress?: (p: GdbProgress) => void } = {}): Promise<Record<string, string>> {
+    const key = `feed-${createHash('sha1').update(zip).digest('hex').slice(0, 24)}`
+    const dir = this.cacheDir(key)
+    const target = (layer: string): string => path.join(dir, `feed-${layer}.fgb`)
+    const missing = layers.filter((l) => !fs.existsSync(target(l)))
+    if (missing.length) {
+      fs.mkdirSync(dir, { recursive: true })
+      const zipPath = path.join(dir, 'feed.zip')
+      fs.writeFileSync(zipPath, zip)
+      this.log(`gtfs: reading ${missing.join(', ')}`)
+      const started = Date.now()
+      await this.call<{ paths: Record<string, string> }>({ op: 'feed', zipPath: zipPath.replace(/\\/g, '/'), layers: missing, outDir: dir.replace(/\\/g, '/') }, options)
+      this.log(`gtfs: ${missing.join(', ')} in ${((Date.now() - started) / 1000).toFixed(1)} s`)
+      this.prune(key)
+    } else {
+      const now = new Date()
+      fs.utimesSync(dir, now, now)
+    }
+    return Object.fromEntries(layers.map((l) => [l, target(l)]))
+  }
+
   /** Keeps the cache under its limit by removing the least recently used geodatabases (never `keep`). */
   private prune(keep: string): void {
     const limit = this.cacheLimitBytes()

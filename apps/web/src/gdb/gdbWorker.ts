@@ -247,18 +247,46 @@ async function convert(id: number, source: GdbFiles, key: string, layer: { name:
   }
 }
 
+/** Spec 024: a GTFS feed's light zip (gtfs/feed.ts) opened in memory, each wanted layer converted to a FlatGeobuf and returned. */
+async function feed(id: number, zip: ArrayBuffer, layers: string[]): Promise<Record<string, ArrayBuffer>> {
+  const g = need()
+  const FS = g.Module.FS
+  const path = `/input/feed${++mounts}.zip`
+  FS.writeFile(path, new Uint8Array(zip))
+  const out: Record<string, ArrayBuffer> = {}
+  try {
+    const dataset = await openGeodatabase(g, path)
+    try {
+      for (const layer of layers) {
+        reply({ id, progress: { phase: 'convert', layer } })
+        const file = (await g.ogr2ogr(dataset, ['-f', 'FlatGeobuf', '-nln', layer, layer], `feed${mounts}-${layer}`)).local
+        const bytes = FS.readFile(file, { encoding: 'binary' })
+        FS.unlink(file)
+        out[layer] = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      }
+    } finally {
+      await g.close(dataset).catch(() => {})
+    }
+  } finally {
+    FS.unlink(path)
+  }
+  return out
+}
+
 self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
   const m = event.data
   const run = async (): Promise<unknown> => {
     if (m.op === 'init') return init(m.glue, m.wasm, m.data)
     recent.length = 0
+    if (m.op === 'feed') return feed(m.id, m.zip, m.layers)
     if (m.op === 'list') return list(m.id, m.source, m.key)
     return convert(m.id, m.source, m.key, m.layer, m.assumeCrs, m.file)
   }
   run().then(
     (result) => {
       const bytes = (result as Partial<ConvertResult> | undefined)?.bytes
-      reply({ id: m.id, ok: true, result }, bytes ? [bytes] : [])
+      const layers = m.op === 'feed' ? Object.values(result as Record<string, ArrayBuffer>) : []
+      reply({ id: m.id, ok: true, result }, bytes ? [bytes] : layers)
     },
     (err: unknown) => {
       const e = explainGdalError(recent.length && !(err instanceof GdbError) ? new Error(`${err instanceof Error ? err.message : String(err)} ${recent.join(' ')}`) : err)

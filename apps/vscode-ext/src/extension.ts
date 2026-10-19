@@ -50,6 +50,7 @@ type WebviewToHostMessage =
   | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
   | { type: 'gdbList'; requestId: number }
   | { type: 'gdbConvert'; requestId: number; layer: GdbLayerInfo; assumeCrs?: number }
+  | { type: 'gtfsConvert'; requestId: number; zip: ArrayBuffer; layers: string[] }
   | { type: 'gdbCancel'; requestId: number }
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
@@ -402,6 +403,8 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
         )
       } else if (msg.type === 'gdbList' || msg.type === 'gdbConvert') {
         void this.handleGdb(panel, document.uri, msg)
+      } else if (msg.type === 'gtfsConvert') {
+        void this.handleGtfs(panel, msg)
       } else if (msg.type === 'gdbCancel') {
         this.gdbAborts.get(msg.requestId)?.abort()
       } else if (msg.type === 'pruneEngineFiles') {
@@ -846,6 +849,32 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     } catch (err) {
       const code = (err as { code?: string }).code ?? 'unreadable'
       log(`geodatabase: ${err instanceof Error ? err.message : String(err)}`)
+      return void reply({ error: err instanceof Error ? err.message : String(err), code })
+    } finally {
+      this.gdbAborts.delete(msg.requestId)
+    }
+  }
+
+  /** Spec 024: GDAL's geometry layers of a GTFS feed, converted into the cache and served to the webview. */
+  private async handleGtfs(panel: vscode.WebviewPanel, msg: Extract<WebviewToHostMessage, { type: 'gtfsConvert' }>): Promise<void> {
+    const reply = (result: unknown): Thenable<boolean> => panel.webview.postMessage({ type: 'requestResult', requestId: msg.requestId, result })
+    const progress = (step: GdbProgress): void => void panel.webview.postMessage({ type: 'gdbProgress', requestId: msg.requestId, step })
+    const abort = new AbortController()
+    this.gdbAborts.set(msg.requestId, abort)
+    try {
+      const token = this.sources.get(panel)?.token
+      if (!token) return void reply({ error: "This window can't serve files to the viewer, so the feed can't be shown.", code: 'unreadable' })
+      const paths = await gdbReader().convertFeed(new Uint8Array(msg.zip), msg.layers, { signal: abort.signal, onProgress: progress })
+      const files: Record<string, { url: string; size: number }> = {}
+      for (const [layer, fsPath] of Object.entries(paths)) {
+        const served = `gtfs/${path.basename(path.dirname(fsPath))}-${path.basename(fsPath)}`
+        sourceServer.addFiles(token, [{ name: served, fsPath }])
+        files[layer] = { url: this.sourceUrl(panel, served), size: fs.statSync(fsPath).size }
+      }
+      return void reply({ files })
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? 'unreadable'
+      log(`gtfs: ${err instanceof Error ? err.message : String(err)}`)
       return void reply({ error: err instanceof Error ? err.message : String(err), code })
     } finally {
       this.gdbAborts.delete(msg.requestId)

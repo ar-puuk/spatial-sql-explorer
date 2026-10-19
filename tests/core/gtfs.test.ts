@@ -2,9 +2,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { zipSync } from 'fflate'
+import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { confirmGtfsHeaders, csvHeader, findGtfsRoot, inspectZip, missingGtfsFiles } from '@spatial-explorer/core'
+import { confirmGtfsHeaders, csvHeader, findGtfsRoot, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes } from '@spatial-explorer/core'
+import { gtfsLayerNames, routesReaderSql } from '../../packages/core/src/gtfs/sql'
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s)
 const zip = (files: Record<string, string | Uint8Array>): Uint8Array => zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, typeof v === 'string' ? text(v) : v])))
@@ -121,5 +122,59 @@ describe('the committed fixtures', () => {
   it('gtfs-mini.zip and gtfs-mini-nested.zip', () => {
     expect(inspectZip(new Uint8Array(fs.readFileSync(path.join(dir, 'gtfs-mini.zip'))))).toEqual({ kind: 'gtfs', root: '', alternatives: [] })
     expect(inspectZip(new Uint8Array(fs.readFileSync(path.join(dir, 'gtfs-mini-nested.zip'))))).toEqual({ kind: 'gtfs', root: 'feed/', alternatives: [] })
+  })
+})
+
+describe('splitFeed', () => {
+  const big = 'trip_id,stop_id,stop_sequence\n' + Array.from({ length: 5000 }, (_, i) => `T${i},S1,${i}`).join('\n') + '\n'
+  const bytes = zip({ ...feed('feed/'), 'feed/stop_times.txt': big, 'feed/readme.md': 'x', 'other/stops.txt': 'x', 'feed/sub/trips.txt': 'x' })
+
+  it('keeps the small tables, and gives GDAL a flat copy whose stop_times is its header', async () => {
+    const parts = await splitFeed(bytes, 'feed/')
+    expect(Object.keys(parts.tables).sort()).toEqual(['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt'])
+    expect(parts.stopTimesEntry).toBe('feed/stop_times.txt')
+    const lite = unzipSync(parts.lite)
+    expect(Object.keys(lite).sort()).toEqual(['agency.txt', 'routes.txt', 'stop_times.txt', 'stops.txt', 'trips.txt'])
+    expect(new TextDecoder().decode(lite['stop_times.txt'])).toBe('trip_id,stop_id,stop_sequence\n')
+    expect(new TextDecoder().decode(lite['routes.txt'])).toBe(ROUTES)
+    expect(readStopTimes(bytes, parts.stopTimesEntry).length).toBe(big.length)
+  })
+
+  it('reads one line from a compressed entry without the rest', async () => {
+    expect(await firstLineOf(zipSync({ 'a.txt': text(big) }, { level: 6 }), 'a.txt')).toBe('trip_id,stop_id,stop_sequence')
+    expect(await firstLineOf(zipSync({ 'a.txt': text('h1,h2\r\nx\r\n') }, { level: 0 }), 'a.txt')).toBe('h1,h2')
+    expect(await firstLineOf(zipSync({ 'a.txt': text('only') }), 'a.txt')).toBe('only')
+  })
+
+  it('names a feed without stop_times', async () => {
+    await expect(splitFeed(zip({ 'stops.txt': STOPS }), '')).rejects.toThrow(/stop_times/)
+  })
+})
+
+describe('tripsLackShapes', () => {
+  const t = (s: string): Uint8Array => new TextEncoder().encode(s)
+  it('is false when every trip names a shape', () => {
+    expect(tripsLackShapes(t('route_id,trip_id,shape_id\nR1,T1,SH1\nR1,T2,SH1\n'))).toBe(false)
+  })
+  it('is true when one trip names none, or the column is missing', () => {
+    expect(tripsLackShapes(t('route_id,trip_id,shape_id\nR1,T1,SH1\nR2,T2,\n'))).toBe(true)
+    expect(tripsLackShapes(t('route_id,trip_id\nR1,T1\n'))).toBe(true)
+  })
+  it('reads quoted cells with commas, a byte-order mark and CRLF', () => {
+    expect(tripsLackShapes(t('﻿route_id,trip_headsign,shape_id\r\nR1,"Main, North",SH1\r\n'))).toBe(false)
+    expect(tripsLackShapes(t('route_id,trip_headsign,shape_id\r\nR1,"A, B",\r\n'))).toBe(true)
+  })
+})
+
+describe('the feed in SQL', () => {
+  const inv = { tables: ['routes', 'trips', 'stop_times', 'stops', 'calendar'], geometry: ['stops', 'shapes_geom'] as ('stops' | 'shapes_geom' | 'trips')[] }
+  it('orders layer names: routes, stops, then the other tables', () => {
+    expect(gtfsLayerNames(inv.tables)).toEqual(['routes', 'stops', 'calendar', 'stop_times', 'trips'])
+  })
+  it('routes use the shapes, and add trip lines only when GDAL was asked for them', () => {
+    expect(routesReaderSql(inv)).toContain('se-gtfs-shapes_geom.fgb')
+    expect(routesReaderSql(inv)).not.toContain('se-gtfs-trips.fgb')
+    expect(routesReaderSql({ ...inv, geometry: ['stops', 'shapes_geom', 'trips'] })).toContain('se-gtfs-trips.fgb')
+    expect(routesReaderSql({ tables: inv.tables, geometry: ['stops', 'trips'] })).not.toContain('se-gtfs-shapes_geom.fgb')
   })
 })

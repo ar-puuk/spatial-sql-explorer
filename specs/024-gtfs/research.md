@@ -76,3 +76,10 @@ Decision (T004): the reader gives GDAL a flat in-memory folder in which `stop_ti
 - Real-feed check of the SQL route (route lines merged per route) in the engine, and the memory the engine needs for the real `stop_times` (T006/T007).
 - Feeds with `route_color` empty or white, extended `route_type` codes (100–1700), `shape_dist_traveled`-only shapes.
 - Firefox and the extension host's child process (the numbers above are Chrome and Node).
+
+## 8. As built (T006, T007)
+
+- `HostAdapter.gdb.convertFeed(zip, layers)` (optional member of `GdbHost`): the light zip in, one FlatGeobuf per layer out. Web: worker op `feed`, files in the module's memory. Extension host: the light zip is written to the cache (`feed-<sha1>/feed.zip`), the child process converts into `feed-<layer>.fgb` files there (so a repeat open is instant), and the webview fetches them over the loopback server.
+- The open layer is not a file but a SQL expression (`routesReaderSql`): the file opened is the shapes FlatGeobuf (or the trip lines, for a feed with no shapes), and the engine reads everything else registered beside it as `se-gtfs-*` sidecars. Routes are `ST_Collect` of their distinct shapes (MULTILINESTRING); routes whose trips have no shape take GDAL's trip line with the most points (LINESTRING). Routes with no trips have no line and are not in the layer.
+- Verified (Chrome, `tests/web/specs/gtfs-024.spec.ts`): the fixture gives `R1:MULTILINESTRING:2, R2:LINESTRING:1, R3:LINESTRING:1`, the data's colors, and stops with their routes (`S2` served by `1, L`); `D:\GTFS.zip` gives 85 routes (86 in `routes.txt`, one has no trips), 5,425 stops, 466,857 stop times, no route without a color, in about 4 s with the queries.
+- Memory: the real `stop_times.txt` is inflated in the webview and registered with the engine (the one big file). A 10x feed (230 MB of text) is the limit to measure next (T012); streaming it into the engine in pieces is the fix if it matters.

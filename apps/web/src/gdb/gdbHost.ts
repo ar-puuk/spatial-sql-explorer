@@ -280,6 +280,13 @@ export function createWebGdbHost(options: { engine: Pick<EngineSource, 'host'>; 
       return { source: sourceFile, domains }
     },
 
+    /** Spec 024: GDAL's GTFS geometry layers, from the feed's light zip. Nothing is cached (about a second of work). */
+    async convertFeed(zip: Uint8Array, layers: readonly string[], callOptions: GdbCallOptions = {}): Promise<Record<string, Uint8Array>> {
+      const copy = zip.slice().buffer as ArrayBuffer
+      const result = await run<Record<string, ArrayBuffer>>((id) => ({ op: 'feed', id, zip: copy, layers: [...layers] }), callOptions)
+      return Object.fromEntries(Object.entries(result).map(([name, buffer]) => [name, new Uint8Array(buffer)]))
+    },
+
     async cacheInfo(): Promise<{ files: number; bytes: number }> {
       return measure()
     },
