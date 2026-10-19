@@ -452,6 +452,7 @@
           tooltipRecord={(id) => store.tooltipRecord(id)}
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
+          onZoom={(z) => store.setMapZoom(z)}
           onCursorMove={(c) => store.setCursor(c)}
           tiles={store.tiles}
           onInspectTileFeature={(f) => {
@@ -675,6 +676,7 @@
             <LayerStylePanel
               embedded
               camera={store.mapCamera}
+              zoom={store.mapZoom}
               style={store.style}
               resolved={store.resolvedStyle}
               layer={store.styleInput}

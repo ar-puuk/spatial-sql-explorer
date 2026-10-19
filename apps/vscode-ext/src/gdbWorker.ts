@@ -25,6 +25,7 @@ export type GdbSourceSpec = { kind: 'folder'; path: string } | { kind: 'zip'; pa
 
 export type WorkerRequest =
   | { id: number; op: 'list'; source: GdbSourceSpec; name: string }
+  | { id: number; op: 'feed'; zipPath: string; layers: string[]; outDir: string } // Spec 024
   | { id: number; op: 'convert'; source: GdbSourceSpec; layer: { name: string; spatial: boolean }; assumeCrs?: number; outDir: string; outFile: string }
 
 export type WorkerReply =
@@ -96,9 +97,30 @@ function mountOutput(gdal: Gdal, outDir: string): string {
   return outDir.slice(root.length + 1)
 }
 
+/** Spec 024: a GTFS feed's light zip (gtfs/feed.ts), each wanted layer converted to `<outDir>/feed-<layer>.fgb`. */
+async function convertFeed(gdal: Gdal, req: Extract<WorkerRequest, { op: 'feed' }>): Promise<unknown> {
+  const mounted = mountSource(gdal, { kind: 'zip', path: req.zipPath, folder: null })
+  const sub = mountOutput(gdal, req.outDir)
+  const dataset = await openGeodatabase(gdal, mounted.open)
+  try {
+    const paths: Record<string, string> = {}
+    for (const layer of req.layers) {
+      send({ id: req.id, progress: { phase: 'convert', layer } } satisfies WorkerReply)
+      await gdal.ogr2ogr(dataset, ['-f', 'FlatGeobuf', '-nln', layer, layer], `../disk/${sub}/feed-${layer}`)
+      const real = `${req.outDir}/feed-${layer}.fgb`
+      if (!fs.existsSync(real)) throw new Error(`the converted layer was not written (${layer})`)
+      paths[layer] = real
+    }
+    return { paths }
+  } finally {
+    await gdal.close(dataset).catch(() => {})
+  }
+}
+
 async function handle(req: WorkerRequest): Promise<unknown> {
   const gdal = await load()
   recent.length = 0
+  if (req.op === 'feed') return convertFeed(gdal, req)
   const mounted = mountSource(gdal, req.source)
   if (req.op === 'list') {
     send({ id: req.id, progress: { phase: 'list' } } satisfies WorkerReply)

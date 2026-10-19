@@ -5,6 +5,7 @@
 // holding a File Geodatabase goes to the geodatabase reader instead.
 import { unzipSync } from 'fflate'
 import type { FileSource } from '../hostAdapter.js'
+import { confirmGtfsHeaders, findGtfsRoot, findPartialGtfs, gtfsConfirmingFiles } from '../gtfs/detect.js'
 
 /** Files a zip may hold as the data itself (the app's own list, openFile.ts). */
 const DATASET_EXTENSIONS = ['.shp', '.geojson', '.json', '.fgb', '.flatgeobuf', '.gpkg', '.sqlite', '.db', '.gml', '.parquet', '.geoparquet', '.csv', '.xlsx']
@@ -21,7 +22,7 @@ export interface ZipDataset {
   size: number
 }
 
-export type ZipContents = { kind: 'gdb'; folder: string } | { kind: 'datasets'; datasets: ZipDataset[] } | { kind: 'empty' }
+export type ZipContents = { kind: 'gdb'; folder: string } | { kind: 'gtfs'; root: string; alternatives: string[] } | { kind: 'datasets'; datasets: ZipDataset[] } | { kind: 'empty'; gtfsMissing?: string[] }
 
 /** More than one dataset and none was chosen: the shell asks which. */
 export class ZipChoiceError extends Error {
@@ -55,6 +56,8 @@ export function inspectZip(bytes: Uint8Array): ZipContents {
   const names = [...sizes.keys()]
   const gdb = names.find((n) => /(^|\/)[^/]+\.gdb\//i.test(n))
   if (gdb) return { kind: 'gdb', folder: gdb.slice(0, gdb.toLowerCase().indexOf('.gdb/') + 4) }
+  const gtfs = gtfsFeedIn(bytes, names)
+  if (gtfs) return { kind: 'gtfs', ...gtfs }
   const datasets: ZipDataset[] = []
   for (const name of names) {
     if (!DATASET_EXTENSIONS.includes(extensionOf(name))) continue
@@ -62,7 +65,24 @@ export function inspectZip(bytes: Uint8Array): ZipContents {
     const entries = names.filter((n) => n === name || (stemOf(n) === stem && !DATASET_EXTENSIONS.includes(extensionOf(n)) && n.slice(0, n.lastIndexOf('/') + 1) === name.slice(0, name.lastIndexOf('/') + 1)))
     datasets.push({ name, entries, size: entries.reduce((sum, n) => sum + (sizes.get(n) ?? 0), 0) })
   }
-  return datasets.length ? { kind: 'datasets', datasets } : { kind: 'empty' }
+  if (datasets.length) return { kind: 'datasets', datasets }
+  // Spec 024: some of a feed's files and not all: say which are missing.
+  const partial = findPartialGtfs(names)
+  return partial ? { kind: 'empty', gtfsMissing: partial.missing } : { kind: 'empty' }
+}
+
+/** Spec 024: a GTFS feed (by content: the right files, then the columns of two of them), or null. Inflates only those two files. */
+function gtfsFeedIn(bytes: Uint8Array, names: readonly string[]): { root: string; alternatives: string[] } | null {
+  const found = findGtfsRoot(names)
+  if (!found) return null
+  const confirmed = [found.root, ...found.alternatives].filter((root) => {
+    const wanted = new Map(names.filter((n) => gtfsConfirmingFiles(root.toLowerCase()).includes(n.toLowerCase())).map((n) => [n, n.slice(n.lastIndexOf('/') + 1).toLowerCase()]))
+    const files = unzipSync(bytes, { filter: (f) => wanted.has(f.name) })
+    const heads: Record<string, Uint8Array> = {}
+    for (const [name, base] of wanted) if (files[name]) heads[base] = files[name]
+    return confirmGtfsHeaders(heads)
+  })
+  return confirmed.length ? { root: confirmed[0], alternatives: confirmed.slice(1) } : null
 }
 
 /** The dataset to open: the requested one, or the only one. */

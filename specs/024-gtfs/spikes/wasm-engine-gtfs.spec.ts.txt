@@ -1,0 +1,31 @@
+// SPIKE 024 (temporary): can the WASM engine's GTFS driver read an unzipped feed?
+import { test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const fx = path.resolve('../vscode-ext/fixtures')
+test('gtfs in the WASM engine', async ({ page }) => {
+  test.setTimeout(300000)
+  await page.goto('/?e2e=1')
+  const dir = path.join(fx, 'gtfs-mini')
+  const names = fs.readdirSync(dir)
+  const files = names.map((n) => ({ path: `/se-source/s/feed/${n}`, base64: fs.readFileSync(path.join(dir, n)).toString('base64') }))
+  files.push({ path: '/se-source/s/gtfs-mini.zip', base64: fs.readFileSync(path.join(fx, 'gtfs-mini.zip')).toString('base64') })
+  const D = '/se-source/s/feed'
+  const sqls = [
+    `SELECT short_name, can_open FROM ST_Drivers() WHERE short_name = 'GTFS'`,
+    `SELECT * FROM glob('${D}/*')`,
+    `SELECT count(*) FROM ST_Read('/se-source/s/gtfs-mini.zip', layer='stops')`,
+    `SELECT count(*) FROM ST_Read('GTFS:${D}', layer='stops')`,
+    `SELECT count(*) FROM ST_Read('GTFS:/vsizip//se-source/s/gtfs-mini.zip', layer='stops')`,
+    `SELECT count(*) FROM ST_Read('${D}', layer='stops', allowed_drivers=['GTFS'])`,
+    `SELECT * FROM ST_Read_Meta('GTFS:${D}')`,
+    `SELECT count(*) FROM ST_Read('${D}', layer='stops')`,
+    `SELECT count(*) FROM ST_Read('${D}/stops.txt')`,
+    // Route B pieces
+    `SELECT stop_id, ST_AsText(ST_Point(stop_lon, stop_lat)) g FROM read_csv('${D}/stops.txt')`,
+    `SELECT shape_id, ST_AsText(ST_MakeLine(list(ST_Point(shape_pt_lon, shape_pt_lat) ORDER BY shape_pt_sequence))) g FROM read_csv('${D}/shapes.txt') GROUP BY 1`,
+  ]
+  const out = await page.evaluate(([f, s]) => (window as unknown as { __spatialExplorerE2E: { spike(f: unknown, s: string[]): Promise<unknown> } }).__spatialExplorerE2E.spike(f, s), [files, sqls] as const)
+  fs.writeFileSync(path.resolve('../../specs/024-gtfs/spikes/wasm-engine-gtfs.json'), JSON.stringify(out, null, 1))
+})

@@ -1,0 +1,114 @@
+[
+ {
+  "sql": "SELECT short_name, can_open FROM ST_Drivers() WHERE short_name = 'GTFS'",
+  "ms": 4,
+  "n": 1,
+  "rows": [
+   {
+    "short_name": "GTFS",
+    "can_open": true
+   }
+  ]
+ },
+ {
+  "sql": "SELECT * FROM glob('/se-source/s/feed/*')",
+  "ms": 3,
+  "n": 7,
+  "rows": [
+   {
+    "file": "/se-source/s/feed/agency.txt"
+   },
+   {
+    "file": "/se-source/s/feed/calendar.txt"
+   },
+   {
+    "file": "/se-source/s/feed/routes.txt"
+   },
+   {
+    "file": "/se-source/s/feed/shapes.txt"
+   },
+   {
+    "file": "/se-source/s/feed/stop_times.txt"
+   },
+   {
+    "file": "/se-source/s/feed/stops.txt"
+   },
+   {
+    "file": "/se-source/s/feed/trips.txt"
+   }
+  ]
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/gtfs-mini.zip', layer='stops')",
+  "ok": false,
+  "error": "IO Error: GTFS: required .txt files missing\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/gtfs-mini.zip', layer='stops')\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('GTFS:/se-source/s/feed', layer='stops')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: GTFS:/se-source/s/feed\n\nLINE 1: SELECT count(*) FROM ST_Read('GTFS:/se-source/s/feed', layer='stops')\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('GTFS:/vsizip//se-source/s/gtfs-mini.zip', layer='stops')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: GTFS:/vsizip//se-source/s/gtfs-mini.zip\n\nLINE 1: SELECT count(*) FROM ST_Read('GTFS:/vsizip//se-source/s/gtfs-mini.zip', layer...\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/feed', layer='stops', allowed_drivers=['GTFS'])",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /se-source/s/feed\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/feed', layer='stops', allowed_drivers...\n                             ^"
+ },
+ {
+  "sql": "SELECT * FROM ST_Read_Meta('GTFS:/se-source/s/feed')",
+  "ok": false,
+  "error": "Permission Error: Cannot access file \"GTFS:/se-source/s/feed\" - file system operations are disabled by configuration\n\nLINE 1: SELECT * FROM ST_Read_Meta('GTFS:/se-source/s/feed')\n                      ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/feed', layer='stops')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /se-source/s/feed\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/feed', layer='stops')\n                             ^"
+ },
+ {
+  "sql": "SELECT count(*) FROM ST_Read('/se-source/s/feed/stops.txt')",
+  "ok": false,
+  "error": "IO Error: Could not open GDAL dataset at: /se-source/s/feed/stops.txt\n\nLINE 1: SELECT count(*) FROM ST_Read('/se-source/s/feed/stops.txt')\n                             ^"
+ },
+ {
+  "sql": "SELECT stop_id, ST_AsText(ST_Point(stop_lon, stop_lat)) g FROM read_csv('/se-source/s/feed/stops.txt')",
+  "ms": 18,
+  "n": 5,
+  "rows": [
+   {
+    "stop_id": "S1",
+    "g": "POINT (-104.9903 39.7392)"
+   },
+   {
+    "stop_id": "S2",
+    "g": "POINT (-105.0003 39.7527)"
+   },
+   {
+    "stop_id": "S3",
+    "g": "POINT (-104.98 39.76)"
+   },
+   {
+    "stop_id": "S4",
+    "g": "POINT (-105.02 39.73)"
+   },
+   {
+    "stop_id": "S5",
+    "g": "POINT (-104.9 39.7)"
+   }
+  ]
+ },
+ {
+  "sql": "SELECT shape_id, ST_AsText(ST_MakeLine(list(ST_Point(shape_pt_lon, shape_pt_lat) ORDER BY shape_pt_sequence))) g FROM read_csv('/se-source/s/feed/shapes.txt') GROUP BY 1",
+  "ms": 23,
+  "n": 1,
+  "rows": [
+   {
+    "shape_id": "SH1",
+    "g": "LINESTRING (-104.9903 39.7392, -104.995 39.745, -105.0003 39.7527)"
+   }
+  ]
+ }
+]

@@ -68,6 +68,8 @@ export interface Layer {
    * `importStyle()` and applied on open (design-plan.md §8.5).
    */
   styleSidecar: { fileName: string; text: string } | null
+  /** Spec 024: the style a format of its own starts with (a GTFS feed), used when there is no sidecar. */
+  defaultStyle?: import('./style/model.js').LayerStyle
   /** Milliseconds per load step, for logs. Diagnostic only. */
   loadTimings?: Record<string, number>
   /** Whole-file facts, never derived from what's on screen (spec 007 FR-001). */
@@ -109,6 +111,8 @@ export interface DatasetFacts {
   spatialIndex: SpatialIndexKind
   /** Why the whole file is being read, when partial reads failed (FR-015). */
   fallback: string | null
+  /** Spec 024: a caveat about how the file was drawn (a GTFS feed), shown once over the map. */
+  notice?: string
   /**
    * FlatGeobuf read in parts (T044): the map works, but queries, the table,
    * thematic styles and export wait until the user loads the whole file.

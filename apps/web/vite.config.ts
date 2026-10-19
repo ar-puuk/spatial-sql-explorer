@@ -27,5 +27,12 @@ export default defineConfig({
   // it instead.
   optimizeDeps: {
     exclude: ['maplibre-gl']
+  },
+  server: {
+    watch: {
+      // The test runs' copy of the engine (scripts/engine-assets.mjs --mirror): large binaries that never change and that
+      // Windows keeps locked while the app or a test reads them, which made the watcher fail on every start with EBUSY.
+      ignored: ['**/public/engine-mirror/**']
+    }
   }
 })

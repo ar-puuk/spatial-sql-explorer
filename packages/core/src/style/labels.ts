@@ -21,6 +21,8 @@ export interface LabelSettings {
   color: string
   halo: { enabled: boolean; color: string; width: number }
   placement: LabelPlacement
+  /** Spec 024: labels show from this map zoom on (absent: at every zoom). */
+  minZoom?: number
 }
 
 export const LABEL_SIZE = Object.freeze({ min: 6, max: 48, default: 12 })
@@ -51,6 +53,7 @@ export function sanitizeLabels(raw: unknown): LabelSettings | undefined {
       : p.kind === 'polygon'
         ? { kind: 'polygon' }
         : { kind: 'point', anchor: ANCHORS.includes(p.anchor as LabelAnchor) ? (p.anchor as LabelAnchor) : 'above', offset: num(p.offset, LABEL_OFFSET) }
+  const minZoom = typeof r.minZoom === 'number' && Number.isFinite(r.minZoom) && r.minZoom > 0 ? Math.min(24, Math.round(r.minZoom * 10) / 10) : undefined
   return {
     enabled: r.enabled === true,
     source,
@@ -58,6 +61,7 @@ export function sanitizeLabels(raw: unknown): LabelSettings | undefined {
     color: color(r.color, DEFAULT_LABEL_COLOR),
     halo: { enabled: halo.enabled !== false, color: color(halo.color, DEFAULT_HALO_COLOR), width: num(halo.width, LABEL_HALO_WIDTH) },
     placement,
+    ...(minZoom !== undefined ? { minZoom } : {}),
   }
 }
 

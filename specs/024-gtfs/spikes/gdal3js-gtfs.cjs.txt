@@ -1,0 +1,22 @@
+// SPIKE 024: does gdal3.js (GDAL 3.8.4) read a GTFS zip / folder? Run from the repo root (copy to a .cjs file).
+const initGdalJs = require('gdal3.js/node.js')
+const path = require('path'), fs = require('fs')
+;(async () => {
+  const Gdal = await initGdalJs()
+  console.log('GTFS driver:', Object.keys(Gdal.drivers.vector).includes('GTFS'))
+  const fx = path.resolve('tests/vscode-ext/fixtures')
+  for (const p of [path.join(fx, 'gtfs-mini.zip'), path.join(fx, 'gtfs-mini-nested.zip')]) {
+    const r = await Gdal.open(p)
+    console.log(path.basename(p), 'datasets', r.datasets.length, JSON.stringify(r.errors))
+    if (!r.datasets.length) continue
+    const info = await Gdal.getInfo(r.datasets[0])
+    console.log(' layers', (info.layers || []).map((l) => `${l.name}:${l.featureCount}:${(l.geometryFields||[]).map(g=>g.type)}`).join(' | '))
+    for (const layer of ['stops', 'trips', 'shapes_geom']) {
+      try {
+        const o = await Gdal.ogr2ogr(r.datasets[0], ['-f', 'GeoJSON', layer], layer)
+        const txt = Buffer.from(await Gdal.getFileBytes(o)).toString()
+        console.log(' ', layer, txt.slice(0, 300).replace(/\s+/g, ' '))
+      } catch (e) { console.log(' ', layer, 'ERR', String(e && (e.message || JSON.stringify(e))).slice(0, 200)) }
+    }
+  }
+})().catch((e) => console.error('FAIL', e))

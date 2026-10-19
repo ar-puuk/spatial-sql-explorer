@@ -1,0 +1,22 @@
+const http = require('http'), fs = require('fs'), path = require('path')
+const { createRequire } = require('module')
+const req = createRequire('D:/GitHub/spatial-sql-explorer/tests/web/package.json')
+const { chromium } = req('@playwright/test')
+const pkg = 'D:/GitHub/spatial-sql-explorer/node_modules/gdal3.js/dist/package'
+const types = { '.js': 'text/javascript', '.wasm': 'application/wasm', '.html': 'text/html', '.data': 'application/octet-stream' }
+const srv = http.createServer((q, s) => {
+  const u = q.url.split('?')[0]
+  const f = u.startsWith('/pkg/') ? path.join(pkg, u.slice(5)) : path.join(__dirname, u === '/' ? 'index.html' : u.slice(1))
+  if (!fs.existsSync(f)) { s.statusCode = 404; return s.end() }
+  s.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); fs.createReadStream(f).pipe(s)
+}).listen(4291, async () => {
+  const browser = await chromium.launch({ channel: 'chrome' })
+  const page = await browser.newPage()
+  await page.goto('http://localhost:4291/')
+  await page.setInputFiles('#f', process.argv.slice(2))
+  const t = Date.now()
+  const out = await page.evaluate(() => window.run())
+  console.log('wall ms', Date.now() - t)
+  for (const l of out) console.log(JSON.stringify(l))
+  await browser.close(); srv.close()
+})

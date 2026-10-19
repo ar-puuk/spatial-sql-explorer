@@ -316,6 +316,9 @@ export interface ViewerStore {
   setProjection(projection: 'mercator' | 'globe'): void
   /** The map's camera after its last move (null before the first). */
   readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
+  /** The map's zoom as it moves (a frame at a time), or null before the first move; `mapCamera` has it only after the move ends. */
+  readonly mapZoom: number | null
+  setMapZoom(zoom: number): void
   /** The map moved: its camera and (spec 010) its WGS84 bounds. */
   setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds?: [number, number, number, number]): void
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
@@ -946,6 +949,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // The map always opens flat; the globe is a view for this session, not
   // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
+  let mapZoom = $state.raw<number | null>(null)
   let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
 
   /**
@@ -1398,7 +1402,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (original) {
       setLayer(original)
       session.selectedFeatureId = null
-      applySidecar(original.styleSidecar)
+      applyInitialStyle(original)
       loadedAll = false
       void refreshDraw()
     }
@@ -1912,6 +1916,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
+    if (facts?.notice && !fallbackDismissed) return { text: facts.notice, kind: 'info', dismissible: true }
     return null
   })
 
@@ -2102,7 +2107,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         style = keptStyle.style
         styleSource = keptStyle.styleSource
         styleDirty = keptStyle.styleDirty
-      } else applySidecar(layer.styleSidecar)
+      } else applyInitialStyle(layer)
       // File-level metadata (FR-006): the whole file, not the displayed result.
       hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: layer.facts?.invalid === null ? 'rows' : 'features' })
     } catch (err) {
@@ -2128,6 +2133,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (session.loadState !== 'loading') return
     openCancelled = true
     await openInterrupt?.().catch(() => {})
+  }
+
+  /** The style a file opens with: its sidecar, else the one its format brings (a GTFS feed's), else the plain default. */
+  function applyInitialStyle(layer: { styleSidecar: { fileName: string; text: string } | null; defaultStyle?: LayerStyle }): void {
+    applySidecar(layer.styleSidecar)
+    if (!layer.styleSidecar && layer.defaultStyle) style = sanitizeStyle(layer.defaultStyle)
   }
 
   function applySidecar(sidecar: { fileName: string; text: string } | null): void {
@@ -2463,8 +2474,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get mapCamera() {
       return mapCamera
     },
+    get mapZoom() {
+      return mapZoom
+    },
+    setMapZoom(zoom) {
+      mapZoom = zoom
+    },
     setMapCamera(camera, bounds) {
       mapCamera = camera
+      mapZoom = camera.zoom
       if (bounds) lastViewBbox = bounds
     },
     setProjection(next) {

@@ -321,6 +321,23 @@ function createGdbHost(): GdbHost {
       }
       return { source: { kind: 'url', name: r.name, size: r.size, url: r.url, sidecars: [], styleSidecar: null }, domains: r.domains }
     },
+    /** Spec 024: the extension host converts GDAL's GTFS layers; they come back by URL. */
+    async convertFeed(zip: Uint8Array, layers: readonly string[], options?: GdbCallOptions): Promise<Record<string, Uint8Array>> {
+      // Webview messages are JSON: the feed travels as base64 chunks, like an export going the other way.
+      const transferId = nextTransferId++
+      const count = Math.max(1, Math.ceil(zip.length / SAVE_CHUNK_BYTES))
+      for (let index = 0; index < count; index++) {
+        post({ type: 'saveFileChunk', transferId, index, count, bytesBase64: bytesToBase64(zip.subarray(index * SAVE_CHUNK_BYTES, (index + 1) * SAVE_CHUNK_BYTES)) })
+      }
+      const r = await ask<{ files: Record<string, { url: string }> }>({ type: 'gtfsConvert', transferId, totalBytes: zip.length, layers: [...layers] }, options)
+      const out: Record<string, Uint8Array> = {}
+      for (const [layer, file] of Object.entries(r.files)) {
+        const res = await fetch(file.url)
+        if (!res.ok) throw new GdbErrorClass(`The converted ${layer} could not be read (${res.status}).`, 'unreadable')
+        out[layer] = new Uint8Array(await res.arrayBuffer())
+      }
+      return out
+    },
   }
 }
 

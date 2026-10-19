@@ -1,6 +1,22 @@
 <!--
 Sync Impact Report
-Version change: 1.4.0 → 1.5.0 (spec 013, user decision 2026-10-18)
+Version change: 1.5.0 → 1.6.0 (spec 024, user decision 2026-10-19)
+Modified principles:
+  - I. Scope Discipline: opening a GTFS transit feed (a zip or folder of text tables) is LOOK, and
+    drawing its routes and stops together is one styled result, not a second map layer. Timetables,
+    service-day filters, validation, editing and network analysis stay out of scope.
+  - IV. Local-First and Private: gdal3.js is now also fetched the first time a GTFS feed is opened
+    (same pinned, hash-checked file as for File Geodatabases; no new download).
+  - VIII. Clean-Room References: GTFS-X (AGPL-3.0) is added as a reference tool. Its code is never
+    copied or adapted (AGPL would bind this project); only the visual decisions are followed.
+  - Technology & Platform Constraints: gdal3.js also reads GTFS (the GDAL GTFS driver in DuckDB-WASM's
+    own build cannot list a registered folder or zip: specs/024-gtfs/research.md).
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: delete the gdal3.js GTFS reader if the engine's GTFS driver starts to open registered folders.
+
+Previous: 1.4.0 → 1.5.0 (spec 013, user decision 2026-10-18)
 Modified principles:
   - IV. Local-First and Private: one more pinned download. gdal3.js (GDAL 3.8.4 in
     WebAssembly, LGPL-2.1+, used unmodified as a separate file) is fetched from jsDelivr
@@ -112,7 +128,7 @@ first-party VS Code feature, not a web page embedded in a webview.
 ### IV. Local-First and Private
 User data never leaves the machine. No telemetry is collected without explicit
 opt-in. The network is used only for basemap tiles/styles, downloading the SQL engine's code
-(DuckDB-WASM, its extensions, sql.js and, only when a File Geodatabase is opened, gdal3.js,
+(DuckDB-WASM, its extensions, sql.js and, only when a File Geodatabase or a GTFS feed is opened, gdal3.js,
 from pinned URLs, each checked against a SHA-256 recorded at build time before it runs;
 the engine is not bundled, and each shell keeps a local copy after the first download), and the place search, which sends only the text the user
 types, is disclosed before first use, and can be turned off — never for user data
@@ -150,9 +166,10 @@ intended for daily professional use.
 
 ### VIII. Clean-Room References
 Reference tools (Data Wrangler, Hex Editor, GitLens, SQLite Viewer, built-in Image
-Preview, GeoLibre, omx-viewer) may inform product and UX DECISIONS and DESIGN only.
+Preview, GeoLibre, omx-viewer, GTFS-X) may inform product and UX DECISIONS and DESIGN only.
 Copying code or shipping assets from any reference tool is prohibited, particularly
-where licensing is mixed or unclear (e.g. GitLens assets).
+where licensing is mixed or unclear (e.g. GitLens assets) or copyleft (GTFS-X is
+AGPL-3.0: follow its look, never its code).
 **Rationale**: avoids license contamination and keeps the team's design reasoning
 explicit rather than borrowed.
 
@@ -188,7 +205,8 @@ rebuilding rather than patching.
   `.geojson .csv .parquet .json` (never hijack built-in text/data viewers); an
   explorer/context command for folder-based formats (`.gdb`) that cannot bind to a
   custom editor (spec 013 reads them with gdal3.js: in a child process of the extension host,
-  in a worker on the web); status bar items for CRS/feature count/cursor coordinates; an output
+  in a worker on the web; spec 024 reads GTFS feeds, zip or folder, the same way, and detects
+  them by content, never by file name); status bar items for CRS/feature count/cursor coordinates; an output
   channel for query logs and timings.
 - Basemap catalog is DATA (one table: id, name, type, url template, attribution,
   requiresKey, region) — the UI renders from it, and adding a provider means adding a
@@ -225,4 +243,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.5.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-18
+**Version**: 1.6.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-19

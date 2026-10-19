@@ -1,0 +1,4 @@
+route_id,agency_id,route_short_name,route_long_name,route_type,route_color,route_text_color
+R1,A,1,Central–Union,3,E4572E,FFFFFF
+R2,A,2,Park–Lake,3,,
+R3,A,L,Light rail,0,17BEBB,000000

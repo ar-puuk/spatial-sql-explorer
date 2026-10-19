@@ -92,10 +92,12 @@ export interface TestOverrides {
   tileRows?: number
   /** `true`: a 3 s cancellable pause in the open; `'stuck'`: an 8 s pause that ignores Cancel, like a GDAL parse. */
   slowParse?: boolean | 'stuck'
+  /** Spec 024: a GTFS feed is read without the GDAL reader (the SQL fallback). */
+  noGdal?: boolean
 }
 
 /** Query-string keys honored with `e2e=1` (documented in tests/web/specs/helpers.ts). */
-export const TEST_OVERRIDE_KEYS = ['wholeThreshold', 'wholeBytes', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowParse', 'tileRows', 'slowTileMs'] as const
+export const TEST_OVERRIDE_KEYS = ['wholeThreshold', 'wholeBytes', 'materializeCap', 'jenksSample', 'memoryLimit', 'slowParse', 'tileRows', 'slowTileMs', 'noGdal'] as const
 
 let overrides: TestOverrides = {}
 
@@ -124,6 +126,7 @@ export function parseTestOverrides(search: string): TestOverrides {
   num('slowTileMs')
   const mem = params.get('memoryLimit')
   if (mem && /^\d+(\.\d+)?\s*(KB|MB|GB|KiB|MiB|GiB)$/i.test(mem)) out.memoryLimit = mem
+  if (params.get('noGdal') === '1') out.noGdal = true
   if (params.get('slowParse') === '1') out.slowParse = true
   else if (params.get('slowParse') === 'stuck') out.slowParse = 'stuck'
   return out

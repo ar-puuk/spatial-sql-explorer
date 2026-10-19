@@ -160,6 +160,16 @@
           "command": "spatialExplorer.openInViewer",
           "when": "explorerResourceIsFolder && resourceExtname == .gdb",
           "group": "navigation@20"
+        },
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "resourceFilename =~ /^(stops|routes|trips|stop_times|agency|calendar|calendar_dates|shapes|feed_info|transfers)\\.txt$/i && !explorerResourceIsFolder",
+          "group": "navigation@20"
+        },
+        {
+          "command": "spatialExplorer.openInViewer",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /gtfs|transit|feed/i",
+          "group": "navigation@20"
         }
       ],
       "editor/title/context": [
@@ -179,7 +189,7 @@
       "commandPalette": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i"
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i || resourceFilename =~ /^(stops|routes|trips|stop_times|agency|calendar|calendar_dates|shapes|feed_info|transfers)\\.txt$/i"
         },
         {
           "command": "spatialExplorer.exportData",

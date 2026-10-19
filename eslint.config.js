@@ -8,6 +8,10 @@ import tsParser from '@typescript-eslint/parser'
 import globals from 'globals'
 
 export default [
+  // Generated output and local tool folders are not source: built apps, the extension bundle, test runs, the engine mirror.
+  {
+    ignores: ['**/node_modules/**', '**/dist/**', '**/dist2/**', '**/dist-webview/**', '**/out/**', '**/test-results/**', '**/playwright-report/**', '**/.vscode-test/**', '**/public/engine-mirror/**', '**/public/maplibre/**'],
+  },
   js.configs.recommended,
   ...svelte.configs['flat/recommended'],
 
