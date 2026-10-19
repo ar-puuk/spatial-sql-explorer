@@ -13,14 +13,14 @@ Open a GTFS feed (a `.zip` or a folder of `.txt` files) in either shell and see 
 5. **Export** the routes or stops like any layer (GeoJSON, GeoParquet, CSV, …).
 
 ## Scope
-In: routes layer (lines) and stops layer (points), drawn together as one styled result; detection; both shells; the GTFS-X default style; QML round trip of that style.
+In: the network (routes as lines and stops as points) drawn together as one styled result, with `routes` and `stops` as layers of their own; detection; both shells; the GTFS-X default style; QML round trip of that style.
 Out (this spec): timetables, service-day filter, validation, headway analysis, editing, GTFS-Realtime (`.pb`) feeds, GTFS-Flex, demographics or coverage. A service-day filter on the time slider (spec 020) is a later idea.
 
 ## Requirements
 - **FR-1 Detection by content.** A zip or folder is a GTFS feed when it holds `stops.txt`, `routes.txt`, `trips.txt` and `stop_times.txt` at its top level (or under one wrapper folder), and the headers of `stops.txt` (`stop_id`) and `routes.txt` (`route_id`) confirm it. Names and extensions are never used. A zip nested inside is ignored. Anything else follows today's zip rules.
 - **FR-2 Opens by default only when sure.** A confirmed feed opens without the dataset chooser. `.zip` remains an "Open With" editor and a context-menu entry in VS Code; the web app takes it by pick or drop.
 - **FR-3 Layers.** The open layer is the network: one row per route (a line, its shapes merged) and per stop (a point), with `kind, id, name, routes, route_type, trips, route_count, color`. `routes` (every `routes.txt` column, a line each, and the number of trips) and `stops` (every stop column and the routes that serve it) are layers of their own, and every other table is a view; SQL names are the feed as a schema (`gtfs.routes`, `gtfs.stops`, `gtfs.network`).
-- **FR-4 Default style** as in research §4: route color as is, fallback `#888888`; width 3 with round caps; arrows from zoom 12; names from zoom 13; stops as two-ring dots 3 to 6 px over zoom 10–14, `#8B7E74` when unserved; stop names from zoom 13; clusters on large feeds. The style is editable like any other.
+- **FR-4 Default style** after GTFS-X (research §4, §9): route color as given, `#888888` where the feed has none; 3 px lines with direction arrows; stops as dots in the color of a route that serves them (`#8B7E74` when none does) with a white outline; route and stop names from zoom 13. Not yet: GTFS-X's two-ring stops, sizes that grow with zoom, arrows only from zoom 12, clusters on large feeds. The style is editable like any other.
 - **FR-5 Missing pieces degrade.** No `shapes.txt`: route lines join a representative trip's stops in order, and the layer card says so. Routes without trips, and stops without coordinates, are left out and counted. Missing required files are named in the message.
 - **FR-6 Bounded.** A feed that cannot fit in memory says so (spec 013's limits apply); large `stop_times` are read by the engine, not held in JavaScript.
 - **FR-7 Private.** Nothing leaves the machine; the only download is the existing pinned gdal3.js, first use only.
