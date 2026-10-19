@@ -91,3 +91,10 @@ Decision (T004): the reader gives GDAL a flat in-memory folder in which `stop_ti
 - Not copied from GTFS-X, on purpose: (a) its two-ring stop (colored ring, white center): one color channel paints a mixed layer's lines and dot fills together, so a white center would need a second channel on stops only. (b) zoom-dependent sizes (stop radius 3 to 6 from zoom 10 to 14, arrows from zoom 12): sizes are fixed pixels in this style model; only label text got a minimum zoom. Both are small additions if wanted later.
 - `LabelSettings.minZoom` (new, optional): the label layers' `text-size` is `['step', ['zoom'], 0, minZoom, size]`. It rides along in QML's `spatialExplorer/style`.
 - The feed is WGS84 by definition (`knownSrid`), so the status bar no longer says the CRS is assumed.
+
+## 10. Folders, and two bugs the VS Code run found (T010)
+
+- A folder of text files is turned into a zip (stored, flat) and then opens like any zip. The web shell does it in the page from the picked or dropped files; the extension host does it into `globalStorage/gtfs-folders/<key>.zip` (key: the files' names, sizes and times; the five newest are kept) when a table of the feed is opened. The folder's name is the zip's name, so it is the SQL schema (`gtfs.routes`).
+- VS Code opens files, not folders: the explorer entry on a folder opens its `stops.txt` with the Spatial Explorer editor (`vscode.openWith` with the view type works although `.txt` is not in the editor's selector, so `.txt` is not claimed by the extension). The entries appear on a feed's table files and on folders whose name has gtfs, transit or feed; the command checks the folder by content.
+- Bug 1: webview messages are JSON, so the feed sent as an ArrayBuffer arrived empty and GDAL said "not a readable geodatabase". It travels as base64 chunks (the way an export goes the other way).
+- Bug 2 (older than this spec): data sidecars were found by file name without checking they were files, so a folder named like the data (`feed/` beside `feed.zip`) was registered and its request crashed the loopback server (`createReadStream` with `end = -1`). Only files are sidecars now.

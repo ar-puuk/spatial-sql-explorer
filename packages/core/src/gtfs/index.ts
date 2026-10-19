@@ -2,3 +2,4 @@
 export * from './detect.js'
 export * from './feed.js'
 export * from './style.js'
+export * from './folder.js'

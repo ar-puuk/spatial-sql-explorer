@@ -9,6 +9,6 @@
 - [x] T007 Routes and stops views, naming, `layer` (`gtfs/open.ts`, `gtfs/sql.ts`; routes = open layer built from a SQL reader, `schema.stops` with the routes serving each stop, every other table a text view). Verified on the fixture and the UTA feed
 - [x] T008 One result for routes and stops: decided UNION. The open layer is the `network` (columns kind, id, name, routes, route_type, trips, route_count, color, geom); `layer` and `<schema>.network` are it; `routes` and `stops` are views with every column. No map-layer change (a mixed-geometry layer is already drawn)
 - [x] T009 Default GTFS style (`gtfs/style.ts`): color as given from the `color` column, 3 px lines with arrows, white-outlined stop dots, labels from zoom 13 (new `LabelSettings.minZoom`), QML round trip tested. No ring-dot marker (see research §9)
-- [ ] T010 Open paths in both shells (pick, drop, context menu); no dataset chooser for a confirmed feed
+- [x] T010 Open paths: web ("GTFS folder…" menu item, a dropped folder, loose .txt files chosen together: `gtfs/folder.ts` makes the zip, `apps/web/src/gtfsFolder.ts`); VS Code ("Open in Spatial Explorer" on a folder or on a feed table, `apps/vscode-ext/src/gtfsFolder.ts`; the feed travels to the extension host as base64 chunks). Verified in Chrome and in real VS Code (`tests/vscode-ext/src/suite/gtfs.test.ts`); a zip never shows the dataset chooser
 - [ ] T011 SQL fallback (Route B) and its tests
 - [ ] T012 Browser + extension tests, accessibility check, CHANGELOG, CLAUDE.md

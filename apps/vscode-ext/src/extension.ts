@@ -5,6 +5,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { BASEMAP_HOSTS } from './basemapHosts.generated'
 import { DEFAULT_CACHE_LIMIT_MB, GdbNodeReader, type GdbSource } from './gdbReader'
+import { gtfsFolderZip, gtfsMarkerIn } from './gtfsFolder'
 import type { GdbCatalog, GdbLayerInfo, GdbProgress } from '../../../packages/core/src/gdb/types'
 
 // SpatialExplorerDocument — minimal CustomDocument wrapper. No in-memory
@@ -50,7 +51,7 @@ type WebviewToHostMessage =
   | { type: 'engineFile'; requestId: number; name: string; url: string; sha256: string; refresh: boolean }
   | { type: 'gdbList'; requestId: number }
   | { type: 'gdbConvert'; requestId: number; layer: GdbLayerInfo; assumeCrs?: number }
-  | { type: 'gtfsConvert'; requestId: number; zip: ArrayBuffer; layers: string[] }
+  | { type: 'gtfsConvert'; requestId: number; transferId: number; totalBytes: number; layers: string[] }
   | { type: 'gdbCancel'; requestId: number }
   | { type: 'pruneEngineFiles'; keep: string[] }
   | { type: 'saveState'; requestId: number; key: string; value: unknown }
@@ -614,18 +615,22 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
    * `FileSource`), via the initFileStart/initFileChunk/initFilesDone
    * protocol (contracts/host-webview-protocol.md).
    */
-  private async sendAssetsAndFile(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri, documentUri: vscode.Uri): Promise<void> {
+  private async sendAssetsAndFile(panel: vscode.WebviewPanel, webviewRoot: vscode.Uri, openedUri: vscode.Uri): Promise<void> {
+    // Spec 024: a table of a GTFS feed that is a folder of text files: the viewer is given the folder as a zip.
+    const feedZip = openedUri.scheme === 'file' ? await gtfsFolderZip(openedUri.fsPath, path.join(this.context.globalStorageUri.fsPath, 'gtfs-folders')) : null
+    const documentUri = feedZip ? vscode.Uri.file(feedZip.fsPath) : openedUri
+    const shownName = feedZip ? feedZip.name : displayNameOf(openedUri)
     // Spec 008 research §15: the SQL engine isn't shipped; the webview downloads it (hash-checked).
     const maplibreWorkerUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'maplibre', 'maplibre-gl-worker.mjs'))
     const primaryName = path.basename(documentUri.fsPath)
-    panel.title = displayNameOf(documentUri)
+    panel.title = shownName
     await panel.webview.postMessage({
       type: 'assets',
       maplibreWorkerUrl: maplibreWorkerUri.toString(),
       placeSearchEnabled: placeSearchEnabled(),
-      primaryFileName: displayNameOf(documentUri),
+      primaryFileName: shownName,
       // Stable per-file key for persisted webview state (spec 002 history).
-      primaryFileUri: documentUri.toString(),
+      primaryFileUri: openedUri.toString(),
     })
 
     try {
@@ -636,8 +641,9 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       try {
         if (gdbSourceOf(documentUri)?.zip === false) throw new Error('a geodatabase table file has no sidecars')
         const entries = await vscode.workspace.fs.readDirectory(dirUri)
-        for (const [entryName] of entries) {
-          if (entryName === primaryName) continue
+        for (const [entryName, entryType] of entries) {
+          // Files only: a folder named like the data (`feed/` beside `feed.zip`) is not a sidecar, and serving it fails.
+          if (entryName === primaryName || (entryType & vscode.FileType.File) === 0) continue
           const entryBase = entryName.slice(0, entryName.length - path.extname(entryName).length)
           if (entryBase === basename) files.push({ name: entryName, uri: vscode.Uri.joinPath(dirUri, entryName), isPrimary: false })
         }
@@ -864,7 +870,11 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
     try {
       const token = this.sources.get(panel)?.token
       if (!token) return void reply({ error: "This window can't serve files to the viewer, so the feed can't be shown.", code: 'unreadable' })
-      const paths = await gdbReader().convertFeed(new Uint8Array(msg.zip), msg.layers, { signal: abort.signal, onProgress: progress })
+      const chunks = pendingSaves.get(msg.transferId) ?? []
+      pendingSaves.delete(msg.transferId)
+      const zip = Buffer.concat(chunks.map((c) => Buffer.from(c ?? '', 'base64')))
+      if (zip.length !== msg.totalBytes) throw new Error(`The feed arrived incomplete (${zip.length} of ${msg.totalBytes} bytes).`)
+      const paths = await gdbReader().convertFeed(new Uint8Array(zip.buffer, zip.byteOffset, zip.length), msg.layers, { signal: abort.signal, onProgress: progress })
       const files: Record<string, { url: string; size: number }> = {}
       for (const [layer, fsPath] of Object.entries(paths)) {
         const served = `gtfs/${path.basename(path.dirname(fsPath))}-${path.basename(fsPath)}`
@@ -1058,6 +1068,20 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           return
         }
         await vscode.commands.executeCommand('vscode.openWith', marker, 'spatialExplorer.editorOption')
+        return
+      }
+      // Spec 024: a folder that is a GTFS feed opens through its stops.txt (the viewer turns the folder into a zip).
+      const isFolder = await vscode.workspace.fs.stat(target).then(
+        (stat) => (stat.type & vscode.FileType.Directory) !== 0,
+        () => false
+      )
+      if (isFolder && target.scheme === 'file') {
+        const marker = await gtfsMarkerIn(target.fsPath).catch(() => null)
+        if (!marker) {
+          void vscode.window.showWarningMessage(`"${path.basename(target.fsPath)}" doesn't look like a GTFS feed: it needs stops.txt, routes.txt, trips.txt and stop_times.txt.`)
+          return
+        }
+        await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(marker), 'spatialExplorer.editorOption')
         return
       }
       const viewType = DEFAULT_EDITOR_EXTENSIONS.has(ext) ? 'spatialExplorer.editor' : 'spatialExplorer.editorOption'

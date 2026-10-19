@@ -1,6 +1,6 @@
 <script lang="ts">
   // One way in for every file: a split button. The main part opens the file picker (what most people want);
-  // the arrow offers the one other kind of source, a File Geodatabase folder, which a file picker cannot
+  // the arrow offers the other kinds of source, a File Geodatabase folder or a GTFS folder, which a file picker cannot
   // choose (spec 013, experimental). Menu pattern as ThemeMenu: WAI-ARIA menu, arrow keys, Esc.
   import { onMount, tick } from 'svelte'
   import { Icon } from '@spatial-explorer/ui'
@@ -83,6 +83,9 @@
       <button type="button" role="menuitem" tabindex="-1" onclick={() => choose(onFile)}><Icon name="import" size={14} /><span>File…</span></button>
       <button type="button" role="menuitem" tabindex="-1" title="A File Geodatabase is a folder that ends in .gdb" onclick={() => choose(onFolder)}
         ><Icon name="folder" size={14} /><span>Geodatabase folder…</span><span class="badge">Experimental</span></button
+      >
+      <button type="button" role="menuitem" tabindex="-1" title="A GTFS feed is a folder of text files (stops.txt, routes.txt, …); a .zip opens with File" onclick={() => choose(onFolder)}
+        ><Icon name="folder" size={14} /><span>GTFS folder…</span></button
       >
     </div>
   {/if}

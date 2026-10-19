@@ -7,6 +7,7 @@
   import { decodeShareState, encodeShareState, peekDuckDb, SHARE_MAX_LENGTH, type ShareState } from '@spatial-explorer/core'
   import { createWebHostAdapter, pickFolder, provideFiles, rangeReads, setThemePreference, type ThemePreference } from './hostAdapter.js'
   import { dropHasFolder, filesFromDrop } from './dropFiles.js'
+  import { gtfsFeedFile } from './gtfsFolder.js'
   import ThemeMenu from './ThemeMenu.svelte'
   import OpenMenu from './OpenMenu.svelte'
   import Landing from './Landing.svelte'
@@ -250,7 +251,14 @@
     // resolves — a real bug caught via Playwright testing, not a platform
     // issue (see tasks.md T029/T030's notes).
     void store.load()
-    provideFiles(files)
+    // Spec 024: a GTFS feed picked as a folder, or as its loose text files, is one zip from here on.
+    void gtfsFeedFile(files).then(
+      (feed) => {
+        if (feed) fileName = feed.name
+        provideFiles(feed ? [feed] : files)
+      },
+      () => provideFiles(files)
+    )
     fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
   }
 

@@ -65,3 +65,45 @@ test.describe('a real feed', () => {
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs.stops WHERE route_count IS NULL`)).not.toBe('5425')
   })
 })
+
+// A feed as a folder: the "GTFS folder…" menu item (the folder picker) or dropped / multi-picked text files.
+test.describe('a GTFS feed as a folder of text files', () => {
+  test.setTimeout(180000)
+  const rendered = (page: Page) => page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 90000 })
+  const start = async (page: Page): Promise<void> => {
+    await page.addInitScript(() => delete (window as unknown as Record<string, unknown>).showDirectoryPicker)
+    await page.route('https://tiles.openfreemap.org/styles/**', (route) => route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } }))
+    await page.goto('/')
+  }
+
+  test('picked with the folder button, it opens like the zip, named after the folder', async ({ page }) => {
+    await start(page)
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'More ways to open' }).click()
+    await page.getByRole('menuitem', { name: /GTFS folder/ }).click()
+    await (await chooser).setFiles(fixture('gtfs-mini'))
+    await rendered(page)
+    await expect(page.locator('.file')).toContainText('gtfs-mini.zip')
+    await openQueryPanel(page)
+    await showSql(page)
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.routes`)).toBe('3')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+  })
+
+  test('its loose text files, chosen together, are the same feed', async ({ page }) => {
+    await start(page)
+    const names = ['agency', 'calendar', 'routes', 'shapes', 'stop_times', 'stops', 'trips'].map((n) => fixture(`gtfs-mini/${n}.txt`))
+    await page.locator('input[type="file"]').setInputFiles(names)
+    await rendered(page)
+    await openQueryPanel(page)
+    await showSql(page)
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+  })
+
+  test('a folder of something else is not taken for a feed', async ({ page }) => {
+    await start(page)
+    await page.locator('input[type="file"]').setInputFiles([fixture('points.csv')])
+    await rendered(page)
+    await expect(page.locator('.file')).toContainText('points.csv')
+  })
+})

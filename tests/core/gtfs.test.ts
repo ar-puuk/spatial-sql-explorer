@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { confirmGtfsHeaders, csvHeader, findGtfsRoot, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes } from '@spatial-explorer/core'
+import { confirmGtfsHeaders, csvHeader, findGtfsRoot, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes, zipGtfsFolder, type FolderEntry } from '@spatial-explorer/core'
 import { gtfsLayerNames, routesReaderSql } from '../../packages/core/src/gtfs/sql'
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s)
@@ -176,5 +176,39 @@ describe('the feed in SQL', () => {
     expect(routesReaderSql(inv)).not.toContain('se-gtfs-trips.fgb')
     expect(routesReaderSql({ ...inv, geometry: ['stops', 'shapes_geom', 'trips'] })).toContain('se-gtfs-trips.fgb')
     expect(routesReaderSql({ tables: inv.tables, geometry: ['stops', 'trips'] })).not.toContain('se-gtfs-shapes_geom.fgb')
+  })
+})
+
+describe('zipGtfsFolder (a feed that is a folder of text files)', () => {
+  const entries = (files: Record<string, string>): FolderEntry[] =>
+    Object.entries(files).map(([path, content]) => ({ path, head: async () => text(content).slice(0, 64), read: async () => text(content) }))
+
+  it('makes a zip of a picked folder, named after it, and the zip is found as a feed', async () => {
+    const got = await zipGtfsFolder(entries({ ...feed('google_transit/'), 'google_transit/notes.md': 'x' }))
+    expect(got?.name).toBe('google_transit.zip')
+    expect(Object.keys(unzipSync(got?.zip as Uint8Array)).sort()).toEqual(['agency.txt', 'routes.txt', 'stop_times.txt', 'stops.txt', 'trips.txt'])
+    expect(inspectZip(got?.zip as Uint8Array)).toEqual({ kind: 'gtfs', root: '', alternatives: [] })
+  })
+
+  it('makes one of loose files (a multiple pick or drop)', async () => {
+    const got = await zipGtfsFolder(entries(feed()))
+    expect(got?.name).toBe('gtfs.zip')
+    expect(got && Object.keys(unzipSync(got.zip)).length).toBe(5)
+  })
+
+  it('is not fooled: wrong columns, missing files, other data, or a folder two levels down', async () => {
+    expect(await zipGtfsFolder(entries({ ...feed(), 'stops.txt': 'a,b\n1,2\n' }))).toBeNull()
+    const noTimes = feed()
+    delete noTimes['stop_times.txt']
+    expect(await zipGtfsFolder(entries(noTimes))).toBeNull()
+    expect(await zipGtfsFolder(entries({ 'a.geojson': '{}', 'b.csv': 'x' }))).toBeNull()
+    expect(await zipGtfsFolder(entries(feed('a/b/')))).toBeNull()
+  })
+
+  it('reads nothing but the headers of files that are not a feed', async () => {
+    let reads = 0
+    const spy: FolderEntry[] = [{ path: 'stops.txt', head: async () => text('x\n'), read: async () => (reads++, text('x')) }]
+    expect(await zipGtfsFolder(spy)).toBeNull()
+    expect(reads).toBe(0)
   })
 })
