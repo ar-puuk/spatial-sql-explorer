@@ -2,9 +2,9 @@
 // process, a web worker) makes the shapes (and trip lines) into FlatGeobuf files from a light copy of
 // the feed (gtfs/feed.ts); everything else, the stops included, is plain text the engine reads. The result is one
 // FileSource: the shapes (or the trip lines, for a feed without shapes) as the file that is
-// opened, and every other piece registered beside it. The open layer is the `network` (every route and
-// every stop in one result, so the map draws them together); `routes`, `stops` and the feed's tables are
-// views in a schema named after the feed.
+// opened, and every other piece registered beside it. The feed is two layers, `routes` (lines) and `stops` (points),
+// each a table of its own and both drawn on the map: one is the open layer (the table, style and filters), the other
+// is drawn beside it (QuerySession.setCompanion). The other layer and the feed's tables are views in a schema named after the feed.
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { FileSource } from '../hostAdapter.js'
 import type { GdbCallOptions, GdbHost } from '../gdb/types.js'
@@ -13,8 +13,8 @@ import type { FileLayer } from '../source/layers.js'
 import type { FileSqlNames } from '../sql/names.js'
 import { csvHeader } from './detect.js'
 import { fullZip, readStopTimes, splitFeed, tripsLackShapes } from './feed.js'
-import { feedCountsSql, GTFS_NETWORK, gtfsLayerNames, networkReaderSql, routesViewSql, servedTableSql, stopsViewSql, tableViewSql, type GtfsInventory } from './sql.js'
-import { GTFS_ROUTE_FALLBACK, GTFS_STOP_FALLBACK, gtfsDefaultStyle } from './style.js'
+import { feedCountsSql, gtfsLayerNames, routesReaderSql, routesViewSql, servedTableSql, stopsSelectSql, stopsViewSql, tableViewSql, type GtfsInventory } from './sql.js'
+import { gtfsDefaultStyle } from './style.js'
 import type { LayerStyle } from '../style/model.js'
 import { testOverrides } from '../source/readModes.js'
 
@@ -22,11 +22,11 @@ export interface GtfsOpened {
   /** The file to open (its extension says FlatGeobuf) with everything else the feed needs registered beside it. */
   source: FileSource
   inventory: GtfsInventory
-  /** The FROM expression that is the open layer: the network (routes and stops). */
-  reader: string
+  /** The FROM expression of each layer: the open one is read through it. */
+  readers: { routes: string; stops: string }
   /** The style a feed starts with. */
   style: LayerStyle
-  /** The feed's layers in SQL order: the network, routes, stops, then its other tables. */
+  /** The feed's layers in SQL order: routes, stops, then its other tables. */
   layers: FileLayer[]
   /** `GTFS.zip` or the like: what SQL names are cleaned from. */
   fileName: string
@@ -59,11 +59,11 @@ export async function openGtfsFeed(zip: Uint8Array, root: string, fileName: stri
   const file = (name: string, bytes: Uint8Array): { name: string; bytes: Uint8Array } => ({ name: `se-gtfs-${name}`, bytes })
   const tableFiles = [...Object.entries(parts.tables).map(([name, bytes]) => file(name, bytes)), file('stop_times.txt', stopTimes)]
   const tables = [...Object.keys(parts.tables), 'stop_times.txt'].map((n) => n.replace(/\.txt$/, ''))
-  const layers = gtfsLayerNames(tables).map((n) => layerOf(n, n === GTFS_NETWORK ? 'Mixed' : n === 'routes' ? 'LineString' : n === 'stops' ? 'Point' : null))
+  const layers = gtfsLayerNames(tables).map((n) => layerOf(n, n === 'routes' ? 'LineString' : n === 'stops' ? 'Point' : null))
   const finish = (source: FileSource, inventory: GtfsInventory, extra: Pick<GtfsOpened, 'mode' | 'readerProblem'>): GtfsOpened => ({
     source,
     inventory,
-    reader: networkReaderSql(inventory, { route: GTFS_ROUTE_FALLBACK, stop: GTFS_STOP_FALLBACK }),
+    readers: { routes: routesReaderSql(inventory), stops: `(${stopsSelectSql(inventory)})` },
     style: gtfsDefaultStyle(),
     layers,
     fileName,
@@ -114,23 +114,35 @@ export function feedNotice(info: { mode: 'gdal' | 'sql'; readerProblem: string |
   return said.length ? said.join(' ') : null
 }
 
-/** The notice for an opened feed, counting from the engine (`layer` must exist). */
-export async function describeGtfsFeed(conn: AsyncDuckDBConnection, gtfs: GtfsOpened): Promise<string | null> {
-  const row = (await conn.query(feedCountsSql())).toArray()[0]?.toJSON() as Record<string, bigint | number> | undefined
+/** The notice for an opened feed, counting from the engine (the layers' views must exist). */
+export async function describeGtfsFeed(conn: AsyncDuckDBConnection, gtfs: GtfsOpened, names: FileSqlNames): Promise<string | null> {
+  const routes = names.layers.get('routes')
+  const stops = names.layers.get('stops')
+  if (!routes || !stops) return null
+  const row = (await conn.query(feedCountsSql(routes, stops))).toArray()[0]?.toJSON() as Record<string, bigint | number> | undefined
   const n = (key: string): number => Number(row?.[key] ?? 0)
+  // The layer picker lists how many each layer has.
+  for (const layer of gtfs.layers) if (layer.name === 'routes') layer.featureCount = n('routes_drawn')
+  else if (layer.name === 'stops') layer.featureCount = n('stops_drawn')
   return feedNotice({ mode: gtfs.mode, readerProblem: gtfs.readerProblem, tripLines: gtfs.tripLines, routes: n('routes'), routesDrawn: n('routes_drawn'), stops: n('stops'), stopsDrawn: n('stops_drawn') })
 }
 
-/** Before the network is read: which routes serve each stop (one pass over `stop_times.txt`). */
+/** Before the layers are read: which routes serve each stop (one pass over `stop_times.txt`). */
 export async function prepareGtfs(conn: AsyncDuckDBConnection): Promise<void> {
   await conn.query(servedTableSql())
 }
 
-/** The feed's SQL schema: routes, stops and every other table, beside the network (which `openFile` creates as the open layer). */
-export async function setUpGtfsViews(conn: AsyncDuckDBConnection, gtfs: GtfsOpened, names: FileSqlNames): Promise<void> {
+/** The feed's SQL schema: the layer that is not open, and every other table, beside the open layer (which `openFile` creates as `layer`). */
+export async function setUpGtfsViews(conn: AsyncDuckDBConnection, gtfs: GtfsOpened, names: FileSqlNames, open: string): Promise<void> {
   for (const layer of gtfs.layers) {
     const sqlName = names.layers.get(layer.name)
-    if (!sqlName || layer.name === GTFS_NETWORK) continue
+    if (!sqlName || layer.name === open) continue
     await conn.query(layer.name === 'routes' ? routesViewSql(sqlName, gtfs.inventory) : layer.name === 'stops' ? stopsViewSql(sqlName, gtfs.inventory) : tableViewSql(sqlName, layer.name))
   }
+}
+
+/** The SELECT of the layer drawn beside the open one (`stops` beside `routes` and the other way round). */
+export function companionSql(names: FileSqlNames, open: string): string | null {
+  const other = names.layers.get(open === 'routes' ? 'stops' : 'routes')
+  return other ? `SELECT * FROM ${other}` : null
 }

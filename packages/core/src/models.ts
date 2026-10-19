@@ -113,6 +113,8 @@ export interface DatasetFacts {
   fallback: string | null
   /** Spec 024: a caveat about how the file was drawn (a GTFS feed), shown once over the map. */
   notice?: string
+  /** Spec 024: the file's layers share one style (a GTFS feed's routes and stops are drawn together with it), so switching layer keeps it. */
+  sharedStyle?: boolean
   /**
    * FlatGeobuf read in parts (T044): the map works, but queries, the table,
    * thematic styles and export wait until the user loads the whole file.

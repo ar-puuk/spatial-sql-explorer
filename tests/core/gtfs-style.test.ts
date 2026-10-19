@@ -2,7 +2,7 @@
 // Spec 024 (GTFS): the style a feed opens with, the network SQL, and the style as a QGIS sidecar.
 import { describe, expect, it } from 'vitest'
 import { gtfsDefaultStyle, labelLayers, qmlToStyle, sanitizeLabels, sanitizeStyle, styleToQml } from '@spatial-explorer/core'
-import { networkReaderSql } from '../../packages/core/src/gtfs/sql'
+import { routesReaderSql, stopsSelectSql } from '../../packages/core/src/gtfs/sql'
 
 describe('the default GTFS style', () => {
   const style = gtfsDefaultStyle()
@@ -47,17 +47,29 @@ describe('labels from a zoom', () => {
   })
 })
 
-describe('the network query', () => {
-  const sql = networkReaderSql({ tables: ['routes', 'trips', 'stops', 'stop_times'], geometry: ['shapes_geom'] }, { route: '#888888', stop: '#8b7e74' })
-  it('has one row per route and per stop, with the columns the style reads', () => {
-    expect(sql).toContain("'route' AS kind")
-    expect(sql).toContain('UNION ALL')
+describe('the two layers', () => {
+  const inv = { tables: ['routes', 'trips', 'stops', 'stop_times'], geometry: ['shapes_geom'] as ('shapes_geom' | 'trips')[] }
+  it('routes carry the color the style paints with and the name labels read', () => {
+    const sql = routesReaderSql(inv)
     expect(sql).toContain('AS color')
     expect(sql).toContain("'#888888'")
-    expect(sql).toContain("'#8b7e74'")
+    expect(sql).toContain('AS name')
+    expect(sql).toContain('route_short_name')
   })
-  it('makes a color only from six hex digits', () => {
-    expect(sql).toContain("^[0-9A-Fa-f]{6}$")
+  it('stops carry them too, with GTFS-X\'s other grey for a stop no colored route serves', () => {
+    const sql = stopsSelectSql(inv)
+    expect(sql).toContain('AS color')
+    expect(sql).toContain("'#8b7e74'")
+    expect(sql).toContain('stop_name')
+    expect(sql).toContain('AS name')
+  })
+  it('a color is only six hex digits', () => {
+    expect(routesReaderSql(inv)).toContain('^[0-9A-Fa-f]{6}$')
+    expect(stopsSelectSql(inv)).toContain('^[0-9A-Fa-f]{6}$')
+  })
+  it('the geometry comes last in both, so the table lists the data first', () => {
+    expect(stopsSelectSql(inv)).toMatch(/s\.geom FROM/)
+    expect(routesReaderSql(inv)).toMatch(/g\.geom FROM routes r/)
   })
 })
 

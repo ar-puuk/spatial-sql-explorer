@@ -157,6 +157,8 @@
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
     /** The zoom while the map moves, at most once a frame (the zoom marker on the style panel follows it live). */
     onZoom?: (zoom: number) => void
+    /** Spec 024: a second layer drawn with the same style but no part in the table, selection or hover (a GTFS feed's other layer). GeoJSON mode only. */
+    companion?: MapData | null
     onCursorMove: (coords: { lon: number; lat: number; elevation?: number | null } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
@@ -226,6 +228,7 @@
     tooltipRecord,
     onCameraChange = () => {},
     onZoom,
+    companion = null,
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
@@ -261,6 +264,9 @@
   /** GeoJSON mode: polygons' label points (one label each), filled only while labels are on. */
   const LABEL_SOURCE ='se-labels'
   const SELECTION_SOURCE ='se-selection'
+  /** Spec 024: the companion layer's own source (GeoJSON mode), and the layers of ours it is drawn with. */
+  const COMPANION_SOURCE ='se-companion'
+  const COMPANION_DEFS = new Set(['line', 'line-arrow', 'circle', 'label-line', 'label'])
   const SELECTION_HALO ='se-selection-halo'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   // Feature ids are promoted from this property so selection/hover use
@@ -365,21 +371,24 @@
   let styledTiles: TilesArchive | null = null
   /** The engine tile URL the data source was built for (null: GeoJSON or PMTiles). */
   let styledTileUrl: string | null = null
-  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string; source?: string }> {
+  function layerInstances(): Array<{ id: string; def: (typeof LAYER_DEFS)[number]; sourceLayer?: string; source?: string; companion?: true }> {
     if (styledTiles) return styledTiles.layers.flatMap((sourceLayer) => LAYER_DEFS.filter((def) => def.id !== 'label-area').map((def) => ({ id: `se-${def.id}::${sourceLayer}`, def, sourceLayer })))
     if (styledTileUrl) return LAYER_DEFS.map((def) => ({ id: `se-${def.id}`, def, sourceLayer: def.id === 'label-area' ? TILE_LABEL_LAYER : TILE_LAYER }))
     // GeoJSON mode: the circle layer once more, over the dots' own source; polygons' labels over theirs.
-    return LAYER_DEFS.flatMap((def) =>
-      def.id === 'circle'
-        ? [{ id:'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }]
-        : def.id === 'label-area'
-          ? [{ id:'se-label-area', def, source: LABEL_SOURCE }]
-          : [{ id: `se-${def.id}`, def }]
-    )
+    // Spec 024: the companion's layers sit right after their kind's own, so points draw over lines whichever layer is the open one.
+    return LAYER_DEFS.flatMap((def) => {
+      const own =
+        def.id === 'circle'
+          ? [{ id: 'se-circle', def }, { id: DOT_LAYER, def, source: DOT_SOURCE }]
+          : def.id === 'label-area'
+            ? [{ id: 'se-label-area', def, source: LABEL_SOURCE }]
+            : [{ id: `se-${def.id}`, def }]
+      return COMPANION_DEFS.has(def.id) ? [...own, { id: `se-c-${def.id}`, def, source: COMPANION_SOURCE, companion: true as const }] : own
+    })
   }
   function interactiveLayers(): string[] {
     return layerInstances()
-      .filter((l) => INTERACTIVE_DEFS.includes(l.def.id))
+      .filter((l) => INTERACTIVE_DEFS.includes(l.def.id) && !l.companion)
       .map((l) => l.id)
       .filter((id) => map?.getLayer(id))
   }
@@ -539,6 +548,8 @@
   // The data the source currently holds, so a rebuilt data source
   // (replaceDataSource) starts with it.
   let currentData: GeoJSON.FeatureCollection = EMPTY
+  /** Spec 024: what the companion source holds (the layer's features, with the ids they have in their own table). */
+  let currentCompanion: GeoJSON.FeatureCollection = EMPTY
 
   /** What the GeoJSON source holds: the features, then their dots (option C), which draw above them. */
   function dotData(d: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
@@ -572,7 +583,7 @@
       [SOURCE_ID]: dataSource(),
       ...(styledTiles || styledTileUrl
         ? {}
-        : { [DOT_SOURCE]: { type: 'geojson', data: dotData(currentData), promoteId: ID_PROP }, [LABEL_SOURCE]: { type: 'geojson', data: labelData(currentData), promoteId: ID_PROP } }),
+        : { [DOT_SOURCE]: { type: 'geojson', data: dotData(currentData), promoteId: ID_PROP }, [LABEL_SOURCE]: { type: 'geojson', data: labelData(currentData), promoteId: ID_PROP }, [COMPANION_SOURCE]: { type: 'geojson', data: currentCompanion } }),
       [SELECTION_SOURCE]: { type: 'geojson', data: selectionData() },
     }
   }
@@ -618,7 +629,7 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
+    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
     for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
@@ -1332,6 +1343,18 @@
       delete container.dataset.renderedFeatures
     delete container.dataset.renderedLabels
     }
+  })
+
+  // Spec 024: the companion layer's features, set when they arrive (never per pan).
+  $effect(() => {
+    const data = companion as GeoJSON.FeatureCollection | null
+    if (!mapReady || !map) return
+    untrack(() => {
+      const next = data ?? EMPTY
+      if (next === currentCompanion) return
+      currentCompanion = next
+      ;(map?.getSource(COMPANION_SOURCE) as GeoJSONSource | undefined)?.setData(next)
+    })
   })
 
   // GeoJSON mode: the label points arrive (labels on) after their drawing.

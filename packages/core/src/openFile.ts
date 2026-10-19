@@ -30,7 +30,7 @@ import { gdbWhole, openGdb, setUpGeodatabaseLayers } from './gdb/integration.js'
 import type { GdbOpened } from './gdb/open.js'
 import type { GdbLayerInfo } from './gdb/types.js'
 import type { FileSource } from './hostAdapter.js'
-import { describeGtfsFeed, openGtfsFeed, prepareGtfs, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
+import { companionSql, describeGtfsFeed, openGtfsFeed, prepareGtfs, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -481,7 +481,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     }
     checkCancelled()
     const multi = layers.length > 1
-    const active = gtfs ? (layers.find((l) => l.name === 'network') ?? layers[0]) : gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    const active = gtfs ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
     const names = await sqlNamesFor(conn, gtfs ? gtfs.fileName : gdb ? gdb.fileName : source.name, multi ? layers : null, active)
     const ctx: ModeContext = {
@@ -496,7 +496,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       isCancelled: () => hooks.isCancelled?.() ?? false,
       // A converted geodatabase layer is a file of its own: read plainly, not by layer name.
       layer: gdb || gtfs ? null : active,
-      reader: gtfs ? gtfs.reader : active ? readers.get(active.name) : undefined,
+      reader: gtfs ? (active?.name === 'stops' ? gtfs.readers.stops : gtfs.readers.routes) : active ? readers.get(active.name) : undefined,
       ...(gtfs ? { knownSrid: 4326 } : {}),
     }
 
@@ -520,11 +520,15 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // Spec 010: a big file's default view is drawn as tiles whatever its rows (TILE_BYTES).
     session.setFileBytes(source.size)
     if (keepRegistered && registered) session.setSourceRecovery(registered.reRegister)
-    if (gtfs) await setUpGtfsViews(session.conn, gtfs, names)
+    if (gtfs && active) {
+      await setUpGtfsViews(session.conn, gtfs, names, active.name)
+      // The feed's other layer is drawn beside this one.
+      session.setCompanion(companionSql(names, active.name))
+    }
     else if (gdb && multi) await setUpGeodatabaseLayers(session, db, gdb, names, ref, deps, hooks)
     else if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
     const initial = await session.runDefault()
-    const gtfsNotice = gtfs ? await describeGtfsFeed(session.conn, gtfs).catch(() => null) : null
+    const gtfsNotice = gtfs ? await describeGtfsFeed(session.conn, gtfs, names).catch(() => null) : null
     timings.rows = lap()
 
     const layer: Layer = {
@@ -550,6 +554,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
         ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name), ...(gdb ? { group: (l as GdbLayerInfo).featureDataset } : {}) })), activeLayer: active.name } : {}),
         ...(gdb ? { experimental: true } : {}),
         ...(gtfsNotice ? { notice: gtfsNotice } : {}),
+        ...(gtfs ? { sharedStyle: true } : {}),
       },
     }
     hooks.onPhase?.('ready', detail)

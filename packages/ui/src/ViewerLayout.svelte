@@ -453,6 +453,7 @@
           onToggleProjection={() => store.setProjection(store.projection === 'globe' ? 'mercator' : 'globe')}
           onCameraChange={(c, bounds) => store.setMapCamera(c, bounds)}
           onZoom={(z) => store.setMapZoom(z)}
+          companion={store.companionData}
           onCursorMove={(c) => store.setCursor(c)}
           tiles={store.tiles}
           onInspectTileFeature={(f) => {

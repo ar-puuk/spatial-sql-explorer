@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **A GTFS feed is two layers, drawn together.** Opening a feed now gives the layers `routes` (lines) and `stops` (points), each its own table with every column (`gtfs.routes`, `gtfs.stops`, and `gtfs.shapes` for the raw shape points), instead of one combined table. Both are on the map at once: the layer picker (or `layer` in SQL) chooses which one is open, and that one has the table, the filters, the selection and the export; the other is drawn beside it with the same style (one style for the feed: the line settings for routes, the marker settings for stops). Choosing the other layer opens the feed again for it (a few seconds). Both layers have `color` (`#RRGGBB`, what the default style paints with) and `name` (what labels read). The layer picker shows how many routes and stops there are.
+
 ## [1.0.0] - 2026-10-19
 
 The first stable release: the scope the project set out with (look at a file, query it with SQL, style it, export it, in VS Code and in the browser) is complete. This release adds GTFS transit feeds and visibility by zoom, and cleans up the development warnings. File Geodatabase support stays marked experimental.

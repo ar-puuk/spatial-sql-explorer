@@ -110,3 +110,13 @@ Decision (T004): the reader gives GDAL a flat in-memory folder in which `stop_ti
 ## 12. No arrows by default (user decision 2026-10-19)
 
 The default GTFS style no longer draws direction arrows (GTFS-X does, at zoom 12 and up, but here a line is drawn in the direction of its shape or of its trip, which for a two-way route says little). They are the style panel's Arrows control, as for any line layer.
+
+## 13. Two layers, drawn together (user decision 2026-10-19; replaces §9's network)
+
+The combined `network` result gave one table for two kinds of thing. The feed is now two layers, `routes` and `stops`, each its own table, both on the map.
+
+- **How:** the viewer still has one result with a table (the open layer). The other layer is a companion: its features (`QuerySession.companionFeatures`, the other layer's view with row numbers, through the same `allFeaturesSql` the map uses) go to a GeoJSON source of their own, and MapView draws it with the same paint, filter and layout as the open layer's, one layer of ours after each of the open layer's lines, arrows, markers and labels (`se-c-*`, never interactive). So a feed's two layers share one style, which is what a mixed layer already did (line settings for lines, marker settings for points), and a change in the style panel moves both.
+- **What the companion does not have:** a table, filters, selection, hover, counts, a legend of its own. To work on it, choose it in the layer picker: the feed is opened again with that layer as `layer` and the other as the companion (a few seconds: the feed is read again). Tiles mode (very large results) draws no companion; a feed is far below that size.
+- **Why not two full layers:** the viewer's core (selection, filters, the table's pages, tiles, the legend) is one result at a time; two results at once would touch all of it. The companion keeps that and still shows both layers on the map.
+- **Columns:** both layers have `color` and `name` so the one style (identity color, labels) reads either; the table lists the data columns first and `geom` last.
+- **Verified:** the fixture (stops in the companion source: S1 to S5; after switching, routes R1 to R3), the real UTA feed (85 routes, 5,425 stops), exports of the open layer and of the other layer as a result.

@@ -1,6 +1,13 @@
 <!--
 Sync Impact Report
-Version change: 1.5.0 → 1.6.0 (spec 024, user decision 2026-10-19)
+Version change: 1.6.0 → 1.7.0 (spec 024, user decision 2026-10-19)
+Modified principles:
+  - I. Scope Discipline: a GTFS feed is two layers, routes and stops, drawn on the map together. One is
+    the open layer (the table, filters, selection and export) and the other is a read-only companion
+    drawn beside it with the same style. This is the only exception to one layer at a time; it corrects
+    1.6.0's "one styled result, not a second map layer".
+
+Previous: 1.5.0 → 1.6.0 (spec 024, user decision 2026-10-19)
 Modified principles:
   - I. Scope Discipline: opening a GTFS transit feed (a zip or folder of text tables) is LOOK, and
     drawing its routes and stops together is one styled result, not a second map layer. Timetables,
@@ -243,4 +250,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.6.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-19
+**Version**: 1.7.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-19

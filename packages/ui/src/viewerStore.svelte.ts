@@ -316,6 +316,8 @@ export interface ViewerStore {
   setProjection(projection: 'mercator' | 'globe'): void
   /** The map's camera after its last move (null before the first). */
   readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
+  /** Spec 024: the feed's other layer (stops beside routes, or the reverse), drawn on the map with the same style and no part in the table; null for any other file. */
+  readonly companionData: MapData | null
   /** The map's zoom as it moves (a frame at a time), or null before the first move; `mapCamera` has it only after the move ends. */
   readonly mapZoom: number | null
   setMapZoom(zoom: number): void
@@ -950,6 +952,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
   let mapZoom = $state.raw<number | null>(null)
+  let companionData = $state.raw<MapData | null>(null)
+  /** The open file's layers share one style (a GTFS feed). */
+  let sharedStyle = false
   let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
 
   /**
@@ -1977,6 +1982,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       return
     }
     if (activeLayer) layerStyles.set(activeLayer, { style, styleSource, styleDirty })
+    // Spec 024: a feed's two layers are drawn together with one style, which the other layer starts with.
+    if (sharedStyle) layerStyles.set(name, { style, styleSource, styleDirty })
     await load({ ref: openedRef, layer: name })
   }
 
@@ -2005,6 +2012,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       unregisterTiles?.()
       unregisterTiles = null
       mapData = null
+      companionData = null
       tileUrl = null
       drawMode = null
       setLayer(null)
@@ -2095,6 +2103,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       initialLayer = layer
       initialLayerState = layer
       fileLayers = layer.facts?.layers ?? []
+      sharedStyle = layer.facts?.sharedStyle === true
       activeLayer = layer.facts?.activeLayer ?? null
       // Spec 008: the column view is per layer of a multi-layer file.
       if (activeLayer && historyStateKey) loadColumnView(`${historyStateKey}#${activeLayer}`)
@@ -2102,6 +2111,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       session.loadState = 'ready'
       // The map first: the SQL editor's catalog (only autocomplete reads it) waits for the drawing.
       void refreshDraw().finally(() => void refreshCatalog())
+      void loadCompanion(opened.session)
       if (keptStyle) {
         // Switching layer keeps that layer's style.
         style = keptStyle.style
@@ -2126,6 +2136,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       openPhase = 'failed'
       session.loadState = 'error'
       session.loadError = { message: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  /** Spec 024: the feed's other layer, read once after the open for the map to draw beside the open one. */
+  async function loadCompanion(qs: QuerySession): Promise<void> {
+    if (!qs.hasCompanion) return
+    try {
+      const data = await retryWhenBusy(qs, () => qs.companionFeatures())
+      if (qs === querySession) companionData = data
+    } catch (err) {
+      if (!(err instanceof QueryCancelledError) && !noteOutOfMemory(err)) console.warn("Spatial Explorer: drawing the feed's other layer failed", err)
     }
   }
 
@@ -2473,6 +2494,9 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get mapCamera() {
       return mapCamera
+    },
+    get companionData() {
+      return companionData
     },
     get mapZoom() {
       return mapZoom

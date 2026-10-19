@@ -101,21 +101,28 @@ test.describe('zoom range and sizes', () => {
     const top = page.locator('.se-range2 .mark.top')
     await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { jumpTo(o: unknown): void } }).seMap.jumpTo({ zoom: 6 }))
     await expect(top).toHaveAttribute('title', 'The map is at zoom 6.0')
-    // A slow zoom: the marker is seen between 6 and 14 while the map has not stopped.
-    await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { easeTo(o: unknown): void } }).seMap.easeTo({ zoom: 14, duration: 4000 }))
-    const seen: number[] = []
-    for (let i = 0; i < 8; i++) {
-      await page.waitForTimeout(300)
-      const moving = await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { isMoving(): boolean } }).seMap.isMoving())
-      const title = (await top.getAttribute('title')) ?? ''
-      const z = Number(/zoom ([\d.]+)/.exec(title)?.[1])
-      if (moving) seen.push(z)
-    }
-    // Several different values, rising, all before the move ended.
-    expect(new Set(seen).size).toBeGreaterThan(3)
-    expect(seen.every((z, i) => i === 0 || z >= seen[i - 1])).toBe(true)
-    expect(seen[0]).toBeGreaterThan(6)
-    expect(seen.at(-1)).toBeLessThan(14)
+    // A slow zoom, watched from inside the page a frame at a time (a loaded machine delays round trips, not frames): the marker
+    // shows rising values between 6 and 14 while the map has not stopped.
+    const samples = await page.evaluate(async () => {
+      const map = (document.querySelector('.canvas-host') as unknown as { seMap: { easeTo(o: unknown): void; getZoom(): number; isMoving(): boolean } }).seMap
+      const shown = (): number => Number(/zoom ([\d.]+)/.exec(document.querySelector('.se-range2 .mark.top')?.getAttribute('title') ?? '')?.[1])
+      map.easeTo({ zoom: 14, duration: 8000, essential: true })
+      const out: Array<{ map: number; shown: number; moving: boolean }> = []
+      const until = performance.now() + 4000
+      while (performance.now() < until) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
+        out.push({ map: map.getZoom(), shown: shown(), moving: map.isMoving() })
+      }
+      return out
+    })
+    const moving = samples.filter((x) => x.moving)
+    expect(moving.length).toBeGreaterThan(10)
+    // Many different values while moving, rising, and never far behind the map (it is one frame, not the end of the move).
+    expect(new Set(moving.map((x) => x.shown)).size).toBeGreaterThan(5)
+    expect(moving.every((x, i) => i === 0 || x.shown >= moving[i - 1].shown)).toBe(true)
+    expect(moving.at(-1)?.shown).toBeGreaterThan(7)
+    expect(moving.at(-1)?.shown).toBeLessThan(14)
+    expect(moving.every((x) => x.map - x.shown < 0.5)).toBe(true)
   })
 
   test('sizes follow the zoom from a switch, and the map paints a zoom curve', async ({ page }) => {

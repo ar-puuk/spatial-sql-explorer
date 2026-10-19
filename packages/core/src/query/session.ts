@@ -1682,6 +1682,51 @@ export class QuerySession {
     }, 'background')
   }
 
+  // --- Spec 024: a second layer drawn with the first (a GTFS feed's routes and stops) --------------------
+
+  /** A SELECT of the other layer (it has a `geom` column in WGS84), or null. */
+  private companionSql: string | null = null
+
+  setCompanion(sql: string | null): void {
+    this.companionSql = sql
+  }
+
+  get hasCompanion(): boolean {
+    return this.companionSql !== null
+  }
+
+  /**
+   * The companion layer's features for the map: all of them, never narrowed by the table's filters or selection (it has no part in
+   * either). Null when there is no companion. Background work, as allFeatures.
+   */
+  async companionFeatures(): Promise<MapData | null> {
+    const sql = this.companionSql
+    if (!sql) return null
+    return this.exclusive(async (isCancelled) => {
+      const described = await this.conn.query(`DESCRIBE SELECT * FROM (${sql})`)
+      const columns = described.toArray().map((r) => {
+        const j = r.toJSON() as { column_name: string; column_type: string }
+        return { name: String(j.column_name), type: String(j.column_type) }
+      })
+      const geometry = columns.find((c) => c.name === 'geom' && c.type.toUpperCase().startsWith('GEOMETRY')) ?? columns.find((c) => c.type.toUpperCase().startsWith('GEOMETRY'))
+      if (!geometry) return { type: 'FeatureCollection', features: [], dots: [] } satisfies MapData
+      const attrs = columns.filter((c) => !c.type.toUpperCase().startsWith('GEOMETRY')).map((c) => c.name)
+      const target: ViewTarget = {
+        relation: `(SELECT *, row_number() OVER () - 1 AS __se_rowid FROM (${sql}))`,
+        index: 'columns',
+        geom: quoteIdent(geometry.name),
+        srid: null,
+        attrs,
+        textAttrs: columns.filter((c) => isTemporalType(c.type)).map((c) => c.name),
+      }
+      const collector = featureCollector()
+      await streamRows(this.conn, allFeaturesSql(target, attrs, target.textAttrs ?? []), isCancelled, async (batch) => {
+        await collector.add(batch)
+      })
+      return { type: 'FeatureCollection', features: collector.features, dots: [] } satisfies MapData
+    }, 'background')
+  }
+
   /** GeoJSON mode, labels on: every polygon's one label point (labelPoint.ts). Background work, as allFeatures. */
   async labelPoints(): Promise<LabelPoint[]> {
     return this.exclusive(async (isCancelled) => {

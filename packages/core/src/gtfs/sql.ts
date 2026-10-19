@@ -5,9 +5,11 @@
 // one of two places: GDAL's GTFS driver (gtfs/feed.ts, the shells' readers), registered as FlatGeobuf
 // files, or, when no GDAL reader is available, the engine itself (`ST_MakeLine`) from the same tables.
 // A route is not a GDAL layer either way: its line is built here from the shapes its trips use,
-// and the stops carry the routes that serve them.
+// and the stops carry the routes that serve them. The feed is two layers, `routes` (lines) and `stops` (points),
+// each a table of its own; both carry `color` (`#RRGGBB`, the default style paints with it) and `name` (what labels read).
 import { quoteLiteral } from '../query/util.js'
 import { SOURCE_DIR } from '../duckdbService.js'
+import { GTFS_ROUTE_FALLBACK, GTFS_STOP_FALLBACK } from './style.js'
 
 /** Where each piece of a feed is registered with the engine (`/se-source/se-gtfs-<name>`). */
 export const gtfsPath = (name: string): string => `${SOURCE_DIR}se-gtfs-${name}`
@@ -34,6 +36,9 @@ const NO_SHAPES = '(SELECT NULL::VARCHAR AS shape_id, NULL::GEOMETRY AS geom WHE
 const NO_TRIP_LINES = '(SELECT NULL::VARCHAR AS route_id, NULL::VARCHAR AS shape_id, NULL::GEOMETRY AS geom WHERE false)'
 
 const isSql = (inv: GtfsInventory): boolean => inv.mode === 'sql'
+
+/** A color column as `#RRGGBB`, or the fallback where the feed gives none (or gives something that is not a color). */
+const colorOf = (column: string, fallback: string): string => `CASE WHEN regexp_matches(coalesce(${column}, ''), '^[0-9A-Fa-f]{6}$') THEN '#' || upper(${column}) ELSE ${quoteLiteral(fallback)} END`
 
 /** Stops as a relation: every `stops.txt` column plus `geom`; a stop without usable coordinates has none. */
 function stopsGeomSql(_inv: GtfsInventory): string {
@@ -85,7 +90,8 @@ export function routesReaderSql(inv: GtfsInventory): string {
     `geoms AS (SELECT route_id, geom FROM by_shape UNION ALL SELECT route_id, geom FROM by_trip WHERE route_id NOT IN (SELECT route_id FROM by_shape))`,
     `counts AS (SELECT route_id, count(*) AS n FROM trips GROUP BY route_id)`,
   ]
-  return `(WITH ${parts.join(', ')} SELECT r.* REPLACE (TRY_CAST(r.route_type AS INTEGER) AS route_type), c.n::BIGINT AS trips, g.geom FROM routes r JOIN geoms g USING (route_id) LEFT JOIN counts c USING (route_id))`
+  const name = "coalesce(nullif(r.route_short_name, ''), nullif(r.route_long_name, ''), r.route_id)"
+  return `(WITH ${parts.join(', ')} SELECT r.* REPLACE (TRY_CAST(r.route_type AS INTEGER) AS route_type), c.n::BIGINT AS trips, ${colorOf('r.route_color', GTFS_ROUTE_FALLBACK)} AS color, ${name} AS name, g.geom FROM routes r JOIN geoms g USING (route_id) LEFT JOIN counts c USING (route_id))`
 }
 
 /** Fills the internal table of routes per stop. Needs `routes`, `trips` and `stop_times`. */
@@ -100,8 +106,8 @@ export function servedTableSql(): string {
 }
 
 /** The stops, with the routes that serve each stop. */
-function stopsSelectSql(inv: GtfsInventory): string {
-  return `SELECT s.*, v.routes, v.route_count, v.route_color FROM ${stopsGeomSql(inv)} s LEFT JOIN ${GTFS_SERVED_TABLE} v ON trim(s.stop_id) = v.stop_id`
+export function stopsSelectSql(inv: GtfsInventory): string {
+  return `SELECT s.* EXCLUDE (geom), v.routes, v.route_count, v.route_color, ${colorOf('v.route_color', GTFS_STOP_FALLBACK)} AS color, coalesce(nullif(s.stop_name, ''), s.stop_id) AS name, s.geom FROM ${stopsGeomSql(inv)} s LEFT JOIN ${GTFS_SERVED_TABLE} v ON trim(s.stop_id) = v.stop_id`
 }
 
 /** The stops layer. */
@@ -114,48 +120,22 @@ export function routesViewSql(sqlName: string, inv: GtfsInventory): string {
   return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT * FROM ${routesReaderSql(inv)}`
 }
 
-/** A color column as `#RRGGBB`, or the fallback where the feed gives none (or gives something that is not a color). */
-const colorOf = (column: string, fallback: string): string => `CASE WHEN regexp_matches(coalesce(${column}, ''), '^[0-9A-Fa-f]{6}$') THEN '#' || upper(${column}) ELSE ${quoteLiteral(fallback)} END`
-
-/**
- * The network, the feed's open layer: every route (a line) and every stop (a point) as one result, so
- * the map draws them together. `color` is what the default style paints with (route color; a stop takes
- * the color of a route that serves it); `name` is what it labels with. The routes and stops layers
- * hold all the columns.
- */
-export function networkReaderSql(inv: GtfsInventory, colors: { route: string; stop: string }): string {
-  return `(
-    SELECT 'route' AS kind, r.route_id AS id,
-           coalesce(nullif(r.route_short_name, ''), nullif(r.route_long_name, ''), r.route_id) AS name,
-           NULL::VARCHAR AS routes, r.route_type AS route_type, r.trips AS trips, NULL::BIGINT AS route_count,
-           ${colorOf('r.route_color', colors.route)} AS color, r.geom AS geom
-    FROM ${routesReaderSql(inv)} r
-    UNION ALL
-    SELECT 'stop', s.stop_id, coalesce(nullif(s.stop_name, ''), s.stop_id), s.routes, NULL::INTEGER, NULL::BIGINT, s.route_count,
-           ${colorOf('s.route_color', colors.stop)}, s.geom
-    FROM (${stopsSelectSql(inv)}) s
-  )`
-}
-
 /** A plain table of the feed (`calendar`, `shapes`, ...) as a view with every column as text. */
 export function tableViewSql(sqlName: string, table: string): string {
   return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT * FROM ${csv(table)}`
 }
 
-/** The counts the open layer's notice is made from: routes and stops in the text files, and how many of each the network draws (`layer` exists by then). */
-export function feedCountsSql(): string {
+/** The counts the notice is made from: routes and stops in the text files, and how many of each the two layers draw (their view names). */
+export function feedCountsSql(routesView: string, stopsView: string): string {
   return `SELECT (SELECT count(*) FROM ${csv('routes')}) AS routes, (SELECT count(*) FROM ${csv('stops')}) AS stops,
-                 (SELECT count(*) FROM layer WHERE kind = 'route') AS routes_drawn,
-                 (SELECT count(*) FROM layer WHERE kind = 'stop' AND geom IS NOT NULL) AS stops_drawn`
+                 (SELECT count(*) FROM ${routesView}) AS routes_drawn,
+                 (SELECT count(*) FROM ${stopsView} WHERE geom IS NOT NULL) AS stops_drawn`
 }
 
 /** Tables that are a layer of their own. */
 const LAYER_TABLES = new Set(['routes', 'stops'])
 
-/** The open layer: routes and stops together. */
-export const GTFS_NETWORK = 'network'
-
-/** The feed's layer names for its SQL schema: the network, routes and stops first, then the other tables in name order. */
+/** The feed's layer names for its SQL schema: routes and stops first, then the other tables in name order. */
 export function gtfsLayerNames(tables: readonly string[]): string[] {
-  return [GTFS_NETWORK, 'routes', 'stops', ...tables.filter((t) => !LAYER_TABLES.has(t)).sort()]
+  return ['routes', 'stops', ...tables.filter((t) => !LAYER_TABLES.has(t)).sort()]
 }

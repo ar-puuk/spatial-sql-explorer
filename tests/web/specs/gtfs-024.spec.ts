@@ -10,19 +10,28 @@ async function one(page: Page, sql: string): Promise<string> {
   return (await page.locator('[role="grid"][aria-label="Attribute table"] tbody tr:not(.spacer):not(.skeleton) td[role="gridcell"]').nth(2).textContent())?.trim() ?? ''
 }
 
+/** The stops (or routes) the map holds in its companion source, by their ids, once it has drawn them. */
+const companionIds = (page: Page, key: string): Promise<string[]> =>
+  page.locator('.canvas-host').evaluate((el, k) => {
+    const map = (el as unknown as { seMap: { querySourceFeatures(source: string): Array<{ properties: Record<string, unknown> }> } }).seMap
+    return [...new Set(map.querySourceFeatures('se-companion').map((f) => String(f.properties[k])))].sort()
+  }, key)
+
 test.describe('a GTFS feed', () => {
   test.setTimeout(180000)
 
-  test('opens as one network of routes and stops, with its own style', async ({ page }) => {
+  test('opens as two layers: routes (the open layer) and stops, each its own table, both on the map', async ({ page }) => {
     await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1')
     await openQueryPanel(page)
     await showSql(page)
-    // The open layer is the network: 3 routes and 5 stops, drawn together.
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
-    expect(await one(page, `SELECT string_agg(k, ', ' ORDER BY k) AS s FROM (SELECT kind || '=' || count(*) AS k FROM layer GROUP BY kind)`)).toBe('route=3, stop=5')
+    // The open layer is the routes; the stops are their own table in the feed's schema.
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('3')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.stops`)).toBe('5')
     // Colors are #RRGGBB: the data's, GTFS-X's grey where there is none (route R2; the stops no colored route serves: S4, S5).
-    expect(await one(page, `SELECT string_agg(color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'route'`)).toBe('#E4572E #888888 #17BEBB')
-    expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'stop'`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
+    expect(await one(page, `SELECT string_agg(color, ' ' ORDER BY route_id) AS s FROM layer`)).toBe('#E4572E #888888 #17BEBB')
+    expect(await one(page, `SELECT string_agg(stop_id || color, ' ' ORDER BY stop_id) AS s FROM gtfs_mini.stops`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
+    // The stops are on the map too, in a source of their own (not part of the table), all five.
+    await expect.poll(() => companionIds(page, 'stop_id'), { timeout: 20000 }).toEqual(['S1', 'S2', 'S3', 'S4', 'S5'])
     // The style the feed opens with: colors as given, three pixel lines (no arrows until asked for), labels from zoom 13.
     const style = await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { styleState(): Record<string, unknown> } }).__spatialExplorerE2E.styleState())
     expect(style.channels).toMatchObject({ color: { source: { kind: 'column', column: 'color' }, scale: { kind: 'identity' } } })
@@ -30,21 +39,44 @@ test.describe('a GTFS feed', () => {
     expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', labels: { enabled: true, source: { column: 'name' }, minZoom: 13 } })
   })
 
-  test('routes, stops and the other tables are views in the feed schema', async ({ page }) => {
+  test('the layer picker lists routes and stops; choosing stops makes them the table and draws the routes beside them', async ({ page }) => {
+    await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1')
+    const picker = page.getByRole('combobox', { name: 'Layer' })
+    await expect(picker.locator('option').first()).toHaveText('routes, LineString, 3')
+    await expect(picker.locator('option').nth(1)).toHaveText('stops, Point, 5')
+    // One style for both layers: what is changed on one is there on the other.
+    const lineWidth = (): Promise<unknown> => page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { styleState(): { lineWidth?: number } } }).__spatialExplorerE2E.styleState().lineWidth)
+    expect(await lineWidth()).toBe(3)
+    await picker.selectOption('stops')
+    // The file is opened again for the other layer: wait until the table holds the stops (their first id), then work.
+    const cell = (): Promise<string> => page.locator('[role="grid"][aria-label="Attribute table"] tbody tr:not(.spacer):not(.skeleton) td[role="gridcell"]').nth(2).textContent().then((t) => t?.trim() ?? '')
+    await expect.poll(cell, { timeout: 60000 }).toBe('S1')
+    await openQueryPanel(page)
+    await showSql(page)
+    await runQuery(page, `SELECT count(*)::VARCHAR AS s FROM layer`)
+    await expect.poll(cell).toBe('5')
+    await runQuery(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.routes`)
+    await expect.poll(cell).toBe('3')
+    await expect.poll(() => companionIds(page, 'route_id'), { timeout: 30000 }).toEqual(['R1', 'R2', 'R3'])
+    expect(await lineWidth()).toBe(3)
+    await expect(page.locator('.se-range2')).toHaveCount(0)
+  })
+
+  test('routes, stops, the raw shape points and the other tables are all in the feed schema', async ({ page }) => {
     await openFile(page, fixture('gtfs-mini.zip'))
     await openQueryPanel(page)
     await showSql(page)
     // Each route is one geometry: R1 from its shape, R2 and R3 from GDAL's trip lines.
     expect(await one(page, `SELECT string_agg(route_id || ':' || ST_GeometryType(geom)::VARCHAR || ':' || trips, ', ' ORDER BY route_id) AS s FROM gtfs_mini.routes`)).toBe('R1:MULTILINESTRING:2, R2:LINESTRING:1, R3:LINESTRING:1')
-    // The data's own color column, untouched.
+    // The data's own color column, untouched; the name the labels read.
     expect(await one(page, `SELECT string_agg(coalesce(route_color, '-'), ',' ORDER BY route_id) AS s FROM gtfs_mini.routes`)).toBe('E4572E,-,17BEBB')
+    expect(await one(page, `SELECT string_agg(name, ',' ORDER BY route_id) AS s FROM gtfs_mini.routes`)).toBe('1,2,L')
     // Stops carry the routes that serve them; the orphan has none.
     expect(await one(page, `SELECT string_agg(stop_id || '=' || coalesce(routes, '-'), ' ' ORDER BY stop_id) AS s FROM gtfs_mini.stops`)).toBe('S1=1 S2=1, L S3=2, L S4=2 S5=-')
-    // The feed's other tables are views, all text.
+    // The feed's other tables are views, all text, the shape points among them.
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.shapes`)).toBe('3')
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.calendar`)).toBe('1')
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.stop_times`)).toBe('8')
-    // The open layer is also a view in the schema.
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.network`)).toBe('8')
   })
 })
 
@@ -58,11 +90,11 @@ test.describe('a real feed', () => {
     await openFile(page, sample as string)
     await openQueryPanel(page)
     await showSql(page)
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer WHERE kind = 'route'`)).toBe('85')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('85')
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs.stops`)).toBe('5425')
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs.stop_times`)).toBe('466857')
     // Every route keeps its own color.
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer WHERE kind = 'route' AND color = '#888888'`)).toBe('0')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer WHERE color = '#888888'`)).toBe('0')
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs.stops WHERE route_count IS NULL`)).not.toBe('5425')
   })
 })
@@ -88,7 +120,7 @@ test.describe('a GTFS feed as a folder of text files', () => {
     await openQueryPanel(page)
     await showSql(page)
     expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM gtfs_mini.routes`)).toBe('3')
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('3')
   })
 
   test('its loose text files, chosen together, are the same feed', async ({ page }) => {
@@ -98,7 +130,7 @@ test.describe('a GTFS feed as a folder of text files', () => {
     await rendered(page)
     await openQueryPanel(page)
     await showSql(page)
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('3')
   })
 
   test('a folder of something else is not taken for a feed', async ({ page }) => {
@@ -113,14 +145,14 @@ test.describe('a GTFS feed as a folder of text files', () => {
 test.describe('a GTFS feed read without GDAL (the SQL fallback)', () => {
   test.setTimeout(180000)
 
-  test('draws the same network, and says how', async ({ page }) => {
+  test('draws the same two layers, and says how', async ({ page }) => {
     await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1&noGdal=1')
     await expect(page.locator('body')).toContainText('The GDAL reader could not be used')
     await openQueryPanel(page)
     await showSql(page)
-    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('3')
     expect(await one(page, `SELECT string_agg(route_id || ':' || ST_GeometryType(geom)::VARCHAR || ':' || ST_NPoints(geom), ', ' ORDER BY route_id) AS s FROM gtfs_mini.routes`)).toBe('R1:MULTILINESTRING:3, R2:LINESTRING:2, R3:LINESTRING:2')
-    expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'stop'`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
+    expect(await one(page, `SELECT string_agg(stop_id || color, ' ' ORDER BY stop_id) AS s FROM gtfs_mini.stops`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
   })
 
   test('a feed with no shapes at all is drawn through its trips\' stops, in both modes', async ({ page, browser }) => {
@@ -142,7 +174,7 @@ test.describe('a GTFS feed read without GDAL (the SQL fallback)', () => {
     await expect(page.locator('body')).toContainText('1 stop has no usable coordinates and is not on the map')
     await openQueryPanel(page)
     await showSql(page)
-    expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'route'`)).toBe('R1#E4572E R2#888888 R3#888888')
+    expect(await one(page, `SELECT string_agg(route_id || color, ' ' ORDER BY route_id) AS s FROM layer`)).toBe('R1#E4572E R2#888888 R3#888888')
   })
 })
 
@@ -190,19 +222,31 @@ test.describe('what goes wrong with a feed is said', () => {
 test.describe('a feed can be exported', () => {
   test.setTimeout(180000)
 
+  const inspect = (page: Page, name: string, bytes: Buffer): Promise<{ rows: number; types: string[]; crs: string | null; columns: string[] }> =>
+    page.evaluate(
+      (f) => (window as unknown as { __spatialExplorerE2E: { inspectExport(f: unknown): Promise<{ rows: number; types: string[]; crs: string | null; columns: string[] }> } }).__spatialExplorerE2E.inspectExport(f),
+      [{ name, base64: bytes.toString('base64') }]
+    )
+
   for (const format of ['GeoJSON', 'GeoPackage', 'FlatGeobuf']) {
-    test(`the network as ${format}: the routes and the stops, read back`, async ({ page }) => {
+    test(`the routes as ${format}, and the stops as a result, read back`, async ({ page }) => {
       await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1')
-      const { name, bytes } = await exportVia(page, { format })
-      expect(name).toContain('gtfs-mini')
-      const back = await page.evaluate(
-        (f) => (window as unknown as { __spatialExplorerE2E: { inspectExport(f: unknown): Promise<{ rows: number; types: string[]; crs: string | null; columns: string[] }> } }).__spatialExplorerE2E.inspectExport(f),
-        [{ name, base64: bytes.toString('base64') }]
-      )
-      expect(back.rows).toBe(8)
-      expect(back.types).toContain('POINT')
-      expect(back.types.some((t) => t.includes('LINESTRING'))).toBe(true)
-      expect(back.columns).toEqual(expect.arrayContaining(['kind', 'id', 'name', 'color']))
+      const routes = await exportVia(page, { format })
+      expect(routes.name).toContain('gtfs-mini')
+      const back = await inspect(page, routes.name, routes.bytes)
+      expect(back.rows).toBe(3)
+      expect(back.types.every((t) => t.includes('LINESTRING'))).toBe(true)
+      expect(back.columns).toEqual(expect.arrayContaining(['route_id', 'route_short_name', 'color', 'name']))
+      // The stops are a table of their own: a query for them exports like any result.
+      await page.getByRole('button', { name: 'Close' }).first().click().catch(() => {})
+      await openQueryPanel(page)
+      await showSql(page)
+      await runQuery(page, 'SELECT * FROM gtfs_mini.stops')
+      const stops = await exportVia(page, { format })
+      const backStops = await inspect(page, stops.name, stops.bytes)
+      expect(backStops.rows).toBe(5)
+      expect(backStops.types).toEqual(['POINT'])
+      expect(backStops.columns).toEqual(expect.arrayContaining(['stop_id', 'stop_name', 'routes', 'color']))
     })
   }
 })

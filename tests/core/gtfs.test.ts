@@ -169,8 +169,8 @@ describe('tripsLackShapes', () => {
 
 describe('the feed in SQL', () => {
   const inv = { tables: ['routes', 'trips', 'stop_times', 'stops', 'calendar'], geometry: ['shapes_geom'] as ('shapes_geom' | 'trips')[] }
-  it('orders layer names: the network, routes, stops, then the other tables', () => {
-    expect(gtfsLayerNames(inv.tables)).toEqual(['network', 'routes', 'stops', 'calendar', 'stop_times', 'trips'])
+  it('orders layer names: routes, stops, then the other tables', () => {
+    expect(gtfsLayerNames(inv.tables)).toEqual(['routes', 'stops', 'calendar', 'stop_times', 'trips'])
   })
   it('routes use the shapes, and add trip lines only when GDAL was asked for them', () => {
     expect(routesReaderSql(inv)).toContain('se-gtfs-shapes_geom.fgb')

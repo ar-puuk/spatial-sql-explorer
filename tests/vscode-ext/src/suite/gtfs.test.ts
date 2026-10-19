@@ -22,9 +22,10 @@ async function waitReady(): Promise<void> {
   }
 }
 
-async function networkCounts(): Promise<{ routes: number; stops: number }> {
-  const routes = (await run(`SELECT * FROM layer WHERE kind = 'route'`))?.rowCount
-  const stops = (await run(`SELECT * FROM layer WHERE kind = 'stop'`))?.rowCount
+/** The open layer is the routes; the stops are their own table in the feed's schema. */
+async function networkCounts(schema = 'gtfs_mini'): Promise<{ routes: number; stops: number }> {
+  const routes = (await run('SELECT * FROM layer'))?.rowCount
+  const stops = (await run(`SELECT * FROM ${schema}.stops`))?.rowCount
   return { routes: routes ?? -1, stops: stops ?? -1 }
 }
 
@@ -33,7 +34,7 @@ suite('Spec 024: GTFS in VS Code', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   })
 
-  test('a GTFS zip opens as one network of routes and stops', async function () {
+  test('a GTFS zip opens as two layers, routes (the open layer) and stops', async function () {
     this.timeout(180000)
     await openAndWait('gtfs-mini.zip', 'spatialExplorer.editorOption')
     assert.deepStrictEqual(await networkCounts(), { routes: 3, stops: 5 })
@@ -75,7 +76,7 @@ suite('Spec 024: GTFS without the GDAL reader, in VS Code', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   })
 
-  test('the SQL fallback draws the same network', async function () {
+  test('the SQL fallback draws the same two layers', async function () {
     this.timeout(180000)
     await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { noGdal: true })
     await openAndWait('gtfs-mini.zip', 'spatialExplorer.editorOption')
@@ -88,7 +89,7 @@ suite('Spec 024: GTFS without the GDAL reader, in VS Code', () => {
     for (const noGdal of [false, true]) {
       await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', noGdal ? { noGdal: true } : null)
       await openAndWait('gtfs-noshapes.zip', 'spatialExplorer.editorOption')
-      assert.deepStrictEqual(await networkCounts(), { routes: 3, stops: 5 }, `noGdal=${noGdal}`)
+      assert.deepStrictEqual(await networkCounts('gtfs_noshapes'), { routes: 3, stops: 5 }, `noGdal=${noGdal}`)
       assert.strictEqual((await run('SELECT * FROM gtfs_noshapes.routes WHERE ST_NPoints(geom) = 2'))?.rowCount, 3, `noGdal=${noGdal}`)
     }
   })

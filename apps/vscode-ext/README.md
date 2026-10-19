@@ -237,10 +237,14 @@ its name. The map shows every route as a line in its `route_color` and
 every stop as a dot in the color of a route that serves it; names appear from
 zoom 13. Direction arrows are off until you choose them in the style panel.
 
-- The feed is a schema named after it: `network` is the open layer (routes and
-  stops together), `routes` and `stops` have every column (a stop lists the
-  routes serving it), and every other table (`calendar`, `stop_times`, ...) can
-  be queried too (`SELECT * FROM gtfs.routes WHERE route_type = 0`).
+- The feed is two layers, `routes` and `stops`, each its own table with every
+  column (a stop lists the routes serving it), both drawn on the map. The layer
+  picker chooses the open one, which has the table, filters, selection and export;
+  the other is drawn beside it with the same style (switching reopens the feed for
+  a few seconds). In SQL: `layer` is the open one, `gtfs.routes` and `gtfs.stops`
+  are both, and so are `gtfs.shapes` (the shape points), `gtfs.calendar`,
+  `gtfs.stop_times` and the rest
+  (`SELECT * FROM gtfs.routes WHERE route_type = 0`).
 - Lines are read by GDAL's GTFS driver through the same reader a File
   Geodatabase uses (downloaded once). Without it they are built in SQL from the
   feed's own tables.
