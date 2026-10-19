@@ -2,8 +2,8 @@
   // Two handles on one track, for a from and a to (the layer's zoom range). Two platform range inputs laid over
   // each other, only their handles taking the pointer, as the time slider does (keyboard, pointer and screen readers
   // for free, nothing to mount). The handles never cross: the one you move pushes the other, one step away.
-  // The marker is a flag with the value, and a thin line down through the track at that value (a playhead), the way a
-  // map's scale-range slider shows where the map is now. It goes grey when the value is outside what the handles hold.
+  // The marker is a small hollow dot ON the track at that value, under the handles and no bigger than them (the map's
+  // current zoom, say). It is a dashed outline when the value is outside what the handles hold. Its tooltip says what it is.
   interface Props {
     from: number
     to: number
@@ -33,11 +33,10 @@
   }
 </script>
 
-<span class="se-range2" style:--from="{pct(from)}%" style:--to="{pct(to)}%" class:disabled class:has-marker={markerPct !== null}>
+<span class="se-range2" style:--from="{pct(from)}%" style:--to="{pct(to)}%" class:disabled>
   <span class="track" aria-hidden="true"></span>
-  {#if markerPct !== null && marker !== null}
-    <span class="line" class:outside style:left="{markerPct}%" aria-hidden="true"></span>
-    <span class="flag" class:outside style:--at="{markerPct}%" title={markerLabel} aria-hidden="true">{marker.toFixed(1)}</span>
+  {#if markerPct !== null}
+    <span class="dot" class:outside style:left="{markerPct}%" title={markerLabel} aria-hidden="true"></span>
   {/if}
   <input type="range" {min} {max} {step} value={from} {disabled} aria-label={fromLabel} oninput={(e) => moveFrom(e.currentTarget.valueAsNumber)} />
   <input type="range" {min} {max} {step} value={to} {disabled} aria-label={toLabel} oninput={(e) => moveTo(e.currentTarget.valueAsNumber)} />
@@ -50,12 +49,6 @@
     flex: 1;
     min-width: 80px;
     height: 24px;
-    --lane: 0px;
-  }
-  /* With the marker: a lane above the track for its flag, and the track and handles move down into the rest. */
-  .se-range2.has-marker {
-    height: 38px;
-    --lane: 14px;
   }
   .se-range2.disabled {
     opacity: 0.5;
@@ -64,7 +57,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: calc(var(--lane) + 10px);
+    top: 10px;
     height: 4px;
     border-radius: 2px;
     background: linear-gradient(
@@ -75,50 +68,26 @@
       color-mix(in srgb, var(--se-text-secondary) 35%, transparent) var(--to)
     );
   }
-  /* The marker: a line through the track at the value, under the handles, and the value in a flag on top of it. */
-  .line {
+  /* The marker: a hollow dot on the track, under the handles (which take the pointer first where they overlap it). */
+  .dot {
     position: absolute;
-    top: calc(var(--lane) - 2px);
-    width: 2px;
-    height: 28px;
-    margin-left: -1px;
-    border-radius: 1px;
-    background: var(--se-text-primary);
-    pointer-events: none;
-  }
-  .flag {
-    position: absolute;
-    top: 0;
-    /* Centered on the line, but never past the ends of the track. */
-    left: clamp(15px, var(--at), calc(100% - 15px));
-    transform: translateX(-50%);
+    top: 6px;
     box-sizing: border-box;
-    min-width: 30px;
-    padding: 0 4px;
-    border-radius: var(--se-radius-sm);
-    background: var(--se-text-primary);
-    color: var(--se-bg-elevated, #fff);
-    font-family: var(--se-font-mono);
-    font-size: 10px;
-    line-height: 14px;
-    text-align: center;
-    white-space: nowrap;
-    pointer-events: none;
+    width: 12px;
+    height: 12px;
+    margin-left: -6px;
+    border: 2px solid var(--se-text-primary);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--se-bg-elevated, #fff) 55%, transparent);
   }
-  /* Where the layer is hidden: the marker is a quiet outline. */
-  .line.outside {
-    background: var(--se-text-secondary);
-    opacity: 0.6;
-  }
-  .flag.outside {
-    background: transparent;
-    color: var(--se-text-secondary);
-    box-shadow: inset 0 0 0 1px var(--se-text-secondary);
+  .dot.outside {
+    border-color: var(--se-text-secondary);
+    border-style: dashed;
   }
   input {
     position: absolute;
     left: 0;
-    top: var(--lane);
+    top: 0;
     width: 100%;
     height: 24px;
     margin: 0;

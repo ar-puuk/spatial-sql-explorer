@@ -73,25 +73,24 @@ test.describe('zoom range and sizes', () => {
     await expect(page.locator('.zoom-range-value')).toHaveText('20 – 21')
   })
 
-  test('a flag and a line on the slider show where the map is, quiet when the layer is hidden there', async ({ page }) => {
+  test('a hollow dot on the slider shows where the map is, dashed when the layer is hidden there', async ({ page }) => {
     await openFile(page, fixture('crashes.geojson'), '?e2e=1')
     await openStylePanel(page)
     const jump = (zoom: number): Promise<void> => page.evaluate((z) => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, c: number): void } }).__spatialExplorerE2E.jumpTo(-112, 40.7, z), zoom)
-    const flag = page.locator('.se-range2 .flag')
+    const dot = page.locator('.se-range2 .dot')
     await jump(12)
-    await expect(flag).toHaveText('12.0')
-    await expect(flag).toHaveAttribute('title', 'The map is at zoom 12.0')
-    // No sentence, no scale: the flag is the whole indication.
-    await expect(page.locator('.zoom-now, #zoom-range-hint, .se-range2 .tick')).toHaveCount(0)
+    await expect(dot).toHaveAttribute('title', 'The map is at zoom 12.0')
+    // No sentence, no scale, no flag: the dot is the whole indication.
+    await expect(page.locator('.zoom-now, #zoom-range-hint, .se-range2 .tick, .se-range2 .flag, .se-range2 .line')).toHaveCount(0)
     await setNumber(page, 'Show from zoom', 5)
     await setNumber(page, 'Hide from zoom', 10)
-    await expect(flag).toHaveAttribute('title', 'The map is at zoom 12.0: the layer is hidden here')
-    await expect(page.locator('.se-range2 .flag.outside, .se-range2 .line.outside')).toHaveCount(2)
+    await expect(dot).toHaveAttribute('title', 'The map is at zoom 12.0: the layer is hidden here')
+    await expect(page.locator('.se-range2 .dot.outside')).toHaveCount(1)
     await jump(8)
-    await expect(flag).toHaveText('8.0')
-    await expect(page.locator('.se-range2 .flag.outside, .se-range2 .line.outside')).toHaveCount(0)
-    // The line stands where the zoom is on the scale of 0 to 24.
-    const left = await page.locator('.se-range2 .line').evaluate((el) => (el as HTMLElement).style.left)
+    await expect(dot).toHaveAttribute('title', 'The map is at zoom 8.0')
+    await expect(page.locator('.se-range2 .dot.outside')).toHaveCount(0)
+    // The dot stands where the zoom is on the scale of 0 to 24.
+    const left = await dot.evaluate((el) => (el as HTMLElement).style.left)
     expect(parseFloat(left)).toBeCloseTo((8 / 24) * 100, 0)
   })
 
