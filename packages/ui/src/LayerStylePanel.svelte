@@ -618,7 +618,7 @@
 
     <!-- Spec 025: the zoom range the layer shows in, beside the opacity. -->
     <div class="row">
-      <span class="label" id="zoom-range-label" title="The zoom levels the layer shows at">Zoom</span>
+      <span class="label" id="zoom-range-label" title="The zoom levels the layer shows at. Zoom 0 shows the world, 14 a city, 18 a street.">Zoom</span>
       <span class="wide">
         <RangeSlider
           from={zoomFrom}
@@ -628,15 +628,12 @@
           fromLabel="Show from zoom"
           toLabel="Hide from zoom"
           marker={camera ? camera.zoom : null}
-          markerLabel={camera ? `The map is at zoom ${camera.zoom.toFixed(1)}` : ''}
+          markerLabel={camera ? `The map is at zoom ${camera.zoom.toFixed(1)}${camera.zoom >= zoomFrom && camera.zoom < zoomTo ? '' : ': the layer is hidden here'}` : ''}
           onChange={(from, to) => setZoom({ min: from, max: to })}
         />
       </span>
       <span class="value zoom-range-value" aria-hidden="true">{zoomFrom} – {zoomTo}</span>
     </div>
-    <p class="hint" id="zoom-range-hint">
-      {#if camera}<span class="zoom-now">The map is at zoom {camera.zoom.toFixed(1)}: the layer is {camera.zoom >= zoomFrom && camera.zoom < zoomTo ? 'shown' : 'hidden'} here.</span>{/if}Visible from the first handle up to the second (0 and 24 mean no limit). Zoom 0 shows the world, 14 a city, 18 a street. The line marks where the map is now.
-    </p>
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Color</h3>
@@ -1957,12 +1954,6 @@
   .zoom-row .label {
     flex: 1;
     min-width: 0;
-  }
-  /* The sentence about the map's zoom is a line of its own above the explanation. */
-  .zoom-now {
-    display: block;
-    margin-bottom: 2px;
-    color: var(--se-text-primary);
   }
   .zoom-range-value {
     text-align: right;
