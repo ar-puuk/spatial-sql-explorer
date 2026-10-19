@@ -1,9 +1,9 @@
 // Spec 024: how a GTFS feed looks until the person restyles it, after GTFS-X's decisions (specs/024-gtfs/research.md §4;
-// its code is AGPL and never used). Routes are lines in their own `route_color`, three pixels wide with round caps and a
-// direction arrow every 80 px; stops are dots in the color of the route that serves them, with a white outline. Names
+// its code is AGPL and never used). Routes are lines in their own `route_color`, three pixels wide with round caps (no
+// direction arrows: they are one click away in the style panel); stops are dots in the color of the route that serves them, with a white outline. Names
 // show from zoom 13: the route's along its line, the stop's beside it. Both read the `color` column of the network
 // result (gtfs/sql.ts), which already holds `#rrggbb` with GTFS-X's grey where the feed gives no color.
-import { DEFAULT_ARROWS, sanitizeStyle, type LayerStyle } from '../style/model.js'
+import { sanitizeStyle, type LayerStyle } from '../style/model.js'
 
 /** The columns the default style reads from the network result. */
 export const GTFS_COLOR_COLUMN = 'color'
@@ -29,7 +29,6 @@ export function gtfsDefaultStyle(): LayerStyle {
     channels: {
       color: { source: { kind: 'column', column: GTFS_COLOR_COLUMN }, scale: { kind: 'identity', noValue: {} } },
     },
-    arrows: { ...DEFAULT_ARROWS, size: 0.6 },
     // GTFS-X's stops grow with the zoom (3 px at zoom 10 to 6 px at 14); here every size does, so a city-wide view is lines, not dots.
     zoom: { sizes: { fromZoom: GTFS_SIZE_ZOOMS.from, toZoom: GTFS_SIZE_ZOOMS.to, factor: GTFS_SIZE_ZOOMS.factor, lineFactor: GTFS_SIZE_ZOOMS.lineFactor } },
     labels: {

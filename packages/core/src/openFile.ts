@@ -362,10 +362,16 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       // Spec 024: a GTFS feed opens as its routes (the open layer) with its stops and tables in a schema.
       gtfsZip = { bytes: zip.bytes, root: contents.root }
       hooks.onPhase?.('converting', { note: 'Reading the transit feed…' })
-      gtfs = await openGtfsFeed(zip.bytes, contents.root, ref.displayName, hostAdapter.gdb, {
-        signal: abort.signal,
-        onProgress: (step) => hooks.onPhase?.('converting', { note: step.phase === 'download' ? 'Downloading the reader (first use only)…' : 'Reading the transit feed…' }),
-      })
+      try {
+        gtfs = await openGtfsFeed(zip.bytes, contents.root, ref.displayName, hostAdapter.gdb, {
+          signal: abort.signal,
+          onProgress: (step) => hooks.onPhase?.('converting', { note: step.phase === 'download' ? 'Downloading the reader (first use only)…' : 'Reading the transit feed…' }),
+        })
+      } catch (err) {
+        // A feed's stop times are one big text file read whole: too big for this window's memory says so.
+        if (isOutOfMemory(err)) throw new Error(outOfMemoryMessage('open-whole', null), { cause: err })
+        throw err
+      }
       source = gtfs.source
     } else if (contents.kind === 'datasets') {
       let dataset: ZipDataset
@@ -379,6 +385,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
         dataset = chooseDataset(contents.datasets, picked)
       }
       source = extractDataset(zip.bytes, dataset)
+    } else if (contents.gtfsMissing) {
+      // Spec 024: it looks like a transit feed, but is missing files it needs.
+      throw new Error(`"${ref.displayName}" looks like a GTFS transit feed but is missing ${contents.gtfsMissing.join(', ')}. A feed needs stops.txt, routes.txt, trips.txt and stop_times.txt.`)
     } else {
       throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel or a File Geodatabase).`)
     }

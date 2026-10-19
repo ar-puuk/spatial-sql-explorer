@@ -11,8 +11,9 @@ describe('the default GTFS style', () => {
     expect(style.channels?.color).toMatchObject({ source: { kind: 'column', column: 'color' }, scale: { kind: 'identity' } })
   })
 
-  it('follows GTFS-X: 3 px lines with arrows along them, white-outlined stop dots, dark labels with a white halo', () => {
-    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', strokeWidth: 1.5, pointRadius: 5, arrows: { placement: 'along', spacing: 80 } })
+  it('follows GTFS-X: 3 px lines, white-outlined stop dots, dark labels with a white halo, and no direction arrows', () => {
+    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', strokeWidth: 1.5, pointRadius: 5 })
+    expect(style.arrows).toBeUndefined()
     expect(style.labels).toMatchObject({ enabled: true, color: '#3d2e22', halo: { enabled: true, color: '#ffffff', width: 2 }, minZoom: 13, source: { column: 'name' } })
   })
 
@@ -61,8 +62,8 @@ describe('the network query', () => {
 })
 
 describe('the style as a QGIS sidecar', () => {
-  it('keeps the colors as given, the line width, the arrows and the labels', () => {
-    const style = gtfsDefaultStyle()
+  it('keeps the colors as given, the line width, the arrows (when switched on) and the labels', () => {
+    const style = sanitizeStyle({ ...gtfsDefaultStyle(), arrows: { placement: 'along', spacing: 80, size: 0.6 } })
     const { text } = styleToQml(style, 'Mixed', 'gtfs')
     const back = qmlToStyle(text).style
     expect(back.channels?.color).toMatchObject({ source: { column: 'color' }, scale: { kind: 'identity' } })

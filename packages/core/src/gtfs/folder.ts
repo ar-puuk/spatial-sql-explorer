@@ -4,7 +4,7 @@
 // zip is read once. Detection is the same as for a zip (gtfs/detect.ts): the right files, then
 // the columns of two of them, never the folder's or the files' names beyond `stops.txt` and so on.
 import { zipSync } from 'fflate'
-import { confirmGtfsHeaders, findGtfsRoot, gtfsConfirmingFiles } from './detect.js'
+import { confirmGtfsHeaders, csvHeader, findGtfsRoot, findPartialGtfs, gtfsConfirmingFiles } from './detect.js'
 
 /** A file of a picked folder: its path inside the folder (`gtfs/stops.txt`) and ways to read it. */
 export interface FolderEntry {
@@ -32,7 +32,7 @@ export async function zipGtfsFolder(entries: readonly FolderEntry[]): Promise<Fo
   const paths = entries.map((e) => e.path.replace(/\\/g, '/'))
   if (!mayBeGtfs(paths)) return null
   const found = findGtfsRoot(paths)
-  if (!found) return null
+  if (!found) return incompleteFeed(entries, paths)
   const byPath = new Map(entries.map((e, i) => [paths[i], e]))
   for (const root of [found.root, ...found.alternatives]) {
     const heads: Record<string, Uint8Array> = {}
@@ -48,4 +48,25 @@ export async function zipGtfsFolder(entries: readonly FolderEntry[]): Promise<Fo
     return { zip: zipSync(files, { level: 0 }), name: `${folder || 'gtfs'}.zip` }
   }
   return null
+}
+
+/**
+ * A folder with some of a feed's files and not all of them (and the columns of those it has that a feed's
+ * stops and routes need) is still zipped, so that opening it says which files are missing.
+ */
+async function incompleteFeed(entries: readonly FolderEntry[], paths: readonly string[]): Promise<FolderFeed | null> {
+  const partial = findPartialGtfs(paths)
+  if (!partial) return null
+  const present = (file: string): number => paths.findIndex((p) => p.toLowerCase() === partial.root.toLowerCase() + file)
+  for (const [file, column] of [['stops.txt', 'stop_id'], ['routes.txt', 'route_id']] as const) {
+    const at = present(file)
+    if (at >= 0 && !csvHeader(await entries[at].head()).includes(column)) return null
+  }
+  const files: Record<string, Uint8Array> = {}
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i]
+    if (p.toLowerCase().startsWith(partial.root.toLowerCase()) && p.slice(partial.root.length).indexOf('/') < 0 && p.toLowerCase().endsWith('.txt')) files[p.slice(partial.root.length)] = await entries[i].read()
+  }
+  const folder = partial.root ? partial.root.replace(/\/$/, '').split('/').pop() : ''
+  return { zip: zipSync(files, { level: 0 }), name: `${folder || 'gtfs'}.zip` }
 }

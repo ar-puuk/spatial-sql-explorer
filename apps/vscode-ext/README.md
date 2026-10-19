@@ -229,9 +229,9 @@ opening it again is immediate.
 Right-click a feed's `.zip`, its folder, or one of its `.txt` files (`stops.txt`,
 `routes.txt`, ...) and choose **Open in Spatial Explorer**. A feed is recognized
 by its content (stops, routes, trips and stop times, then their columns), not by
-its name. The map shows every route as a line in its `route_color` with
-direction arrows, and every stop as a dot in the color of a route that serves
-it; names appear from zoom 13.
+its name. The map shows every route as a line in its `route_color` and
+every stop as a dot in the color of a route that serves it; names appear from
+zoom 13. Direction arrows are off until you choose them in the style panel.
 
 - The feed is a schema named after it: `network` is the open layer (routes and
   stops together), `routes` and `stops` have every column (a stop lists the

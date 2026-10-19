@@ -2,7 +2,7 @@
 // the feed's tables in a schema named after the file. The fixture (scripts/fixtures-024.mjs) has
 // 3 routes: R1 with a shape, R2 and R3 without (drawn from GDAL's trip lines), 5 stops (one unserved).
 import { test, expect, type Page } from '@playwright/test'
-import { fixture, openFile, runQuery, showSql, openQueryPanel } from './helpers'
+import { exportVia, fixture, openFile, runQuery, showSql, openQueryPanel } from './helpers'
 
 /** Runs a query that returns one text cell and reads that cell from the table. */
 async function one(page: Page, sql: string): Promise<string> {
@@ -23,10 +23,11 @@ test.describe('a GTFS feed', () => {
     // Colors are #RRGGBB: the data's, GTFS-X's grey where there is none (route R2; the stops no colored route serves: S4, S5).
     expect(await one(page, `SELECT string_agg(color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'route'`)).toBe('#E4572E #888888 #17BEBB')
     expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'stop'`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
-    // The style the feed opens with: colors as given, three pixel lines with arrows, labels from zoom 13.
+    // The style the feed opens with: colors as given, three pixel lines (no arrows until asked for), labels from zoom 13.
     const style = await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { styleState(): Record<string, unknown> } }).__spatialExplorerE2E.styleState())
     expect(style.channels).toMatchObject({ color: { source: { kind: 'column', column: 'color' }, scale: { kind: 'identity' } } })
-    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', arrows: { placement: 'along', spacing: 80 }, labels: { enabled: true, source: { column: 'name' }, minZoom: 13 } })
+    expect(style.arrows).toBeUndefined()
+    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', labels: { enabled: true, source: { column: 'name' }, minZoom: 13 } })
   })
 
   test('routes, stops and the other tables are views in the feed schema', async ({ page }) => {
@@ -164,4 +165,44 @@ test.describe('GDAL and SQL geometry agree', () => {
     }
     expect(answers[1]).toBe(answers[0])
   })
+})
+
+test.describe('what goes wrong with a feed is said', () => {
+  test.setTimeout(120000)
+
+  test('a feed missing files names them', async ({ page }) => {
+    const { zipSync } = await import('fflate')
+    const enc = new TextEncoder()
+    const buffer = Buffer.from(
+      zipSync({
+        'stops.txt': enc.encode('stop_id,stop_name,stop_lat,stop_lon\nS1,A,39.7,-104.9\n'),
+        'routes.txt': enc.encode('route_id,route_type\nR1,3\n'),
+        'trips.txt': enc.encode('route_id,service_id,trip_id\nR1,WK,T1\n'),
+      })
+    )
+    await page.route('https://tiles.openfreemap.org/styles/**', (route) => route.fulfill({ json: { version: 8, sources: {}, layers: [] } }))
+    await page.goto('/')
+    await page.locator('input[type="file"]').setInputFiles({ name: 'data.zip', mimeType: 'application/zip', buffer })
+    await expect(page.locator('body')).toContainText('looks like a GTFS transit feed but is missing stop_times.txt')
+  })
+})
+
+test.describe('a feed can be exported', () => {
+  test.setTimeout(180000)
+
+  for (const format of ['GeoJSON', 'GeoPackage', 'FlatGeobuf']) {
+    test(`the network as ${format}: the routes and the stops, read back`, async ({ page }) => {
+      await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1')
+      const { name, bytes } = await exportVia(page, { format })
+      expect(name).toContain('gtfs-mini')
+      const back = await page.evaluate(
+        (f) => (window as unknown as { __spatialExplorerE2E: { inspectExport(f: unknown): Promise<{ rows: number; types: string[]; crs: string | null; columns: string[] }> } }).__spatialExplorerE2E.inspectExport(f),
+        [{ name, base64: bytes.toString('base64') }]
+      )
+      expect(back.rows).toBe(8)
+      expect(back.types).toContain('POINT')
+      expect(back.types.some((t) => t.includes('LINESTRING'))).toBe(true)
+      expect(back.columns).toEqual(expect.arrayContaining(['kind', 'id', 'name', 'color']))
+    })
+  }
 })

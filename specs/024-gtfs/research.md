@@ -106,3 +106,7 @@ Decision (T004): the reader gives GDAL a flat in-memory folder in which `stop_ti
 - **Agreement:** on the UTA feed both modes give 85 routes, 94,957 line points and 5,425 stops (`tests/web/specs/gtfs-024.spec.ts`, needs `SE_GTFS_SAMPLE`). The fixture `gtfs-gaps.zip` (a route with no trips, a stop with no coordinates, a color that is not one) checks the notice and the grey fallback.
 - **Scale** (the 10x feed, 4.67M stop times, 230 MB of text, in Chrome): the whole open takes 16 s with GDAL and 19 s in SQL mode, then `SELECT count(*) FROM gtfs.stop_times` takes 0.15 s and a count over the network 0.3 s. The real `stop_times.txt` is still inflated whole in the page before the engine takes it (about 230 MB in JavaScript for a moment): fine at this size; a feed ten times larger would need it streamed into the engine, not built here.
 - **Not done:** an automated accessibility pass over the new notice (it is the existing notice component, a status region); GTFS-X's two-ring stops and zoom-dependent sizes (research §9); a service-day filter.
+
+## 12. No arrows by default (user decision 2026-10-19)
+
+The default GTFS style no longer draws direction arrows (GTFS-X does, at zoom 12 and up, but here a line is drawn in the direction of its shape or of its trip, which for a two-way route says little). They are the style panel's Arrows control, as for any line layer.

@@ -43,6 +43,31 @@ export function findGtfsRoot(names: readonly string[]): GtfsLocation | null {
   return { root: whole[0], alternatives: whole.slice(1) }
 }
 
+/**
+ * A folder that has some of a feed's required files but not all (two or more, at the top level or one wrapper
+ * folder), so the person can be told what is missing instead of "nothing to open". The columns are not checked here.
+ */
+export function findPartialGtfs(names: readonly string[]): { root: string; missing: string[] } | null {
+  const folders = new Map<string, Set<string>>()
+  for (const raw of names) {
+    const name = raw.replace(/\\/g, '/')
+    if (junk(name)) continue
+    const slash = name.lastIndexOf('/')
+    const dir = slash < 0 ? '' : name.slice(0, slash + 1)
+    if (dir.split('/').length - 1 > 1) continue
+    const set = folders.get(dir) ?? new Set<string>()
+    set.add(name.slice(slash + 1).toLowerCase())
+    folders.set(dir, set)
+  }
+  let best: { root: string; missing: string[]; have: number } | null = null
+  for (const [dir, files] of folders) {
+    const have = GTFS_REQUIRED_FILES.filter((f) => files.has(f)).length
+    if (have < 2 || have === GTFS_REQUIRED_FILES.length) continue
+    if (!best || have > best.have || (have === best.have && dir === '')) best = { root: dir, missing: GTFS_REQUIRED_FILES.filter((f) => !files.has(f)), have }
+  }
+  return best ? { root: best.root, missing: best.missing } : null
+}
+
 /** The header cells of a CSV's first line (a byte-order mark, quotes and case removed). */
 export function csvHeader(head: Uint8Array | string): string[] {
   const text = typeof head === 'string' ? head : new TextDecoder().decode(head)

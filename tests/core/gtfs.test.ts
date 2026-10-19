@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { confirmGtfsHeaders, csvHeader, findGtfsRoot, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes, zipGtfsFolder, type FolderEntry } from '@spatial-explorer/core'
+import { confirmGtfsHeaders, csvHeader, findGtfsRoot, findPartialGtfs, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes, zipGtfsFolder, type FolderEntry } from '@spatial-explorer/core'
 import { gtfsLayerNames, routesReaderSql, stopsViewSql } from '../../packages/core/src/gtfs/sql'
 import { feedNotice } from '../../packages/core/src/gtfs/open'
 
@@ -197,11 +197,12 @@ describe('zipGtfsFolder (a feed that is a folder of text files)', () => {
     expect(got && Object.keys(unzipSync(got.zip)).length).toBe(5)
   })
 
-  it('is not fooled: wrong columns, missing files, other data, or a folder two levels down', async () => {
+  it('is not fooled: wrong columns, other data, or a folder two levels down', async () => {
     expect(await zipGtfsFolder(entries({ ...feed(), 'stops.txt': 'a,b\n1,2\n' }))).toBeNull()
     const noTimes = feed()
     delete noTimes['stop_times.txt']
-    expect(await zipGtfsFolder(entries(noTimes))).toBeNull()
+    // Missing files: still zipped, so that opening it names them (see the partial feeds below).
+    expect(inspectZip((await zipGtfsFolder(entries(noTimes)))?.zip as Uint8Array)).toEqual({ kind: 'empty', gtfsMissing: ['stop_times.txt'] })
     expect(await zipGtfsFolder(entries({ 'a.geojson': '{}', 'b.csv': 'x' }))).toBeNull()
     expect(await zipGtfsFolder(entries(feed('a/b/')))).toBeNull()
   })
@@ -251,5 +252,33 @@ describe('the notice about how a feed was drawn', () => {
   it('says when lines come from trips, and why GDAL was not used', () => {
     expect(feedNotice({ ...base, tripLines: true })).toBe('Routes whose trips have no shape are drawn through the stops of one trip.')
     expect(feedNotice({ ...base, mode: 'sql', readerProblem: 'it is offline' })).toBe("The GDAL reader could not be used (it is offline), so lines are built from the feed's own tables.")
+  })
+})
+
+describe('a feed with some of its files missing', () => {
+  it('findPartialGtfs names what is missing, from two files up', () => {
+    expect(findPartialGtfs(['stops.txt', 'routes.txt'])).toEqual({ root: '', missing: ['trips.txt', 'stop_times.txt'] })
+    expect(findPartialGtfs(['feed/stops.txt', 'feed/routes.txt', 'feed/trips.txt'])).toEqual({ root: 'feed/', missing: ['stop_times.txt'] })
+  })
+  it('is not a partial feed: one file, a whole feed, other data, or too deep', () => {
+    expect(findPartialGtfs(['stops.txt'])).toBeNull()
+    expect(findPartialGtfs(Object.keys(feed()))).toBeNull()
+    expect(findPartialGtfs(['a.geojson', 'b.csv'])).toBeNull()
+    expect(findPartialGtfs(['a/b/stops.txt', 'a/b/routes.txt'])).toBeNull()
+  })
+  it('inspectZip says which files, and still is not a feed', () => {
+    const files = feed()
+    delete files['stop_times.txt']
+    expect(inspectZip(zip(files))).toEqual({ kind: 'empty', gtfsMissing: ['stop_times.txt'] })
+    expect(inspectZip(zip({ 'notes.txt': 'x' }))).toEqual({ kind: 'empty' })
+  })
+  it('a folder missing some is still zipped, so opening it can say what is missing; wrong columns are not', async () => {
+    const mk = (files: Record<string, string>): FolderEntry[] => Object.entries(files).map(([path, content]) => ({ path, head: async () => text(content).slice(0, 64), read: async () => text(content) }))
+    const files = feed('f/')
+    delete files['f/trips.txt']
+    const got = await zipGtfsFolder(mk(files))
+    expect(got?.name).toBe('f.zip')
+    expect(inspectZip(got?.zip as Uint8Array)).toEqual({ kind: 'empty', gtfsMissing: ['trips.txt'] })
+    expect(await zipGtfsFolder(mk({ 'stops.txt': 'a,b\n', 'routes.txt': ROUTES }))).toBeNull()
   })
 })
