@@ -111,6 +111,8 @@ export interface DatasetFacts {
   spatialIndex: SpatialIndexKind
   /** Why the whole file is being read, when partial reads failed (FR-015). */
   fallback: string | null
+  /** Spec 024: a caveat about how the file was drawn (a GTFS feed), shown once over the map. */
+  notice?: string
   /**
    * FlatGeobuf read in parts (T044): the map works, but queries, the table,
    * thematic styles and export wait until the user loads the whole file.

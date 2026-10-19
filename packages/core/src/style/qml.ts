@@ -865,7 +865,7 @@ ${symbolXml(kind, style, '0', sizeDd)}
   // Spec 008: QGIS loads only the categories listed: layer opacity is in
   // Rendering, and polygon extrusion in Symbology3D (checked with QGIS 4.2.3).
   const text = `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|${labeling ? 'Labeling|' : ''}Rendering|CustomProperties"${labeling ? ' labelsEnabled="1"' : ''}>
+<qgis version="3.34.0" styleCategories="Symbology|Symbology3D|${labeling ? 'Labeling|' : ''}Rendering|CustomProperties"${labeling ? ' labelsEnabled="1"' : ''}${scaleVisibilityAttributes(style.zoom)}>
 ${renderer}
 ${renderer3d}${labeling}${customProperties(props)}  <layerOpacity>${round(style.layerOpacity ?? 1)}</layerOpacity>
   <layerGeometryType>${GEOMETRY_CODE[geom]}</layerGeometryType>
@@ -1345,6 +1345,8 @@ export function qmlToStyle(text: string): StyleImportResult {
     const style = heatmapFromQgis(renderer, readCustomProperties(doc), notes)
     const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
     if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
+    const heatZoom = zoomFromScaleVisibility(doc.documentElement)
+    if (heatZoom) style.zoom = heatZoom
     return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...withOwnStyle(style, readCustomProperties(doc), notes) }), format: 'qml', notes }
   }
   if (rendererType !== 'singleSymbol' && !thematicType && rendererType !== 'RuleRenderer') {
@@ -1539,12 +1541,36 @@ export function qmlToStyle(text: string): StyleImportResult {
   if (extrusion) style.extrusion = extrusion
   const layerOpacity = Number(doc.getElementsByTagName('layerOpacity')[0]?.textContent ?? '1')
   if (Number.isFinite(layerOpacity) && layerOpacity < 1) style.layerOpacity = layerOpacity
+  const scaleZoom = zoomFromScaleVisibility(doc.documentElement)
+  if (scaleZoom) style.zoom = scaleZoom
   return { style: sanitizeStyle({ ...DEFAULT_LAYER_STYLE, ...withOwnStyle(style, custom, notes) }), format: 'qml', notes }
+}
+
+/** Web Mercator's scale denominator at zoom 0 on the equator (QGIS's 1:N at 96 dpi), so zoom z is 1:(this / 2^z). */
+const SCALE_AT_ZOOM_0 = 559082264.0287178
+
+/** Spec 025: QGIS's scale-dependent visibility for a zoom range (`minScale` is the most zoomed out, `maxScale` the most zoomed in; 0 is no limit). */
+function scaleVisibilityAttributes(zoom: LayerStyle['zoom']): string {
+  if (zoom?.min === undefined && zoom?.max === undefined) return ''
+  const scale = (z: number | undefined): number => (z === undefined ? 0 : Math.round(SCALE_AT_ZOOM_0 / 2 ** z))
+  return ` hasScaleBasedVisibilityFlag="1" minScale="${scale(zoom?.min)}" maxScale="${scale(zoom?.max)}"`
+}
+
+/** The zoom range of a QGIS file's scale-dependent visibility, or undefined. */
+function zoomFromScaleVisibility(root: Element): LayerStyle['zoom'] {
+  if (root.getAttribute('hasScaleBasedVisibilityFlag') !== '1') return undefined
+  const zoomOf = (name: string): number | undefined => {
+    const n = Number(root.getAttribute(name))
+    return Number.isFinite(n) && n > 0 ? Math.log2(SCALE_AT_ZOOM_0 / n) : undefined
+  }
+  const min = zoomOf('minScale')
+  const max = zoomOf('maxScale')
+  return min === undefined && max === undefined ? undefined : { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) }
 }
 
 /** Spec 011: the channel model fields, as JSON for `spatialExplorer/style` (null: a single style, nothing to add). */
 function ownStyle(style: LayerStyle): string | null {
-  const keys = ['draw', 'channels', 'heatmap', 'clusters', 'height', 'labels', 'arrows', 'lineWidth', 'rotation', 'opacity'] as const
+  const keys = ['draw', 'channels', 'heatmap', 'clusters', 'height', 'labels', 'arrows', 'zoom', 'lineWidth', 'rotation', 'opacity'] as const
   const out: Partial<LayerStyle> = {}
   for (const k of keys) if (style[k] !== undefined) (out as Record<string, unknown>)[k] = style[k]
   return Object.keys(out).length ? JSON.stringify(out) : null

@@ -99,6 +99,8 @@ export function previewExportNotice(style: LayerStyle, format: StyleFormat, reso
   items.push(...notes)
   // Spec 019: line arrows are a map layer of ours; only our own QML entry keeps them.
   if (format !== 'qml' && style.arrows) items.push(`Line arrows are not exported to ${format === 'sld' ? 'SLD' : 'Mapbox GL'} (Spatial Explorer keeps them).`)
+  // Spec 025: the zoom range is QGIS's scale-based visibility and Mapbox GL's minzoom and maxzoom; SLD leaves it out.
+  if (format === 'sld' && style.zoom) items.push('The zoom range and sizes that follow the zoom are not exported to SLD (Spatial Explorer keeps them).')
   // Spec 010: rules and expressions outside QML.
   const r = rendererOf(style)
   if (format !== 'qml' && r.kind === 'graduated' && r.expression && resolved?.status === 'ok') items.push(EXPRESSION_NOTE(format))

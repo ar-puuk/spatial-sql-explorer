@@ -1912,6 +1912,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (memoryNotice) return { text: memoryNotice, kind: 'warning', dismissible: true }
     const facts = session.layer?.facts
     if (facts?.fallback && !fallbackDismissed) return { text: `Reading the whole file: ${facts.fallback}`, kind: 'warning', dismissible: true }
+    if (facts?.notice && !fallbackDismissed) return { text: facts.notice, kind: 'info', dismissible: true }
     return null
   })
 

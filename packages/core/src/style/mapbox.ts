@@ -5,6 +5,7 @@
 // our own LayerStyle is also embedded under `metadata` so a round trip
 // through Spatial Explorer is lossless even after a tool rewrites paints.
 import { legacyView } from './legacy.js'
+import { paintWithZoom } from './zoom.js'
 import { extrusionFromMapbox, extrusionHeightExpression } from './extrusion.js'
 import {
   DEFAULT_CLUSTERS,
@@ -212,6 +213,14 @@ export function styleToMapbox(input: LayerStyle, geometry: StyleGeometry, layerN
       for (const part of ['paint', 'layout', 'filter'] as const) {
         if (l[part] !== undefined) l[part] = JSON.parse(JSON.stringify(l[part]).split(from).join(JSON.stringify(index)))
       }
+    }
+  }
+  // Spec 025: the zoom range is Mapbox GL's own layer minzoom and maxzoom; sizes that follow the zoom are zoom expressions.
+  if (style.zoom) {
+    for (const l of layers as Array<Record<string, unknown>>) {
+      if (style.zoom.min !== undefined) l.minzoom = style.zoom.min
+      if (style.zoom.max !== undefined) l.maxzoom = style.zoom.max
+      if (l.paint && typeof l.paint === 'object') l.paint = paintWithZoom(l.paint as Record<string, unknown>, style.zoom)
     }
   }
   const doc = {

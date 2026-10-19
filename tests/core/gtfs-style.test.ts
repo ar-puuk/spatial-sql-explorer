@@ -12,8 +12,13 @@ describe('the default GTFS style', () => {
   })
 
   it('follows GTFS-X: 3 px lines with arrows along them, white-outlined stop dots, dark labels with a white halo', () => {
-    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', arrows: { placement: 'along', spacing: 80 } })
+    expect(style).toMatchObject({ lineWidth: 3, strokeColor: '#ffffff', strokeWidth: 1.5, pointRadius: 5, arrows: { placement: 'along', spacing: 80 } })
     expect(style.labels).toMatchObject({ enabled: true, color: '#3d2e22', halo: { enabled: true, color: '#ffffff', width: 2 }, minZoom: 13, source: { column: 'name' } })
+  })
+
+  it('grows with the zoom, as GTFS-X\'s stops do: a third of the size (lines 60%) at zoom 10 and below, full from 14', () => {
+    expect(style.zoom).toEqual({ sizes: { fromZoom: 10, toZoom: 14, factor: 0.35, lineFactor: 0.6 } })
+    expect(style.zoom?.min).toBeUndefined()
   })
 
   it('is stable through sanitizing (a stored copy reads back the same)', () => {
@@ -42,7 +47,7 @@ describe('labels from a zoom', () => {
 })
 
 describe('the network query', () => {
-  const sql = networkReaderSql({ tables: ['routes', 'trips', 'stops', 'stop_times'], geometry: ['stops', 'shapes_geom'] }, { route: '#888888', stop: '#8b7e74' })
+  const sql = networkReaderSql({ tables: ['routes', 'trips', 'stops', 'stop_times'], geometry: ['shapes_geom'] }, { route: '#888888', stop: '#8b7e74' })
   it('has one row per route and per stop, with the columns the style reads', () => {
     expect(sql).toContain("'route' AS kind")
     expect(sql).toContain('UNION ALL')

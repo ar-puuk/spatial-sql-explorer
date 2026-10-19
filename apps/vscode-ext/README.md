@@ -19,7 +19,8 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   Explorer**. A GeoPackage with several layers lists them, and each one can be
   shown. A **File Geodatabase** (the `.gdb` folder, or a `.gdb.zip`) opens the
   same way (experimental, see below), and so does any of these files inside a
-  `.zip`. No file at hand? Run **Spatial Explorer: Open Sample Data (US
+  `.zip`. A **GTFS transit feed** (a `.zip`, or a folder of its `.txt` files)
+  opens as a map of its routes and stops (see below). No file at hand? Run **Spatial Explorer: Open Sample Data (US
   Counties)**.
 - **Map and table, in sync.**
   - Click a feature to select its row and see all of its attributes;
@@ -222,6 +223,27 @@ opening it again is immediate.
 - Limits: a compressed geodatabase can't be read by any open-source reader (the
   message says to run *Uncompress File Geodatabase Data* in ArcGIS), and tables
   with 64-bit ObjectIDs (ArcGIS Pro 3.2 and newer) are untested.
+
+### GTFS transit feeds
+
+Right-click a feed's `.zip`, its folder, or one of its `.txt` files (`stops.txt`,
+`routes.txt`, ...) and choose **Open in Spatial Explorer**. A feed is recognized
+by its content (stops, routes, trips and stop times, then their columns), not by
+its name. The map shows every route as a line in its `route_color` with
+direction arrows, and every stop as a dot in the color of a route that serves
+it; names appear from zoom 13.
+
+- The feed is a schema named after it: `network` is the open layer (routes and
+  stops together), `routes` and `stops` have every column (a stop lists the
+  routes serving it), and every other table (`calendar`, `stop_times`, ...) can
+  be queried too (`SELECT * FROM gtfs.routes WHERE route_type = 0`).
+- Lines are read by GDAL's GTFS driver through the same reader a File
+  Geodatabase uses (downloaded once). Without it they are built in SQL from the
+  feed's own tables.
+- A route whose trips name no shape is drawn through the stops of one trip, and
+  a notice over the map says so, with the count of routes that have no trips
+  and stops that have no coordinates.
+- Not included: timetables, service-day filters, GTFS-Realtime, analysis.
 
 ## Commands
 

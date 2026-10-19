@@ -107,3 +107,61 @@ test.describe('a GTFS feed as a folder of text files', () => {
     await expect(page.locator('.file')).toContainText('points.csv')
   })
 })
+
+// Without GDAL (no reader, a blocked download): the geometry is made in SQL from the same tables.
+test.describe('a GTFS feed read without GDAL (the SQL fallback)', () => {
+  test.setTimeout(180000)
+
+  test('draws the same network, and says how', async ({ page }) => {
+    await openFile(page, fixture('gtfs-mini.zip'), '?e2e=1&noGdal=1')
+    await expect(page.locator('body')).toContainText('The GDAL reader could not be used')
+    await openQueryPanel(page)
+    await showSql(page)
+    expect(await one(page, `SELECT count(*)::VARCHAR AS s FROM layer`)).toBe('8')
+    expect(await one(page, `SELECT string_agg(route_id || ':' || ST_GeometryType(geom)::VARCHAR || ':' || ST_NPoints(geom), ', ' ORDER BY route_id) AS s FROM gtfs_mini.routes`)).toBe('R1:MULTILINESTRING:3, R2:LINESTRING:2, R3:LINESTRING:2')
+    expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'stop'`)).toBe('S1#E4572E S2#17BEBB S3#17BEBB S4#8b7e74 S5#8b7e74')
+  })
+
+  test('a feed with no shapes at all is drawn through its trips\' stops, in both modes', async ({ page, browser }) => {
+    for (const search of ['?e2e=1', '?e2e=1&noGdal=1']) {
+      const p = await browser.newPage()
+      await openFile(p, fixture('gtfs-noshapes.zip'), search)
+      await expect(p.locator('body')).toContainText('have no shape are drawn through the stops of one trip')
+      await openQueryPanel(p)
+      await showSql(p)
+      expect(await one(p, `SELECT string_agg(route_id || ':' || ST_NPoints(geom), ', ' ORDER BY route_id) AS s FROM gtfs_noshapes.routes`)).toBe('R1:2, R2:2, R3:2')
+      await p.close()
+    }
+    void page
+  })
+
+  test('says what is left out: routes with no trips, stops with no coordinates; a bad color falls back', async ({ page }) => {
+    await openFile(page, fixture('gtfs-gaps.zip'), '?e2e=1')
+    await expect(page.locator('body')).toContainText('1 route has no trips and is not drawn')
+    await expect(page.locator('body')).toContainText('1 stop has no usable coordinates and is not on the map')
+    await openQueryPanel(page)
+    await showSql(page)
+    expect(await one(page, `SELECT string_agg(id || color, ' ' ORDER BY id) AS s FROM layer WHERE kind = 'route'`)).toBe('R1#E4572E R2#888888 R3#888888')
+  })
+})
+
+// The two ways of making geometry agree on a real feed.
+test.describe('GDAL and SQL geometry agree', () => {
+  test.skip(!sample, 'set SE_GTFS_SAMPLE to a GTFS zip')
+  test.setTimeout(300000)
+
+  test('the UTA feed: the same routes, points and stops either way', async ({ browser }) => {
+    const answers: string[] = []
+    for (const search of ['?e2e=1', '?e2e=1&noGdal=1']) {
+      const p = await browser.newPage()
+      const started = Date.now()
+      await openFile(p, sample as string, search)
+      await openQueryPanel(p)
+      await showSql(p)
+      answers.push(await one(p, `SELECT (SELECT count(*) FROM gtfs.routes) || ' routes, ' || (SELECT sum(ST_NPoints(geom)) FROM gtfs.routes) || ' points, ' || (SELECT count(*) FROM gtfs.stops WHERE geom IS NOT NULL) || ' stops' AS s`))
+      console.log(`${search}: ${answers.at(-1)} (${Math.round((Date.now() - started) / 100) / 10} s with the first query)`)
+      await p.close()
+    }
+    expect(answers[1]).toBe(answers[0])
+  })
+})

@@ -17,12 +17,13 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
 - **Look**: GeoJSON, GeoPackage (several layers), SQLite/SpatiaLite (e.g.
   Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
   PMTiles and Excel, on a map and in an attribute table kept in sync. File
-  Geodatabases (a `.gdb` folder or `.gdb.zip`, experimental) and zipped data
+  Geodatabases (a `.gdb` folder or `.gdb.zip`, experimental), GTFS transit
+  feeds (a zip or folder: routes and stops, colored as the feed says) and zipped data
   open too; a geodatabase's layers are tables in one schema, and coded domains
   show their descriptions (or codes, on a switch). Small
   results are drawn once from memory; big ones (millions of rows, several GB)
   from vector tiles the engine builds as you pan, with a "Load all" option.
-  129 basemaps from 26 providers (keyed ones with your own key), each with a
+  A layer can show only in a range of zoom levels, and its sizes can follow the zoom. 129 basemaps from 26 providers (keyed ones with your own key), each with a
   real preview and searchable from the Basemap panel, a globe view, one search
   box for layer values, coordinates and places, and any source CRS. The globe
   is set against the real stars.

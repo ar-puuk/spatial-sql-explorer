@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { confirmGtfsHeaders, csvHeader, findGtfsRoot, firstLineOf, inspectZip, missingGtfsFiles, readStopTimes, splitFeed, tripsLackShapes, zipGtfsFolder, type FolderEntry } from '@spatial-explorer/core'
-import { gtfsLayerNames, routesReaderSql } from '../../packages/core/src/gtfs/sql'
+import { gtfsLayerNames, routesReaderSql, stopsViewSql } from '../../packages/core/src/gtfs/sql'
+import { feedNotice } from '../../packages/core/src/gtfs/open'
 
 const text = (s: string): Uint8Array => new TextEncoder().encode(s)
 const zip = (files: Record<string, string | Uint8Array>): Uint8Array => zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, typeof v === 'string' ? text(v) : v])))
@@ -167,15 +168,15 @@ describe('tripsLackShapes', () => {
 })
 
 describe('the feed in SQL', () => {
-  const inv = { tables: ['routes', 'trips', 'stop_times', 'stops', 'calendar'], geometry: ['stops', 'shapes_geom'] as ('stops' | 'shapes_geom' | 'trips')[] }
+  const inv = { tables: ['routes', 'trips', 'stop_times', 'stops', 'calendar'], geometry: ['shapes_geom'] as ('shapes_geom' | 'trips')[] }
   it('orders layer names: the network, routes, stops, then the other tables', () => {
     expect(gtfsLayerNames(inv.tables)).toEqual(['network', 'routes', 'stops', 'calendar', 'stop_times', 'trips'])
   })
   it('routes use the shapes, and add trip lines only when GDAL was asked for them', () => {
     expect(routesReaderSql(inv)).toContain('se-gtfs-shapes_geom.fgb')
     expect(routesReaderSql(inv)).not.toContain('se-gtfs-trips.fgb')
-    expect(routesReaderSql({ ...inv, geometry: ['stops', 'shapes_geom', 'trips'] })).toContain('se-gtfs-trips.fgb')
-    expect(routesReaderSql({ tables: inv.tables, geometry: ['stops', 'trips'] })).not.toContain('se-gtfs-shapes_geom.fgb')
+    expect(routesReaderSql({ ...inv, geometry: ['shapes_geom', 'trips'] })).toContain('se-gtfs-trips.fgb')
+    expect(routesReaderSql({ tables: inv.tables, geometry: ['trips'] })).not.toContain('se-gtfs-shapes_geom.fgb')
   })
 })
 
@@ -210,5 +211,45 @@ describe('zipGtfsFolder (a feed that is a folder of text files)', () => {
     const spy: FolderEntry[] = [{ path: 'stops.txt', head: async () => text('x\n'), read: async () => (reads++, text('x')) }]
     expect(await zipGtfsFolder(spy)).toBeNull()
     expect(reads).toBe(0)
+  })
+})
+
+describe('the feed in SQL without GDAL', () => {
+  const inv = { tables: ['routes', 'trips', 'stop_times', 'stops', 'shapes'], geometry: [] as ('shapes_geom' | 'trips')[], mode: 'sql' as const }
+  it('reads no FlatGeobuf at all: lines come from shapes.txt and from the stops of one trip each', () => {
+    const sql = routesReaderSql(inv)
+    expect(sql).not.toContain('.fgb')
+    expect(sql).toContain('ST_MakeLine')
+    expect(sql).toContain('shape_pt_sequence')
+    expect(sql).toContain('arg_max(trip_id, n)')
+  })
+  it('without a shapes table, every route is drawn through its trip\'s stops', () => {
+    const sql = routesReaderSql({ ...inv, tables: ['routes', 'trips', 'stop_times', 'stops'] })
+    expect(sql).not.toContain('shape_pt_sequence')
+  })
+  it('a trips.txt with no shape_id column is read without it (both modes)', () => {
+    expect(routesReaderSql({ ...inv, tripsHaveShapeId: false })).toContain("'' AS shape_id")
+    expect(routesReaderSql({ tables: inv.tables, geometry: ['trips'], tripsHaveShapeId: false })).not.toContain("coalesce(shape_id, '') = ''\" GROUP")
+  })
+  it('stops are points made from the text coordinates, with none for a blank or impossible one', () => {
+    const sql = stopsViewSql('s', inv)
+    expect(sql).toContain('TRY_CAST(t.stop_lat AS DOUBLE)')
+    expect(sql).toContain('BETWEEN -90 AND 90')
+    expect(sql).not.toContain('ST_Read')
+  })
+})
+
+describe('the notice about how a feed was drawn', () => {
+  const base = { mode: 'gdal' as const, readerProblem: null, tripLines: false, routes: 86, routesDrawn: 86, stops: 10, stopsDrawn: 10 }
+  it('says nothing when all is as expected', () => {
+    expect(feedNotice(base)).toBeNull()
+  })
+  it('counts what is left out, in the right number', () => {
+    expect(feedNotice({ ...base, routesDrawn: 85 })).toBe('1 route has no trips and is not drawn.')
+    expect(feedNotice({ ...base, routesDrawn: 80, stopsDrawn: 7 })).toBe('6 routes have no trips and are not drawn. 3 stops have no usable coordinates and are not on the map.')
+  })
+  it('says when lines come from trips, and why GDAL was not used', () => {
+    expect(feedNotice({ ...base, tripLines: true })).toBe('Routes whose trips have no shape are drawn through the stops of one trip.')
+    expect(feedNotice({ ...base, mode: 'sql', readerProblem: 'it is offline' })).toBe("The GDAL reader could not be used (it is offline), so lines are built from the feed's own tables.")
   })
 })

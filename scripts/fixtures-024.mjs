@@ -46,4 +46,14 @@ const enc = new TextEncoder()
 fs.writeFileSync(path.join(dir, '..', 'gtfs-mini.zip'), zipSync(Object.fromEntries(Object.entries(files).map(([n, t]) => [n, enc.encode(t)]))))
 // The same feed one folder down, a shape agencies ship.
 fs.writeFileSync(path.join(dir, '..', 'gtfs-mini-nested.zip'), zipSync(Object.fromEntries(Object.entries(files).map(([n, t]) => ['feed/' + n, enc.encode(t)]))))
+// A feed with no shapes.txt and no shape_id column: every route is drawn through its trip's stops.
+const noShapes = { ...files }
+delete noShapes['shapes.txt']
+noShapes['trips.txt'] = ['route_id,service_id,trip_id', 'R1,WK,T1', 'R1,WK,T2', 'R2,WK,T3', 'R3,WK,T4'].join('\n') + '\n'
+fs.writeFileSync(path.join(dir, '..', 'gtfs-noshapes.zip'), zipSync(Object.fromEntries(Object.entries(noShapes).map(([n, t]) => [n, enc.encode(t)]))))
+// A feed with gaps: a route with no trips (R9), a stop with no coordinates (S6), a color that is not one (R3).
+const gaps = { ...files }
+gaps['routes.txt'] = files['routes.txt'].replace('R3,A,L,Light rail,0,17BEBB,000000', 'R3,A,L,Light rail,0,blue,000000') + 'R9,A,9,Unused,3,00FF00,000000\n'
+gaps['stops.txt'] = files['stops.txt'] + 'S6,Nowhere,,\n'
+fs.writeFileSync(path.join(dir, '..', 'gtfs-gaps.zip'), zipSync(Object.fromEntries(Object.entries(gaps).map(([n, t]) => [n, enc.encode(t)]))))
 console.log('written', dir)

@@ -39,6 +39,8 @@
     layerFilters,
     labelFeatures,
     labelLayers,
+    layerZoomRange,
+    paintWithZoom,
     TILE_LABEL_LAYER,
     TILE_LAYER,
     visibilityFilter,
@@ -336,8 +338,9 @@
     if (id === 'cluster') return clusterPaint(style)?.bubble ?? {}
     if (id === 'cluster-count') return clusterPaint(style)?.count.paint ?? {}
     const paint = p[id as keyof typeof p] ?? {}
-    if (extruded && id === 'fill') return { ...paint, 'fill-opacity': 0 }
-    return paint
+    // Spec 025: sizes that follow the zoom.
+    if (extruded && id === 'fill') return { ...paintWithZoom(paint, style.zoom), 'fill-opacity': 0 }
+    return paintWithZoom(paint, style.zoom)
   }
   function layerVisibility(id: string): 'visible' | 'none' {
     if (LABEL_DEFS.has(id)) return labelSpec(id) ? 'visible' : 'none'
@@ -474,6 +477,9 @@
     for (const l of layerInstances()) {
       if (!map.getLayer(l.id)) continue // mid data-source switch; replaceDataSource carries the current paints
       map.setFilter(l.id, layerFilter(l.def) as Parameters<MapLibreMap['setFilter']>[1])
+      // Spec 025: the zoom range the layer shows in.
+      const range = layerZoomRange(style.zoom)
+      map.setLayerZoomRange(l.id, range.minzoom, range.maxzoom)
       // An undefined value (a solid line's dash array) goes back to the default.
       const paint = layerPaint(l.def.id, p)
       for (const [prop, value] of Object.entries(paint)) {
@@ -587,6 +593,7 @@
       source: l.source ?? SOURCE_ID,
       ...(l.sourceLayer !== undefined ? {'source-layer': l.sourceLayer } : {}),
       filter: layerFilter(l.def),
+      ...(style.zoom?.min !== undefined || style.zoom?.max !== undefined ? layerZoomRange(style.zoom) : {}),
       layout: layerLayout(l.def, layouts),
       paint: Object.fromEntries(Object.entries(layerPaint(l.def.id, p)).filter(([, v]) => v !== undefined)),
     }))

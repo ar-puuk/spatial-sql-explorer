@@ -8,6 +8,7 @@ import { sanitizeExtrusion, type Extrusion } from './extrusion.js'
 import { isLineDash, isMarkerShape, type LineDash, type MarkerShape } from './symbol.js'
 import type { ChannelId, Channels, DrawAs, Output, ScaleKind } from './channels.js'
 import { sanitizeLabels, type LabelSettings } from './labels.js'
+import { sanitizeZoom, type ZoomSettings } from './zoom.js'
 import { rendererOf, sizeOf, withExtrusion, withRenderer, withSize } from './legacy.js'
 import { LABEL_COLUMN, channelDataColumns, sanitizeChannels, sanitizeDraw } from './channels.js'
 
@@ -71,6 +72,8 @@ export interface LayerStyle {
   labels?: LabelSettings
   /** Spec 019: direction arrows along lines. Absent: none. */
   arrows?: ArrowSettings
+  /** Spec 025: the zoom range the layer shows in, and sizes that follow the zoom (./zoom.ts). Absent: every zoom, fixed sizes. */
+  zoom?: ZoomSettings
 }
 
 // --- Spec 019: direction arrows on lines -------------------------------------
@@ -699,6 +702,7 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
   const clusters = clustersRaw && typeof clustersRaw === 'object' ? clusterSettings(sanitizeRenderer({ ...clustersRaw, kind: 'clusters' } as Partial<Renderer>) as ClusterRenderer) : undefined
   const labels = sanitizeLabels(style.labels)
   const arrows = sanitizeArrows(style.arrows)
+  const zoom = sanitizeZoom(style.zoom)
   let out: LayerStyle = {
     fillColor: pick(style.fillColor, DEFAULT_LAYER_STYLE.fillColor),
     fillOpacity: num(style.fillOpacity, DEFAULT_LAYER_STYLE.fillOpacity, 0, 1),
@@ -721,6 +725,7 @@ export function sanitizeStyle(raw: Partial<LayerStyle>): LayerStyle {
       : {}),
     ...(labels ? { labels } : {}),
     ...(arrows ? { arrows } : {}),
+    ...(zoom ? { zoom } : {}),
   }
   // Pre-011 keys win over the channels they map to (a sidecar, or a patch from an edit).
   if (has('renderer')) out = withRenderer(out, sanitizeRenderer(style.renderer))

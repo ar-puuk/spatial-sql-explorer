@@ -152,6 +152,9 @@
   } from '@spatial-explorer/core'
   import Icon, { type IconName } from './Icon.svelte'
   import Tip from './kit/Tip.svelte'
+  import NumberField from './kit/NumberField.svelte'
+  import Switch from './kit/Switch.svelte'
+  import { sanitizeZoom, ZOOM_LIMITS, ZOOM_SIZE_FACTOR, type ZoomSettings } from '@spatial-explorer/core'
   import RampPicker from './RampPicker.svelte'
   import ClassList from './ClassList.svelte'
   import ValueHistogram from './style/ValueHistogram.svelte'
@@ -521,6 +524,23 @@
   // --- Marker shape and line pattern.
   const shape = $derived<MarkerShape>(style.markerShape ?? 'circle')
   const dash = $derived<LineDash>(style.lineDash ?? 'solid')
+  // Spec 025: the zoom range the layer shows in, and sizes that follow the zoom.
+  const DEFAULT_ZOOM_SIZES = { fromZoom: 10, toZoom: 14, factor: ZOOM_SIZE_FACTOR.default }
+  function setZoom(patch: Partial<ZoomSettings>): void {
+    const next = { ...style.zoom, ...patch }
+    // An end at or before the start moves to one zoom after it (the field then shows what is kept).
+    if (next.min !== undefined && next.max !== undefined && next.max <= next.min) next.max = Math.min(ZOOM_LIMITS.max, next.min + 1)
+    onChange({ zoom: sanitizeZoom(next) })
+  }
+  function setZoomSizes(patch: Partial<NonNullable<ZoomSettings['sizes']>>): void {
+    const next = { ...(style.zoom?.sizes ?? DEFAULT_ZOOM_SIZES), ...patch }
+    // The two zooms stay one apart at least, whichever one was moved.
+    if (next.toZoom <= next.fromZoom) {
+      if ('fromZoom' in patch) next.toZoom = Math.min(ZOOM_LIMITS.max, next.fromZoom + 1)
+      else next.fromZoom = Math.max(ZOOM_LIMITS.min, next.toZoom - 1)
+    }
+    setZoom({ sizes: next })
+  }
   // Spec 019: direction arrows on lines (a layer of lines, or a mix with lines in it).
   const arrowMode = $derived<'none' | 'along' | 'center'>(style.arrows ? style.arrows.placement : 'none')
   function setArrows(mode: string): void {
@@ -595,6 +615,15 @@
       />
       <span class="value">{pct(style.layerOpacity ?? 1)}</span>
     </div>
+
+    <!-- Spec 025: the zoom range the layer shows in, beside the opacity. -->
+    <div class="zoom-row">
+      <span class="label" id="zoom-range-label">Visible from zoom</span>
+      <NumberField label="Show from zoom" value={style.zoom?.min ?? ZOOM_LIMITS.min} min={ZOOM_LIMITS.min} max={ZOOM_LIMITS.max - 1} onChange={(v) => setZoom({ min: v })} />
+      <span class="value">to</span>
+      <NumberField label="Hide from zoom" value={style.zoom?.max ?? ZOOM_LIMITS.max} min={1} max={ZOOM_LIMITS.max} onChange={(v) => setZoom({ max: v })} />
+    </div>
+    <p class="hint" id="zoom-range-hint">Zoom 0 shows the world, 14 a city, 18 a street. Shown from the first zoom up to, not including, the second; 0 and 24 mean no limit.</p>
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Color</h3>
@@ -1202,6 +1231,53 @@
           />
           <span class="value">{style.pointRadius} px</span>
         </div>
+      {/if}
+
+      <!-- Spec 025: sizes that follow the zoom. -->
+      <div class="zoom-row">
+        <span class="label" id="zoom-sizes-label">Sizes follow zoom</span>
+        <Switch checked={!!style.zoom?.sizes} labelledby="zoom-sizes-label" onChange={(on) => setZoom({ sizes: on ? DEFAULT_ZOOM_SIZES : undefined })} />
+      </div>
+      {#if style.zoom?.sizes}
+        <div class="zoom-row">
+          <span class="label" id="zoom-from-label">Smallest at zoom</span>
+          <NumberField label="Smallest at zoom" value={style.zoom.sizes.fromZoom} min={ZOOM_LIMITS.min} max={ZOOM_LIMITS.max - 1} onChange={(v) => setZoomSizes({ fromZoom: v })} />
+        </div>
+        <div class="zoom-row">
+          <span class="label" id="zoom-to-label">Full size at zoom</span>
+          <NumberField label="Full size at zoom" value={style.zoom.sizes.toZoom} min={1} max={ZOOM_LIMITS.max} onChange={(v) => setZoomSizes({ toZoom: v })} />
+        </div>
+        <div class="row">
+          <span class="label" id="zoom-factor-label">Markers</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="zoom-factor-label"
+            aria-valuetext={pct(style.zoom.sizes.factor)}
+            min={ZOOM_SIZE_FACTOR.min}
+            max="0.95"
+            step="0.05"
+            value={style.zoom.sizes.factor}
+            oninput={(e) => setZoomSizes({ factor: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{pct(style.zoom.sizes.factor)}</span>
+        </div>
+        <div class="row">
+          <span class="label" id="zoom-line-factor-label">Lines</span>
+          <input
+            type="range"
+            class="wide"
+            aria-labelledby="zoom-line-factor-label"
+            aria-valuetext={pct(style.zoom.sizes.lineFactor ?? style.zoom.sizes.factor)}
+            min={ZOOM_SIZE_FACTOR.min}
+            max="1"
+            step="0.05"
+            value={style.zoom.sizes.lineFactor ?? style.zoom.sizes.factor}
+            oninput={(e) => setZoomSizes({ lineFactor: Number(e.currentTarget.value) })}
+          />
+          <span class="value">{pct(style.zoom.sizes.lineFactor ?? style.zoom.sizes.factor)}</span>
+        </div>
+        <p class="hint">At the first zoom and below, markers (size and outline) and lines are this fraction of their size; they grow to full size at the second zoom.</p>
       {/if}
     </section>
     {/if}
@@ -1858,6 +1934,16 @@
   }
   .row .wide {
     grid-column: 2 / 4;
+  }
+  /* Spec 025: a name, then the control(s), at the panel's right edge. */
+  .zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .zoom-row .label {
+    flex: 1;
+    min-width: 0;
   }
   .row .span {
     grid-column: 3 / 5;

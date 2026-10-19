@@ -15,19 +15,23 @@ export const GTFS_STOP_FALLBACK = '#8b7e74'
 /** GTFS-X's label color, and the zoom its names start at. */
 export const GTFS_LABEL_COLOR = '#3d2e22'
 export const GTFS_LABEL_MIN_ZOOM = 13
+/** Stops are a third of their size at zoom 10 and below, lines 60%; all full from zoom 14 (GTFS-X's stop sizes follow the same zooms). */
+export const GTFS_SIZE_ZOOMS = { from: 10, to: 14, factor: 0.35, lineFactor: 0.6 } as const
 
 export function gtfsDefaultStyle(): LayerStyle {
   return sanitizeStyle({
     fillColor: GTFS_STOP_FALLBACK,
     strokeColor: '#ffffff',
     strokeOpacity: 1,
-    strokeWidth: 1,
-    pointRadius: 3.5,
+    strokeWidth: 1.5,
+    pointRadius: 5,
     lineWidth: 3,
     channels: {
       color: { source: { kind: 'column', column: GTFS_COLOR_COLUMN }, scale: { kind: 'identity', noValue: {} } },
     },
     arrows: { ...DEFAULT_ARROWS, size: 0.6 },
+    // GTFS-X's stops grow with the zoom (3 px at zoom 10 to 6 px at 14); here every size does, so a city-wide view is lines, not dots.
+    zoom: { sizes: { fromZoom: GTFS_SIZE_ZOOMS.from, toZoom: GTFS_SIZE_ZOOMS.to, factor: GTFS_SIZE_ZOOMS.factor, lineFactor: GTFS_SIZE_ZOOMS.lineFactor } },
     labels: {
       enabled: true,
       source: { kind: 'column', column: GTFS_NAME_COLUMN },

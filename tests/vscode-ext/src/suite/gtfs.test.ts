@@ -68,3 +68,28 @@ suite('Spec 024: GTFS in VS Code', () => {
     assert.strictEqual(vscode.window.tabGroups.all.flatMap((g) => g.tabs).length, before)
   })
 })
+
+suite('Spec 024: GTFS without the GDAL reader, in VS Code', () => {
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', null)
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  })
+
+  test('the SQL fallback draws the same network', async function () {
+    this.timeout(180000)
+    await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', { noGdal: true })
+    await openAndWait('gtfs-mini.zip', 'spatialExplorer.editorOption')
+    assert.deepStrictEqual(await networkCounts(), { routes: 3, stops: 5 })
+    assert.strictEqual((await run('SELECT * FROM gtfs_mini.routes WHERE ST_NPoints(geom) = 3'))?.rowCount, 1)
+  })
+
+  test('a feed with no shapes at all opens, with GDAL and without it', async function () {
+    this.timeout(180000)
+    for (const noGdal of [false, true]) {
+      await vscode.commands.executeCommand('spatialExplorer._setTestOverrides', noGdal ? { noGdal: true } : null)
+      await openAndWait('gtfs-noshapes.zip', 'spatialExplorer.editorOption')
+      assert.deepStrictEqual(await networkCounts(), { routes: 3, stops: 5 }, `noGdal=${noGdal}`)
+      assert.strictEqual((await run('SELECT * FROM gtfs_noshapes.routes WHERE ST_NPoints(geom) = 2'))?.rowCount, 3, `noGdal=${noGdal}`)
+    }
+  })
+})

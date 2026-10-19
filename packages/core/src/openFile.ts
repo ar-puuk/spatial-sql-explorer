@@ -30,7 +30,7 @@ import { gdbWhole, openGdb, setUpGeodatabaseLayers } from './gdb/integration.js'
 import type { GdbOpened } from './gdb/open.js'
 import type { GdbLayerInfo } from './gdb/types.js'
 import type { FileSource } from './hostAdapter.js'
-import { openGtfsFeed, prepareGtfs, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
+import { describeGtfsFeed, openGtfsFeed, prepareGtfs, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -515,6 +515,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     else if (gdb && multi) await setUpGeodatabaseLayers(session, db, gdb, names, ref, deps, hooks)
     else if (multi && registered) await createLayerViews(session.conn, registered.primaryPath, layers, active, names, readers)
     const initial = await session.runDefault()
+    const gtfsNotice = gtfs ? await describeGtfsFeed(session.conn, gtfs).catch(() => null) : null
     timings.rows = lap()
 
     const layer: Layer = {
@@ -539,6 +540,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
         ...factsOf(table, opened, mode.mode, fallback),
         ...(multi && active ? { layers: layers.map((l) => ({ name: l.name, geometryType: l.geometryType, featureCount: l.featureCount, sqlName: names.layers.get(l.name), ...(gdb ? { group: (l as GdbLayerInfo).featureDataset } : {}) })), activeLayer: active.name } : {}),
         ...(gdb ? { experimental: true } : {}),
+        ...(gtfsNotice ? { notice: gtfsNotice } : {}),
       },
     }
     hooks.onPhase?.('ready', detail)
