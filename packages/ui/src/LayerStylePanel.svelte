@@ -153,6 +153,7 @@
   import Icon, { type IconName } from './Icon.svelte'
   import Tip from './kit/Tip.svelte'
   import NumberField from './kit/NumberField.svelte'
+  import RangeSlider from './kit/RangeSlider.svelte'
   import Switch from './kit/Switch.svelte'
   import { sanitizeZoom, ZOOM_LIMITS, ZOOM_SIZE_FACTOR, type ZoomSettings } from '@spatial-explorer/core'
   import RampPicker from './RampPicker.svelte'
@@ -525,12 +526,11 @@
   const shape = $derived<MarkerShape>(style.markerShape ?? 'circle')
   const dash = $derived<LineDash>(style.lineDash ?? 'solid')
   // Spec 025: the zoom range the layer shows in, and sizes that follow the zoom.
+  const zoomFrom = $derived(style.zoom?.min ?? ZOOM_LIMITS.min)
+  const zoomTo = $derived(style.zoom?.max ?? ZOOM_LIMITS.max)
   const DEFAULT_ZOOM_SIZES = { fromZoom: 10, toZoom: 14, factor: ZOOM_SIZE_FACTOR.default }
   function setZoom(patch: Partial<ZoomSettings>): void {
-    const next = { ...style.zoom, ...patch }
-    // An end at or before the start moves to one zoom after it (the field then shows what is kept).
-    if (next.min !== undefined && next.max !== undefined && next.max <= next.min) next.max = Math.min(ZOOM_LIMITS.max, next.min + 1)
-    onChange({ zoom: sanitizeZoom(next) })
+    onChange({ zoom: sanitizeZoom({ ...style.zoom, ...patch }) })
   }
   function setZoomSizes(patch: Partial<NonNullable<ZoomSettings['sizes']>>): void {
     const next = { ...(style.zoom?.sizes ?? DEFAULT_ZOOM_SIZES), ...patch }
@@ -617,13 +617,26 @@
     </div>
 
     <!-- Spec 025: the zoom range the layer shows in, beside the opacity. -->
-    <div class="zoom-row">
-      <span class="label" id="zoom-range-label">Visible from zoom</span>
-      <NumberField label="Show from zoom" value={style.zoom?.min ?? ZOOM_LIMITS.min} min={ZOOM_LIMITS.min} max={ZOOM_LIMITS.max - 1} onChange={(v) => setZoom({ min: v })} />
-      <span class="value">to</span>
-      <NumberField label="Hide from zoom" value={style.zoom?.max ?? ZOOM_LIMITS.max} min={1} max={ZOOM_LIMITS.max} onChange={(v) => setZoom({ max: v })} />
+    <div class="row">
+      <span class="label" id="zoom-range-label" title="The zoom levels the layer shows at">Zoom</span>
+      <span class="wide">
+        <RangeSlider
+          from={zoomFrom}
+          to={zoomTo}
+          min={ZOOM_LIMITS.min}
+          max={ZOOM_LIMITS.max}
+          fromLabel="Show from zoom"
+          toLabel="Hide from zoom"
+          marker={camera ? camera.zoom : null}
+          markerLabel={camera ? `The map is at zoom ${camera.zoom.toFixed(1)}` : ''}
+          onChange={(from, to) => setZoom({ min: from, max: to })}
+        />
+      </span>
+      <span class="value zoom-range-value" aria-hidden="true">{zoomFrom} – {zoomTo}</span>
     </div>
-    <p class="hint" id="zoom-range-hint">Zoom 0 shows the world, 14 a city, 18 a street. Shown from the first zoom up to, not including, the second; 0 and 24 mean no limit.</p>
+    <p class="hint" id="zoom-range-hint">
+      {#if camera}<span class="zoom-now">The map is at zoom {camera.zoom.toFixed(1)}: the layer is {camera.zoom >= zoomFrom && camera.zoom < zoomTo ? 'shown' : 'hidden'} here.</span>{' '}{/if}Visible from the first handle up to the second (0 and 24 mean no limit). Zoom 0 shows the world, 14 a city, 18 a street. The line marks where the map is now.
+    </p>
 
     <section aria-labelledby="style-sec-type">
       <h3 id="style-sec-type">Color</h3>
@@ -1944,6 +1957,10 @@
   .zoom-row .label {
     flex: 1;
     min-width: 0;
+  }
+  .zoom-range-value {
+    text-align: right;
+    white-space: nowrap;
   }
   .row .span {
     grid-column: 3 / 5;

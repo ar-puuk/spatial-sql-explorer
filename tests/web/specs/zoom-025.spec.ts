@@ -18,10 +18,12 @@ const paintOf = (page: Page, id: string, prop: string): Promise<unknown> =>
 async function openStylePanel(page: Page): Promise<void> {
   await page.getByRole('button', { name: /^Style/ }).first().click()
   await expect(page.getByRole('heading', { name: 'Zoom' })).toHaveCount(0)
-  await expect(page.getByRole('spinbutton', { name: 'Show from zoom' })).toBeVisible()
+  await expect(page.getByRole('slider', { name: 'Show from zoom' })).toBeVisible()
 }
 
 async function setNumber(page: Page, name: string, value: number): Promise<void> {
+  // The zoom range has two slider handles; the other fields are number boxes.
+  if (/^(Show|Hide) from zoom$/.test(name)) return page.getByRole('slider', { name }).fill(String(value))
   const field = page.getByRole('spinbutton', { name })
   await field.fill(String(value))
   await field.press('Enter')
@@ -53,16 +55,41 @@ test.describe('zoom range and sizes', () => {
     await expect.poll(async () => (await layers(page)).every((l) => l.minzoom === 0 && l.maxzoom === 24)).toBe(true)
   })
 
-  test('an end before the start moves to one zoom after it', async ({ page }) => {
+  test('the handles never cross: the one you move pushes the other', async ({ page }) => {
     await openFile(page, fixture('crashes.geojson'), '?e2e=1')
     await openStylePanel(page)
+    const from = page.getByRole('slider', { name: 'Show from zoom' })
+    const to = page.getByRole('slider', { name: 'Hide from zoom' })
     await setNumber(page, 'Show from zoom', 12)
     await setNumber(page, 'Hide from zoom', 8)
-    await expect(page.getByRole('spinbutton', { name: 'Hide from zoom' })).toHaveValue('13')
-    await expect.poll(async () => (await layers(page)).every((l) => l.minzoom === 12 && l.maxzoom === 13)).toBe(true)
-    // Moving the start past the end pushes the end along.
+    // 8 is before 12: the start is pushed to 7.
+    await expect(to).toHaveValue('8')
+    await expect(from).toHaveValue('7')
+    await expect.poll(async () => (await layers(page)).every((l) => l.minzoom === 7 && l.maxzoom === 8)).toBe(true)
     await setNumber(page, 'Show from zoom', 20)
-    await expect(page.getByRole('spinbutton', { name: 'Hide from zoom' })).toHaveValue('21')
+    await expect(from).toHaveValue('20')
+    await expect(to).toHaveValue('21')
+    // The two numbers beside the slider say the same.
+    await expect(page.locator('.zoom-range-value')).toHaveText('20 – 21')
+  })
+
+  test('the slider shows where the map is, and whether the layer is shown there', async ({ page }) => {
+    await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+    await openStylePanel(page)
+    const jump = (zoom: number): Promise<void> => page.evaluate((z) => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, c: number): void } }).__spatialExplorerE2E.jumpTo(-112, 40.7, z), zoom)
+    await jump(12)
+    await expect(page.locator('.zoom-now')).toContainText('zoom 12.0: the layer is shown here')
+    await expect(page.locator('.se-range2 .now')).toHaveCount(1)
+    await setNumber(page, 'Show from zoom', 5)
+    await setNumber(page, 'Hide from zoom', 10)
+    await expect(page.locator('.zoom-now')).toContainText('the layer is hidden here')
+    await expect(page.locator('.se-range2 .now.outside')).toHaveCount(1)
+    await jump(8)
+    await expect(page.locator('.zoom-now')).toContainText('zoom 8.0: the layer is shown here')
+    await expect(page.locator('.se-range2 .now.outside')).toHaveCount(0)
+    // The tick sits where the zoom is on the scale of 0 to 24.
+    const left = await page.locator('.se-range2 .now').evaluate((el) => (el as HTMLElement).style.left)
+    expect(parseFloat(left)).toBeCloseTo((8 / 24) * 100, 0)
   })
 
   test('sizes follow the zoom from a switch, and the map paints a zoom curve', async ({ page }) => {

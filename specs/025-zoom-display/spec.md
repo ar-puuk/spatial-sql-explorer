@@ -6,7 +6,7 @@ Status: built, 2026-10-19 (user request, with the GTFS work; STYLE scope: it cha
 A person can choose the map zoom levels a layer shows in, and can have marker and line sizes follow the zoom, so a dense layer reads at a city view and detail appears as they zoom in.
 
 ## What it does
-- **Visible from zoom / to zoom** (top of the style panel, beside Opacity): the layer shows from the first zoom up to, not including, the second. 0 and 24 mean no limit. An end at or before the start moves to one zoom after it. Every map layer of the result (fills, outlines, lines, arrows, markers, clusters, heatmap, labels) gets MapLibre's own `minzoom` and `maxzoom`.
+- **Zoom** (top of the style panel, a row like Opacity): a slider with two handles, the layer showing from the first zoom up to, not including, the second; the numbers beside it say the same. 0 and 24 mean no limit. The handles never cross: the one you move pushes the other, one zoom away. A line on the track marks the map's current zoom (grey when the layer is hidden at it), and a sentence under it says whether the layer is shown or hidden at that zoom. Every map layer of the result (fills, outlines, lines, arrows, markers, clusters, heatmap, labels) gets MapLibre's own `minzoom` and `maxzoom`.
 - **Sizes follow zoom** (Appearance section): marker radius and outline width are a fraction (10% to 95%) of their value at the first zoom and below, lines a separate fraction, growing in a straight line to full size at the second zoom. Defaults when switched on: zoom 10 to 14, half size. Selected and hovered sizes follow too.
 - Zoom is the map's (0 world, 14 city, 18 street), the numbers the basemap and the labels (`minZoom`, spec 024) use.
 
