@@ -21,7 +21,7 @@
 
   const bin = $derived(store.binDialog)
   const spec = $derived(bin.spec)
-  const system = $derived(getGridSystem(spec.system)!)
+  const system = $derived(getGridSystem(spec.system) ?? GRID_SYSTEMS[0])
   const numeric = $derived(bin.info?.numericColumns ?? [])
   const supported = $derived(GRID_SYSTEMS.filter((s) => bin.support[s.id]))
   const noEngine = $derived(supported.length === 0)

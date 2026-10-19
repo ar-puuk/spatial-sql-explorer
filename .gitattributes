@@ -1,0 +1,17 @@
+# One line ending in the repository (LF), whatever each machine's autocrlf says: git stops warning that LF will be
+# replaced by CRLF on every add, and what is stored does not change.
+* text=auto eol=lf
+
+# Binary files are never converted.
+*.zip binary
+*.png binary
+*.jpg binary
+*.wasm binary
+*.pbf binary
+*.parquet binary
+*.fgb binary
+*.gpkg binary
+*.shp binary
+*.dbf binary
+*.shx binary
+*.gdbtable binary

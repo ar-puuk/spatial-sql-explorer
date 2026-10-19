@@ -316,6 +316,9 @@ export interface ViewerStore {
   setProjection(projection: 'mercator' | 'globe'): void
   /** The map's camera after its last move (null before the first). */
   readonly mapCamera: { center: [number, number]; zoom: number; pitch: number; bearing: number } | null
+  /** The map's zoom as it moves (a frame at a time), or null before the first move; `mapCamera` has it only after the move ends. */
+  readonly mapZoom: number | null
+  setMapZoom(zoom: number): void
   /** The map moved: its camera and (spec 010) its WGS84 bounds. */
   setMapCamera(camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds?: [number, number, number, number]): void
   /** The layer to draw: the result, or (for a table-only result) the previous one, dimmed (FR-006). */
@@ -946,6 +949,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // The map always opens flat; the globe is a view for this session, not
   // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
+  let mapZoom = $state.raw<number | null>(null)
   let mapCamera = $state.raw<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null)
 
   /**
@@ -2470,8 +2474,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get mapCamera() {
       return mapCamera
     },
+    get mapZoom() {
+      return mapZoom
+    },
+    setMapZoom(zoom) {
+      mapZoom = zoom
+    },
     setMapCamera(camera, bounds) {
       mapCamera = camera
+      mapZoom = camera.zoom
       if (bounds) lastViewBbox = bounds
     },
     setProjection(next) {

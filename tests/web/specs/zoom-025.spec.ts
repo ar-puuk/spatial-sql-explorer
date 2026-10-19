@@ -95,6 +95,29 @@ test.describe('zoom range and sizes', () => {
     expect(parseFloat(left)).toBeCloseTo((8 / 24) * 100, 0)
   })
 
+  test('the triangles follow the zoom while the map is still moving', async ({ page }) => {
+    await openFile(page, fixture('crashes.geojson'), '?e2e=1')
+    await openStylePanel(page)
+    const top = page.locator('.se-range2 .mark.top')
+    await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { jumpTo(o: unknown): void } }).seMap.jumpTo({ zoom: 6 }))
+    await expect(top).toHaveAttribute('title', 'The map is at zoom 6.0')
+    // A slow zoom: the marker is seen between 6 and 14 while the map has not stopped.
+    await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { easeTo(o: unknown): void } }).seMap.easeTo({ zoom: 14, duration: 4000 }))
+    const seen: number[] = []
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(300)
+      const moving = await page.locator('.canvas-host').evaluate((el) => (el as unknown as { seMap: { isMoving(): boolean } }).seMap.isMoving())
+      const title = (await top.getAttribute('title')) ?? ''
+      const z = Number(/zoom ([\d.]+)/.exec(title)?.[1])
+      if (moving) seen.push(z)
+    }
+    // Several different values, rising, all before the move ended.
+    expect(new Set(seen).size).toBeGreaterThan(3)
+    expect(seen.every((z, i) => i === 0 || z >= seen[i - 1])).toBe(true)
+    expect(seen[0]).toBeGreaterThan(6)
+    expect(seen.at(-1)).toBeLessThan(14)
+  })
+
   test('sizes follow the zoom from a switch, and the map paints a zoom curve', async ({ page }) => {
     await openFile(page, fixture('crashes.geojson'), '?e2e=1')
     await openStylePanel(page)

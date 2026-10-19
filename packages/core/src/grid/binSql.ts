@@ -203,7 +203,8 @@ function smoothParts(measure: BinMeasure): { perCell: string; combine: string; c
  */
 export function binQuerySql(spec: BinSpec, facts: BinLayerFacts): BinQuery | null {
   if (binSpecProblem(spec, facts) !== null) return null
-  const system: GridSystem = getGridSystem(spec.system)!
+  const system: GridSystem | null = getGridSystem(spec.system)
+  if (!system) return null
   const carried = spec.measure.kind === 'count' ? '' : `, TRY_CAST(${quoteIdent(spec.measure.column)} AS DOUBLE) AS v`
   const carriedUp = spec.measure.kind === 'count' ? '' : ', v'
   // The relation of cells, one row per feature and cell: `cell` (and `v`).
@@ -225,14 +226,15 @@ export function binQuerySql(spec: BinSpec, facts: BinLayerFacts): BinQuery | nul
         `    WHERE ${USABLE_POINT}`,
       ]
   const rings = spec.smooth ?? 0
+  const disk = system.diskSql
   const smooth = smoothParts(spec.measure)
   const cells =
-    rings > 0
+    rings > 0 && disk
       ? [
           `  SELECT ${system.idSql('cell')} AS cell_id, ${spec.resolution} AS resolution, ${smooth.combine} AS value, sum(n)::BIGINT AS n,`,
           `    ${system.ringSql('cell', spec.resolution)} AS ring`,
           '  FROM (',
-          `    SELECT unnest(${system.diskSql!('cell', rings)}) AS cell, n${smooth.carried}`,
+          `    SELECT unnest(${disk('cell', rings)}) AS cell, n${smooth.carried}`,
           '    FROM (',
           `      SELECT cell, count(*) AS n${smooth.perCell}`,
           '      FROM (',

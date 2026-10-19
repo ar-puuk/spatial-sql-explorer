@@ -206,6 +206,8 @@
     onSuggestHeatRadius?: () => Promise<{ meters: number; latitude: number } | null>
     /** The map's view: a heatmap radius switched between pixels and meters keeps its size on screen. */
     camera?: { center: [number, number]; zoom: number } | null
+    /** The map's zoom as it moves (the camera has it only when a move ends): what the zoom marker shows. */
+    zoom?: number | null
   }
   let {
     style,
@@ -233,7 +235,9 @@
     onSuggestRules,
     onSuggestHeatRadius,
     camera = null,
+    zoom = null,
   }: Props = $props()
+  const nowZoom = $derived(zoom ?? camera?.zoom ?? null)
 
   // --- Spec 008 US6: 3D extrusion ---------------------------------------
   const CONSTANT = '__constant'
@@ -627,8 +631,8 @@
           max={ZOOM_LIMITS.max}
           fromLabel="Show from zoom"
           toLabel="Hide from zoom"
-          marker={camera ? camera.zoom : null}
-          markerLabel={camera ? `The map is at zoom ${camera.zoom.toFixed(1)}${camera.zoom >= zoomFrom && camera.zoom < zoomTo ? '' : ': the layer is hidden here'}` : ''}
+          marker={nowZoom}
+          markerLabel={nowZoom !== null ? `The map is at zoom ${nowZoom.toFixed(1)}${nowZoom >= zoomFrom && nowZoom < zoomTo ? '' : ': the layer is hidden here'}` : ''}
           onChange={(from, to) => setZoom({ min: from, max: to })}
         />
       </span>

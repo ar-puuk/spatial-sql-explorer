@@ -155,6 +155,8 @@
     tooltipRecord?: (id: number) => Promise<Record<string, unknown> | null>
     /** Spec 008: the camera after each move (center, zoom, pitch, bearing), and (spec 010) the WGS84 bounds. */
     onCameraChange?: (camera: { center: [number, number]; zoom: number; pitch: number; bearing: number }, bounds: [number, number, number, number]) => void
+    /** The zoom while the map moves, at most once a frame (the zoom marker on the style panel follows it live). */
+    onZoom?: (zoom: number) => void
     onCursorMove: (coords: { lon: number; lat: number; elevation?: number | null } | null) => void
     /** Spec 007 US5: a PMTiles archive drawn from its tiles instead of view features. */
     tiles?: TilesArchive | null
@@ -223,6 +225,7 @@
     onShapeDrawn = () => {},
     tooltipRecord,
     onCameraChange = () => {},
+    onZoom,
     onCursorMove,
     tiles = null,
     onInspectTileFeature,
@@ -788,6 +791,19 @@
       onCameraChange({ center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() }, [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()])
     })
     m.on('move', scheduleSky)
+    // The zoom as the map moves, once a frame and only when it changed: a number that only the zoom marker reads.
+    let zoomFrame = 0
+    let sentZoom = Number.NaN
+    m.on('move', () => {
+      if (!onZoom || zoomFrame) return
+      zoomFrame = requestAnimationFrame(() => {
+        zoomFrame = 0
+        const z = m.getZoom()
+        if (Math.abs(z - sentZoom) < 0.001) return
+        sentZoom = z
+        onZoom?.(z)
+      })
+    })
     // Spec 008 FR-026: "Reset view" shows while the map is tilted or rotated.
     m.on('move', () => {
       const t = Math.abs(m.getPitch()) > 0.5 || Math.abs(m.getBearing()) > 0.5
