@@ -2,8 +2,9 @@
 // process, a web worker) makes the stops and shapes into FlatGeobuf files from a light copy of
 // the feed (gtfs/feed.ts); everything else is plain text the engine reads. The result is one
 // FileSource: the shapes (or the trip lines, for a feed without shapes) as the file that is
-// opened, and every other piece registered beside it. `routes` is the open layer; `stops` and the
-// feed's tables are views in a schema named after the feed.
+// opened, and every other piece registered beside it. The open layer is the `network` (every route and
+// every stop in one result, so the map draws them together); `routes`, `stops` and the feed's tables are
+// views in a schema named after the feed.
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import type { FileSource } from '../hostAdapter.js'
 import type { GdbCallOptions, GdbHost } from '../gdb/types.js'
@@ -11,7 +12,9 @@ import { GdbError } from '../gdb/types.js'
 import type { FileLayer } from '../source/layers.js'
 import type { FileSqlNames } from '../sql/names.js'
 import { fullZip, readStopTimes, splitFeed, tripsLackShapes } from './feed.js'
-import { gtfsLayerNames, routesReaderSql, servedTableSql, stopsViewSql, tableViewSql, type GtfsInventory } from './sql.js'
+import { GTFS_NETWORK, gtfsLayerNames, networkReaderSql, routesViewSql, servedTableSql, stopsViewSql, tableViewSql, type GtfsInventory } from './sql.js'
+import { GTFS_ROUTE_FALLBACK, GTFS_STOP_FALLBACK, gtfsDefaultStyle } from './style.js'
+import type { LayerStyle } from '../style/model.js'
 
 export const GTFS_NO_READER = "This build can't read GTFS feeds. Unzip it and open stops.txt as a CSV (stop_lat, stop_lon) instead."
 
@@ -19,9 +22,11 @@ export interface GtfsOpened {
   /** The file to open (its extension says FlatGeobuf) with everything else the feed needs registered beside it. */
   source: FileSource
   inventory: GtfsInventory
-  /** The FROM expression that is the open layer: the routes. */
+  /** The FROM expression that is the open layer: the network (routes and stops). */
   reader: string
-  /** The feed's layers in SQL order: routes, stops, then its other tables. */
+  /** The style a feed starts with. */
+  style: LayerStyle
+  /** The feed's layers in SQL order: the network, routes, stops, then its other tables. */
   layers: FileLayer[]
   /** `GTFS.zip` or the like: what SQL names are cleaned from. */
   fileName: string
@@ -57,18 +62,23 @@ export async function openGtfsFeed(zip: Uint8Array, root: string, fileName: stri
   return {
     source: { kind: 'bytes', name: first.name, size: first.bytes.byteLength, bytes: first.bytes, sidecars, styleSidecar: null },
     inventory,
-    reader: routesReaderSql(inventory),
-    layers: gtfsLayerNames(tables).map((n) => layerOf(n, n === 'routes' ? 'LineString' : n === 'stops' ? 'Point' : null)),
+    reader: networkReaderSql(inventory, { route: GTFS_ROUTE_FALLBACK, stop: GTFS_STOP_FALLBACK }),
+    style: gtfsDefaultStyle(),
+    layers: gtfsLayerNames(tables).map((n) => layerOf(n, n === GTFS_NETWORK ? 'Mixed' : n === 'routes' ? 'LineString' : n === 'stops' ? 'Point' : null)),
     fileName,
   }
 }
 
-/** The feed's SQL schema: the stops (with the routes serving them) and every other table, beside `routes` (which `openFile` creates as the open layer). */
-export async function setUpGtfsViews(conn: AsyncDuckDBConnection, gtfs: GtfsOpened, names: FileSqlNames): Promise<void> {
+/** Before the network is read: which routes serve each stop (one pass over `stop_times.txt`). */
+export async function prepareGtfs(conn: AsyncDuckDBConnection): Promise<void> {
   await conn.query(servedTableSql())
+}
+
+/** The feed's SQL schema: routes, stops and every other table, beside the network (which `openFile` creates as the open layer). */
+export async function setUpGtfsViews(conn: AsyncDuckDBConnection, gtfs: GtfsOpened, names: FileSqlNames): Promise<void> {
   for (const layer of gtfs.layers) {
     const sqlName = names.layers.get(layer.name)
-    if (!sqlName || layer.name === 'routes') continue
-    await conn.query(layer.name === 'stops' ? stopsViewSql(sqlName) : tableViewSql(sqlName, layer.name))
+    if (!sqlName || layer.name === GTFS_NETWORK) continue
+    await conn.query(layer.name === 'routes' ? routesViewSql(sqlName, gtfs.inventory) : layer.name === 'stops' ? stopsViewSql(sqlName) : tableViewSql(sqlName, layer.name))
   }
 }

@@ -100,6 +100,8 @@
       /** Spec 008 T024: the table filters and the narrowed row count. */
       filterState: () =>
         JSON.parse(JSON.stringify({ filters: store.filters, matching: store.filterCounts?.matching ?? null, total: store.filterCounts?.total ?? store.tableTotal, rendered: store.mapData?.features.length ?? null })),
+      /** Spec 024: the style in force (a GTFS feed opens with its own). */
+      styleState: () => JSON.parse(JSON.stringify(store.style)),
       /** Spec 008 T025: the ticked rows. */
       selectionState: () => ({ kind: store.selection.kind, count: store.selectedCount, ids: store.selection.kind === 'ids' ? [...store.selection.ids] : null }),
       /** Spec 008 T064: the map's projection and camera. */

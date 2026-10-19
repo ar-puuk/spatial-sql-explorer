@@ -1398,7 +1398,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (original) {
       setLayer(original)
       session.selectedFeatureId = null
-      applySidecar(original.styleSidecar)
+      applyInitialStyle(original)
       loadedAll = false
       void refreshDraw()
     }
@@ -2102,7 +2102,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         style = keptStyle.style
         styleSource = keptStyle.styleSource
         styleDirty = keptStyle.styleDirty
-      } else applySidecar(layer.styleSidecar)
+      } else applyInitialStyle(layer)
       // File-level metadata (FR-006): the whole file, not the displayed result.
       hostAdapter.setStatus({ crs: layer.sourceCrs.label, featureCount: layer.source.features, countLabel: layer.facts?.invalid === null ? 'rows' : 'features' })
     } catch (err) {
@@ -2128,6 +2128,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     if (session.loadState !== 'loading') return
     openCancelled = true
     await openInterrupt?.().catch(() => {})
+  }
+
+  /** The style a file opens with: its sidecar, else the one its format brings (a GTFS feed's), else the plain default. */
+  function applyInitialStyle(layer: { styleSidecar: { fileName: string; text: string } | null; defaultStyle?: LayerStyle }): void {
+    applySidecar(layer.styleSidecar)
+    if (!layer.styleSidecar && layer.defaultStyle) style = sanitizeStyle(layer.defaultStyle)
   }
 
   function applySidecar(sidecar: { fileName: string; text: string } | null): void {

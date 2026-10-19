@@ -30,7 +30,7 @@ import { gdbWhole, openGdb, setUpGeodatabaseLayers } from './gdb/integration.js'
 import type { GdbOpened } from './gdb/open.js'
 import type { GdbLayerInfo } from './gdb/types.js'
 import type { FileSource } from './hostAdapter.js'
-import { openGtfsFeed, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
+import { openGtfsFeed, prepareGtfs, setUpGtfsViews, type GtfsOpened } from './gtfs/open.js'
 
 export interface OpenFileDeps {
   hostAdapter: HostAdapter
@@ -442,6 +442,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     // it, which is much faster than fetching it again.
     let sqliteBytes: Uint8Array | null = format === 'geopackage' && source.kind === 'bytes' ? source.bytes.slice() : null
     registered = await registerSource(db, source, refetchWhole)
+    if (gtfs) await prepareGtfs(conn)
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
     let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
@@ -471,7 +472,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     }
     checkCancelled()
     const multi = layers.length > 1
-    const active = gtfs ? layers[0] : gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
+    const active = gtfs ? (layers.find((l) => l.name === 'network') ?? layers[0]) : gdb ? gdb.active : layers.length ? activeLayerOf(layers.filter((l) => l.geometryType !== null), options.layer) : null
     if (multi && !active) throw new Error('This file has no layer with geometry. Its tables can be queried by name.')
     const names = await sqlNamesFor(conn, gtfs ? gtfs.fileName : gdb ? gdb.fileName : source.name, multi ? layers : null, active)
     const ctx: ModeContext = {
@@ -487,6 +488,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       // A converted geodatabase layer is a file of its own: read plainly, not by layer name.
       layer: gdb || gtfs ? null : active,
       reader: gtfs ? gtfs.reader : active ? readers.get(active.name) : undefined,
+      ...(gtfs ? { knownSrid: 4326 } : {}),
     }
 
     let opened: OpenedTable
@@ -530,6 +532,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       totalRows: table.totals.rows,
       source: table.totals,
       styleSidecar,
+      ...(gtfs ? { defaultStyle: gtfs.style } : {}),
       ...(gdb && Object.keys(gdb.converted.domains).length ? { columnDomains: gdb.converted.domains } : {}),
       loadTimings: timings,
       facts: {
@@ -581,6 +584,8 @@ interface ModeContext {
   layer?: FileLayer | null
   /** How that layer is read, when not a plain ST_Read (research §16). */
   reader?: string
+  /** The EPSG code of a layer whose reader is an expression that cannot say (a GTFS feed is WGS84 by definition). */
+  knownSrid?: number
 }
 
 /**
@@ -732,7 +737,7 @@ async function openWhole(ctx: ModeContext, strategy: ReadStrategy): Promise<Open
   ctx.hooks.onPhase?.('reading', ctx.detail)
   const read = await buildFromExpr(conn, strategy, ctx.path, true, ctx.layer?.name ?? null, ctx.reader)
   // A listed layer knows its CRS already (ST_Read_Meta); otherwise ask for the first layer's.
-  const srid = read.srid !== undefined ? read.srid : ctx.layer ? ctx.layer.srid : await detectSourceSrid(conn, ctx.path, strategy)
+  const srid = read.srid !== undefined ? read.srid : ctx.knownSrid !== undefined ? ctx.knownSrid : ctx.layer ? ctx.layer.srid : await detectSourceSrid(conn, ctx.path, strategy)
   const crs = resolveCrsInfo(srid)
   ctx.checkCancelled()
 

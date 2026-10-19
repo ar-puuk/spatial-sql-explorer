@@ -7,8 +7,8 @@
 - [x] T005 Detection + unit tests (core), including the feed-plus-inner-zip case (`gtfs/detect.ts`, `inspectZip` kind `gtfs`, tests/core/gtfs.test.ts; the open path says "not available yet" until T006)
 - [x] T006 GDAL host gets `convertFeed(zip, layers)`: web worker op `feed`, extension host op `feed` + message `gtfsConvert` (stops and shapes_geom, trips only when a trip has no shape). Web verified in Chrome; the extension host path is typechecked and bundled but not yet run (T012)
 - [x] T007 Routes and stops views, naming, `layer` (`gtfs/open.ts`, `gtfs/sql.ts`; routes = open layer built from a SQL reader, `schema.stops` with the routes serving each stop, every other table a text view). Verified on the fixture and the UTA feed
-- [ ] T008 One-result drawing of routes and stops (decide UNION vs mixed)
-- [ ] T009 Default GTFS style, ring-dot marker if needed, QML round trip
+- [x] T008 One result for routes and stops: decided UNION. The open layer is the `network` (columns kind, id, name, routes, route_type, trips, route_count, color, geom); `layer` and `<schema>.network` are it; `routes` and `stops` are views with every column. No map-layer change (a mixed-geometry layer is already drawn)
+- [x] T009 Default GTFS style (`gtfs/style.ts`): color as given from the `color` column, 3 px lines with arrows, white-outlined stop dots, labels from zoom 13 (new `LabelSettings.minZoom`), QML round trip tested. No ring-dot marker (see research §9)
 - [ ] T010 Open paths in both shells (pick, drop, context menu); no dataset chooser for a confirmed feed
 - [ ] T011 SQL fallback (Route B) and its tests
 - [ ] T012 Browser + extension tests, accessibility check, CHANGELOG, CLAUDE.md

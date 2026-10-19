@@ -70,7 +70,8 @@ export function labelLayers(style: LayerStyle, resolved: ResolvedStyle, areaPoin
   const shared = {
     'text-field': text,
     'text-font': LABEL_FONT,
-    'text-size': l.size,
+    // Spec 024: below `minZoom` the text is size 0, which MapLibre does not draw.
+    'text-size': l.minZoom ? ['step', ['zoom'], 0, l.minZoom, l.size] : l.size,
     'text-allow-overlap': false,
     'text-ignore-placement': false,
     'text-padding': 2,

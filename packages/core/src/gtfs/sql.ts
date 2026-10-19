@@ -57,9 +57,42 @@ export function servedTableSql(): string {
     FROM hits h JOIN ${csv('routes')} r USING (route_id) GROUP BY h.stop_id`
 }
 
-/** The stops layer: GDAL's points, with the routes that serve each stop. */
+/** The stops: GDAL's points, with the routes that serve each stop. */
+function stopsSelectSql(): string {
+  return `SELECT s.*, v.routes, v.route_count, v.route_color FROM (SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ${fgb('stops')}) s LEFT JOIN ${GTFS_SERVED_TABLE} v ON trim(s.stop_id) = v.stop_id`
+}
+
+/** The stops layer. */
 export function stopsViewSql(sqlName: string): string {
-  return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT s.*, v.routes, v.route_count, v.route_color FROM (SELECT COLUMNS(c -> c <> 'OGC_FID') FROM ${fgb('stops')}) s LEFT JOIN ${GTFS_SERVED_TABLE} v ON trim(s.stop_id) = v.stop_id`
+  return `CREATE OR REPLACE VIEW ${sqlName} AS ${stopsSelectSql()}`
+}
+
+/** The routes layer, as a view beside the stops. */
+export function routesViewSql(sqlName: string, inv: GtfsInventory): string {
+  return `CREATE OR REPLACE VIEW ${sqlName} AS SELECT * FROM ${routesReaderSql(inv)}`
+}
+
+/** A color column as `#RRGGBB`, or the fallback where the feed gives none (or gives something that is not a color). */
+const colorOf = (column: string, fallback: string): string => `CASE WHEN regexp_matches(coalesce(${column}, ''), '^[0-9A-Fa-f]{6}$') THEN '#' || upper(${column}) ELSE ${quoteLiteral(fallback)} END`
+
+/**
+ * The network, the feed's open layer: every route (a line) and every stop (a point) as one result, so
+ * the map draws them together. `color` is what the default style paints with (route color; a stop takes
+ * the color of a route that serves it); `name` is what it labels with. The routes and stops layers
+ * hold all the columns.
+ */
+export function networkReaderSql(inv: GtfsInventory, colors: { route: string; stop: string }): string {
+  return `(
+    SELECT 'route' AS kind, r.route_id AS id,
+           coalesce(nullif(r.route_short_name, ''), nullif(r.route_long_name, ''), r.route_id) AS name,
+           NULL::VARCHAR AS routes, r.route_type AS route_type, r.trips AS trips, NULL::BIGINT AS route_count,
+           ${colorOf('r.route_color', colors.route)} AS color, r.geom AS geom
+    FROM ${routesReaderSql(inv)} r
+    UNION ALL
+    SELECT 'stop', s.stop_id, coalesce(nullif(s.stop_name, ''), s.stop_id), s.routes, NULL::INTEGER, NULL::BIGINT, s.route_count,
+           ${colorOf('s.route_color', colors.stop)}, s.geom
+    FROM (${stopsSelectSql()}) s
+  )`
 }
 
 /** A plain table of the feed (`calendar`, `shapes`, ...) as a view with every column as text. */
@@ -70,7 +103,10 @@ export function tableViewSql(sqlName: string, table: string): string {
 /** Tables that are a layer of their own. */
 const LAYER_TABLES = new Set(['routes', 'stops'])
 
-/** The feed's layer names for its SQL schema: routes and stops first, then the other tables in name order. */
+/** The open layer: routes and stops together. */
+export const GTFS_NETWORK = 'network'
+
+/** The feed's layer names for its SQL schema: the network, routes and stops first, then the other tables in name order. */
 export function gtfsLayerNames(tables: readonly string[]): string[] {
-  return ['routes', 'stops', ...tables.filter((t) => !LAYER_TABLES.has(t)).sort()]
+  return [GTFS_NETWORK, 'routes', 'stops', ...tables.filter((t) => !LAYER_TABLES.has(t)).sort()]
 }

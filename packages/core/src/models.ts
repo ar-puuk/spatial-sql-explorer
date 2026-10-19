@@ -68,6 +68,8 @@ export interface Layer {
    * `importStyle()` and applied on open (design-plan.md §8.5).
    */
   styleSidecar: { fileName: string; text: string } | null
+  /** Spec 024: the style a format of its own starts with (a GTFS feed), used when there is no sidecar. */
+  defaultStyle?: import('./style/model.js').LayerStyle
   /** Milliseconds per load step, for logs. Diagnostic only. */
   loadTimings?: Record<string, number>
   /** Whole-file facts, never derived from what's on screen (spec 007 FR-001). */
