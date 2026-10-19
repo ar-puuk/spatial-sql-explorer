@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-19
+
+A patch release: a GTFS feed is now two layers, drawn together, instead of one combined table.
+
 ### Changed
 
 - **A GTFS feed is two layers, drawn together.** Opening a feed now gives the layers `routes` (lines) and `stops` (points), each its own table with every column (`gtfs.routes`, `gtfs.stops`, and `gtfs.shapes` for the raw shape points), instead of one combined table. Both are on the map at once: the layer picker (or `layer` in SQL) chooses which one is open, and that one has the table, the filters, the selection and the export; the other is drawn beside it with the same style (one style for the feed: the line settings for routes, the marker settings for stops). Choosing the other layer opens the feed again for it (a few seconds). Both layers have `color` (`#RRGGBB`, what the default style paints with) and `name` (what labels read). The layer picker shows how many routes and stops there are.
