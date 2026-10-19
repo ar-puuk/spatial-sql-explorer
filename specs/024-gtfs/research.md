@@ -56,8 +56,23 @@ Findings that change the design:
 - `stop_times.txt` has padded times (`" 4:15:00"`); times can pass 24:00:00, so they stay text. Not needed for routes and stops, but the SQL tables must not choke on them (read all columns as text, cast on use).
 - 23 MB of stop_times, 4 MB of shapes: well inside the 3 GB ceiling; the large-feed question (millions of stop_times) is still open but this feed is a typical mid-size agency.
 
-## 6. Open measurements
+## 6. Browser worker, and scale (T004, 2026-10-19)
 
-- A large metro feed (5M+ stop_times): gdal3.js `trips` versus the SQL route. Rule so far: never request GDAL's `trips` unless the feed has trips with no shape.
-- Browser path: worker memory and time for the same feed (the Node numbers above are not the web numbers).
-- Feeds with `route_color` empty or white, BOM/CRLF, quoted fields, extended `route_type` codes (100–1700).
+Spike: `spikes/browser-*.txt` (a Chrome page, a Web Worker, gdal3.js 2.8.1 from `dist/package`, the zip's bytes written to in-memory files; Chrome stable via Playwright). The UTA numbers match Node's (§5): init 0.18 s, open 1.8–1.9 s, stops 36–51 ms, shapes_geom 4 ms, trips 145 ms; the wasm heap is 512 MB (the module's fixed start size, not growth).
+
+Scale test: the same feed with trips and stop_times repeated 10 times (110,780 trips, 4.67M stop times, 33 MB zip):
+
+| | Open | stops | shapes_geom | trips |
+|---|---|---|---|---|
+| Full feed | 14.9 s | 52 ms | 3 ms | 1.4 s (99 MB FlatGeobuf, 110k lines) |
+| `stop_times.txt` cut to its header line | 1.0 s | 51 ms | 3 ms | fails ("hDS is NULL"), as expected |
+
+So the driver reads all of `stop_times.txt` when it opens (about 3 s per million rows), and `stops` and `shapes_geom` do not depend on it at all.
+
+Decision (T004): the reader gives GDAL a flat in-memory folder in which `stop_times.txt` is replaced by its header line. Opening is then constant (about 1 s for any feed), the routes and stops layers need nothing from it, and the real `stop_times.txt` is registered for the engine (`read_csv`) to answer "which routes serve this stop". GDAL's `trips` layer is requested only for a feed that has trips without a `shape_id`; that one case pays the full open (about 3 s per million stop times) and shows progress. A nested wrapper is flattened by us before GDAL sees it (the driver does not look into folders: §2).
+
+## 7. Still open
+
+- Real-feed check of the SQL route (route lines merged per route) in the engine, and the memory the engine needs for the real `stop_times` (T006/T007).
+- Feeds with `route_color` empty or white, extended `route_type` codes (100–1700), `shape_dist_traveled`-only shapes.
+- Firefox and the extension host's child process (the numbers above are Chrome and Node).

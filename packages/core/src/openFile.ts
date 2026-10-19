@@ -354,6 +354,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (contents.kind === 'gdb') {
       gdb = await openGdb(ref, deps, hooks, options, abort.signal)
       source = gdb.converted.source
+    } else if (contents.kind === 'gtfs') {
+      // Spec 024: recognized; the reader is not built yet (specs/024-gtfs/tasks.md T006).
+      throw new Error(`"${ref.displayName}" is a GTFS transit feed. Opening feeds is not available yet.`)
     } else if (contents.kind === 'datasets') {
       let dataset: ZipDataset
       try {

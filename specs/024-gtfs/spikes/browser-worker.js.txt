@@ -1,0 +1,28 @@
+importScripts('/pkg/gdal3.js')
+onmessage = async ({ data }) => {
+  const out = []
+  const step = (n, v) => out.push([n, v])
+  try {
+    let t = performance.now()
+    const Gdal = await initGdalJs({ path: '/pkg', useWorker: false })
+    step('init ms', Math.round(performance.now() - t))
+    const FS = Gdal.Module.FS
+    for (const f of data.files) {
+      FS.writeFile('/input/' + f.name, new Uint8Array(f.buf))
+      t = performance.now()
+      const r = await Gdal.open('/input/' + f.name)
+      step(f.name + ' open ms', Math.round(performance.now() - t)); step(f.name + ' datasets', r.datasets.length)
+      if (!r.datasets.length) { step(f.name + ' errors', JSON.stringify(r.errors)); continue }
+      const ds = r.datasets[0]
+      for (const layer of ['stops', 'shapes_geom', 'trips']) {
+        t = performance.now()
+        const o = await Gdal.ogr2ogr(ds, ['-f', 'FlatGeobuf', layer], f.name + '-' + layer)
+        const size = FS.stat(o.local).size
+        step(f.name + ' ' + layer + ' ms/bytes', [Math.round(performance.now() - t), size])
+        FS.unlink(o.local)
+      }
+      step('heap MB', Math.round(Gdal.Module.HEAP8.length / 1048576))
+    }
+  } catch (e) { step('ERR', String((e && (e.message || JSON.stringify(e))) || e)) }
+  postMessage(out)
+}
