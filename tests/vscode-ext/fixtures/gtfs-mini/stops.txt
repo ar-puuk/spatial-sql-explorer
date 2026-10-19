@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon
+S1,Central,39.7392,-104.9903
+S2,Union,39.7527,-105.0003
+S3,Park,39.7600,-104.9800
+S4,Lake,39.7300,-105.0200
+S5,Orphan,39.7000,-104.9000

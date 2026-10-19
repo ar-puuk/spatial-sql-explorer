@@ -169,6 +169,11 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - Kept apart on purpose (user decision 2026-10-18): the workaround is the folders `packages/core/src/gdb/` (including `integration.ts`, the only glue `openFile.ts` imports), `apps/web/src/gdb/` and the two `apps/vscode-ext/src/gdb*.ts` files, plus a few lines marked "Spec 013". `specs/013-file-geodatabase/removal.md` lists everything to delete when the engine reads `.gdb` itself. New geodatabase code goes in those places, not into shared files.
 - Fixtures: `node scripts/fixtures-013.mjs` (needs GDAL with Python bindings); a real sample runs the acceptance spec when `SE_GDB_SAMPLE` names a `.gdb`.
 
+## GTFS (spec 024, proposal)
+- A GTFS feed (zip or folder; detected by content, never by name; an inner zip is ignored) opens as routes (colored lines) plus stops, drawn as one styled result: the one exception to "one layer" (user decision 2026-10-19, constitution v1.6.0). Routes and stops only; no timetables, service filters, GTFS-Realtime or analysis.
+- Reading order (user decision): GDAL's GTFS driver first, then what GTFS-X does (parse the text files), then SQL (`read_csv`, `ST_Point`, `ST_MakeLine`). Measured: the driver inside DuckDB-WASM cannot open a registered folder or zip (specs/024-gtfs/research.md §1), so the driver runs in gdal3.js like spec 013's reader; the plain tables are read by the engine.
+- The default look follows GTFS-X's decisions (research §4). GTFS-X is AGPL-3.0: never copy its code. Real sample feed: `D:\GTFS.zip` (Utah Transit Authority).
+
 ## Line arrows (spec 019)
 - `LayerStyle.arrows` (placement along or center, spacing px, size, optional color) draws arrowheads along lines in the line's direction (first vertex to last): the map layer `se-line-arrow`, a MapLibre symbol layer with an SDF chevron (`drawArrowIcon`, `ARROW_ICON_ID`) tinted by the line's color. The style panel's Arrows control (lines and mixed layers). Our QML keeps it in `spatialExplorer/style`; SLD and Mapbox GL leave it out, with a note.
 
