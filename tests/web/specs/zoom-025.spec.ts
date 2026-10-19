@@ -73,23 +73,24 @@ test.describe('zoom range and sizes', () => {
     await expect(page.locator('.zoom-range-value')).toHaveText('20 – 21')
   })
 
-  test('a hollow dot on the slider shows where the map is, dashed when the layer is hidden there', async ({ page }) => {
+  test('two small triangles on the slider show where the map is, grey when the layer is hidden there', async ({ page }) => {
     await openFile(page, fixture('crashes.geojson'), '?e2e=1')
     await openStylePanel(page)
     const jump = (zoom: number): Promise<void> => page.evaluate((z) => (window as unknown as { __spatialExplorerE2E: { jumpTo(a: number, b: number, c: number): void } }).__spatialExplorerE2E.jumpTo(-112, 40.7, z), zoom)
-    const dot = page.locator('.se-range2 .dot')
+    const dot = page.locator('.se-range2 .mark.top')
     await jump(12)
     await expect(dot).toHaveAttribute('title', 'The map is at zoom 12.0')
-    // No sentence, no scale, no flag: the dot is the whole indication.
-    await expect(page.locator('.zoom-now, #zoom-range-hint, .se-range2 .tick, .se-range2 .flag, .se-range2 .line')).toHaveCount(0)
+    // One above the track and one below, at the same place; no sentence, no scale.
+    await expect(page.locator('.se-range2 .mark')).toHaveCount(2)
+    await expect(page.locator('.zoom-now, #zoom-range-hint, .se-range2 .tick, .se-range2 .flag, .se-range2 .line, .se-range2 .dot')).toHaveCount(0)
     await setNumber(page, 'Show from zoom', 5)
     await setNumber(page, 'Hide from zoom', 10)
     await expect(dot).toHaveAttribute('title', 'The map is at zoom 12.0: the layer is hidden here')
-    await expect(page.locator('.se-range2 .dot.outside')).toHaveCount(1)
+    await expect(page.locator('.se-range2 .mark.outside')).toHaveCount(2)
     await jump(8)
     await expect(dot).toHaveAttribute('title', 'The map is at zoom 8.0')
-    await expect(page.locator('.se-range2 .dot.outside')).toHaveCount(0)
-    // The dot stands where the zoom is on the scale of 0 to 24.
+    await expect(page.locator('.se-range2 .mark.outside')).toHaveCount(0)
+    // They stand where the zoom is on the scale of 0 to 24.
     const left = await dot.evaluate((el) => (el as HTMLElement).style.left)
     expect(parseFloat(left)).toBeCloseTo((8 / 24) * 100, 0)
   })
