@@ -125,6 +125,10 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   dots placed at random inside each polygon: choose up to six number columns (each its own
   color) and what one dot stands for. The same layer always gives the same dots, and the SQL is
   in the query editor to change and rerun.
+- **Zoom.** The style panel's **Zoom** slider (beside Opacity) shows the layer only between two zoom
+  levels, with two small triangles on the track at the map's current zoom, and **Sizes follow zoom**
+  (under Appearance) makes markers, outlines and lines grow as you zoom in. Both are kept in the
+  style file (QGIS reads the range as scale-based visibility).
 - **Time slider.** A window over a date or timestamp column filters the map, table and
   counts, and **Play** moves it across time.
 - **Search by words.** In the search box, **Words** ranks the rows whose text has every word

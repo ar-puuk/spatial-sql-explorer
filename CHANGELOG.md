@@ -9,12 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-19
+
+The first stable release: the scope the project set out with (look at a file, query it with SQL, style it, export it, in VS Code and in the browser) is complete. This release adds GTFS transit feeds and visibility by zoom, and cleans up the development warnings. File Geodatabase support stays marked experimental.
+
 ### Added
 
 - **GTFS transit feeds.** Open a feed (a `.zip`, a folder of its text files, or the loose `.txt` files) and see the network at once: every route as a line in its own `route_color` (direction arrows are one switch away in the style panel, off by default), and every stop as a dot in the color of a route that serves it; names show from zoom 13. A feed is recognized by what is inside it (stops, routes, trips and stop times, then their columns), never by its name, so `GTFS.zip`, `google_transit.zip` and `data.zip` all work, and a zip holding a feed and another zip opens the feed. On the web: Open file, "GTFS folder…" in the menu, or drop a folder or the files. In VS Code: right-click the `.zip`, a folder, or one of the feed's `.txt` files and choose Open in Spatial Explorer. The feed is a schema named after it: the open layer `network` (routes and stops together), `routes`, `stops` (with the routes serving each one), and every other table (`calendar`, `stop_times`, ...), all queryable and exportable. The look follows GTFS-X's decisions. Line geometry is read by GDAL's GTFS driver (the gdal3.js reader a geodatabase also uses, downloaded once) and, where that is not available, built in SQL from the feed's own tables. A notice says when routes without a shape are drawn through one trip's stops, and counts routes with no trips and stops with no coordinates. Routes and stops only: no timetables, service-day filter or analysis.
 - **Visibility by zoom.** The style panel has a two-handle "Zoom" slider beside Opacity: the layer shows from the first zoom up to the second (0 and 24 mean no limit), two small triangles, above and below the track, mark the map's current zoom (grey when the layer is hidden there). "Sizes follow zoom" (Appearance) makes marker size, outline and line widths grow from a fraction of their size at a low zoom to full size at a higher one, with separate fractions for markers and lines. Both are part of the style: saved in the QGIS file (also as QGIS's scale-based visibility, so QGIS shows the layer in the same range), written to Mapbox GL as `minzoom`, `maxzoom` and zoom curves, and kept in the share link.
 - Labels can start at a zoom level (`minZoom`), kept in the QGIS style file.
 - GTFS feeds start with sizes that follow the zoom, so a city-wide view reads as lines, not a chain of stops: stops a third of their size and lines 60% at zoom 10 and below, full from zoom 14; stops are radius 5 with a 1.5 px white outline, lines 3 px.
+
+### Changed
+
+- Development: `npm run lint` no longer reports the built output (it printed about 33,000 errors for `dist` and `out`), and the three non-null assertions in the grid code are gone, so it reports nothing. The dev server no longer tries to watch the test engine copy (an `EBUSY` error on every start on Windows). A `.gitattributes` keeps one line ending in the repository. `package.json` records which install scripts may run (esbuild and vsce-sign: yes; core-js: no).
 
 ### Fixed
 

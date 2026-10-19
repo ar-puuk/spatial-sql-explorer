@@ -2,7 +2,7 @@
   "name": "spatial-explorer",
   "displayName": "Spatial Explorer: Spatial SQL & Map Viewer",
   "description": "Open a geospatial file and see it on a map and in a table, without opening a desktop GIS.",
-  "version": "0.9.1",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "publisher": "arpuuk",
@@ -29,7 +29,10 @@
     "geospatial",
     "geojson",
     "geoparquet",
-    "spatial sql"
+    "spatial sql",
+    "gtfs",
+    "transit",
+    "duckdb"
   ],
   "engines": {
     "vscode": "^1.85.0"
