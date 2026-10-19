@@ -635,7 +635,7 @@
       <span class="value zoom-range-value" aria-hidden="true">{zoomFrom} – {zoomTo}</span>
     </div>
     <p class="hint" id="zoom-range-hint">
-      {#if camera}<span class="zoom-now">The map is at zoom {camera.zoom.toFixed(1)}: the layer is {camera.zoom >= zoomFrom && camera.zoom < zoomTo ? 'shown' : 'hidden'} here.</span>{' '}{/if}Visible from the first handle up to the second (0 and 24 mean no limit). Zoom 0 shows the world, 14 a city, 18 a street. The line marks where the map is now.
+      {#if camera}<span class="zoom-now">The map is at zoom {camera.zoom.toFixed(1)}: the layer is {camera.zoom >= zoomFrom && camera.zoom < zoomTo ? 'shown' : 'hidden'} here.</span>{/if}Visible from the first handle up to the second (0 and 24 mean no limit). Zoom 0 shows the world, 14 a city, 18 a street. The line marks where the map is now.
     </p>
 
     <section aria-labelledby="style-sec-type">
@@ -1957,6 +1957,12 @@
   .zoom-row .label {
     flex: 1;
     min-width: 0;
+  }
+  /* The sentence about the map's zoom is a line of its own above the explanation. */
+  .zoom-now {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--se-text-primary);
   }
   .zoom-range-value {
     text-align: right;
