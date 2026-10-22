@@ -47,3 +47,7 @@ Thumbs.db
 tests/.large-data/
 scripts/.crs-candidates.json
 scripts/.engine-cache/
+
+# brag launch video and its plugin settings (local only)
+brag-output/
+.claude/settings.json
