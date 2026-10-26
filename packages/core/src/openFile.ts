@@ -389,7 +389,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       // Spec 024: it looks like a transit feed, but is missing files it needs.
       throw new Error(`"${ref.displayName}" looks like a GTFS transit feed but is missing ${contents.gtfsMissing.join(', ')}. A feed needs stops.txt, routes.txt, trips.txt and stop_times.txt.`)
     } else {
-      throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel or a File Geodatabase).`)
+      throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel, a GeoTIFF or a File Geodatabase).`)
     }
   } else {
     source = await hostAdapter.getFileSource(ref)
@@ -397,9 +397,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   checkCancelled()
   const strategy = detectStrategy(source.name)
   const format = formatFromFileName(source.name)
-  if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
+  if (strategy === 'unsupported' || format === null || format === 'pmtiles' || format === 'geotiff') {
     throw new Error(
-      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, SQLite/SpatiaLite, Shapefile, GML and PMTiles (view only).`
+      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, SQLite/SpatiaLite, Shapefile, GML, PMTiles and GeoTIFF (the last two view only).`
     )
   }
 

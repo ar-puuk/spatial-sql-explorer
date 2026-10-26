@@ -259,7 +259,7 @@
       },
       () => provideFiles(files)
     )
-    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld|tfw|wld|ovr)$/i.test(f.name) && !/\.aux\.xml$/i.test(f.name))?.name ?? files[0].name
   }
 
   /** Spec 013: a File Geodatabase is a folder. */
