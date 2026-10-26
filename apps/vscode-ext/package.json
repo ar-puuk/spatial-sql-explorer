@@ -80,6 +80,12 @@
           },
           {
             "filenamePattern": "*.pmtiles"
+          },
+          {
+            "filenamePattern": "*.tif"
+          },
+          {
+            "filenamePattern": "*.tiff"
           }
         ],
         "priority": "default"
@@ -156,7 +162,7 @@
       "explorer/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && !explorerResourceIsFolder",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|tif|tiff|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && !explorerResourceIsFolder",
           "group": "navigation@20"
         },
         {
@@ -178,21 +184,21 @@
       "editor/title/context": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|tif|tiff|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i",
           "group": "1_open@20"
         }
       ],
       "editor/title": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && activeEditor == workbench.editors.files.textFileEditor",
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|tif|tiff|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i && activeEditor == workbench.editors.files.textFileEditor",
           "group": "navigation@20"
         }
       ],
       "commandPalette": [
         {
           "command": "spatialExplorer.openInViewer",
-          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i || resourceFilename =~ /^(stops|routes|trips|stop_times|agency|calendar|calendar_dates|shapes|feed_info|transfers)\\.txt$/i"
+          "when": "resourceExtname =~ /^\\.(gpkg|fgb|flatgeobuf|shp|geoparquet|pmtiles|tif|tiff|geojson|json|csv|xlsx|parquet|gml|sqlite|db|zip)$/i || resourceFilename =~ /^(stops|routes|trips|stop_times|agency|calendar|calendar_dates|shapes|feed_info|transfers)\\.txt$/i"
         },
         {
           "command": "spatialExplorer.exportData",

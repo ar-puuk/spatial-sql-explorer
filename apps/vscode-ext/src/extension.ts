@@ -33,6 +33,8 @@ type WebviewToHostMessage =
       extent?: [number, number, number, number] | null
       mapCanvasRect?: { width: number; height: number } | null
       renderedFeatureCount?: number | null
+      /** Spec 026: set when the open layer is a raster. */
+      raster?: { width: number; height: number; bands: number; dataType: string; epsg: number | null; origin: string; ready: boolean } | null
       styleSource?: string | null
       loadMs?: number
       loadTimings?: Record<string, number>
@@ -140,6 +142,8 @@ let lastLoadState: {
   extent?: [number, number, number, number] | null
   mapCanvasRect?: { width: number; height: number } | null
   renderedFeatureCount?: number | null
+  /** Spec 026: set when the open layer is a raster. */
+  raster?: { width: number; height: number; bands: number; dataType: string; epsg: number | null; origin: string; ready: boolean } | null
   styleSource?: string | null
   loadMs?: number
   loadTimings?: Record<string, number>
@@ -389,6 +393,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           extent: msg.extent,
           mapCanvasRect: msg.mapCanvasRect,
           renderedFeatureCount: msg.renderedFeatureCount,
+          raster: msg.raster,
           styleSource: msg.styleSource,
           loadMs: msg.loadMs,
           loadTimings: msg.loadTimings,
@@ -995,7 +1000,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 }
 
 /** Formats the 'default' editor claims; the rest open via the 'option' editor. */
-const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet'])
+const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet', '.tif', '.tiff'])
 
 /**
  * Files passed on the command line at launch (`code parcels.gpkg`) are

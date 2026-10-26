@@ -510,6 +510,8 @@ export function reportLoadState(
     extent?: [number, number, number, number] | null
     mapCanvasRect?: { width: number; height: number } | null
     renderedFeatureCount?: number | null
+    /** Spec 026: set when the open layer is a raster. */
+    raster?: { width: number; height: number; bands: number; dataType: string; epsg: number | null; origin: string; ready: boolean } | null
     styleSource?: string | null
     loadMs?: number
     loadTimings?: Record<string, number>

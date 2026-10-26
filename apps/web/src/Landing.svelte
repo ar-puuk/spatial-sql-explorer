@@ -66,7 +66,7 @@
   const SHEET_LIGHT = sheetImage('#1c2f55', '#1c2f55', 0.1)
   const SHEET_DARK = sheetImage('#9db4e8', '#9db4e8', 0.13)
 
-  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'Excel', 'GML', 'PMTiles', 'File Geodatabase', 'Zip']
+  const FORMATS = ['GeoPackage', 'SQLite', 'Shapefile', 'GeoParquet', 'FlatGeobuf', 'GeoJSON', 'CSV', 'Excel', 'GML', 'PMTiles', 'GeoTIFF', 'File Geodatabase', 'Zip']
 </script>
 
 <script lang="ts">
