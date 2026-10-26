@@ -8,7 +8,9 @@ import { test, expect, type Page } from '@playwright/test'
 import { fixture } from './helpers'
 
 type Facts = { width: number; height: number; bands: Array<{ name: string; p2?: number; p98?: number }>; dataType: string; crs: { code?: number; label: string; units?: string }; overviews: number; nodata: number | string | null; hasPalette: boolean; extentWgs84: number[]; origin: string; warnings: string[]; mode: string; compression: string; tiled: boolean }
+type Pixel = { lon: number; lat: number; outside: boolean; values: Array<{ band: number; name: string; value: number | null }> }
 type RasterState = {
+  pixel: Pixel | null
   kind: 'vector' | 'raster'
   facts: Facts | null
   style: { mode: string; colormap: string; min: number; max: number; bands: number[] } | null
@@ -121,6 +123,126 @@ test.describe('opening a raster', () => {
     expect(s.facts).toMatchObject({ dataType: 'uint16' })
     expect(s.facts!.bands).toHaveLength(4)
     expect(s.style!.mode).toBe('rgb')
+  })
+})
+
+/** The fixtures' surface (scripts/fixtures-026.mjs `surface`): elevation in metres at a place. */
+function surface(lon: number, lat: number): number {
+  const x = (lon + 111.95) / 0.1
+  const y = (lat - 40.7) / 0.08
+  return 1300 + 1100 * (0.5 + 0.5 * Math.sin(3.1 * x + 0.4)) * (0.35 + 0.65 * (1 - y)) + 120 * Math.cos(9 * y)
+}
+
+/** Puts a place at the middle of the map and rests the mouse there; resolves with the reading the app made. */
+async function hoverAt(page: Page, lon: number, lat: number): Promise<Pixel | null> {
+  await page.evaluate(([x, y]) => (window as unknown as { __spatialExplorerE2E: { jumpTo(lon: number, lat: number, zoom: number): void } }).__spatialExplorerE2E.jumpTo(x, y, 13), [lon, lat])
+  await page.waitForTimeout(600)
+  const box = (await page.locator('.canvas-host').boundingBox())!
+  // Wiggle: the first move after a jump is what reports the place.
+  await page.mouse.move(box.x + box.width / 2 - 20, box.y + box.height / 2 - 20)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  // The reading for THIS place (the one of the place before stays until the new answer comes).
+  await expect
+    .poll(async () => {
+      const p = (await state(page)).pixel
+      return p !== null && Math.abs(p.lon - lon) < 1e-3 && Math.abs(p.lat - lat) < 1e-3
+    }, { timeout: 10000 })
+    .toBe(true)
+  return (await state(page)).pixel
+}
+
+test.describe('what a raster is, and the value under the cursor', () => {
+  test('the card is one line until opened, then lists every fact; it says where the SQL went', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    const card = page.getByRole('region', { name: 'Raster' })
+    await expect(card).toContainText('Raster')
+    await expect(card).toContainText('428 × 450 pixels, 1 band')
+    await expect(card.getByText('Coordinate system')).toHaveCount(0)
+    const toggle = card.getByRole('button').first()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    for (const [label, value] of [
+      ['Coordinate system', 'EPSG:32612 (WGS 84 / UTM zone 12N)'],
+      ['Size', '428 × 450 pixels'],
+      ['Bands', '1 band: Band 1'],
+      ['Data type', '32-bit floating point'],
+      ['No data', '−9,999'],
+      ['Compression', 'Deflate'],
+      ['Storage', 'Tiled, 256 × 256 pixels'],
+    ]) {
+      await expect(card.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')).toHaveText(value)
+    }
+    await expect(card).toContainText('Queries, the table and the vector tools need a vector layer.')
+    // Closed again, and the button says what it does.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(card.getByText('Coordinate system')).toHaveCount(0)
+  })
+
+  test('the status bar says what is open (not a feature count) and shows the cursor and its values', async ({ page }) => {
+    await openRaster(page, raster('ortho-rgb.tif'))
+    const bar = page.locator('.status-bar')
+    await expect(bar).toContainText('480 × 384 pixels')
+    await expect(bar).toContainText('3 bands')
+    await expect(bar).toContainText('8-bit unsigned integer')
+    await expect(bar).not.toContainText('features')
+    await expect(bar).not.toContainText('Mixed')
+    await hoverAt(page, -111.88, 40.77)
+    await expect(bar.locator('.cursor')).toContainText(/Band 1 \d+, Band 2 \d+, Band 3 \d+/)
+  })
+
+  test('a DEM: the stored elevation under the cursor (within a pixel of the surface), in every band, no styling applied', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    for (const [lon, lat] of [[-111.88, 40.77], [-111.935, 40.715], [-111.86, 40.745]] as const) {
+      const p = (await hoverAt(page, lon, lat))!
+      expect(p.outside).toBe(false)
+      expect(p.values).toHaveLength(1)
+      expect(p.values[0]).toMatchObject({ band: 1, name: 'Band 1' })
+      expect(Math.abs(p.values[0].value! - surface(lon, lat))).toBeLessThan(25)
+    }
+  })
+
+  test('the hole of nodata says "no data", not -9999', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    const p = (await hoverAt(page, -111.91, 40.74))!
+    expect(p.values[0].value).toBeNull()
+    await expect(page.locator('.status-bar .cursor')).toContainText('no data')
+    await expect(page.locator('.status-bar .cursor')).not.toContainText('9999')
+  })
+
+  test('off the raster there is nothing to show', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await hoverAt(page, -111.88, 40.77)
+    await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(lon: number, lat: number, zoom: number): void } }).__spatialExplorerE2E.jumpTo(-111.5, 40.74, 13))
+    await page.waitForTimeout(600)
+    const box = (await page.locator('.canvas-host').boundingBox())!
+    await page.mouse.move(box.x + box.width / 2 + 3, box.y + box.height / 2 + 3)
+    await expect.poll(async () => (await state(page)).pixel, { timeout: 10000 }).toBeNull()
+    await expect(page.locator('.status-bar .cursor')).not.toContainText(/Band|no data/)
+  })
+
+  test('a colour table raster: the class number', async ({ page }) => {
+    await openRaster(page, raster('classes.tif'))
+    const p = (await hoverAt(page, -111.88, 40.77))!
+    expect(Number.isInteger(p.values[0].value)).toBe(true)
+    expect(p.values[0].value).toBeGreaterThanOrEqual(1)
+    expect(p.values[0].value).toBeLessThanOrEqual(5)
+  })
+
+  test('right-click offers the location and the values, and copies them', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await openRaster(page, raster('ortho-u16.tif'))
+    await hoverAt(page, -111.88, 40.77)
+    const box = (await page.locator('.canvas-host').boundingBox())!
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
+    // The real mouse at the item (Playwright's own scroll-into-view shifts this clipped container, and the click then misses).
+    const item = page.getByRole('menuitem', { name: 'Copy location and values' })
+    await expect(item).toBeVisible()
+    const at = (await item.boundingBox())!
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+    // (The clipboard turns line breaks into CRLF on Windows.)
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^40\.7\d{4}, -111\.88\d{3}\r?\nBand 1: [\d,]+\r?\nBand 2: [\d,]+\r?\nBand 3: [\d,]+\r?\nBand 4: [\d,]+$/)
   })
 })
 

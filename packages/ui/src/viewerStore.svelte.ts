@@ -103,8 +103,9 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { capabilitiesFor, isRasterName, placeholderLayer, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { capabilitiesFor, isRasterName, pixelText, placeholderLayer, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
+import { createPixelProbe } from './raster/pixel.js'
 import { createRasterState } from './rasterState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
@@ -1291,6 +1292,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
   // Spec 026: the raster half of the store, and what the interface may show for the open layer.
   const rasterState = createRasterState()
+  // The band values under the cursor: asked of the file while the cursor moves (one question at a time), shown on the
+  // map and in VS Code's status bar.
+  const pixelProbe = createPixelProbe(
+    () => rasterState.handle,
+    (reading) => {
+      rasterState.setPixel(reading)
+      hostAdapter.setStatus({ pixel: reading ? pixelText(reading) : null })
+    }
+  )
   const layerKind = $derived<LayerKind>(displayedLayer?.raster ? 'raster' : 'vector')
   const capabilities = $derived(capabilitiesFor(displayedLayer, { tilesOnly: tilesArchive !== null }))
   const exportDisabled = $derived(
@@ -2025,6 +2035,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setLayer(null)
     initialLayerState = null
     tilesArchive = null
+    pixelProbe.leave()
     rasterState.clear()
     const previousSession = querySession
     querySession = null
@@ -3332,6 +3343,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setCursor(coords) {
       session.cursorCoordinates = coords
       hostAdapter.setStatus({ cursor: coords })
+      // Spec 026: a raster answers with the value of each band at the cursor.
+      if (rasterState.handle) {
+        if (coords) pixelProbe.move(coords.lon, coords.lat)
+        else pixelProbe.leave()
+      }
     },
     setStyle(patch) {
       if (previewBase) {

@@ -1,9 +1,11 @@
 // Spec 026: raster view and inspect. Pure logic only; the tiler glue and the components live in packages/ui/src/raster/.
 export * from './capabilities.js'
 export * from './convert.js'
+export * from './describe.js'
 export * from './engine.js'
 export * from './errors.js'
 export * from './facts.js'
+export * from './pixel.js'
 export * from './png.js'
 export * from './style.js'
 export * from './types.js'

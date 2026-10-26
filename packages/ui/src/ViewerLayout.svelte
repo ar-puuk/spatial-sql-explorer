@@ -19,6 +19,7 @@
   import BasemapGallery from './BasemapGallery.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
+  import RasterCard from './raster/RasterCard.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import BinCellsDialog from './BinCellsDialog.svelte'
   import DotDensityDialog from './DotDensityDialog.svelte'
@@ -349,8 +350,11 @@
       />
     </div>
   {:else if id === 'layers'}
+    <!-- Spec 026: a raster's facts take this place (it has no layers to pick). -->
+    {#if store.raster}
+      <RasterCard facts={store.raster.facts} open={store.rasterCardOpen} onToggle={() => store.setRasterCardOpen(!store.rasterCardOpen)} />
+    {:else if store.fileLayers.length > 1}
     <!-- Spec 008 US3: the file's layers. Not a control: it shows whenever the file has more than one. -->
-    {#if store.fileLayers.length > 1}
       <LayerPicker layers={store.fileLayers} experimental={store.openFacts?.experimental ?? store.session.layer?.facts?.experimental ?? false} active={store.activeLayer} busy={session.loadState === 'loading' || store.queryPhase === 'running'} onSwitch={(name) => void store.switchLayer(name)} />
     {/if}
   {:else if id === 'info'}
@@ -412,6 +416,7 @@
         <MapView
           layer={store.mapLayer ?? layer}
           raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, resampling: store.raster.facts.hasPalette ? 'nearest' : 'linear', bounds: store.raster.facts.extentWgs84 } : null}
+          pixel={store.pixel}
           mapData={store.mapData}
           labelPoints={store.labelPoints}
           tileUrl={store.tileUrl}

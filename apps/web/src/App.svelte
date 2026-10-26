@@ -487,6 +487,7 @@
         {#snippet statusBar()}
           <StatusBar
             docked
+            pixel={store.pixel}
             session={store.session}
             facts={store.openFacts}
             draw={{

@@ -31,7 +31,7 @@ A person reads what the file is (coordinate system, extent, pixel size, size in 
 
 **Why this priority**: "inspect" is half of the request, and it is what separates a viewer from a picture.
 
-**Independent Test**: open a four-band raster; the card lists the facts, hovering shows four values, clicking copies the location and values; outside the raster nothing is shown.
+**Independent Test**: open a four-band raster; the card lists the facts, hovering shows four values, the right-click menu offers to copy the location and values; outside the raster nothing is shown.
 
 **Acceptance Scenarios**:
 1. **Given** an open raster, **When** the person opens the card, **Then** every fact listed above is shown, with units (degrees or metres) and the coordinate system's name and code when it has one.
@@ -104,7 +104,7 @@ The query panel, table, column filters, selection by shape, "Bin into cells" and
 - **FR-004**: A raster MUST be drawn at the right place for any georeferenced file in a common coordinate system (geographic or projected), with nodata transparent; where the position cannot be determined the app MUST say so and draw nothing.
 - **FR-005**: A raster not stored in tiles MUST be made readable automatically when it is under a size limit, and otherwise MUST produce a message that states the limit and a way to convert it.
 - **FR-006**: The app MUST show a facts card for the raster: coordinate system (name and code), extent, pixel size, width and height in pixels, number of bands with their names, data type, nodata, compression, tiling and number of overview levels.
-- **FR-007**: The app MUST show the stored value of every band under the cursor, with the coordinates, and MUST show nodata as "no data". Clicking MUST copy the location (and the values).
+- **FR-007**: The app MUST show the stored value of every band under the cursor, with the coordinates, and MUST show nodata as "no data". The map's right-click position menu MUST offer to copy the location and the values.
 - **FR-008**: The app MUST let the person choose between one band drawn with a color ramp and three bands drawn as red, green and blue; choose which bands; set the low and high values of the stretch; pick a ramp from previews and reverse it; set opacity; and choose how nodata is shown. Defaults MUST be chosen from the file (image type vs measurement, percentile stretch).
 - **FR-009**: The app MUST show a histogram of the chosen band with the stretch's low and high marked, and a color bar (for a ramp), or a class legend (for a color table), that matches the map.
 - **FR-010**: The raster's style MUST be remembered for the file (beside it where the shell allows) and restored when it is opened again.

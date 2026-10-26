@@ -22,6 +22,10 @@
   import { onMount, onDestroy, tick, untrack } from'svelte'
   import {
     BasemapHealth,
+    pixelCopyText,
+    pixelLines,
+    pixelText,
+    type PixelReading,
     basemapFailureMessage,
     loadBasemapStyle,
     paintFor,
@@ -186,6 +190,8 @@
     binUnavailable?: string | null
     /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
     raster?: { key: string; version: number; opacity: number; resampling: 'linear' | 'nearest'; bounds: [number, number, number, number] } | null
+    /** Spec 026: the band values under the cursor (a raster only). */
+    pixel?: PixelReading | null
   }
   let {
     layer,
@@ -247,6 +253,7 @@
     timeSliderUnavailable = null,
     binUnavailable = null,
     raster = null,
+    pixel = null,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -829,7 +836,7 @@
       e.originalEvent.preventDefault()
       hideTip()
       pointCopied = null
-      pointMenu = { x: e.point.x, y: e.point.y, width: m.getContainer().clientWidth, height: m.getContainer().clientHeight, lon: e.lngLat.lng, lat: e.lngLat.lat, elevation: terrainActive ? elevationAt(e.lngLat) : null }
+      pointMenu = { x: e.point.x, y: e.point.y, width: m.getContainer().clientWidth, height: m.getContainer().clientHeight, lon: e.lngLat.lng, lat: e.lngLat.lat, elevation: terrainActive ? elevationAt(e.lngLat) : null, values: pixelCopyText(pixel) }
     })
     m.on('mousedown', () => (pointMenu = null))
     m.on('movestart', () => (pointMenu = null))
@@ -1864,9 +1871,12 @@
   let pendingCursor: { lon: number; lat: number; elevation?: number | null } | null = null
   /** The same "lat, lon" the status bar shows, to 5 decimals. */
   const cursorText = $derived(lastCursor ? `${lastCursor.lat.toFixed(5)}, ${lastCursor.lon.toFixed(5)}` : null)
+  /** Spec 026: the band values under the cursor, as short text, and in full for the tooltip. */
+  const pixelShort = $derived(pixelText(pixel))
+  const pixelFull = $derived(pixelLines(pixel).join('\n'))
 
   // The right-click position menu.
-  type PointMenu = { x: number; y: number; width: number; height: number; lon: number; lat: number; elevation: number | null }
+  type PointMenu = { x: number; y: number; width: number; height: number; lon: number; lat: number; elevation: number | null; /** Spec 026: the raster's values at this place, taken when the menu opened (leaving the map for the menu clears the live reading). */ values: string }
   let pointMenu = $state<PointMenu | null>(null)
   let pointCopied = $state<string | null>(null)
   let pointMenuEl = $state<HTMLDivElement>()
@@ -1876,6 +1886,8 @@
           { id: 'latlon', label: 'Copy lat, lon', text: `${pointMenu.lat.toFixed(5)}, ${pointMenu.lon.toFixed(5)}` },
           { id: 'lonlat', label: 'Copy lon, lat', text: `${pointMenu.lon.toFixed(5)}, ${pointMenu.lat.toFixed(5)}` },
           { id: 'wkt', label: 'Copy as WKT', text: `POINT(${pointMenu.lon.toFixed(6)} ${pointMenu.lat.toFixed(6)})` },
+          // Spec 026: the raster's values at this place (the cursor is where the menu opened).
+          ...(pointMenu.values ? [{ id: 'pixel', label: 'Copy location and values', text: pointMenu.values }] : []),
         ]
       : []
   )
@@ -2068,6 +2080,7 @@
             <output class="coords" title="Right-click the map to copy a position">
               <span class="pos">{cursorText ?? 'lat, lon'}</span>
               {#if typeof lastCursor?.elevation === 'number'}<span class="elev">{formatElevation(lastCursor.elevation)}</span>{/if}
+              {#if pixelShort}<span class="pixel" title={pixelFull}>{pixelShort}</span>{/if}
             </output>
           {:else if seg.id ==='scale'}
             <div class="native" bind:this={scaleHost}></div>
@@ -2367,9 +2380,17 @@
   .coords .pos {
     color: var(--se-text-primary);
   }
-  .coords .elev {
+  .coords .elev,
+  .coords .pixel {
     padding-left: 8px;
     border-left: 1px solid var(--se-border);
+  }
+  .coords .pixel {
+    color: var(--se-text-primary);
+    max-width: 46ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   /* Right-click: where you pointed, and what to copy. */
   .point-menu {
