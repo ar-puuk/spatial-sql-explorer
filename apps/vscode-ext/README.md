@@ -258,8 +258,8 @@ zoom 13. Direction arrows are off until you choose them in the style panel.
 
 A `.tif` or `.tiff` opens in Spatial Explorer by default, as the one layer on the
 map (it replaces a vector layer and is replaced by one). It is a raster to look
-at: there is no table and no SQL for it, and the tools that work on rows (shape
-tools, grid and dot tools, the time slider, search) are not shown.
+at: there is no table and no SQL for it, and the tools that work on rows (Draw and
+Select by shape, grid and dot tools, the time slider, search) are not shown. Measure works on it.
 
 - **Drawn from the parts in view.** The file is read by byte ranges, so a COG of
   several GB shows its first view in a second or two. Any common coordinate
