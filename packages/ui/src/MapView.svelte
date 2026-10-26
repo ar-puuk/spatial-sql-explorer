@@ -88,6 +88,7 @@
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawArrowIcon, drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
+  import { rasterTileUrl } from './raster/rasterTiles.js'
 
   interface Props {
     layer: Layer | null
@@ -183,6 +184,8 @@
     timeSliderUnavailable?: string | null
     /** Why Bin into cells is not available, or null. */
     binUnavailable?: string | null
+    /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
+    raster?: { key: string; version: number; opacity: number; resampling: 'linear' | 'nearest'; bounds: [number, number, number, number] } | null
   }
   let {
     layer,
@@ -243,6 +246,7 @@
     timeSliderOpen = false,
     timeSliderUnavailable = null,
     binUnavailable = null,
+    raster = null,
   }: Props = $props()
 
   let container: HTMLDivElement
@@ -268,6 +272,8 @@
   const COMPANION_SOURCE ='se-companion'
   const COMPANION_DEFS = new Set(['line', 'line-arrow', 'circle', 'label-line', 'label'])
   const SELECTION_HALO ='se-selection-halo'
+  /** Spec 026: the raster's source and layer (one id for both). The `se-` prefix is load-bearing: see replaceDataSource and the basemap error check. */
+  const RASTER_ID = 'se-raster'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   // Feature ids are promoted from this property so selection/hover use
   // feature-state (no per-selection filter rebuild — GeoLibre-style perf, see
@@ -629,12 +635,43 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE]) if (m.getSource(id)) m.removeSource(id)
+    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE, RASTER_ID]) if (m.getSource(id)) m.removeSource(id)
+    // The raster went with the other `se-` layers: the effect below puts it back when one is open.
+    shownRasterSig = null
+    delete container.dataset.rasterReady
     for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
     previousSelected = null
     tickedApplied = new Set()
+  }
+
+  /**
+   * Spec 026: the raster as a MapLibre raster source whose tiles come from the `se-raster` protocol (rasterTiles.ts).
+   * A new picture version (band, range, colors) is a new tile URL, so the source is replaced, never mutated; opacity
+   * is only a paint property. It is above the basemap and the (empty) vector layers, below nothing of ours.
+   */
+  let shownRasterSig: string | null = null
+  function applyRaster(r: NonNullable<Props['raster']> | null): void {
+    const m = map
+    if (!m) return
+    const sig = r ? `${r.key}/${r.version}/${r.resampling}` : null
+    if (r && sig === shownRasterSig && m.getLayer(RASTER_ID)) {
+      m.setPaintProperty(RASTER_ID, 'raster-opacity', r.opacity)
+      return
+    }
+    if (!r && !shownRasterSig) return
+    if (m.getLayer(RASTER_ID)) m.removeLayer(RASTER_ID)
+    if (m.getSource(RASTER_ID)) m.removeSource(RASTER_ID)
+    shownRasterSig = null
+    delete container.dataset.rasterReady
+    if (!r) return
+    // MapLibre refuses bounds past the Web Mercator limit.
+    const [w, s, e, n] = r.bounds
+    const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v))
+    m.addSource(RASTER_ID, { type: 'raster', tiles: [rasterTileUrl(r.key, r.version)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: [clamp(w, 180), clamp(s, 85.0511), clamp(e, 180), clamp(n, 85.0511)] })
+    m.addLayer({ id: RASTER_ID, type: 'raster', source: RASTER_ID, paint: { 'raster-opacity': r.opacity, 'raster-resampling': r.resampling, 'raster-fade-duration': 0 } })
+    shownRasterSig = sig
   }
 
   /** A basemap's own sources and layers (blank: one background layer), plus its glyphs and sprite. */
@@ -857,6 +894,8 @@
       if (activeBasemap && activeBasemap.type !== 'blank' && health.settledWithoutTiles()) {
         onBasemapFailure(basemapFailureMessage(activeBasemap, 'tiles could not be loaded'))
       }
+      // Spec 026: the raster's tiles in view are drawn (the idle after the source was added or replaced).
+      if (shownRasterSig && m.getSource(RASTER_ID) && m.isSourceLoaded(RASTER_ID)) container.dataset.rasterReady = shownRasterSig
       // Only meaningful once this layer's data is set: an idle before it
       // arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
@@ -1343,6 +1382,14 @@
       delete container.dataset.renderedFeatures
     delete container.dataset.renderedLabels
     }
+  })
+
+  // Spec 026: the open raster, when there is one.
+  $effect(() => {
+    const r = raster
+    void r?.opacity
+    if (!mapReady || !map) return
+    untrack(() => applyRaster(r))
   })
 
   // Spec 024: the companion layer's features, set when they arrive (never per pan).

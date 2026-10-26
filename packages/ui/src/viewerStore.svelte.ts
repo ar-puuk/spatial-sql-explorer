@@ -103,7 +103,8 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { capabilitiesFor, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { capabilitiesFor, isRasterName, placeholderLayer, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createRasterState } from './rasterState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
@@ -2012,6 +2013,82 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, layer: name })
   }
 
+  /** The open layer leaves the screen (table, map, legend, any raster); its query session is returned to be disposed. */
+  function closeCurrentLayer(): QuerySession | null {
+    drawGeneration++
+    unregisterTiles?.()
+    unregisterTiles = null
+    mapData = null
+    companionData = null
+    tileUrl = null
+    drawMode = null
+    setLayer(null)
+    initialLayerState = null
+    tilesArchive = null
+    rasterState.clear()
+    const previousSession = querySession
+    querySession = null
+    resetQueryState()
+    catalog = null
+    return previousSession
+  }
+
+  /**
+   * Spec 026: opens a GeoTIFF or COG as the open layer. Prepare first (the engine, the header, statistics), then replace
+   * the previous layer; a failure shows its message and leaves the previous layer (and its session) as they were.
+   */
+  async function loadRaster(ref: OpenedFileRef): Promise<void> {
+    const abort = new AbortController()
+    openInterrupt = async () => abort.abort()
+    openStartedAt = performance.now()
+    openPhase = 'converting'
+    openNote = 'Loading the raster reader…'
+    let opened: OpenedRaster
+    try {
+      const source = await hostAdapter.getFileSource(ref, { rangeOnly: true })
+      opened = await openRaster(source, duckdbAssets, {
+        signal: abort.signal,
+        onPhase: (phase) => {
+          openNote = phase === 'engine' ? 'Loading the raster reader (the first time only)…' : 'Reading the raster…'
+        },
+      })
+    } catch (err) {
+      openInterrupt = null
+      openStartedAt = null
+      openNote = null
+      if (openCancelled || abort.signal.aborted) {
+        openPhase = 'cancelled'
+        // Nothing was replaced: whatever was open stays.
+        session.loadState = session.layer ? 'ready' : 'idle'
+        return
+      }
+      openPhase = 'failed'
+      session.loadState = 'error'
+      session.loadError = { message: err instanceof Error ? err.message : String(err) }
+      return
+    }
+    openInterrupt = null
+    const previousSession = closeCurrentLayer()
+    fileLayers = []
+    activeLayer = null
+    openedRef = ref
+    currentFileName = ref.displayName
+    historyStateKey = ref.stateKey
+    history = []
+    await previousSession?.dispose().catch(() => {})
+    const layer = placeholderLayer(ref.id, opened.handle.facts, opened.styleSidecar)
+    initialLayer = layer
+    setLayer(layer)
+    applySidecar(null)
+    rasterState.install(opened.handle, null)
+    openPhase = null
+    openStartedAt = null
+    openNote = null
+    session.loadState = 'ready'
+    const f = opened.handle.facts
+    hostAdapter.setStatus({ crs: f.crs.label, featureCount: null, summary: `${f.width.toLocaleString('en-US')} × ${f.height.toLocaleString('en-US')} px, ${f.bands.length} ${f.bands.length === 1 ? 'band' : 'bands'}` })
+  }
+
   async function load(options: { ref?: OpenedFileRef; layer?: string } = {}): Promise<void> {
     const keptStyle = options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
     if (options.layer === undefined) layerStyles.clear()
@@ -2031,22 +2108,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     columnDomains = {}
     try {
       const ref = options.ref ?? (await hostAdapter.openFiles())[0]
+      // Spec 026: a raster is prepared (engine, header, statistics) BEFORE the previous layer goes, so a raster that
+      // cannot be opened leaves what was on the map. Only a whole-file open (not a layer switch) can be a raster.
+      if (options.layer === undefined && isRasterName(ref.displayName)) {
+        await loadRaster(ref)
+        return
+      }
       // The previous file leaves the screen at once: its table, map and
       // legend don't wait for its session to close or the next file to open.
-      drawGeneration++
-      unregisterTiles?.()
-      unregisterTiles = null
-      mapData = null
-      companionData = null
-      tileUrl = null
-      drawMode = null
-      setLayer(null)
-      initialLayerState = null
-      tilesArchive = null
-      const previousSession = querySession
-      querySession = null
-      resetQueryState()
-      catalog = null
+      const previousSession = closeCurrentLayer()
       if (options.layer === undefined) {
         fileLayers = []
         activeLayer = null

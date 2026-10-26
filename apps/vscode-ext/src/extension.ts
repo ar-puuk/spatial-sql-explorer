@@ -20,7 +20,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number | null; summary?: string | null; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -580,7 +580,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
+    msg: { crs?: string; featureCount?: number | null; summary?: string | null; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   ): void {
     if (!panel.active) return
     if (msg.drawMode) {
@@ -596,7 +596,16 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarCrs.text = `$(globe) ${msg.crs}`
       this.statusBarCrs.show()
     }
-    if (msg.featureCount !== undefined) {
+    if (msg.featureCount === null || msg.summary === null) {
+      this.statusBarFeatureCount.text = ''
+      this.statusBarFeatureCount.hide()
+    }
+    if (msg.summary) {
+      // Spec 026: a raster's size and bands, in the count item.
+      this.statusBarFeatureCount.text = `$(file-media) ${msg.summary}`
+      this.statusBarFeatureCount.show()
+    }
+    if (typeof msg.featureCount === 'number') {
       const unit = msg.countLabel === 'rows' ? (msg.featureCount === 1 ? 'row' : 'rows') : msg.featureCount === 1 ? 'feature' : 'features'
       this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} ${unit}`
       this.statusBarFeatureCount.show()

@@ -63,7 +63,10 @@ export class RangeNotSupportedError extends Error {
 
 export interface StatusFields {
   crs?: string
-  featureCount?: number
+  /** `null` clears it (a raster has no feature count). */
+  featureCount?: number | null
+  /** Spec 026: free text for the count item instead of a feature count (a raster: "2,595 x 3,383 px, 1 band"); `null` clears it. */
+  summary?: string | null
   /** Spec 007: `rows` when invalid geometry isn't known yet (large files read in parts), so the count never over-claims. */
   countLabel?: 'features' | 'rows'
   /** `elevation`: meters, while terrain is on and the point is over it. */

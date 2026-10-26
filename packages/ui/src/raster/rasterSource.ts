@@ -3,7 +3,6 @@
 // in VS Code), reads statistics from a level of the file itself, and returns the handle the store and the map use.
 // Adapted from GeoLibre (MIT): packages/map/src/cog-imagery.ts (opening a COG once and keeping the source).
 import { RasterOpenError, describeRasterError, encodePng, factsFromTiler, statsMaxSize, transparentTilePng, type EngineSource, type FileSource, type GeoHeader, type RasterRenderOptions, type TilerBandStats, type TilerInfo, type TilerLevel } from '@spatial-explorer/core'
-import { fromBlob, fromUrl } from 'geotiff'
 import { getRasterEngine } from './engine.js'
 import type { RasterHandle, RasterReader } from './handle.js'
 import type { RasterTileProvider } from './rasterTiles.js'
@@ -29,14 +28,19 @@ let nextKey = 0
 async function readHeader(input: string | Blob, source: FileSource): Promise<GeoHeader> {
   let image
   try {
+    // Lazy: geotiff.js is only needed when a raster is opened.
+    const { fromBlob, fromUrl } = await import('geotiff')
     const tiff = typeof input === 'string' ? await fromUrl(input, { allowFullFile: false }) : await fromBlob(input)
     image = await tiff.getImage(0)
   } catch (e) {
     throw describeRasterError(e, source.name)
   }
-  const fd = image.fileDirectory as unknown as Record<string, unknown>
   const geoKeys = ((image.getGeoKeys() as Record<string, unknown> | null) ?? {}) as Record<string, unknown>
-  if (!fd.ModelTiepoint && !fd.ModelTransformation) {
+  // `getOrigin` throws exactly when the file has no affine transformation (no tie points, no model transformation).
+  // (The tags themselves are deferred in geotiff.js 3: `fileDirectory.ModelTiepoint` reads as nothing.)
+  try {
+    image.getOrigin()
+  } catch {
     if (source.sidecars.some((s) => /\.(tfw|wld)$/i.test(s.name))) {
       throw new RasterOpenError('world-file', `${source.name} is placed by a world file (.tfw), which Spatial Explorer does not read yet. Save it as a GeoTIFF with the coordinates inside (gdal_translate) to open it.`)
     }

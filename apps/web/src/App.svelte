@@ -162,6 +162,16 @@
       drawCalls: () => store.drawCalls,
       /** Spec 010: engine tiles built, and served from the tile cache. */
       tileStats: async () => (await import('@spatial-explorer/ui')).engineTileStats(),
+      /** Spec 026: the open raster: kind, facts, style, picture version and the tile counters. */
+      raster: async () => ({
+        kind: store.layerKind,
+        facts: JSON.parse(JSON.stringify(store.raster?.facts ?? null)),
+        style: JSON.parse(JSON.stringify(store.rasterStyle ?? null)),
+        version: store.rasterVersion,
+        pixel: JSON.parse(JSON.stringify(store.pixel)),
+        capabilities: JSON.parse(JSON.stringify(store.capabilities)),
+        tiles: (await import('@spatial-explorer/ui')).rasterTileStats(),
+      }),
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),
