@@ -26,6 +26,9 @@ Test file: 3000 x 3000 float32, 36 MB, striped, written with geotiff.js.
 - `cog-tiler-wasm` 0.5.0: striped file fails to open from bytes ("image is striped, not tiled; tile range streaming requires a tiled COG"). On the COG: `openCog` 10 ms, 4 levels, mode `warp`; `renderTileRGBA` 256 x 256 in 30 ms; `point()` returns the value; `statistics({maxSize:512})` returns min, max, mean, std, median. `renderTilePNG` needs browser `ImageData` (not a failure).
 - Package sizes (npm unpacked): `cog-tiler-wasm` 133 KB wasm + glue, but it imports `whitebox-wasm` (22 MB); `geolibre-wasm` 6.7 MB wasm (+ 24 MB CLI wasm we do not need).
 
+## 3b. Engine weight, corrected (2026-10-26)
+The 22 MB figure above was the npm package total. `cog-tiler-wasm` loads only two wasm files, each by `new URL('<name>_bg.wasm', import.meta.url)` (so a pinned URL or cached bytes can be passed to `init`): `cog_tiler_wasm_bg.wasm` 133 KB and `whitebox_wasm_bg.wasm` 4.46 MB (from the `whitebox-wasm` dependency, MIT OR Apache-2.0). `whitebox-cli.wasm` (17.6 MB) is the tool runner and is not needed. Engine download is therefore about 4.6 MB plus the JS glue (bundled, small). Still to confirm in a real browser (spike A.1, A.2).
+
 ## 4. TODO spike A: real runtimes (first task)
 Run in Chrome (web shell) and in a VS Code webview (extension host):
 1. Does `cog-tiler-wasm` + `whitebox-wasm` load under our webview CSP (`script-src 'wasm-unsafe-eval'`, `worker-src blob:`)? Does it spawn workers or fetch its wasm by URL we must pin?
