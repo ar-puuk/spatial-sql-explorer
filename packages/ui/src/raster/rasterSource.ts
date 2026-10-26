@@ -2,11 +2,11 @@
 // reads), opens it with the tiler (cog-tiler-wasm) by byte ranges (a File's slices on the web, the loopback range URL
 // in VS Code), reads statistics from a level of the file itself, and returns the handle the store and the map use.
 // Adapted from GeoLibre (MIT): packages/map/src/cog-imagery.ts (opening a COG once and keeping the source).
-import { RasterOpenError, convertedNote, dataTypeOf, describeRasterError, encodePng, factsFromTiler, statsMaxSize, transparentTilePng, type EngineSource, type FileSource, type GeoHeader, type RasterDataType, type RasterRenderOptions, type TilerBandStats, type TilerInfo, type TilerLevel } from '@spatial-explorer/core'
-import { convertToCog, type StripedHeader } from './convert.js'
+import { RasterOpenError, convertedNote, dataTypeOf, describeRasterError, factsFromTiler, statsMaxSize, type EngineSource, type FileSource, type GeoHeader, type RasterDataType, type RasterRenderOptions, type TilerBandStats } from '@spatial-explorer/core'
 import { getRasterEngine } from './engine.js'
 import type { RasterHandle, RasterReader } from './handle.js'
 import type { RasterTileProvider } from './rasterTiles.js'
+import type { OpenedCog, StripedInfo } from './tilerProtocol.js'
 
 export type RasterPhase = 'engine' | 'reading' | 'converting'
 
@@ -31,7 +31,7 @@ let nextKey = 0
 interface RasterHeader extends GeoHeader {
   /** Stored in tiles (a COG is). A striped file is converted before the tiler is asked to read it. */
   tiled: boolean
-  striped: StripedHeader
+  striped: StripedInfo
 }
 
 async function readHeader(input: string | Blob, source: FileSource): Promise<RasterHeader> {
@@ -72,7 +72,7 @@ async function readHeader(input: string | Blob, source: FileSource): Promise<Ras
   } catch {
     // Not recorded: no colour table.
   }
-  const striped: StripedHeader = { width: image.getWidth(), height: image.getHeight(), bands: image.getSamplesPerPixel(), bitsPerSample: image.getBitsPerSample(0), sampleFormat: image.getSampleFormat(0), palette }
+  const striped: StripedInfo = { width: image.getWidth(), height: image.getHeight(), bands: image.getSamplesPerPixel(), bitsPerSample: image.getBitsPerSample(0), sampleFormat: image.getSampleFormat(0), palette }
   // A colour table's classes: its ColorMap tag (red, green and blue planes).
   let colorMap: ArrayLike<number> | null = null
   if (palette) {
@@ -101,7 +101,7 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
   const header = await readHeader(input, source)
   hooks.signal?.throwIfAborted()
 
-  let cog
+  let cog: OpenedCog
   let origin: 'file' | 'converted' = 'file'
   let originalDataType: RasterDataType | undefined
   const warnings: string[] = []
@@ -109,30 +109,32 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
     // A striped GeoTIFF cannot be read in parts (the tiler would read all of it just to refuse it): decided from the
     // header, converted in memory when it is small enough, else a plain message.
     hooks.onPhase?.('converting')
-    const converted = await convertToCog(source, header.striped, engineSource, { signal: hooks.signal, note: hooks.onNote })
-    hooks.signal?.throwIfAborted()
     try {
-      cog = await engine.openCog(converted.bytes)
+      // Read, converted and opened inside the worker: the page never holds the bytes, and keeps answering while it works.
+      const converted = await engine.convertAndOpen(input, header.striped, engineSource, hooks.onNote)
+      cog = converted
+      origin = 'converted'
+      originalDataType = dataTypeOf(converted.sourceType)
+      warnings.push(convertedNote(converted.sourceType, converted.hadPalette))
     } catch (e) {
       throw describeRasterError(e, source.name)
     }
-    origin = 'converted'
-    originalDataType = dataTypeOf(converted.sourceType)
-    warnings.push(convertedNote(converted.sourceType, converted.hadPalette))
   } else {
     try {
-      cog = await engine.openCog(input)
+      cog = await engine.open(input)
     } catch (e) {
       throw describeRasterError(e, source.name)
     }
   }
-  hooks.signal?.throwIfAborted()
+  if (hooks.signal?.aborted) {
+    engine.close(cog.handle)
+    hooks.signal.throwIfAborted()
+  }
 
-  const info = cog.info() as unknown as TilerInfo
-  const levels = cog.levels as unknown as TilerLevel[]
+  const { info, levels } = cog
   let stats: Record<string, TilerBandStats> | null = null
   try {
-    stats = (await cog.statistics({ maxSize: statsMaxSize(levels) })) as unknown as Record<string, TilerBandStats>
+    stats = await engine.statistics(cog.handle, statsMaxSize(levels))
   } catch {
     // A big file with no overviews has no level to estimate from; the card says so (facts) and the style starts from the type's range.
     if (levels.length > 1) warnings.push('The range of values could not be estimated from the file.')
@@ -140,28 +142,25 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
   const facts = factsFromTiler({ info, levels, mode: cog.mode, hasPalette: cog.hasPalette, header, stats, origin, originalDataType, warnings })
 
   const reader: RasterReader = {
-    renderTileRGBA: (z, x, y, options) => cog.renderTileRGBA(z, x, y, options),
-    point: (lon, lat, options) => cog.point(lon, lat, options),
-    statistics: (options) => cog.statistics(options) as unknown as Promise<Record<string, TilerBandStats>>,
+    renderTilePng: (z, x, y, options) => engine.tile(cog.handle, z, x, y, options),
+    point: (lon, lat) => engine.point(cog.handle, lon, lat),
+    statistics: (maxSize) => engine.statistics(cog.handle, maxSize),
   }
+  let closed = false
   const handle: RasterHandle = {
     key: `raster-${++nextKey}`,
     facts,
     reader,
     dispose() {
-      // The tiler holds nothing that needs freeing from here: its references go with the handle.
+      if (closed) return
+      closed = true
+      engine.close(cog.handle)
     },
   }
   return { handle, styleSidecar: source.styleSidecar }
 }
 
-/** A tile provider for the map: renders with the options in force when the tile is asked for, encodes PNG. */
+/** A tile provider for the map: the worker renders it, with the options in force when the tile is asked for, and encodes the PNG. */
 export function rasterTileProvider(handle: RasterHandle, options: () => RasterRenderOptions): RasterTileProvider {
-  return async (z, x, y) => {
-    const rgba = await handle.reader.renderTileRGBA(z, x, y, options())
-    if (!rgba) return transparentTilePng()
-    const side = Math.round(Math.sqrt(rgba.length / 4))
-    if (side * side * 4 !== rgba.length) return transparentTilePng()
-    return encodePng(rgba, side, side)
-  }
+  return (z, x, y) => handle.reader.renderTilePng(z, x, y, options())
 }

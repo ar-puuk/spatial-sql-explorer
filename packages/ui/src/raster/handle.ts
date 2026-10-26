@@ -1,16 +1,14 @@
-// Spec 026: what the interface holds for an open raster. `RasterReader` is the part of cog-tiler-wasm's
-// `CogSource` the app uses, written as a structural type so the store, the map and tests do not need the
-// wasm (and so the tiler package stays a lazy import, see engine.ts).
-import type { RasterFacts, TilerBandStats } from '@spatial-explorer/core'
-import type { RasterRenderOptions } from '@spatial-explorer/core'
+// Spec 026: what the interface holds for an open raster. `RasterReader` is what the app asks of the raster worker (which owns
+// the tiler, see tilerWorker.ts), so the store, the map and tests never touch the wasm.
+import type { RasterFacts, RasterRenderOptions, TilerBandStats } from '@spatial-explorer/core'
 
 export interface RasterReader {
-  /** A 256 x 256 RGBA tile (null: nothing there). */
-  renderTileRGBA(z: number, x: number, y: number, options?: RasterRenderOptions): Promise<Uint8Array | Uint8ClampedArray | null>
+  /** A 256 x 256 PNG tile, made in the raster worker (a transparent one when nothing is there). */
+  renderTilePng(z: number, x: number, y: number, options: RasterRenderOptions): Promise<Uint8Array>
   /** The value of each band at a WGS84 place. */
-  point(lon: number, lat: number, options?: { bidx?: number[] }): Promise<{ coordinates: [number, number]; values: number[]; band_names: string[]; outside?: boolean }>
-  /** Per-band statistics from the coarsest level that is at most `maxSize` wide. */
-  statistics(options?: { maxSize?: number }): Promise<Record<string, TilerBandStats>>
+  point(lon: number, lat: number): Promise<{ coordinates: [number, number]; values: number[]; band_names: string[]; outside?: boolean }>
+  /** Per-band statistics from the level the tiler picks for `maxSize`. */
+  statistics(maxSize: number): Promise<Record<string, TilerBandStats>>
 }
 
 /** An opened raster: the file's facts, the reader, and how to let go of it. */

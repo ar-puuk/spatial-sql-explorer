@@ -19,7 +19,11 @@ export default defineConfig({
   base: './',
 
   worker: {
-    format: 'es'
+    format: 'es',
+    // Spec 026: the raster worker bundles the tiler packages: their default wasm URL (an emitted asset) is replaced by an error there too.
+    plugins: () => [noBundledWasm()],
+    // An inline (blob) worker cannot load chunks by a relative address: the packages' lazy codecs (pako, zstd, lerc) are bundled into it.
+    rollupOptions: { output: { inlineDynamicImports: true } }
   },
 
   build: {
