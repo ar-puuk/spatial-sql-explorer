@@ -5,7 +5,7 @@
   // (design-plan.md §4.3), docked over the bottom of the map like the legacy
   // app's map status bar. VS Code shows the same fields in its native status
   // bar via HostAdapter.setStatus (apps/vscode-ext/src/extension.ts).
-  import { formatElevation, type DatasetFacts, type DrawMode, type ViewerSession } from '@spatial-explorer/core'
+  import { DATA_TYPE_NAMES, formatElevation, pixelLines, pixelText, type DatasetFacts, type DrawMode, type PixelReading, type ViewerSession } from '@spatial-explorer/core'
   import Icon from './Icon.svelte'
 
   /** Spec 010: how the map draws the result, and the switches between the modes. */
@@ -28,13 +28,33 @@
     draw?: DrawStatus | null
     /** Spec 010: a full-width row under the panels, not over the map. */
     docked?: boolean
+    /** Spec 026: the band values under the cursor (a raster only). */
+    pixel?: PixelReading | null
   }
-  let { session, facts = null, draw = null, docked = false }: Props = $props()
+  let { session, facts = null, draw = null, docked = false, pixel = null }: Props = $props()
   const LOAD_ALL_TIP = 'Over 100,000 features: drawn from tiles the engine builds as you move. Load all draws every feature at once (slower to open, then no work while panning).'
   const nf = new Intl.NumberFormat()
 </script>
 
-{#if session.layer}
+{#if session.layer?.raster}
+  <!-- Spec 026: a raster has no features or geometry type: its system, size, bands and type, and the values under the cursor. -->
+  {@const r = session.layer.raster}
+  <div class="status-bar" class:docked role="status">
+    <span class="item crs" title="The file's coordinate system (drawn reprojected to Web Mercator)">{r.crs.label}</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="item">{nf.format(r.width)} × {nf.format(r.height)} pixels</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="item">{r.bands.length} {r.bands.length === 1 ? 'band' : 'bands'}</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="item">{DATA_TYPE_NAMES[r.dataType]}</span>
+    <span class="spacer"></span>
+    <span class="item cursor" title={pixel ? pixelLines(pixel).join('\n') : 'Cursor coordinates (lat, lon), and the value of each band under it'}>
+      {#if session.cursorCoordinates}
+        {session.cursorCoordinates.lat.toFixed(5)}, {session.cursorCoordinates.lon.toFixed(5)}{#if pixelText(pixel)}&nbsp;&nbsp;{pixelText(pixel)}{/if}
+      {/if}
+    </span>
+  </div>
+{:else if session.layer}
   {@const layer = session.layer}
   <div class="status-bar" class:docked role="status">
     <span class="item crs" class:assumed={layer.crsAssumed} title={layer.crsAssumed ? 'No CRS information found in the file — WGS84 was assumed' : 'Source CRS (reprojected to WGS84 for display)'}>

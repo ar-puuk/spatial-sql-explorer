@@ -20,7 +20,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number | null; summary?: string | null; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -33,6 +33,8 @@ type WebviewToHostMessage =
       extent?: [number, number, number, number] | null
       mapCanvasRect?: { width: number; height: number } | null
       renderedFeatureCount?: number | null
+      /** Spec 026: set when the open layer is a raster. */
+      raster?: { width: number; height: number; bands: number; dataType: string; epsg: number | null; origin: string; ready: boolean } | null
       styleSource?: string | null
       loadMs?: number
       loadTimings?: Record<string, number>
@@ -140,6 +142,8 @@ let lastLoadState: {
   extent?: [number, number, number, number] | null
   mapCanvasRect?: { width: number; height: number } | null
   renderedFeatureCount?: number | null
+  /** Spec 026: set when the open layer is a raster. */
+  raster?: { width: number; height: number; bands: number; dataType: string; epsg: number | null; origin: string; ready: boolean } | null
   styleSource?: string | null
   loadMs?: number
   loadTimings?: Record<string, number>
@@ -288,6 +292,9 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   private statusBarCrs: vscode.StatusBarItem
   private statusBarFeatureCount: vscode.StatusBarItem
   private statusBarCursor: vscode.StatusBarItem
+  /** Spec 026: the cursor item's coordinates and, when a raster is open, the band values under the cursor. */
+  private cursorText = ''
+  private pixelText = ''
   /** Spec 010: how the map draws the result; in tiles mode, Load all. */
   private statusBarDraw: vscode.StatusBarItem
 
@@ -386,6 +393,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
           extent: msg.extent,
           mapCanvasRect: msg.mapCanvasRect,
           renderedFeatureCount: msg.renderedFeatureCount,
+          raster: msg.raster,
           styleSource: msg.styleSource,
           loadMs: msg.loadMs,
           loadTimings: msg.loadTimings,
@@ -577,7 +585,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+    msg: { crs?: string; featureCount?: number | null; summary?: string | null; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   ): void {
     if (!panel.active) return
     if (msg.drawMode) {
@@ -593,16 +601,33 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarCrs.text = `$(globe) ${msg.crs}`
       this.statusBarCrs.show()
     }
-    if (msg.featureCount !== undefined) {
+    if (msg.featureCount === null || msg.summary === null) {
+      this.statusBarFeatureCount.text = ''
+      this.statusBarFeatureCount.hide()
+    }
+    if (msg.summary) {
+      // Spec 026: a raster's size and bands, in the count item.
+      this.statusBarFeatureCount.text = `$(file-media) ${msg.summary}`
+      this.statusBarFeatureCount.show()
+    }
+    if (typeof msg.featureCount === 'number') {
       const unit = msg.countLabel === 'rows' ? (msg.featureCount === 1 ? 'row' : 'rows') : msg.featureCount === 1 ? 'feature' : 'features'
       this.statusBarFeatureCount.text = `$(list-flat) ${msg.featureCount.toLocaleString()} ${unit}`
       this.statusBarFeatureCount.show()
     }
     if (msg.cursor) {
-      this.statusBarCursor.text = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}${typeof msg.cursor.elevation === 'number' ? ` · ${Math.round(msg.cursor.elevation).toLocaleString('en-US')} m` : ''}`
+      this.cursorText = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}${typeof msg.cursor.elevation === 'number' ? ` · ${Math.round(msg.cursor.elevation).toLocaleString('en-US')} m` : ''}`
+      this.statusBarCursor.text = this.pixelText ? `${this.cursorText} · ${this.pixelText}` : this.cursorText
       this.statusBarCursor.show()
     } else if (msg.cursor === null) {
+      this.cursorText = ''
+      this.pixelText = ''
       this.statusBarCursor.hide()
+    }
+    if (msg.pixel !== undefined) {
+      // Spec 026: band values under the cursor, appended to the coordinates (a separate message, a moment later).
+      this.pixelText = msg.pixel ?? ''
+      if (this.cursorText) this.statusBarCursor.text = this.pixelText ? `${this.cursorText} · ${this.pixelText}` : this.cursorText
     }
   }
 
@@ -975,7 +1000,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 }
 
 /** Formats the 'default' editor claims; the rest open via the 'option' editor. */
-const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet'])
+const DEFAULT_EDITOR_EXTENSIONS = new Set(['.gpkg', '.fgb', '.flatgeobuf', '.shp', '.geoparquet', '.tif', '.tiff'])
 
 /**
  * Files passed on the command line at launch (`code parcels.gpkg`) are
@@ -1000,7 +1025,7 @@ async function reopenBinaryTabsFromStartup(): Promise<void> {
 
 /** What `activate` exposes; tests reach the loopback server through it (source-server.test.ts). */
 export interface ExtensionApi {
-  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening' | 'addFiles'>
+  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening' | 'addFiles' | 'statsFor'>
   resolveInsideForTests: typeof resolveInside
 }
 
@@ -1150,7 +1175,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._getSelection', () => lastSelection)
   )
   return {
-    sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening, addFiles: sourceServer.addFiles },
+    sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening, addFiles: sourceServer.addFiles, statsFor: sourceServer.statsFor },
     resolveInsideForTests: resolveInside,
   }
 }

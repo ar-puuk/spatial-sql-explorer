@@ -16,7 +16,10 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
 
 - **Look**: GeoJSON, GeoPackage (several layers), SQLite/SpatiaLite (e.g.
   Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
-  PMTiles and Excel, on a map and in an attribute table kept in sync. File
+  PMTiles and Excel, on a map and in an attribute table kept in sync. A
+  GeoTIFF or Cloud-Optimized GeoTIFF opens as a raster to look at (no table or
+  SQL for it): its facts, the value of each band under the cursor, and a style
+  with band, colormap and range. File
   Geodatabases (a `.gdb` folder or `.gdb.zip`, experimental), GTFS transit
   feeds (a zip or folder: routes and stops, colored as the feed says) and zipped data
   open too; a geodatabase's layers are tables in one schema, and coded domains

@@ -103,6 +103,12 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
+import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
+import { createPixelProbe } from './raster/pixel.js'
+import { colormapColors } from './raster/engine.js'
+import { createRasterState } from './rasterState.svelte.js'
+import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
@@ -581,6 +587,30 @@ export interface ViewerStore {
   readonly tilesOnlyReason: string | null
   /** A PMTiles feature clicked on the map: shown by the inspector. */
   inspectTileFeature(feature: Feature | null): void
+  // --- spec 026: raster view ---------------------------------------------
+  /** Which kind of layer is open. */
+  readonly layerKind: LayerKind
+  /** What the interface shows for it (a raster hides everything that needs rows). */
+  readonly capabilities: Capabilities
+  /** The open raster, or null. */
+  readonly raster: RasterHandle | null
+  /** How it is drawn, or null when no raster is open. */
+  readonly rasterStyle: RasterStyle | null
+  /** Bumped when the raster's picture changes: part of the tile URL. */
+  readonly rasterVersion: number
+  /** The band values under the cursor, or null. */
+  readonly pixel: PixelReading | null
+  /** The facts card is open. */
+  readonly rasterCardOpen: boolean
+  setRasterStyle(patch: Partial<RasterStyle>): void
+  /** Replaces the whole style (the panel's edits that drop a key, like going back to one range for all bands). */
+  replaceRasterStyle(style: RasterStyle): void
+  /** Writes the style beside the file (VS Code) or downloads it (web), as a QGIS `.qml`. */
+  saveRasterStyle(): Promise<void>
+  /** Back to the style the file starts with (its percentiles, a ramp or colors). */
+  resetRasterStyle(): void
+  setPixel(reading: PixelReading | null): void
+  setRasterCardOpen(open: boolean): void
   /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
   readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
   answerWholeRead(open: boolean): void
@@ -1267,6 +1297,19 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
   let tilesArchive = $state.raw<TilesArchive | null>(null)
   const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
+  // Spec 026: the raster half of the store, and what the interface may show for the open layer.
+  const rasterState = createRasterState()
+  // The band values under the cursor: asked of the file while the cursor moves (one question at a time), shown on the
+  // map and in VS Code's status bar.
+  const pixelProbe = createPixelProbe(
+    () => rasterState.handle,
+    (reading) => {
+      rasterState.setPixel(reading)
+      hostAdapter.setStatus({ pixel: reading ? pixelText(reading) : null })
+    }
+  )
+  const layerKind = $derived<LayerKind>(displayedLayer?.raster ? 'raster' : 'vector')
+  const capabilities = $derived(capabilitiesFor(displayedLayer, { tilesOnly: tilesArchive !== null }))
   const exportDisabled = $derived(
     !displayedLayer
       ? 'Open a file first.'
@@ -1987,6 +2030,126 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, layer: name })
   }
 
+  // --- Spec 026: the raster's style is kept for the file (the `.qml` beside it, else this viewer's saved state) ---
+  let rasterPersistTimer: ReturnType<typeof setTimeout> | null = null
+  /** An edit was made: the style is modified since it was saved, and is remembered for this file. `modified: false` is a reset. */
+  function rasterStyleChanged(modified = true): void {
+    styleDirty = modified ? true : styleSource !== null
+    if (rasterPersistTimer) clearTimeout(rasterPersistTimer)
+    rasterPersistTimer = setTimeout(() => {
+      const st = rasterState.style
+      if (openedRef && rasterState.handle) void hostAdapter.saveState(`raster:${openedRef.stateKey}`, modified ? st : null).catch(() => {})
+    }, 400)
+  }
+
+  /** The style a raster starts with: its `.qml` (ours or QGIS's), else what this viewer saved for the file, else the file's default. */
+  async function initialRasterStyle(ref: OpenedFileRef, facts: RasterFacts, sidecar: { fileName: string; text: string } | null): Promise<{ style: RasterStyle | null; source: string | null; notice: StyleNotice | null }> {
+    let notice: StyleNotice | null = null
+    if (sidecar) {
+      if (isRasterQml(sidecar.text)) {
+        try {
+          const read = rasterStyleFromQml(sidecar.text, facts)
+          return { style: read.style, source: sidecar.fileName, notice: read.notes.length > 0 ? { kind: 'warning', text: `${sidecar.fileName}: ${read.notes.join(' ')}` } : null }
+        } catch (err) {
+          notice = { kind: 'warning', text: `Ignored ${sidecar.fileName}: ${err instanceof Error ? err.message : String(err)}` }
+        }
+      } else notice = { kind: 'warning', text: `Ignored ${sidecar.fileName}: it is a style for a vector layer, not a raster.` }
+    }
+    try {
+      const saved = sanitizeRasterStyle(await hostAdapter.loadState<unknown>(`raster:${ref.stateKey}`), facts)
+      if (saved) return { style: saved, source: null, notice }
+    } catch {
+      // No saved state: the default.
+    }
+    return { style: null, source: null, notice }
+  }
+
+  /** The open layer leaves the screen (table, map, legend, any raster); its query session is returned to be disposed. */
+  function closeCurrentLayer(): QuerySession | null {
+    drawGeneration++
+    unregisterTiles?.()
+    unregisterTiles = null
+    mapData = null
+    companionData = null
+    tileUrl = null
+    drawMode = null
+    setLayer(null)
+    initialLayerState = null
+    tilesArchive = null
+    pixelProbe.leave()
+    rasterState.clear()
+    const previousSession = querySession
+    querySession = null
+    resetQueryState()
+    catalog = null
+    return previousSession
+  }
+
+  /**
+   * Spec 026: opens a GeoTIFF or COG as the open layer. Prepare first (the engine, the header, statistics), then replace
+   * the previous layer; a failure shows its message and leaves the previous layer (and its session) as they were.
+   */
+  async function loadRaster(ref: OpenedFileRef): Promise<void> {
+    const abort = new AbortController()
+    openInterrupt = async () => abort.abort()
+    openStartedAt = performance.now()
+    openPhase = 'converting'
+    openNote = 'Loading the raster reader…'
+    let opened: OpenedRaster
+    try {
+      const source = await hostAdapter.getFileSource(ref, { rangeOnly: true })
+      opened = await openRaster(source, duckdbAssets, {
+        signal: abort.signal,
+        onPhase: (phase) => {
+          if (phase !== 'converting') openNote = phase === 'engine' ? 'Loading the raster reader (the first time only)…' : 'Reading the raster…'
+        },
+        onNote: (text) => {
+          openNote = text
+        },
+      })
+    } catch (err) {
+      openInterrupt = null
+      openStartedAt = null
+      openNote = null
+      if (openCancelled || abort.signal.aborted) {
+        openPhase = 'cancelled'
+        // Nothing was replaced: whatever was open stays.
+        session.loadState = session.layer ? 'ready' : 'idle'
+        return
+      }
+      openPhase = 'failed'
+      session.loadState = 'error'
+      session.loadError = { message: err instanceof Error ? err.message : String(err) }
+      return
+    }
+    openInterrupt = null
+    const previousSession = closeCurrentLayer()
+    // Measure works on a raster; Draw and Select by shape need rows, and their buttons are not there to switch them off.
+    if (drawTool && drawTool.purpose !== 'measure') drawTool = null
+    fileLayers = []
+    activeLayer = null
+    openedRef = ref
+    currentFileName = ref.displayName
+    historyStateKey = ref.stateKey
+    history = []
+    await previousSession?.dispose().catch(() => {})
+    const layer = placeholderLayer(ref.id, opened.handle.facts, opened.styleSidecar)
+    initialLayer = layer
+    setLayer(layer)
+    applySidecar(null)
+    const start = await initialRasterStyle(ref, opened.handle.facts, opened.styleSidecar)
+    rasterState.install(opened.handle, start.style)
+    styleSource = start.source
+    styleNotice = start.notice
+    styleDirty = false
+    openPhase = null
+    openStartedAt = null
+    openNote = null
+    session.loadState = 'ready'
+    const f = opened.handle.facts
+    hostAdapter.setStatus({ crs: f.crs.label, featureCount: null, summary: `${f.width.toLocaleString('en-US')} × ${f.height.toLocaleString('en-US')} px, ${f.bands.length} ${f.bands.length === 1 ? 'band' : 'bands'}` })
+  }
+
   async function load(options: { ref?: OpenedFileRef; layer?: string } = {}): Promise<void> {
     const keptStyle = options.layer !== undefined ? (layerStyles.get(options.layer) ?? { style: { ...DEFAULT_LAYER_STYLE }, styleSource: null, styleDirty: false }) : null
     if (options.layer === undefined) layerStyles.clear()
@@ -2006,22 +2169,15 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     columnDomains = {}
     try {
       const ref = options.ref ?? (await hostAdapter.openFiles())[0]
+      // Spec 026: a raster is prepared (engine, header, statistics) BEFORE the previous layer goes, so a raster that
+      // cannot be opened leaves what was on the map. Only a whole-file open (not a layer switch) can be a raster.
+      if (options.layer === undefined && isRasterName(ref.displayName)) {
+        await loadRaster(ref)
+        return
+      }
       // The previous file leaves the screen at once: its table, map and
       // legend don't wait for its session to close or the next file to open.
-      drawGeneration++
-      unregisterTiles?.()
-      unregisterTiles = null
-      mapData = null
-      companionData = null
-      tileUrl = null
-      drawMode = null
-      setLayer(null)
-      initialLayerState = null
-      tilesArchive = null
-      const previousSession = querySession
-      querySession = null
-      resetQueryState()
-      catalog = null
+      const previousSession = closeCurrentLayer()
       if (options.layer === undefined) {
         fileLayers = []
         activeLayer = null
@@ -3082,6 +3238,66 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     get tilesOnlyReason() {
       return tilesOnlyReason
     },
+    get layerKind() {
+      return layerKind
+    },
+    get capabilities() {
+      return capabilities
+    },
+    get raster() {
+      return rasterState.handle
+    },
+    get rasterStyle() {
+      return rasterState.style
+    },
+    get rasterVersion() {
+      return rasterState.version
+    },
+    get pixel() {
+      return rasterState.pixel
+    },
+    get rasterCardOpen() {
+      return rasterState.cardOpen
+    },
+    setRasterStyle(patch: Partial<RasterStyle>): void {
+      rasterState.setStyle(patch)
+      rasterStyleChanged()
+    },
+    replaceRasterStyle(next: RasterStyle): void {
+      rasterState.replaceStyle(next)
+      rasterStyleChanged()
+    },
+    resetRasterStyle(): void {
+      const h = rasterState.handle
+      if (!h) return
+      rasterState.replaceStyle(defaultRasterStyle(h.facts))
+      styleNotice = null
+      rasterStyleChanged(false)
+    },
+    async saveRasterStyle(): Promise<void> {
+      const h = rasterState.handle
+      const st = rasterState.style
+      if (!h || !st || !currentFileName) return
+      const name = sidecarStyleFileName(currentFileName)
+      const notes = rasterQmlNotes(st)
+      try {
+        // The ramp is sampled from the tiler itself (low to high); the writer turns it round for a reversed style.
+        const text = rasterStyleToQml(st, h.facts, { ramp: colormapColors(st.colormap, 16, false), palette: h.facts.palette })
+        const result = hostAdapter.saveSidecar ? await hostAdapter.saveSidecar(name, text) : await hostAdapter.saveFile(name, text, { kind: 'style' })
+        if (!result.saved) return
+        styleSource = name
+        styleDirty = false
+        styleNotice = { kind: notes.length > 0 ? 'warning' : 'info', text: [`Saved ${result.location ?? name}. QGIS loads it automatically with the data.`, ...notes].join(' ') }
+      } catch (err) {
+        styleNotice = { kind: 'error', text: `Could not save ${name}: ${err instanceof Error ? err.message : String(err)}` }
+      }
+    },
+    setPixel(reading: PixelReading | null): void {
+      rasterState.setPixel(reading)
+    },
+    setRasterCardOpen(open: boolean): void {
+      rasterState.setCardOpen(open)
+    },
     get fileLayers() {
       return fileLayers
     },
@@ -3204,6 +3420,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setCursor(coords) {
       session.cursorCoordinates = coords
       hostAdapter.setStatus({ cursor: coords })
+      // Spec 026: a raster answers with the value of each band at the cursor.
+      if (rasterState.handle) {
+        if (coords) pixelProbe.move(coords.lon, coords.lat)
+        else pixelProbe.leave()
+      }
     },
     setStyle(patch) {
       if (previewBase) {

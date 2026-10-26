@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONTROL_POSITIONS,
   CONTROL_GROUPS,
+  controlAvailable,
   controlsAt,
   positionOf,
   positionsFor,
@@ -112,5 +113,28 @@ describe('readMapControls', () => {
     expect(p.positions.draw).toBeUndefined()
     expect(positionOf(p, 'scale')).toBe('bottom-left')
     expect(positionOf(p, 'search')).toBe('top-left')
+  })
+})
+
+describe('rasters (spec 026): the controls that need rows are not offered', () => {
+  const NEEDS_ROWS = ['search', 'draw', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip']
+  it('a vector layer is offered every control', () => {
+    for (const c of MAP_CONTROLS) expect(controlAvailable(c.id, 'vector'), c.id).toBe(true)
+  })
+  it('a raster is not offered search, the draw and select tools, the grid and dot tools, the time slider or the tooltip', () => {
+    for (const id of NEEDS_ROWS) expect(controlAvailable(id as never, 'raster'), id).toBe(false)
+  })
+  it('a raster keeps zoom, zoom to layer, reset view, globe, terrain, measure, print, legend, coordinates, logo and the scale bar', () => {
+    const kept = MAP_CONTROLS.filter((c) => controlAvailable(c.id, 'raster')).map((c) => c.id)
+    expect(kept).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'measure', 'exportImage', 'legend', 'coordinates', 'logo', 'scale'])
+  })
+  it('the stacks at a position leave them out, so nothing is left behind (saved choices are not touched)', () => {
+    const all = controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')
+    expect(all).toContain('draw')
+    const raster = controlsAt(DEFAULT_MAP_CONTROLS, 'top-right', (id) => controlAvailable(id, 'raster'))
+    expect(raster).not.toContain('draw')
+    expect(raster).toContain('zoom')
+    // The saved preferences still say draw is on: it comes back with the next vector layer.
+    expect(isControlOn(DEFAULT_MAP_CONTROLS, 'draw')).toBe(true)
   })
 })

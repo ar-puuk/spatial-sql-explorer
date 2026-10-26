@@ -3037,6 +3037,9 @@ Used: batched GeoJSON conversion and other adapted functions; the Print Layout c
 the page drawing (title block, scale bar, north arrow, info block, colorbar, custom legend, table and chart blocks),
 the atlas (tokens, filter, page building along a line), the print extent tool, and the layout settings and their
 normalizing. Their tests are ported to tests/core.
+The raster view (spec 026) adapts, with `// Adapted from GeoLibre` comments: the header facts (`raster-info.ts`),
+the histogram (`raster-histogram.ts`), the color bar (`raster-palette.ts`), the COG tiler wiring (`cog-imagery.ts`)
+and the striped-GeoTIFF-to-COG conversion (`cog-convert.ts`).
 Source: https://github.com/opengeos/GeoLibre
 
 ```
@@ -3587,6 +3590,144 @@ The web app's header links to the source code with GitHub's mark, the
 © GitHub Inc., MIT License. Used as GitHub's logo guidelines allow, to link to
 the project's repository.
 
+## cog-tiler-wasm 0.5.0
+
+Cloud-Optimized GeoTIFF reader and tile renderer for the raster view (spec 026): reads a GeoTIFF by byte
+ranges and draws map tiles from it. The JavaScript is bundled; its WebAssembly files are downloaded at runtime
+(see the end). Source: https://github.com/opengeos/cog-tiler-wasm
+
+```
+MIT License
+
+Copyright (c) 2026 OpenGeos
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## whitebox-wasm 0.6.1
+
+The WebAssembly core under cog-tiler-wasm (GeoTIFF decoding). Dual-licensed under MIT or Apache-2.0; used here
+under the MIT License. The package ships no license file; its README says: "Dual-licensed under MIT or
+Apache-2.0, at your option. Includes the vendored `wbgeotiff`, `wbprojection`, `wbvector`, `wblidar`,
+`wbtopology`, `wbspatialstats`, and `wbhdf` crates (Copyright John Lindsay, Whitebox Geospatial Inc.), used
+under the same dual license." The JavaScript glue is bundled; the `.wasm` is downloaded at runtime.
+Source: https://github.com/opengeos/whitebox-wasm
+
+## geolibre-wasm 1.7.1
+
+Converts a GeoTIFF that is not stored in tiles into a Cloud-Optimized GeoTIFF in the browser (raster view,
+spec 026). MIT License (package metadata; the package ships no license file). Loaded only when such a file is
+opened; the JavaScript is bundled lazily, its `.wasm` is downloaded at runtime.
+Source: https://github.com/opengeos/geolibre-rust
+
+## geotiff 3.0.5 (geotiff.js)
+
+Reads GeoTIFF headers and decodes the layouts the tiler's own decoder does not, for the raster view.
+Source: https://github.com/geotiffjs/geotiff.js
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2015 EOX IT Services GmbH
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Proj4js 2.22.0
+
+Coordinate system conversion (reprojecting a raster for display). Source: https://github.com/proj4js/proj4js
+
+```
+## Proj4js -- Javascript reprojection library. 
+ 
+Authors:
+- Mike Adair madairATdmsolutions.ca
+- Richard Greenwood richATgreenwoodmap.com
+- Didier Richard didier.richardATign.fr
+- Stephen Irons stephen.ironsATclear.net.nz
+- Olivier Terral oterralATgmail.com
+- Calvin Metcalf cmetcalfATappgeo.com
+
+Copyright (c) 2014, Mike Adair, Richard Greenwood, Didier Richard, Stephen Irons, Olivier Terral and Calvin Metcalf
+
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and associated documentation files (the "Software"),
+ to deal in the Software without restriction, including without limitation
+ the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ and/or sell copies of the Software, and to permit persons to whom the
+ Software is furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included
+ in all copies or substantial portions of the Software.
+
+ _THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ DEALINGS IN THE SOFTWARE._
+```
+
+## geotiff-geokeys-to-proj4 2026.10.9
+
+Turns a GeoTIFF's coordinate system keys into a Proj4 definition. BSD-3-Clause (package metadata; the package
+ships no license file; author matafokka). Source: https://github.com/matafokka/geotiff-geokeys-to-proj4
+
+```
+BSD 3-Clause License. Copyright (c) the geotiff-geokeys-to-proj4 authors (matafokka).
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that
+the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the
+   following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+   following disclaimer in the documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+   promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 ## Fetched at runtime, not bundled
 
 These are downloaded by the running app and are not redistributed with it.
@@ -3622,6 +3763,12 @@ They are listed for transparency and attribution.
   PROJ (MIT, https://proj.org), GEOS (LGPL-2.1, https://libgeos.org), SQLite
   (public domain), libtiff, libpng, zlib, Expat and other libraries under their
   own permissive licenses; see the gdal3.js repository for the full list.
+
+- **Raster engine** (spec 026), from `cdn.jsdelivr.net`, fetched the first time a GeoTIFF is opened: the
+  `whitebox_wasm_bg.wasm` (whitebox-wasm, MIT OR Apache-2.0, see above) and `cog_tiler_wasm_bg.wasm`
+  (cog-tiler-wasm, MIT) files, and, only when a GeoTIFF that is not stored in tiles is opened,
+  `geolibre_wasm_bg.wasm` (geolibre-wasm, MIT). Used unmodified; pinned in
+  `packages/core/src/engineAssets.json` (written by `scripts/engine-assets.mjs`).
 
 Every engine file above is checked against a SHA-256 recorded at build time
 before it runs, and each app keeps a local copy after the first download (VS

@@ -132,7 +132,10 @@ async function main(): Promise<void> {
   await store.load()
   const elapsed = Math.round(performance.now() - started)
   const loaded = store.session.layer
-  if (loaded) {
+  if (loaded?.raster) {
+    const r = loaded.raster
+    logToHost(`Opened ${fileName}: raster ${r.width.toLocaleString()} x ${r.height.toLocaleString()} px, ${r.bands.length} ${r.bands.length === 1 ? 'band' : 'bands'}, ${r.dataType}, ${loaded.sourceCrs.label}${r.origin === 'converted' ? ', prepared as a COG in memory' : ''} in ${elapsed} ms`)
+  } else if (loaded) {
     logToHost(
       `Opened ${fileName}: ${loaded.source.features.toLocaleString()} features` +
         (loaded.truncated ? ` (showing ${loaded.rowCount.toLocaleString()})` : '') +
@@ -155,7 +158,21 @@ async function main(): Promise<void> {
   // actually nonzero, not just that the element exists in the DOM.
   let mapCanvasRect: { width: number; height: number } | null = null
   let renderedFeatureCount: number | null = null
-  if (store.session.loadState === 'ready') {
+  // Spec 026: a raster has no features; it is drawn when the map marks its tiles in view as drawn.
+  let rasterReady = false
+  if (store.session.loadState === 'ready' && store.layerKind === 'raster') {
+    for (let i = 0; i < 40; i++) {
+      const canvas = document.querySelector('.maplibregl-canvas')
+      const host = document.querySelector('.canvas-host') as HTMLElement | null
+      if (canvas && host?.dataset.rasterReady !== undefined) {
+        const rect = canvas.getBoundingClientRect()
+        mapCanvasRect = { width: rect.width, height: rect.height }
+        rasterReady = true
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  } else if (store.session.loadState === 'ready') {
     for (let i = 0; i < 40; i++) {
       const canvas = document.querySelector('.maplibregl-canvas')
       const rendered = (document.querySelector('.canvas-host') as HTMLElement | null)?.dataset.renderedFeatures
@@ -181,6 +198,7 @@ async function main(): Promise<void> {
     extent: store.session.layer?.extent,
     mapCanvasRect,
     renderedFeatureCount,
+    raster: store.raster ? { width: store.raster.facts.width, height: store.raster.facts.height, bands: store.raster.facts.bands.length, dataType: store.raster.facts.dataType, epsg: store.raster.facts.crs.code ?? null, origin: store.raster.facts.origin, ready: rasterReady } : null,
     styleSource: store.styleSource,
     loadMs: elapsed,
     loadTimings: store.session.layer?.loadTimings,

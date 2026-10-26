@@ -10,7 +10,13 @@ export interface CrsInfo {
   label: string
   /** True when no reprojection is needed for display. */
   isWgs84: boolean
+  /** Spec 026: the EPSG code when the file declares one (a raster's card shows it). */
+  code?: number
+  /** Spec 026: the unit of the coordinates in this system. */
+  units?: CrsUnits
 }
+
+export type CrsUnits = 'degrees' | 'metres' | 'feet' | 'other'
 
 export interface Feature {
   /** Stable within the layer; correlates map <-> table selection. */
@@ -74,6 +80,12 @@ export interface Layer {
   loadTimings?: Record<string, number>
   /** Whole-file facts, never derived from what's on screen (spec 007 FR-001). */
   facts?: DatasetFacts
+  /**
+   * Spec 026: set when the open layer is a raster (GeoTIFF or COG). Then `geometryType` is a neutral
+   * 'Mixed', `columns` is empty, `rowCount` and `featureCount` are 0, `extent` is the raster's WGS84
+   * bounds, and nothing that reads rows (SQL, table, filters, selection) applies: see `capabilities`.
+   */
+  raster?: import('./raster/types.js').RasterFacts
 }
 
 // --- Spec 007: large files and viewport loading ------------------------------------
