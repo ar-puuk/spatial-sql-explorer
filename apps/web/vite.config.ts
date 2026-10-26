@@ -1,12 +1,13 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { noBundledWasm } from '../../scripts/viteNoBundledWasm.mjs'
 
 export default defineConfig({
   // GitHub Pages serves the app under /<repo>/ (the deploy workflow sets
   // BASE_PATH); local dev, preview and tests use the root.
   base: process.env.BASE_PATH || '/',
-  plugins: [svelte()],
+  plugins: [svelte(), noBundledWasm()],
 
   // jsPDF's optional HTML and SVG converters are not used (see packages/ui/src/print/emptyModule.ts).
   resolve: {
