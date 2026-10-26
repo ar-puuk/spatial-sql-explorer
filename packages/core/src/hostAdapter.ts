@@ -53,6 +53,14 @@ export type FileSource =
       fallbackReason?: string
     }
 
+/** Thrown by `getFileSource(ref, { rangeOnly: true })` when the shell can only hand over the whole file. */
+export class RangeNotSupportedError extends Error {
+  constructor(readonly reason: string) {
+    super(`This file cannot be read in parts here (${reason}), and a raster is too large to read whole.`)
+    this.name = 'RangeNotSupportedError'
+  }
+}
+
 export interface StatusFields {
   crs?: string
   featureCount?: number
@@ -64,6 +72,8 @@ export interface StatusFields {
   drawMode?: 'geojson' | 'tiles'
   /** Spec 010: "Load all" is offered (tiles mode). */
   drawLoadAllAvailable?: boolean
+  /** Spec 026: the value of each band under the cursor of an open raster ("Band 1 412.5 · Band 2 no data"), '' or null to clear. VS Code shows it beside the cursor item; the web shell has no status bar. */
+  pixel?: string | null
 }
 
 export interface HostAdapter {
@@ -77,9 +87,11 @@ export interface HostAdapter {
   /**
    * The opened file for the engine (spec 007). `whole: true` asks for the
    * bytes (FlatGeobuf "load for queries"); otherwise shells return a handle
-   * or a URL the engine reads in parts.
+   * or a URL the engine reads in parts. `rangeOnly: true` (spec 026, a raster): never fall back to a
+   * whole-file transfer; a shell that cannot read in parts throws `RangeNotSupportedError` instead, because
+   * a raster can be many gigabytes and its reader only ever asks for the parts it draws.
    */
-  getFileSource(ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource>
+  getFileSource(ref: OpenedFileRef, options?: { whole?: boolean; rangeOnly?: boolean }): Promise<FileSource>
 
   /** Bytes [offset, offset + length) of the opened file, without reading the rest (PMTiles, spec 007). */
   readRange(ref: OpenedFileRef, offset: number, length: number): Promise<Uint8Array>

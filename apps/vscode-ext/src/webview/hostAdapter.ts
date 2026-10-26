@@ -2,7 +2,7 @@
 // Implements contracts/host-adapter.md over the message protocol in
 // contracts/host-webview-protocol.md. packages/core and packages/ui never
 // see any of this — they only see the HostAdapter interface.
-import { setTestOverrides, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef, type WorkspaceResolution, type GdbCallOptions, type GdbCatalog, type GdbConverted, type GdbError, type GdbHost, type GdbLayerInfo, type GdbProgress, GdbError as GdbErrorClass } from '@spatial-explorer/core'
+import { setTestOverrides, RangeNotSupportedError, type FileSource, type HostAdapter, type OpenedFileRef, type SaveResult, type StatusFields, type ThemeKind, type SaveOptions, type TestOverrides, type EngineFileRef, type WorkspaceResolution, type GdbCallOptions, type GdbCatalog, type GdbConverted, type GdbError, type GdbHost, type GdbLayerInfo, type GdbProgress, GdbError as GdbErrorClass } from '@spatial-explorer/core'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -376,7 +376,7 @@ export function createVsCodeHostAdapter(): HostAdapter {
       const displayName = await primaryFileNamePromise
       return [{ id: 'document', displayName, stateKey: primaryFileUri ?? displayName }]
     },
-    async getFileSource(_ref: OpenedFileRef, options?: { whole?: boolean }): Promise<FileSource> {
+    async getFileSource(_ref: OpenedFileRef, options?: { whole?: boolean; rangeOnly?: boolean }): Promise<FileSource> {
       const info = await infoPromise
       if (options?.whole) {
         if ((await probe(info)) === null && info.url) {
@@ -391,6 +391,8 @@ export function createVsCodeHostAdapter(): HostAdapter {
       // Spec 007 research §3: the engine reads the loopback URL in parts.
       const failure = await probe(info)
       if (failure === null && info.url) return { kind: 'url', name: info.name, size: info.size, url: info.url, sidecars: info.sidecars, styleSidecar: info.styleSidecar }
+      // Spec 026: a raster is never read whole (it can be many gigabytes): say why instead of falling back.
+      if (options?.rangeOnly) throw new RangeNotSupportedError(failure ?? 'no local file server')
       // FR-015: no partial reads in this window; read the whole file instead, and say why.
       const reason = failure ?? 'no local file server'
       const whole = await requestWholeTransfer(reason)

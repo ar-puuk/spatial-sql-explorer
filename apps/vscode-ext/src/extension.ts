@@ -20,7 +20,7 @@ type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'log'; detail: string }
   | { type: 'showInfo'; message: string }
-  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+  | { type: 'statusUpdate'; crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   | {
       type: 'loadStateChanged'
       loadState: string
@@ -288,6 +288,9 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
   private statusBarCrs: vscode.StatusBarItem
   private statusBarFeatureCount: vscode.StatusBarItem
   private statusBarCursor: vscode.StatusBarItem
+  /** Spec 026: the cursor item's coordinates and, when a raster is open, the band values under the cursor. */
+  private cursorText = ''
+  private pixelText = ''
   /** Spec 010: how the map draws the result; in tiles mode, Load all. */
   private statusBarDraw: vscode.StatusBarItem
 
@@ -577,7 +580,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 
   private updateStatusBar(
     panel: vscode.WebviewPanel,
-    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean }
+    msg: { crs?: string; featureCount?: number; countLabel?: 'features' | 'rows'; cursor?: { lon: number; lat: number; elevation?: number | null } | null; drawMode?: 'geojson' | 'tiles'; drawLoadAllAvailable?: boolean; pixel?: string | null }
   ): void {
     if (!panel.active) return
     if (msg.drawMode) {
@@ -599,10 +602,18 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
       this.statusBarFeatureCount.show()
     }
     if (msg.cursor) {
-      this.statusBarCursor.text = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}${typeof msg.cursor.elevation === 'number' ? ` · ${Math.round(msg.cursor.elevation).toLocaleString('en-US')} m` : ''}`
+      this.cursorText = `${msg.cursor.lat.toFixed(5)}, ${msg.cursor.lon.toFixed(5)}${typeof msg.cursor.elevation === 'number' ? ` · ${Math.round(msg.cursor.elevation).toLocaleString('en-US')} m` : ''}`
+      this.statusBarCursor.text = this.pixelText ? `${this.cursorText} · ${this.pixelText}` : this.cursorText
       this.statusBarCursor.show()
     } else if (msg.cursor === null) {
+      this.cursorText = ''
+      this.pixelText = ''
       this.statusBarCursor.hide()
+    }
+    if (msg.pixel !== undefined) {
+      // Spec 026: band values under the cursor, appended to the coordinates (a separate message, a moment later).
+      this.pixelText = msg.pixel ?? ''
+      if (this.cursorText) this.statusBarCursor.text = this.pixelText ? `${this.cursorText} · ${this.pixelText}` : this.cursorText
     }
   }
 
