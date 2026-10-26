@@ -27,7 +27,7 @@ Failure messages (mapped to plain text): striped/not tiled → convert path; no 
 
 ## Tile protocol
 `se-raster://<key>/<v>/<z>/<x>/<y>` registered once with `maplibregl.addProtocol('se-raster', handler)`.
-- Handler: parse → `RasterHandle` by `key` (else empty `ArrayBuffer`) → `cog.renderTileRGBA(z, x, y, toRenderOptions(style))` → PNG bytes (`OffscreenCanvas` `convertToBlob`, fallback canvas) → `{ data }`. A null tile (no data) → a 1x1 transparent PNG.
+- Handler: parse → `RasterHandle` by `key` (else empty `ArrayBuffer`) → `cog.renderTileRGBA(z, x, y, toRenderOptions(style))` → PNG bytes (core `encodePng`, `fflate` `zlibSync` level 1; no canvas) → `{ data }`. A null tile (no data) → a 1x1 transparent PNG.
 - Serial queue (one render at a time), `AbortSignal` honoured, LRU 256 tiles keyed by `key/v/z/x/y`. `unregister(key)` clears them.
 - MapLibre source: `{ type: 'raster', tiles: ['se-raster://<key>/<v>/{z}/{x}/{y}'], tileSize: 256, bounds: extentWgs84, minzoom: 0, maxzoom: 22 }`; layer `se-raster` (`raster-opacity`, `raster-resampling`).
 - Style change → `version++` → source re-added in the same frame as the old one is removed (no flash: `raster-fade-duration: 0`).

@@ -1000,7 +1000,7 @@ async function reopenBinaryTabsFromStartup(): Promise<void> {
 
 /** What `activate` exposes; tests reach the loopback server through it (source-server.test.ts). */
 export interface ExtensionApi {
-  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening' | 'addFiles'>
+  sourceServerForTests: Pick<typeof sourceServer, 'register' | 'release' | 'isListening' | 'addFiles' | 'statsFor'>
   resolveInsideForTests: typeof resolveInside
 }
 
@@ -1150,7 +1150,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.commands.registerCommand('spatialExplorer._getSelection', () => lastSelection)
   )
   return {
-    sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening, addFiles: sourceServer.addFiles },
+    sourceServerForTests: { register: sourceServer.register, release: sourceServer.release, isListening: sourceServer.isListening, addFiles: sourceServer.addFiles, statsFor: sourceServer.statsFor },
     resolveInsideForTests: resolveInside,
   }
 }

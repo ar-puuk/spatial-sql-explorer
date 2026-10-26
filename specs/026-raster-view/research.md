@@ -53,14 +53,31 @@ Harness: `spikes/` (Chrome stable through Playwright `channel: 'chrome'`, headle
    **Catches**: (a) every non-8-bit type is written as float32 and a colour table is dropped; (b) the converter's own overview ladder has a 7 x 7 level on a 7000 px raster, and the tiler's `statistics({maxSize: 512})` then took its statistics from that level (count 49: min, max and percentiles wrong). We must write our own overview levels (2, 4, 8, and so on down to about 256 px) and not use GeoLibre's helper unchanged.
 7. **Other behaviour** (Node, same package): nodata and warp edges come out as transparent pixels (alpha 0); 16-bit RGB renders with a given min and max; a palette COG sets `hasPalette` and draws its own table, and `point()` returns the class number (not a class name). `point()` costs 4 to 10 ms; `statistics()` 8 to 60 ms (it carries a histogram and percentiles 2 and 98).
 
-## 5. Spike A: still open
-- **A real VS Code webview.** Not run yet. Why it should work: the CSP has the same shape (`script-src 'wasm-unsafe-eval'`, no `unsafe-eval`; `worker-src` allows blob and data; DuckDB-WASM already runs there), the extension's file server already answers `Range` preflights (`Access-Control-Allow-Headers: Range`, exposes `Content-Range`) and `connect-src` already allows the loopback host. To be checked in the first implementation task with `@vscode/test-electron`, including Remote-SSH (the same loopback arrangement as vector files).
-- Not tested: LERC and ZSTD compressed files, bottom-up files, a raster across the date line, projections beyond the five above (user-defined, non-EPSG), multi-image (sub-dataset) files, rasters over 4 GB through the webview, a `.tif` with only a world file, JPEG-in-TIFF.
-- **Reader comparison**: only `cog-tiler-wasm` was measured. It met every criterion above, so `geotiff.js` with our own tiler and `maplibre-cog-protocol` were not built; revisit only if a webview-specific blocker appears.
+## 5. Spike A in a real VS Code webview (T002, done 2026-10-26)
+Harness: `tests/vscode-ext/src/suite/raster-spike.test.ts` (skipped unless `SE_RASTER_SPIKE_DIR` is set; bundle built by `spikes/build-vscode.mjs` from `spikes/vscode-webview-entry.js`). It runs in the extension test host (VS Code stable, `@vscode/test-electron`), creates a webview panel with the extension's CSP (`default-src 'none'; script-src 'wasm-unsafe-eval' ${cspSource}; style-src; worker-src ${cspSource} blob: data:; connect-src ${cspSource} blob: http://localhost.:*; img-src ... data: blob:`), serves the rasters through the **extension's real `sourceServer`** (the `localhost.` loopback URL, token, Origin check, CORS) and loads the engine wasm through `asWebviewUri` (standing in for `HostAdapter.engineFile`). The only extension change was exposing `statsFor` in the test API.
+
+| Check | Result |
+|---|---|
+| `new Function('return 1')` under the CSP | blocked (`evalAllowed: false`); the reader, `proj4`, `geotiff` and the wasm-bindgen glue all ran without it |
+| Engine fetch + init (4.6 MB, two files) | 209 ms fetch, 7 ms init |
+| `fetch` with `Range` from the `vscode-webview://` origin to the loopback server (preflight handled by the existing CORS headers) | works, 6 to 10 requests per file |
+| COG 41 MB, EPSG:32612 | open 20 ms, nine tiles 96 ms, `point()` 9 ms, `statistics()` 30 ms; 8.5% of the file read |
+| COG 41 MB, EPSG:5070 | open 7 ms, nine tiles 30 ms; 3.7% read |
+| RGB COG 1.9 MB | nine tiles 59 ms; 10% read |
+| **COG 8.8 GB, uncompressed, 8 overview levels** | open 13 ms, nine tiles 16 ms, **2.7 MB read = 0.031% of the file**, 7 requests |
+| striped GeoTIFF | refused with the known message (the tiler reads the whole 36 MB to find that out, twice here with my own read: 206%) |
+| striped to COG in the webview (`geolibre-wasm`, 9 M samples) | converter engine 31 ms init, 6.7 MB wasm compiled under the CSP; convert 1.4 s; the result opens (4 levels); JS heap 201 MB |
+| PNG encode of a 256 x 256 tile with `OffscreenCanvas.convertToBlob` | 2 to 18 ms in one run, but **1,017 ms for two files in an earlier run** (window not in front?); not understood, so the plan does not depend on a canvas: a pure-JS encoder with `fflate` (`zlibSync` level 1, own CRC) measured **2.75 ms per tile (average of 50), valid PNG** |
+
+Not run: Remote-SSH and WSL (no remote available here). The arrangement is the same one the vector files already use (loopback server forwarded by `asExternalUri`, `localhost.` authority), so the first release note should say it is untested there until someone checks; a `.tif` under Remote-SSH is the first manual check after merge.
+
+Still not tested anywhere: LERC and ZSTD compressed files, bottom-up files, a raster across the date line, projections beyond the five above (user-defined, non-EPSG), multi-image (sub-dataset) files, rasters over 4 GB through a `File` in Firefox and Safari, a `.tif` with only a world file, JPEG-in-TIFF.
+**Reader comparison**: only `cog-tiler-wasm` was measured. It met every criterion in Chrome and in the VS Code webview, so `geotiff.js` with our own tiler and `maplibre-cog-protocol` were not built; revisit only if a blocker appears.
 
 ## 6. What the spike supports (for the plan)
 - Reader: `cog-tiler-wasm` through our own `addProtocol` handler (not GeoLibre's `maplibre-gl-raster`, which brings deck.gl), bytes from `HostAdapter.engineFile`, hashes in `engineAssets.json`.
 - Striped files: `geolibre-wasm` `CogBuilder`, limit 100 M samples, own overview ladder, a note when a colour table or a non-float type is lost.
+- PNG tiles: encode with `fflate` in core (no canvas), not `OffscreenCanvas`.
 - `.tif` and `.tiff`: `priority: default` (VS Code's built-in Image Preview claims only jpg, jpe, jpeg, png, bmp, gif, ico, webp, avif and svg).
 - A file with no overviews over the sample limit: opens (zooming in works) with a notice that zoomed-out views need overviews; histogram and percentile stretch cannot come from the file's own overviews, so they use a window read at the current view.
 
