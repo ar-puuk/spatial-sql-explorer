@@ -29,13 +29,11 @@ const STRETCHES: RasterStretch[] = ['linear', 'sqrt', 'log']
 /** The range a band's colors run between by default: the 2nd to 98th percentile, else min to max, else the sample type's own range. */
 export function defaultRange(band: RasterBand | undefined, dataType: RasterFacts['dataType']): [number, number] {
   const finite = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
-  let lo: number | undefined
-  let hi: number | undefined
-  if (finite(band?.p2) && finite(band?.p98) && band!.p2 < band!.p98) [lo, hi] = [band!.p2, band!.p98]
-  else if (finite(band?.min) && finite(band?.max)) [lo, hi] = [band!.min, band!.max]
-  if (lo === undefined || hi === undefined) return dataType === 'uint8' ? [0, 255] : dataType === 'uint16' ? [0, 65535] : [0, 1]
+  const { p2, p98, min, max } = band ?? {}
+  const range: [number, number] | null = finite(p2) && finite(p98) && p2 < p98 ? [p2, p98] : finite(min) && finite(max) ? [min, max] : null
+  if (!range) return dataType === 'uint8' ? [0, 255] : dataType === 'uint16' ? [0, 65535] : [0, 1]
   // A flat band (one value everywhere) still needs a range.
-  return lo < hi ? [lo, hi] : [lo, lo + 1]
+  return range[0] < range[1] ? range : [range[0], range[0] + 1]
 }
 
 /** The style a raster starts with, chosen from the file (spec US3: an image is drawn as an image, a measurement with a ramp). */

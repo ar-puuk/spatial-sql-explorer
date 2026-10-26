@@ -56,6 +56,8 @@ export interface GeoHeader {
 export const MAX_SAMPLES_WITHOUT_OVERVIEWS = 16_777_216
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+/** `{ [key]: value }` when `value` is a finite number, else nothing (so a missing statistic is absent, not NaN). */
+const present = <K extends string>(key: K, value: unknown): { [P in K]?: number } => (typeof value === 'number' && Number.isFinite(value) ? ({ [key]: value } as { [P in K]?: number }) : {})
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
 /** GeoTIFF's "user defined" (32767) and "undefined" (0) codes are not EPSG codes. */
 const epsgOf = (v: unknown): number | undefined => {
@@ -69,13 +71,9 @@ export function crsFromGeoKeys(keys: Record<string, unknown>): CrsInfo {
   const geographic = epsgOf(keys.GeographicTypeGeoKey)
   const code = projected ?? geographic
   const isGeographic = projected === undefined && (geographic !== undefined || num(keys.GTModelTypeGeoKey) === 2)
-  let units: CrsUnits = 'other'
-  if (isGeographic) units = 'degrees'
-  else {
-    const u = num(keys.ProjLinearUnitsGeoKey)
-    // 9001 metre, 9002 international foot, 9003 US survey foot
-    units = u === 9001 ? 'metres' : u === 9002 || u === 9003 ? 'feet' : 'other'
-  }
+  // 9001 metre, 9002 international foot, 9003 US survey foot
+  const linear = num(keys.ProjLinearUnitsGeoKey)
+  const units: CrsUnits = isGeographic ? 'degrees' : linear === 9001 ? 'metres' : linear === 9002 || linear === 9003 ? 'feet' : 'other'
   const name = isGeographic ? (str(keys.GeogCitationGeoKey) ?? str(keys.GTCitationGeoKey)) : (str(keys.PCSCitationGeoKey) ?? str(keys.GTCitationGeoKey))
   const label = code !== undefined ? `EPSG:${code}${name ? ` (${name})` : ''}` : `User-defined${name ? `: ${name}` : ' coordinate system'}`
   return { label, isWgs84: code === 4326, ...(code !== undefined ? { code } : {}), units }
@@ -127,13 +125,13 @@ export function bandsFrom(info: Pick<TilerInfo, 'count' | 'colorinterp' | 'band_
       index: i + 1,
       name,
       interpretation: INTERPRETATIONS[(info.colorinterp?.[i] ?? '').toLowerCase()] ?? 'undefined',
-      ...(num(s?.min) !== undefined ? { min: s!.min } : {}),
-      ...(num(s?.max) !== undefined ? { max: s!.max } : {}),
-      ...(num(s?.mean) !== undefined ? { mean: s!.mean } : {}),
-      ...(num(s?.std) !== undefined ? { std: s!.std } : {}),
-      ...(num(s?.median) !== undefined ? { median: s!.median } : {}),
-      ...(num(s?.percentile_2) !== undefined ? { p2: s!.percentile_2 } : {}),
-      ...(num(s?.percentile_98) !== undefined ? { p98: s!.percentile_98 } : {}),
+      ...present('min', s?.min),
+      ...present('max', s?.max),
+      ...present('mean', s?.mean),
+      ...present('std', s?.std),
+      ...present('median', s?.median),
+      ...present('p2', s?.percentile_2),
+      ...present('p98', s?.percentile_98),
       ...(counts ? { histogram: counts } : {}),
     })
   }
@@ -179,7 +177,7 @@ export function factsFromTiler(input: FactsInput): RasterFacts {
     pixelSize,
     nodata,
     compression: info.compression || level0?.compression || 'Unknown',
-    tiled: info.tile_size != null,
+    tiled: Array.isArray(info.tile_size),
     tileSize: info.tile_size,
     overviews,
     mode: input.mode,

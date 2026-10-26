@@ -66,7 +66,8 @@ export async function fetchVerified(url: string, expected: string, label: string
         buf = await host.engineFile(file, { refresh })
       } catch (err) {
         // The host's own download names the file; the message uses the friendly label.
-        if (err instanceof EngineLoadError) throw new EngineLoadError(err.message.split(file.name).join(label), err.kind)
+        // (the host words its message for the SQL engine; this file may be another engine's)
+        if (err instanceof EngineLoadError) throw new EngineLoadError(err.message.split(file.name).join(label).split('its SQL engine').join(`its ${what}`), err.kind)
         throw new EngineLoadError(`Spatial Explorer could not download its ${what} (${label}): ${err instanceof Error ? err.message : String(err)}. The first start needs an internet connection to ${CDN_HOSTS.join(' and ')}; after that it works offline.`, 'network')
       }
       if ((await sha256(buf)) === expected) return buf

@@ -81,6 +81,20 @@ describe('loading the raster engine', () => {
     expect((err as Error).message).toMatch(/could not download its raster engine .*needs an internet connection/)
   })
 
+  it('a host that words its failure for the SQL engine: the message is about the raster engine', async () => {
+    const host = {
+      engineFile: async () => {
+        throw new EngineLoadError('Spatial Explorer could not download its SQL engine (geolibre_wasm_bg.wasm). It needs an internet connection.', 'network')
+      },
+      pruneEngineFiles: async () => {},
+    }
+    const err = await loadConverterBytes({ host: host as never }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(EngineLoadError)
+    expect((err as EngineLoadError).kind).toBe('network')
+    expect((err as Error).message).toMatch(/could not download its raster engine \(raster engine \(geolibre_wasm_bg\.wasm\)\)/)
+    expect((err as Error).message).not.toMatch(/SQL engine/)
+  })
+
   it('uses the host copy when there is one, and checks its hash too (a bad copy is replaced once)', async () => {
     const calls: boolean[] = []
     const host = {

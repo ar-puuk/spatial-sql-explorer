@@ -2049,7 +2049,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       opened = await openRaster(source, duckdbAssets, {
         signal: abort.signal,
         onPhase: (phase) => {
-          openNote = phase === 'engine' ? 'Loading the raster reader (the first time only)…' : 'Reading the raster…'
+          if (phase !== 'converting') openNote = phase === 'engine' ? 'Loading the raster reader (the first time only)…' : 'Reading the raster…'
+        },
+        onNote: (text) => {
+          openNote = text
         },
       })
     } catch (err) {
