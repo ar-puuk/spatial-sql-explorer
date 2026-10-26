@@ -212,3 +212,15 @@ export function placeholderLayer(id: string, facts: RasterFacts, styleSidecar: L
     raster: facts,
   }
 }
+
+/**
+ * `maxSize` for `CogSource.statistics`: the tiler takes the first level, in the file's own order, that is at most that
+ * wide, else the coarsest. We want a level of up to about a million cells (hundreds of pixels wide): small enough to
+ * read in a fraction of a second, large enough for percentiles that mean something. The coarsest level of a file made
+ * by a converter can be 7 x 7 cells, so the size is chosen from the real levels and never fixed.
+ */
+export function statsMaxSize(levels: Array<Pick<TilerLevel, 'width' | 'height'>>, targetCells = 1_000_000): number {
+  const sorted = [...levels].sort((a, b) => b.width * b.height - a.width * a.height)
+  const pick = sorted.find((l) => l.width * l.height <= targetCells) ?? sorted[sorted.length - 1]
+  return pick ? pick.width : 512
+}
