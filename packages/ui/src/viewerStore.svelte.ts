@@ -2124,6 +2124,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     }
     openInterrupt = null
     const previousSession = closeCurrentLayer()
+    // Measure works on a raster; Draw and Select by shape need rows, and their buttons are not there to switch them off.
+    if (drawTool && drawTool.purpose !== 'measure') drawTool = null
     fileLayers = []
     activeLayer = null
     openedRef = ref

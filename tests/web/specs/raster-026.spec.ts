@@ -400,8 +400,8 @@ test.describe('with a raster open, nothing that needs rows is shown (FR-013, SC-
 
   test('the map tools, the query panel, the table and the Labels panel are gone; the rest stays', async ({ page }) => {
     await openRaster(page, raster('dem-utm12.tif'))
-    for (const gone of ['Draw', 'Measure', 'Select by shape', 'Bin into cells…', 'Dot density…', 'Time slider']) await expect(button(page, gone), gone).toHaveCount(0)
-    for (const kept of ['Zoom in', 'Zoom out', 'Zoom to layer', 'Globe view', 'Terrain', 'Print map…']) await expect(button(page, kept), kept).toHaveCount(1)
+    for (const gone of ['Draw', 'Select by shape', 'Bin into cells…', 'Dot density…', 'Time slider']) await expect(button(page, gone), gone).toHaveCount(0)
+    for (const kept of ['Zoom in', 'Zoom out', 'Zoom to layer', 'Globe view', 'Terrain', 'Measure', 'Print map…']) await expect(button(page, kept), kept).toHaveCount(1)
     await expect(page.getByRole('combobox', { name: 'Search' })).toHaveCount(0)
     // No bottom panel at all: no tabs, no splitter, no table, no query.
     await expect(page.getByRole('tab', { name: 'Table' })).toHaveCount(0)
@@ -433,8 +433,25 @@ test.describe('with a raster open, nothing that needs rows is shown (FR-013, SC-
     await openRaster(page, raster('dem-utm12.tif'))
     await page.getByRole('button', { name: 'Map controls', exact: true }).click()
     const panel = page.getByRole('region', { name: 'Map controls' })
-    for (const gone of ['Search', 'Draw shapes', 'Measure', 'Select by shape', 'Bin into cells', 'Dot density', 'Time slider', 'Hover tooltip']) await expect(panel.getByRole('switch', { name: new RegExp(`^${gone}`) }), gone).toHaveCount(0)
-    for (const kept of ['Zoom in and out', 'Globe view', 'Terrain', 'Print map', 'Coordinates', 'Scale bar']) await expect(panel.getByRole('switch', { name: new RegExp(`^${kept}`) }), kept).toHaveCount(1)
+    for (const gone of ['Search', 'Draw shapes', 'Select by shape', 'Bin into cells', 'Dot density', 'Time slider', 'Hover tooltip']) await expect(panel.getByRole('switch', { name: new RegExp(`^${gone}`) }), gone).toHaveCount(0)
+    for (const kept of ['Zoom in and out', 'Globe view', 'Terrain', 'Measure', 'Print map', 'Coordinates', 'Scale bar']) await expect(panel.getByRole('switch', { name: new RegExp(`^${kept}`) }), kept).toHaveCount(1)
+  })
+
+  test('Measure works on a raster: a line shows its length', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await button(page, 'Measure').click()
+    const palette = page.getByRole('group', { name: 'Measure tools' })
+    await palette.getByRole('button', { name: 'Line', exact: true }).click()
+    const box = (await page.locator('.canvas-host').boundingBox())!
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+    await page.mouse.click(cx - 80, cy)
+    await page.mouse.move(cx + 80, cy, { steps: 4 })
+    await page.waitForTimeout(150)
+    await page.mouse.move(cx + 81, cy + 1, { steps: 2 })
+    await page.mouse.click(cx + 80, cy)
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.map-view .shape-label, .map-view .live-label').first()).toHaveText(/[\d.,]+ (km|m)/)
   })
 
   test('opening a vector file brings everything back, in the state it was left', async ({ page }) => {

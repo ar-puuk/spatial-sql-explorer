@@ -110,7 +110,7 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
  * features) are not shown for a raster. Everything else (zoom, globe, terrain, print, legend, coordinates, scale, logo)
  * is.
  */
-const VECTOR_ONLY: ReadonlySet<MapControlId> = new Set<MapControlId>(['search', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip'])
+const VECTOR_ONLY: ReadonlySet<MapControlId> = new Set<MapControlId>(['search', 'draw', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip'])
 
 /** Whether a control is offered while a layer of this kind is open. */
 export function controlAvailable(id: MapControlId, kind: LayerKind): boolean {

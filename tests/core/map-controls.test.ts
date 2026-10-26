@@ -117,16 +117,16 @@ describe('readMapControls', () => {
 })
 
 describe('rasters (spec 026): the controls that need rows are not offered', () => {
-  const NEEDS_ROWS = ['search', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip']
+  const NEEDS_ROWS = ['search', 'draw', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip']
   it('a vector layer is offered every control', () => {
     for (const c of MAP_CONTROLS) expect(controlAvailable(c.id, 'vector'), c.id).toBe(true)
   })
-  it('a raster is not offered search, the drawing and selecting tools, the grid and dot tools, the time slider or the tooltip', () => {
+  it('a raster is not offered search, the draw and select tools, the grid and dot tools, the time slider or the tooltip', () => {
     for (const id of NEEDS_ROWS) expect(controlAvailable(id as never, 'raster'), id).toBe(false)
   })
-  it('a raster keeps zoom, zoom to layer, reset view, globe, terrain, print, legend, coordinates, logo and the scale bar', () => {
+  it('a raster keeps zoom, zoom to layer, reset view, globe, terrain, measure, print, legend, coordinates, logo and the scale bar', () => {
     const kept = MAP_CONTROLS.filter((c) => controlAvailable(c.id, 'raster')).map((c) => c.id)
-    expect(kept).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'exportImage', 'legend', 'coordinates', 'logo', 'scale'])
+    expect(kept).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'measure', 'exportImage', 'legend', 'coordinates', 'logo', 'scale'])
   })
   it('the stacks at a position leave them out, so nothing is left behind (saved choices are not touched)', () => {
     const all = controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')
