@@ -103,6 +103,9 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
+import { capabilitiesFor, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { createRasterState } from './rasterState.svelte.js'
+import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
 import { openTilesArchive, TILES_ONLY_REASON, type TilesArchive } from './pmtilesSource.js'
@@ -581,6 +584,24 @@ export interface ViewerStore {
   readonly tilesOnlyReason: string | null
   /** A PMTiles feature clicked on the map: shown by the inspector. */
   inspectTileFeature(feature: Feature | null): void
+  // --- spec 026: raster view ---------------------------------------------
+  /** Which kind of layer is open. */
+  readonly layerKind: LayerKind
+  /** What the interface shows for it (a raster hides everything that needs rows). */
+  readonly capabilities: Capabilities
+  /** The open raster, or null. */
+  readonly raster: RasterHandle | null
+  /** How it is drawn, or null when no raster is open. */
+  readonly rasterStyle: RasterStyle | null
+  /** Bumped when the raster's picture changes: part of the tile URL. */
+  readonly rasterVersion: number
+  /** The band values under the cursor, or null. */
+  readonly pixel: PixelReading | null
+  /** The facts card is open. */
+  readonly rasterCardOpen: boolean
+  setRasterStyle(patch: Partial<RasterStyle>): void
+  setPixel(reading: PixelReading | null): void
+  setRasterCardOpen(open: boolean): void
   /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
   readonly wholeReadPrompt: { sizeBytes: number; format: string } | null
   answerWholeRead(open: boolean): void
@@ -1267,6 +1288,10 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   // Spec 007 US5: a PMTiles archive is drawn by the map from its tiles; there is no engine session.
   let tilesArchive = $state.raw<TilesArchive | null>(null)
   const tilesOnlyReason = $derived(tilesArchive ? TILES_ONLY_REASON : null)
+  // Spec 026: the raster half of the store, and what the interface may show for the open layer.
+  const rasterState = createRasterState()
+  const layerKind = $derived<LayerKind>(displayedLayer?.raster ? 'raster' : 'vector')
+  const capabilities = $derived(capabilitiesFor(displayedLayer, { tilesOnly: tilesArchive !== null }))
   const exportDisabled = $derived(
     !displayedLayer
       ? 'Open a file first.'
@@ -3081,6 +3106,36 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get tilesOnlyReason() {
       return tilesOnlyReason
+    },
+    get layerKind() {
+      return layerKind
+    },
+    get capabilities() {
+      return capabilities
+    },
+    get raster() {
+      return rasterState.handle
+    },
+    get rasterStyle() {
+      return rasterState.style
+    },
+    get rasterVersion() {
+      return rasterState.version
+    },
+    get pixel() {
+      return rasterState.pixel
+    },
+    get rasterCardOpen() {
+      return rasterState.cardOpen
+    },
+    setRasterStyle(patch: Partial<RasterStyle>): void {
+      rasterState.setStyle(patch)
+    },
+    setPixel(reading: PixelReading | null): void {
+      rasterState.setPixel(reading)
+    },
+    setRasterCardOpen(open: boolean): void {
+      rasterState.setCardOpen(open)
     },
     get fileLayers() {
       return fileLayers
