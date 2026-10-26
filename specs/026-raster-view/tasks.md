@@ -75,10 +75,10 @@
 
 ## Phase 8: Polish
 
-- [ ] T036 [P] Accessibility pass for the card, readout, style panel and color bar (names, roles, keyboard, no color-only cue, high-contrast tokens) with a Playwright check in the web spec
-- [ ] T037 [P] Docs: `README.md` and `apps/vscode-ext/README.md` format lists, landing copy (`apps/web/src/Landing.svelte` ~133, 140), `CHANGELOG.md` entry for the next version (do not bump the version or push; release only when asked), a screenshot script entry if `scripts/screenshots.mjs` lists formats
-- [ ] T038 Full regression: `npm run lint`, `npm run typecheck:core`, `npm run typecheck:ui`, `npm run test:core`, `npm run test:web:chrome` (whole suite), `npm run test:vscode-ext`; fix any vector-path regression; walk `quickstart.md` by hand in the web app and in VS Code (F5) and tick SC-001 to SC-008 in `specs/026-raster-view/research.md` §8
-- [ ] T039 Update `CLAUDE.md` and memory (`project-spec-026-raster.md`, `MEMORY.md` line) with the final state; leave the branch unmerged and unpushed until asked
+- [x] T036 [P] Accessibility pass for the card, readout, style panel and color bar (names, roles, keyboard, no color-only cue, high-contrast tokens) with a Playwright check in the web spec
+- [x] T037 [P] Docs: `README.md` and `apps/vscode-ext/README.md` format lists, landing copy (`apps/web/src/Landing.svelte` ~133, 140), `CHANGELOG.md` entry for the next version (do not bump the version or push; release only when asked), a screenshot script entry if `scripts/screenshots.mjs` lists formats
+- [x] T038 Full regression: `npm run lint`, `npm run typecheck:core`, `npm run typecheck:ui`, `npm run test:core`, `npm run test:web:chrome` (whole suite), `npm run test:vscode-ext`; fix any vector-path regression; walk `quickstart.md` by hand in the web app and in VS Code (F5) and tick SC-001 to SC-008 in `specs/026-raster-view/research.md` §8
+- [x] T039 Update `CLAUDE.md` and memory (`project-spec-026-raster.md`, `MEMORY.md` line) with the final state; leave the branch unmerged and unpushed until asked
 
 ## Dependencies
 
@@ -102,3 +102,7 @@
 2. Add US2 (facts and pixel values) next: it is the "inspect" half of the request and cheap.
 3. US3 (style) makes DEMs readable and is the largest block; US5 (hiding) can be pulled earlier if the visible vector panels look wrong with a raster open.
 4. US4 and polish last. Each phase ends with its tests green and a commit per task; no push, no release unless asked.
+
+## Verification notes (2026-10-26)
+- Core: 1,268 tests pass. Web (Chrome): 445 pass in the full run; the 2 failures (basemap panel at 6x CPU, sample data in 3 s) pass alone, and the performance project's failures (warm open, 1.1 GB scale, selection highlight at about 100 to 108 ms against 100) also fail or flicker on `main` on this machine. VS Code: 113 of 114 in the full run, the one failure (`large-open`, default query naming) passes alone on this branch and on `main`, and `main` has 7 failures in the same full run. Raster: 44 web tests (with the real file), 6 VS Code tests, 7 QGIS read-back cases, performance at 6x CPU.
+- Not verified: Remote-SSH and WSL, LERC and ZSTD files, bottom-up files, the date line, a world-file-only `.tif`, Firefox and Safari.
