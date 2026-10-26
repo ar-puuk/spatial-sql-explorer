@@ -8,3 +8,5 @@ Setup, in an empty scratch folder (not in the repo):
 - a `data/` folder of test rasters made with GDAL 3.13: `gdalwarp -of COG` to EPSG 4326, 32612, 3857, 5070 and 3567; a striped copy; an RGB; an 8.8 GB uncompressed COG.
 
 Run: `node build.mjs && node build2.mjs`, then `node runbrowser.mjs <file>` (or `local:<file>` to go through a file input) in Chrome (channel `chrome`) under a VS Code-like CSP, and `node runconvert.mjs <file>` for the striped-to-COG conversion. `pos.mjs` needs `gdallocationinfo` on PATH.
+
+The VS Code runner (`tests/vscode-ext/src/suite/raster-spike.test.ts`, with the extension's own `sourceServer`) was replaced by `tests/vscode-ext/src/suite/raster.test.ts` when the feature landed; `vscode-webview-entry.js` and `build-vscode.mjs` here are its webview side. The runner is in git history at commit f8200ba.
