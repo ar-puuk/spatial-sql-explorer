@@ -19,7 +19,7 @@ export interface EngineSource {
 
 /** Every engine file's SHA-256: what a host keeps (anything else is an old version). */
 export function engineHashes(): string[] {
-  return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256), ...Object.values(assets.gdal.files).map((f) => f.sha256)]
+  return [assets.duckdb.worker.sha256, assets.duckdb.wasm.sha256, assets.sqljs.wasm.sha256, ...Object.values(assets.extensions.files).map((f) => f.sha256), ...Object.values(assets.gdal.files).map((f) => f.sha256), ...Object.values(assets.raster).map((f) => f.sha256)]
 }
 
 const CDN_HOSTS = ['cdn.jsdelivr.net', 'extensions.duckdb.org', 'community-extensions.duckdb.org']
@@ -53,7 +53,7 @@ async function sha256(buf: ArrayBuffer): Promise<string> {
  * Downloads `url` and returns its bytes only if their SHA-256 is `expected`.
  * The browser's HTTP cache serves repeat loads (pinned URLs never change).
  */
-export async function fetchVerified(url: string, expected: string, label: string, source: EngineSource = {}): Promise<ArrayBuffer> {
+export async function fetchVerified(url: string, expected: string, label: string, source: EngineSource = {}, what = 'SQL engine'): Promise<ArrayBuffer> {
   const from = engineUrl(url, source)
   const host = source.host
   if (host?.engineFile) {
@@ -67,29 +67,29 @@ export async function fetchVerified(url: string, expected: string, label: string
       } catch (err) {
         // The host's own download names the file; the message uses the friendly label.
         if (err instanceof EngineLoadError) throw new EngineLoadError(err.message.split(file.name).join(label), err.kind)
-        throw new EngineLoadError(`Spatial Explorer could not download its SQL engine (${label}): ${err instanceof Error ? err.message : String(err)}. The first start needs an internet connection to ${CDN_HOSTS.join(' and ')}; after that it works offline.`, 'network')
+        throw new EngineLoadError(`Spatial Explorer could not download its ${what} (${label}): ${err instanceof Error ? err.message : String(err)}. The first start needs an internet connection to ${CDN_HOSTS.join(' and ')}; after that it works offline.`, 'network')
       }
       if ((await sha256(buf)) === expected) return buf
     }
-    throw new EngineLoadError(`Spatial Explorer refused to run its SQL engine: ${label} from ${new URL(from, globalThis.location?.href ?? 'http://localhost/').host} does not match the expected file, even after downloading it again.`, 'integrity')
+    throw new EngineLoadError(`Spatial Explorer refused to run its ${what}: ${label} from ${new URL(from, globalThis.location?.href ?? 'http://localhost/').host} does not match the expected file, even after downloading it again.`, 'integrity')
   }
-  return fetchFromNetwork(from, expected, label)
+  return fetchFromNetwork(from, expected, label, what)
 }
 
 /** The download itself, checked; also what web hosts use to fill their local copy. */
-export async function fetchFromNetwork(from: string, expected: string, label: string): Promise<ArrayBuffer> {
+export async function fetchFromNetwork(from: string, expected: string, label: string, what = 'SQL engine'): Promise<ArrayBuffer> {
   let res: Response
   try {
     res = await fetch(from, { credentials: 'omit' })
   } catch {
-    throw new EngineLoadError(`Spatial Explorer could not download its SQL engine (${label}). It needs an internet connection to ${CDN_HOSTS.join(' and ')} the first time; check the connection or proxy.`, 'network')
+    throw new EngineLoadError(`Spatial Explorer could not download its ${what} (${label}). It needs an internet connection to ${CDN_HOSTS.join(' and ')} the first time; check the connection or proxy.`, 'network')
   }
   const host = new URL(from, globalThis.location?.href ?? 'http://localhost/').host
-  if (!res.ok) throw new EngineLoadError(`Spatial Explorer could not download its SQL engine (${label}): ${host} answered ${res.status}.`, 'network')
+  if (!res.ok) throw new EngineLoadError(`Spatial Explorer could not download its ${what} (${label}): ${host} answered ${res.status}.`, 'network')
   const buf = await res.arrayBuffer()
   const got = await sha256(buf)
   if (got !== expected) {
-    throw new EngineLoadError(`Spatial Explorer refused to run its SQL engine: ${label} from ${host} does not match the expected file (SHA-256 ${got.slice(0, 12)}…, expected ${expected.slice(0, 12)}…).`, 'integrity')
+    throw new EngineLoadError(`Spatial Explorer refused to run its ${what}: ${label} from ${host} does not match the expected file (SHA-256 ${got.slice(0, 12)}…, expected ${expected.slice(0, 12)}…).`, 'integrity')
   }
   return buf
 }
@@ -121,4 +121,14 @@ export function gdalFileRefs(target: 'web' | 'node'): Array<{ file: GdalFileName
 export function loadGdalFile(file: GdalFileName, source: EngineSource = {}): Promise<ArrayBuffer> {
   const f = assets.gdal.files[file]
   return fetchVerified(f.url, f.sha256, `gdal3.js (${file})`, source)
+}
+
+// --- Spec 026: the raster engine (GeoTIFF reading and tiling), downloaded the first time a raster is opened ---
+
+export type RasterEngineFile = keyof typeof assets.raster
+
+/** Downloads (or reads the host's copy of) one raster engine wasm file, verified. `converter` is only needed for a striped GeoTIFF. */
+export function loadRasterFile(file: RasterEngineFile, source: EngineSource = {}): Promise<ArrayBuffer> {
+  const f = assets.raster[file]
+  return fetchVerified(f.url, f.sha256, `raster engine (${f.url.split('/').pop()})`, source, 'raster engine')
 }
