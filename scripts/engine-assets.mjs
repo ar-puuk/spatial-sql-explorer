@@ -8,12 +8,15 @@
 //     (not on npm: downloaded once, hashed, and cached for the test mirror);
 //   - sql.js's wasm (the GeoPackage writer), from jsDelivr;
 //   - gdal3.js (GDAL in WebAssembly, LGPL), which reads File Geodatabases (spec 013): its browser and Node entry
-//     files, wasm and data, from jsDelivr, fetched only when a geodatabase is opened.
+//     files, wasm and data, from jsDelivr, fetched only when a geodatabase is opened;
+//   - the raster engine (spec 026): whitebox_wasm_bg.wasm and cog_tiler_wasm_bg.wasm (GeoTIFF reading and tiling,
+//     fetched when the first raster is opened) and geolibre_wasm_bg.wasm (striped GeoTIFF to COG, fetched only
+//     for such a file), from jsDelivr, byte-identical to the npm files.
 //
 //   node scripts/engine-assets.mjs            writes packages/core/src/engineAssets.json
 //   node scripts/engine-assets.mjs --mirror   also fills scripts/.engine-cache/ (tests' local mirror)
 //
-// Run it after upgrading @duckdb/duckdb-wasm or sql.js; a core test fails
+// Run it after upgrading @duckdb/duckdb-wasm, sql.js, gdal3.js, cog-tiler-wasm, whitebox-wasm or geolibre-wasm; a core test fails
 // until the recorded hashes match node_modules again.
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -75,6 +78,21 @@ const gdalFile = (file) => {
 const GDAL_FILES = ['gdal3.js', 'gdal3.node.js', 'gdal3WebAssembly.wasm', 'gdal3WebAssembly.data']
 const gdal = Object.fromEntries(GDAL_FILES.map((f) => [f, gdalFile(f)]))
 
+/** Spec 026: the raster engine's wasm files sit at the package root (not in dist/). */
+const RASTER_FILES = [
+  ['whitebox', 'whitebox-wasm', 'whitebox_wasm_bg.wasm'],
+  ['cogTiler', 'cog-tiler-wasm', 'cog_tiler_wasm_bg.wasm'],
+  ['converter', 'geolibre-wasm', 'geolibre_wasm_bg.wasm'],
+]
+const raster = Object.fromEntries(
+  RASTER_FILES.map(([key, pkg, file]) => {
+    const dir = pkgDir(pkg)
+    const ver = version(dir)
+    const buf = fs.readFileSync(path.join(dir, file))
+    return [key, { package: ver, url: `https://cdn.jsdelivr.net/npm/${pkg}@${ver}/${file}`, sha256: sha256(buf), bytes: buf.length, local: path.join(dir, file), pkg, file }]
+  }),
+)
+
 const mirror = process.argv.includes('--mirror')
 const previous = (() => {
   try {
@@ -115,6 +133,7 @@ if (mirror) {
   put(worker.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-browser-eh.worker.js`)
   put(wasm.local, `npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/duckdb-eh.wasm`)
   put(sqlWasm.local, `npm/sql.js@${sqljsVersion}/dist/sql-wasm.wasm`)
+  for (const r of Object.values(raster)) put(r.local, `npm/${r.pkg}@${r.package}/${r.file}`)
   for (const f of GDAL_FILES) put(gdal[f].local, `npm/gdal3.js@${gdalVersion}/dist/package/${f}`)
   for (const name of EXTENSIONS) put(cachePath(name), `${subdir(name)}/${DUCKDB_VERSION}/${PLATFORM}/${name}.duckdb_extension.wasm`)
 }
@@ -126,6 +145,7 @@ const out = {
   extensions: { duckdb: DUCKDB_VERSION, platform: PLATFORM, files: extensions },
   sqljs: { package: sqljsVersion, wasm: strip(sqlWasm) },
   gdal: { package: gdalVersion, files: Object.fromEntries(GDAL_FILES.map((f) => [f, strip(gdal[f])])) },
+  raster: Object.fromEntries(Object.entries(raster).map(([key, { local: _l, pkg: _p, file: _f, ...rest }]) => [key, rest])),
 }
 fs.writeFileSync(path.join(ROOT, 'packages', 'core', 'src', 'engineAssets.json'), JSON.stringify(out, null, 2) + '\n')
-console.log(`engineAssets.json: DuckDB-WASM ${duckdbVersion} (DuckDB ${DUCKDB_VERSION}), sql.js ${sqljsVersion}, gdal3.js ${gdalVersion}, extensions ${EXTENSIONS.join(', ')}${mirror ? '; mirror filled' : ''}`)
+console.log(`engineAssets.json: DuckDB-WASM ${duckdbVersion} (DuckDB ${DUCKDB_VERSION}), sql.js ${sqljsVersion}, gdal3.js ${gdalVersion}, raster ${Object.values(raster).map((r) => `${r.pkg}@${r.package}`).join(' ')}, extensions ${EXTENSIONS.join(', ')}${mirror ? '; mirror filled' : ''}`)
