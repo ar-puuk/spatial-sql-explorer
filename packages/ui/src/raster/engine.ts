@@ -11,6 +11,10 @@ export interface RasterEngine {
   openCog(source: string | File | Blob | Uint8Array | ArrayBuffer): Promise<CogSource>
 }
 
+/** The tiler's colour mapper, once the engine is up (the colour bar and the colormap previews sample it). */
+type Colorize = (pixels: Float64Array, width: number, height: number, min: number, max: number, colormap: string, nodata: number | null | undefined, nodataAlpha: boolean, stretch: string, gamma: number, reversed: boolean, opacity: number) => Uint8Array
+let colorize: Colorize | null = null
+
 let engine: Promise<RasterEngine> | null = null
 
 /** The raster engine, loaded once (and again after a failed attempt, so a lost connection can be retried). */
@@ -23,6 +27,7 @@ export function getRasterEngine(source: EngineSource = {}): Promise<RasterEngine
       await whitebox.default({ module_or_path: bytes.whitebox })
       await tiler.default({ module_or_path: bytes.cogTiler })
       await cog.init()
+      colorize = tiler.colorize as Colorize
       return { openCog: cog.openCog }
     })()
     engine = attempt
@@ -31,6 +36,32 @@ export function getRasterEngine(source: EngineSource = {}): Promise<RasterEngine
     })
   }
   return engine
+}
+
+const sampled = new Map<string, string[]>()
+const hex2 = (n: number): string => n.toString(16).padStart(2, '0')
+
+/**
+ * The colors of a colormap from low to high as `#rrggbb`, `steps` of them, taken from the tiler itself so a preview, the
+ * color bar and the map all show the same thing. Null until the engine is up (a raster is open when this matters).
+ */
+export function colormapColors(name: string, steps = 16, reversed = false): string[] | null {
+  if (!colorize) return null
+  const key = `${name}/${steps}/${reversed}`
+  const hit = sampled.get(key)
+  if (hit) return hit
+  const values = new Float64Array(steps)
+  for (let i = 0; i < steps; i++) values[i] = steps === 1 ? 0 : i / (steps - 1)
+  let rgba: Uint8Array
+  try {
+    rgba = colorize(values, steps, 1, 0, 1, name, null, false, 'linear', 1, reversed, 1)
+  } catch {
+    return null
+  }
+  const colors: string[] = []
+  for (let i = 0; i < steps; i++) colors.push(`#${hex2(rgba[i * 4])}${hex2(rgba[i * 4 + 1])}${hex2(rgba[i * 4 + 2])}`)
+  sampled.set(key, colors)
+  return colors
 }
 
 export interface ConverterEngine {

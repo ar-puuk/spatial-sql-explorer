@@ -2,7 +2,7 @@
 // reads), opens it with the tiler (cog-tiler-wasm) by byte ranges (a File's slices on the web, the loopback range URL
 // in VS Code), reads statistics from a level of the file itself, and returns the handle the store and the map use.
 // Adapted from GeoLibre (MIT): packages/map/src/cog-imagery.ts (opening a COG once and keeping the source).
-import { RasterOpenError, convertedNote, describeRasterError, encodePng, factsFromTiler, statsMaxSize, transparentTilePng, type EngineSource, type FileSource, type GeoHeader, type RasterRenderOptions, type TilerBandStats, type TilerInfo, type TilerLevel } from '@spatial-explorer/core'
+import { RasterOpenError, convertedNote, dataTypeOf, describeRasterError, encodePng, factsFromTiler, statsMaxSize, transparentTilePng, type EngineSource, type FileSource, type GeoHeader, type RasterDataType, type RasterRenderOptions, type TilerBandStats, type TilerInfo, type TilerLevel } from '@spatial-explorer/core'
 import { convertToCog, type StripedHeader } from './convert.js'
 import { getRasterEngine } from './engine.js'
 import type { RasterHandle, RasterReader } from './handle.js'
@@ -73,7 +73,16 @@ async function readHeader(input: string | Blob, source: FileSource): Promise<Ras
     // Not recorded: no colour table.
   }
   const striped: StripedHeader = { width: image.getWidth(), height: image.getHeight(), bands: image.getSamplesPerPixel(), bitsPerSample: image.getBitsPerSample(0), sampleFormat: image.getSampleFormat(0), palette }
-  return { geoKeys, bbox, resolution, tiled: image.isTiled, striped }
+  // A colour table's classes: its ColorMap tag (red, green and blue planes).
+  let colorMap: ArrayLike<number> | null = null
+  if (palette) {
+    try {
+      colorMap = (await (image.fileDirectory as unknown as { loadValue(tag: string): Promise<unknown> }).loadValue('ColorMap')) as ArrayLike<number>
+    } catch {
+      // The classes keep their numbers; only their colours are missing from the legend.
+    }
+  }
+  return { geoKeys, bbox, resolution, colorMap, tiled: image.isTiled, striped }
 }
 
 /**
@@ -94,6 +103,7 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
 
   let cog
   let origin: 'file' | 'converted' = 'file'
+  let originalDataType: RasterDataType | undefined
   const warnings: string[] = []
   if (!header.tiled) {
     // A striped GeoTIFF cannot be read in parts (the tiler would read all of it just to refuse it): decided from the
@@ -107,6 +117,7 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
       throw describeRasterError(e, source.name)
     }
     origin = 'converted'
+    originalDataType = dataTypeOf(converted.sourceType)
     warnings.push(convertedNote(converted.sourceType, converted.hadPalette))
   } else {
     try {
@@ -126,7 +137,7 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
     // A big file with no overviews has no level to estimate from; the card says so (facts) and the style starts from the type's range.
     if (levels.length > 1) warnings.push('The range of values could not be estimated from the file.')
   }
-  const facts = factsFromTiler({ info, levels, mode: cog.mode, hasPalette: cog.hasPalette, header, stats, origin, warnings })
+  const facts = factsFromTiler({ info, levels, mode: cog.mode, hasPalette: cog.hasPalette, header, stats, origin, originalDataType, warnings })
 
   const reader: RasterReader = {
     renderTileRGBA: (z, x, y, options) => cog.renderTileRGBA(z, x, y, options),

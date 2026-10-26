@@ -3,7 +3,7 @@
 // them in. The idea of a `gdalinfo`-style summary is adapted from GeoLibre (raster-info.ts).
 // Adapted from GeoLibre (MIT): apps/geolibre-desktop/src/lib/raster-info.ts (facts shown in the card).
 import type { Bbox, CrsInfo, CrsUnits, Layer } from '../models.js'
-import type { BandInterpretation, RasterBand, RasterDataType, RasterFacts } from './types.js'
+import type { BandInterpretation, RasterBand, RasterDataType, RasterFacts, RasterPaletteEntry } from './types.js'
 
 /** `CogSource.info()`: the fields used (others ignored). */
 export interface TilerInfo {
@@ -50,6 +50,8 @@ export interface GeoHeader {
   geoKeys: Record<string, unknown>
   bbox: number[] | null
   resolution: number[] | null
+  /** A colour table's `ColorMap` tag: the red, green and blue planes, 16 bits each (3 x 256 numbers for an 8-bit band). */
+  colorMap?: ArrayLike<number> | null
 }
 
 /** The tiler draws at most this many samples in one read; a file with no overviews above it cannot be drawn zoomed out. */
@@ -138,6 +140,23 @@ export function bandsFrom(info: Pick<TilerInfo, 'count' | 'colorinterp' | 'band_
   return bands
 }
 
+const hex2 = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+
+/**
+ * The classes of a colour table: the entries from the band's lowest to its highest value (a table lists all 256 entries,
+ * most of them unused black, so the statistics say which are meant). At most 256.
+ */
+export function paletteFromColorMap(colorMap: ArrayLike<number> | null | undefined, min?: number, max?: number): RasterPaletteEntry[] {
+  if (!colorMap || colorMap.length < 3 || colorMap.length % 3 !== 0) return []
+  const n = colorMap.length / 3
+  const lo = Math.max(0, Math.floor(typeof min === 'number' && Number.isFinite(min) ? min : 0))
+  let hi = Math.min(n - 1, Math.ceil(typeof max === 'number' && Number.isFinite(max) ? max : n - 1))
+  if (hi - lo > 255) hi = lo + 255
+  const out: RasterPaletteEntry[] = []
+  for (let v = lo; v <= hi; v++) out.push({ value: v, color: `#${hex2(colorMap[v] >> 8)}${hex2(colorMap[n + v] >> 8)}${hex2(colorMap[2 * n + v] >> 8)}` })
+  return out
+}
+
 export interface FactsInput {
   info: TilerInfo
   levels: TilerLevel[]
@@ -146,6 +165,8 @@ export interface FactsInput {
   header: GeoHeader
   stats?: Record<string, TilerBandStats> | null
   origin?: 'file' | 'converted'
+  /** What a converted file held before it was made float (see `RasterFacts.originalDataType`). */
+  originalDataType?: RasterDataType
   /** Extra lines for the card (a file the glue found something to say about). */
   warnings?: string[]
 }
@@ -165,12 +186,15 @@ export function factsFromTiler(input: FactsInput): RasterFacts {
   if (overviews === 0 && info.width * info.height > MAX_SAMPLES_WITHOUT_OVERVIEWS) {
     warnings.push('This file has no overviews. It can only be drawn zoomed in; zoomed out needs overviews (for example gdal_translate -of COG).')
   }
+  const bands = bandsFrom(info, input.stats)
+  const palette = input.hasPalette ? paletteFromColorMap(header.colorMap, bands[0]?.min, bands[0]?.max) : []
   return {
     origin: input.origin ?? 'file',
     width: info.width,
     height: info.height,
-    bands: bandsFrom(info, input.stats),
+    bands,
     dataType: dataTypeOf(info.dtype, level0),
+    ...(input.originalDataType && input.originalDataType !== dataTypeOf(info.dtype, level0) ? { originalDataType: input.originalDataType } : {}),
     crs: crsFromGeoKeys(header.geoKeys),
     extent: bbox,
     extentWgs84,
@@ -182,6 +206,7 @@ export function factsFromTiler(input: FactsInput): RasterFacts {
     overviews,
     mode: input.mode,
     hasPalette: input.hasPalette,
+    ...(palette.length ? { palette } : {}),
     warnings,
   }
 }

@@ -103,9 +103,10 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { capabilitiesFor, isRasterName, pixelText, placeholderLayer, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
+import { colormapColors } from './raster/engine.js'
 import { createRasterState } from './rasterState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
@@ -602,6 +603,12 @@ export interface ViewerStore {
   /** The facts card is open. */
   readonly rasterCardOpen: boolean
   setRasterStyle(patch: Partial<RasterStyle>): void
+  /** Replaces the whole style (the panel's edits that drop a key, like going back to one range for all bands). */
+  replaceRasterStyle(style: RasterStyle): void
+  /** Writes the style beside the file (VS Code) or downloads it (web), as a QGIS `.qml`. */
+  saveRasterStyle(): Promise<void>
+  /** Back to the style the file starts with (its percentiles, a ramp or colors). */
+  resetRasterStyle(): void
   setPixel(reading: PixelReading | null): void
   setRasterCardOpen(open: boolean): void
   /** Spec 007 FR-004: a whole read over the threshold, waiting for the user (ReadWholeDialog). */
@@ -2023,6 +2030,40 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     await load({ ref: openedRef, layer: name })
   }
 
+  // --- Spec 026: the raster's style is kept for the file (the `.qml` beside it, else this viewer's saved state) ---
+  let rasterPersistTimer: ReturnType<typeof setTimeout> | null = null
+  /** An edit was made: the style is modified since it was saved, and is remembered for this file. `modified: false` is a reset. */
+  function rasterStyleChanged(modified = true): void {
+    styleDirty = modified ? true : styleSource !== null
+    if (rasterPersistTimer) clearTimeout(rasterPersistTimer)
+    rasterPersistTimer = setTimeout(() => {
+      const st = rasterState.style
+      if (openedRef && rasterState.handle) void hostAdapter.saveState(`raster:${openedRef.stateKey}`, modified ? st : null).catch(() => {})
+    }, 400)
+  }
+
+  /** The style a raster starts with: its `.qml` (ours or QGIS's), else what this viewer saved for the file, else the file's default. */
+  async function initialRasterStyle(ref: OpenedFileRef, facts: RasterFacts, sidecar: { fileName: string; text: string } | null): Promise<{ style: RasterStyle | null; source: string | null; notice: StyleNotice | null }> {
+    let notice: StyleNotice | null = null
+    if (sidecar) {
+      if (isRasterQml(sidecar.text)) {
+        try {
+          const read = rasterStyleFromQml(sidecar.text, facts)
+          return { style: read.style, source: sidecar.fileName, notice: read.notes.length > 0 ? { kind: 'warning', text: `${sidecar.fileName}: ${read.notes.join(' ')}` } : null }
+        } catch (err) {
+          notice = { kind: 'warning', text: `Ignored ${sidecar.fileName}: ${err instanceof Error ? err.message : String(err)}` }
+        }
+      } else notice = { kind: 'warning', text: `Ignored ${sidecar.fileName}: it is a style for a vector layer, not a raster.` }
+    }
+    try {
+      const saved = sanitizeRasterStyle(await hostAdapter.loadState<unknown>(`raster:${ref.stateKey}`), facts)
+      if (saved) return { style: saved, source: null, notice }
+    } catch {
+      // No saved state: the default.
+    }
+    return { style: null, source: null, notice }
+  }
+
   /** The open layer leaves the screen (table, map, legend, any raster); its query session is returned to be disposed. */
   function closeCurrentLayer(): QuerySession | null {
     drawGeneration++
@@ -2094,7 +2135,11 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     initialLayer = layer
     setLayer(layer)
     applySidecar(null)
-    rasterState.install(opened.handle, null)
+    const start = await initialRasterStyle(ref, opened.handle.facts, opened.styleSidecar)
+    rasterState.install(opened.handle, start.style)
+    styleSource = start.source
+    styleNotice = start.notice
+    styleDirty = false
     openPhase = null
     openStartedAt = null
     openNote = null
@@ -3214,6 +3259,36 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     setRasterStyle(patch: Partial<RasterStyle>): void {
       rasterState.setStyle(patch)
+      rasterStyleChanged()
+    },
+    replaceRasterStyle(next: RasterStyle): void {
+      rasterState.replaceStyle(next)
+      rasterStyleChanged()
+    },
+    resetRasterStyle(): void {
+      const h = rasterState.handle
+      if (!h) return
+      rasterState.replaceStyle(defaultRasterStyle(h.facts))
+      styleNotice = null
+      rasterStyleChanged(false)
+    },
+    async saveRasterStyle(): Promise<void> {
+      const h = rasterState.handle
+      const st = rasterState.style
+      if (!h || !st || !currentFileName) return
+      const name = sidecarStyleFileName(currentFileName)
+      const notes = rasterQmlNotes(st)
+      try {
+        // The ramp is sampled from the tiler itself (low to high); the writer turns it round for a reversed style.
+        const text = rasterStyleToQml(st, h.facts, { ramp: colormapColors(st.colormap, 16, false), palette: h.facts.palette })
+        const result = hostAdapter.saveSidecar ? await hostAdapter.saveSidecar(name, text) : await hostAdapter.saveFile(name, text, { kind: 'style' })
+        if (!result.saved) return
+        styleSource = name
+        styleDirty = false
+        styleNotice = { kind: notes.length > 0 ? 'warning' : 'info', text: [`Saved ${result.location ?? name}. QGIS loads it automatically with the data.`, ...notes].join(' ') }
+      } catch (err) {
+        styleNotice = { kind: 'error', text: `Could not save ${name}: ${err instanceof Error ? err.message : String(err)}` }
+      }
     },
     setPixel(reading: PixelReading | null): void {
       rasterState.setPixel(reading)

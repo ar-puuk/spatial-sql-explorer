@@ -24,6 +24,13 @@ export interface RasterBand {
   histogram?: number[]
 }
 
+/** One class of a colour table raster: the cell value and its colour. */
+export interface RasterPaletteEntry {
+  value: number
+  /** `#rrggbb` */
+  color: string
+}
+
 /** What the file is: read once when it opens, never edited. */
 export interface RasterFacts {
   /** `converted`: a striped GeoTIFF turned into a COG in memory (the card says so). */
@@ -32,6 +39,8 @@ export interface RasterFacts {
   height: number
   bands: RasterBand[]
   dataType: RasterDataType
+  /** A converted file (striped, prepared in memory) is held as 32-bit floating point; this is what the file itself holds, when that differs. */
+  originalDataType?: RasterDataType
   /** The file's own system; `code` and `units` are set when known. */
   crs: CrsInfo
   /** In the file's CRS. */
@@ -51,6 +60,8 @@ export interface RasterFacts {
   mode: '3857' | 'warp'
   /** A colour table (classes). */
   hasPalette: boolean
+  /** The classes of a colour table, from the lowest to the highest value in the band (at most 256). */
+  palette?: RasterPaletteEntry[]
   /** Said in the card: no overviews, a file too big to draw zoomed out, parts of the file ignored. */
   warnings: string[]
 }

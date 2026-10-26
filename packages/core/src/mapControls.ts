@@ -8,6 +8,8 @@
 // Controls at a position stack in registry order, top to bottom. The attribution is not a control here: it
 // stays at the bottom right, where the basemaps' licences want it.
 
+import type { LayerKind } from './raster/capabilities.js'
+
 export type MapControlId =
   | 'search'
   | 'zoom'
@@ -102,6 +104,18 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   control('scale', 'display', 'Scale bar', 'Shows distances.', true, CORNERS, 'bottom-left'),
   control('tooltip', 'display', 'Hover tooltip', 'Shows a few columns of the feature under the cursor.', false, [], null),
 ]
+
+/**
+ * Spec 026 (FR-013): the controls that work on rows (a table, a query, shapes that select rows, the hover tooltip over
+ * features) are not shown for a raster. Everything else (zoom, globe, terrain, print, legend, coordinates, scale, logo)
+ * is.
+ */
+const VECTOR_ONLY: ReadonlySet<MapControlId> = new Set<MapControlId>(['search', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip'])
+
+/** Whether a control is offered while a layer of this kind is open. */
+export function controlAvailable(id: MapControlId, kind: LayerKind): boolean {
+  return kind === 'vector' || !VECTOR_ONLY.has(id)
+}
 
 export interface MapControlsPrefs {
   /** Only the controls the user switched; everything else follows `defaultOn`. */

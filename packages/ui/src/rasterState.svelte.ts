@@ -54,11 +54,16 @@ export function createRasterState() {
     },
     /** Changes the style; the result is made safe for this file. Returns true when the picture (not just opacity) changed. */
     setStyle(patch: Partial<RasterStyle>): boolean {
+      if (!style) return false
+      return this.replaceStyle({ ...style, ...patch })
+    },
+    /** Replaces the whole style (a key the new one does not have is gone, unlike a patch); made safe for this file. */
+    replaceStyle(next: RasterStyle): boolean {
       if (!handle || !style) return false
-      const next = sanitizeRasterStyle({ ...style, ...patch }, handle.facts)
-      if (!next) return false
-      const redraw = !sameRender(style, next, handle.facts)
-      style = next
+      const safe = sanitizeRasterStyle(next, handle.facts)
+      if (!safe) return false
+      const redraw = !sameRender(style, safe, handle.facts)
+      style = safe
       if (redraw) version++
       return redraw
     },

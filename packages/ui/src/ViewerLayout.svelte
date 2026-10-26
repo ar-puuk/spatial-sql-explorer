@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, hasDomains, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, controlAvailable, rasterLegendGroup, hasDomains, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import './kit/base.css'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
@@ -20,6 +20,9 @@
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import RasterCard from './raster/RasterCard.svelte'
+  import { colormapColors } from './raster/engine.js'
+  import RasterLegend from './raster/RasterLegend.svelte'
+  import RasterStylePanel from './raster/RasterStylePanel.svelte'
   import QueryPanel from './QueryPanel.svelte'
   import BinCellsDialog from './BinCellsDialog.svelte'
   import DotDensityDialog from './DotDensityDialog.svelte'
@@ -95,6 +98,8 @@
   const legendSpec = $derived.by((): LegendSpec | null => {
     // The page always has a legend (a single symbol is one row), though the map hides a plain one.
     if (!layer) return null
+    // Spec 026: a raster's legend is its color bar, its classes or its three band names.
+    if (layer.raster) return store.rasterStyle ? { ...rasterLegendGroup(layer.raster, store.rasterStyle, store.rasterStyle.mode === 'single' ? colormapColors(store.rasterStyle.colormap, 32, store.rasterStyle.reversed) : null) } : null
     const r = store.resolvedStyle
     const base = layer.geometryType === 'LineString' ? 'line' : layer.geometryType === 'Point' ? 'point' : 'area'
     const sizing = legend.some((g) => g.channels.includes('size') || g.channels.includes('width')) || !!legendProportional
@@ -274,6 +279,14 @@
   })
   const sideActive = $derived<SideTab | null>(layout.sideOpen ? layout.sideTab : null)
 
+  // Spec 026 (FR-013): with a raster open nothing that needs rows is shown: no bottom panel (table and SQL), no shape
+  // tools, no Labels panel. One flag, from the store's capabilities.
+  const isRaster = $derived(store.layerKind === 'raster')
+  // A Labels panel left open from the previous layer gives way to Style.
+  $effect(() => {
+    if (isRaster && layout.sideTab === 'labels') store.setLayout({ sideTab: 'style' })
+  })
+
   function selectSide(panel: SideTab | null): void {
     if (panel === null) store.setLayout({ sideOpen: false })
     else store.setLayout({ sideOpen: true, sideTab: panel })
@@ -313,7 +326,7 @@
 
   function handleWindowKeydown(e: KeyboardEvent): void {
     // Ctrl/Cmd+Shift+Q opens the SQL tab and focuses the editor (spec 002).
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'Q' || e.key === 'q')) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'Q' || e.key === 'q') && !isRaster) {
       e.preventDefault()
       void openSql()
     }
@@ -364,7 +377,10 @@
         <FeatureInspector domains={store.columnDomains} domainMode={store.domainDisplay} collapsed={shortCard} copyKey={isBinResult(layer?.columns ?? []) ? 'cell_id' : null} feature={inspected} types={Object.fromEntries((layer?.columns ?? []).map((c) => [c.name, c.type]))} onZoom={() => store.zoomToFeature(inspected.id)} onClose={() => (inspectorClosed = true)} />
       </div>
     {/if}
-  {:else if id === 'legend' && layer && showLegend}
+  {:else if id === 'legend' && isRaster && store.raster && store.rasterStyle}
+    <!-- Spec 026: the raster's color bar, in the legend's place. -->
+    <RasterLegend facts={store.raster.facts} style={store.rasterStyle} collapsed={store.legendCollapsed || shortMap} onToggleCollapsed={() => store.setLegendCollapsed(!store.legendCollapsed)} />
+  {:else if id === 'legend' && layer && showLegend && !isRaster}
         <MapLegend
           resolved={store.resolvedStyle}
           title={legendTitle}
@@ -412,7 +428,7 @@
 
   <div class="workbench">
     <div class="main" bind:this={main} bind:clientHeight={mainHeight}>
-      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed} bind:clientHeight={mapPaneHeight}>
+      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed && !isRaster} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
           raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, resampling: store.raster.facts.hasPalette ? 'nearest' : 'linear', bounds: store.raster.facts.extentWgs84 } : null}
@@ -478,10 +494,10 @@
           timeSliderOpen={store.timeSlider.open}
           timeSliderUnavailable={store.timeSliderUnavailable}
         />
-        {#if store.timeSlider.open}
+        {#if store.timeSlider.open && !isRaster}
           <div class="time-slot" class:above={store.shapes.length > 0}><TimeSlider {store} /></div>
         {/if}
-        {#if store.shapes.length > 0}
+        {#if store.shapes.length > 0 && !isRaster}
           <div class="shapes-slot"><ShapesBar {store} /></div>
         {/if}
         {#if store.mapDimmed}
@@ -513,6 +529,7 @@
         {@render mapOverlay?.()}
       </div>
 
+      {#if !isRaster}
       <!-- A focusable separator is the WAI-ARIA "window splitter" pattern: it is
            interactive (drag, arrow keys, Enter to collapse). -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -663,6 +680,7 @@
           {/snippet}
         </BottomPanel>
       </div>
+      {/if}
     </div>
 
     {#if layout.sideOpen}
@@ -677,6 +695,8 @@
         {#if layout.sideTab === 'style'}
           {#if !layer}
             <p class="empty">Open a file to style it.</p>
+          {:else if isRaster}
+            <RasterStylePanel {store} sidecarName={sidecarStyleFileName(fileName ?? 'raster')} />
           {:else if store.tilesOnlyReason}
             <UnavailableNotice text={store.tilesOnlyReason} />
           {:else}
@@ -726,6 +746,7 @@
         {:else if layout.sideTab === 'controls'}
           <MapControlsPanel
             prefs={store.mapControls}
+            available={(id) => controlAvailable(id, store.layerKind)}
             onChange={(prefs) => store.setMapControls(prefs)}
             tooltip={layer ? { available: store.tooltipAvailable, chosen: store.tooltipColumns, onChange: (cols) => store.setTooltipColumns(cols) } : null}
           />
@@ -754,6 +775,7 @@
     <ActivityRail
       active={sideActive}
       disabled={{ style: store.tilesOnlyReason, labels: store.tilesOnlyReason }}
+      hidden={{ labels: isRaster }}
       {labelsOn}
       basemapName={store.basemap.name}
       onSelect={selectSide}

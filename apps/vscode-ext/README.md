@@ -13,7 +13,7 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
 ## Features
 
 - **Open GIS files directly in VS Code.** GeoPackage, FlatGeobuf, Shapefile,
-  GeoParquet and PMTiles open in Spatial Explorer by default. GeoJSON, CSV,
+  GeoParquet, PMTiles and GeoTIFF (`.tif`, `.tiff`) open in Spatial Explorer by default. GeoJSON, CSV,
   Parquet, GML, JSON and SQLite (`.sqlite`, `.db`) offer it under **Open
   With…**, so text and database viewers aren't replaced. You can also right-click a file and choose **Open in Spatial
   Explorer**. A GeoPackage with several layers lists them, and each one can be
@@ -192,6 +192,7 @@ the web build:
 | FlatGeobuf | Read whole, then drawn from tiles; announced above 100 MB | 1.45 GB (4M rows): 26 s to open, overview at 28 s |
 | GeoJSON, Shapefile, CSV, GML, GeoPackage, SQLite, Excel | Read whole, once; announced above 100 MB | 172 MB GeoJSON (235k rows): 11–13 s. 325 MB GeoJSON: 24 s |
 | PMTiles (vector) | Tiles in view only; view-only | Any size |
+| GeoTIFF, Cloud-Optimized GeoTIFF | The parts in view only (byte ranges); view-only | A 4.9 GB COG: first view 1.4 s, 0.1% of the file read |
 
 Opening can always be cancelled (within 3 s). Running out of memory (the
 engine's limit is 3.1 GB) ends in a message, and the viewer stays usable.
@@ -203,7 +204,7 @@ GeoJSON, GeoPackage (several layers), SQLite and SpatiaLite databases such as
 Cube 7 networks (several layers; attribute tables can be queried by name),
 FlatGeobuf, Shapefile (with `.shx`, `.dbf`, `.prj`), GeoParquet, Parquet with a WKB geometry column, GML, CSV with
 `lon`/`lat`, `longitude`/`latitude` or `wkt` columns, and vector PMTiles (view
-only). Any of these inside a `.zip` opens as if unzipped (a zip never opens by
+only). A GeoTIFF or Cloud-Optimized GeoTIFF opens as a raster (see below). Any of these inside a `.zip` opens as if unzipped (a zip never opens by
 itself: right-click it, or use **Open With…**; one with several datasets asks
 which).
 
@@ -253,6 +254,34 @@ zoom 13. Direction arrows are off until you choose them in the style panel.
   and stops that have no coordinates.
 - Not included: timetables, service-day filters, GTFS-Realtime, analysis.
 
+### GeoTIFF and Cloud-Optimized GeoTIFF (view and inspect)
+
+A `.tif` or `.tiff` opens in Spatial Explorer by default, as the one layer on the
+map (it replaces a vector layer and is replaced by one). It is a raster to look
+at: there is no table and no SQL for it, and the tools that work on rows (shape
+tools, grid and dot tools, the time slider, search) are not shown.
+
+- **Drawn from the parts in view.** The file is read by byte ranges, so a COG of
+  several GB shows its first view in a second or two. Any common coordinate
+  system is drawn in the right place. A GeoTIFF that is not stored in tiles
+  (what many desktop tools write) is prepared as a COG in memory, up to 100
+  million cells; larger ones say how to convert them (`gdal_translate -of COG`).
+  A big file with no overviews can only be drawn zoomed in.
+- **Facts and values.** A card at the top left lists the coordinate system,
+  size, bands, data type, no data, compression, tiling and overviews. The value
+  of every band under the cursor shows beside the coordinates (no data as "no
+  data"), and the right-click menu copies the location and the values.
+- **Style.** One band with a color ramp (107 colormaps, picked from previews),
+  or three bands as a colour image; a range that starts at the 2nd to 98th
+  percentile, marked on a histogram; curve, gamma, no data and opacity. A colour
+  table raster is drawn with its own classes. The color bar is on the map and on
+  the print page.
+- **Style file.** Saved as `<name>.qml` next to the file, which QGIS loads with
+  the data (the Spatial Explorer settings ride along inside it).
+- Not included: raster analysis (slope, hillshade, band math, zonal statistics),
+  several rasters, vector data over a raster, a `.tif` placed only by a world
+  file, NetCDF, Zarr, STAC and WCS.
+
 ## Commands
 
 | Command | What it does |
@@ -279,6 +308,10 @@ engine inside the editor. The network is used only for:
   refused if it doesn't match. A checked copy is kept in the extension's
   storage, so later starts work offline. Downloads follow VS Code's proxy
   settings.
+- **The raster engine, once, when you first open a GeoTIFF.** Two WebAssembly files
+  (about 4.6 MB) from jsDelivr, and a third (6.7 MB) only for a GeoTIFF that is not
+  stored in tiles. Pinned and checked against a SHA-256 like the SQL engine, and
+  kept in the extension's storage.
 - **Basemap tiles**, from the basemap you pick (or none with Blank).
 - **Place search**, only when you search: the typed text alone is sent to
   OpenStreetMap Nominatim, after a one-time notice. Turn it off with

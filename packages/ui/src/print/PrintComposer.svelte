@@ -82,7 +82,7 @@
   $effect(() => {
     void c.atlasLoadKey
     // Read untracked: only the load key says when to read again, not every setting the read looks at.
-    if (c.atlas.enabled) untrack(() => void c.atlas.load())
+    if (c.atlas.enabled && !c.isRaster) untrack(() => void c.atlas.load())
   })
   // The preview follows the series: when the pages or how they are framed change, the map is driven to the current page
   // again (after a pause, so typing does not thrash the live map).
@@ -163,8 +163,8 @@
       <div class="controls-pane">
         <Controls {c}>
           {#snippet scale()}<ScaleExtent {c} />{/snippet}
-          {#snippet atlas()}<AtlasEditor {c} />{/snippet}
-          {#snippet blocks()}<DataBlocks {c} />{/snippet}
+          {#snippet atlas()}{#if !c.isRaster}<AtlasEditor {c} />{/if}{/snippet}
+          {#snippet blocks()}{#if !c.isRaster}<DataBlocks {c} />{/if}{/snippet}
           {#snippet legendEditor()}<LegendEditor {c} />{/snippet}
         </Controls>
       </div>

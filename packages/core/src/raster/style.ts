@@ -40,7 +40,9 @@ export function defaultRange(band: RasterBand | undefined, dataType: RasterFacts
 export function defaultRasterStyle(facts: RasterFacts): RasterStyle {
   const base = { stretch: 'linear' as const, gamma: 1, reversed: false, nodata: { mode: 'file' } as NodataTreatment, opacity: 1 }
   if (facts.hasPalette) return { ...base, mode: 'paletted', bands: [1], min: 0, max: 255, colormap: 'viridis' }
-  const colorBands = facts.bands.length >= 3 && (facts.dataType === 'uint8' || facts.dataType === 'uint16')
+  // What the file holds decides whether it is an image: a converted 16-bit file is float here, and is still an image.
+  const sampleType = facts.originalDataType ?? facts.dataType
+  const colorBands = facts.bands.length >= 3 && (sampleType === 'uint8' || sampleType === 'uint16')
   if (colorBands) {
     // Bands tagged red, green and blue say which ones; otherwise the first three.
     const idx = (c: 'red' | 'green' | 'blue', fallback: number) => facts.bands.find((b) => b.interpretation === c)?.index ?? fallback
@@ -121,4 +123,63 @@ export function sanitizeRasterStyle(raw: unknown, facts: RasterFacts): RasterSty
 /** True when two styles draw the same picture (so a tile cache can be kept). Opacity does not matter to the tiles. */
 export function sameRender(a: RasterStyle, b: RasterStyle, facts: Pick<RasterFacts, 'bands'>): boolean {
   return JSON.stringify(toRenderOptions(a, facts)) === JSON.stringify(toRenderOptions(b, facts))
+}
+
+// --- the edits the style panel makes (pure, so each is tested) ----------------------------------------------------
+
+export type RangePreset = 'percentile' | 'full'
+
+/** A band's range under a preset: its 2nd to 98th percentile, or its lowest to highest value. */
+export function presetRange(band: RasterBand | undefined, dataType: RasterFacts['dataType'], preset: RangePreset): [number, number] {
+  if (preset === 'full' && band && typeof band.min === 'number' && typeof band.max === 'number' && band.min < band.max) return [band.min, band.max]
+  return defaultRange(band, dataType)
+}
+
+/** The style without its per-band ranges (they only mean something for colour bands). */
+function withoutRescale(style: RasterStyle): RasterStyle {
+  const next = { ...style }
+  delete next.rescale
+  return next
+}
+
+/** One band drawn with a color ramp, or three bands as a colour image; the range follows the file's percentiles. */
+export function withMode(style: RasterStyle, facts: RasterFacts, mode: 'single' | 'rgb'): RasterStyle {
+  if (mode === 'single') {
+    const band = facts.bands[(style.bands[0] ?? 1) - 1]
+    const [min, max] = defaultRange(band, facts.dataType)
+    return { ...withoutRescale(style), mode: 'single', bands: [Math.min(Math.max(1, style.bands[0] ?? 1), facts.bands.length)], min, max, colormap: style.colormap }
+  }
+  const base = defaultRasterStyle({ ...facts, hasPalette: false, dataType: facts.dataType })
+  const bands = base.mode === 'rgb' ? base.bands : [1, Math.min(2, facts.bands.length), Math.min(3, facts.bands.length)]
+  const ranges = bands.map((b) => (facts.dataType === 'uint8' ? ([0, 255] as [number, number]) : defaultRange(facts.bands[b - 1], facts.dataType)))
+  return { ...style, mode: 'rgb', bands, rescale: ranges, min: ranges[0][0], max: ranges[0][1] }
+}
+
+/** Another band for a ramp: the range moves to that band's own percentiles. */
+export function withBand(style: RasterStyle, facts: RasterFacts, band: number): RasterStyle {
+  const [min, max] = defaultRange(facts.bands[band - 1], facts.dataType)
+  return { ...style, bands: [band], min, max }
+}
+
+/** Another band for one of red, green and blue (0, 1, 2): that channel's range follows the band. */
+export function withChannel(style: RasterStyle, facts: RasterFacts, channel: 0 | 1 | 2, band: number): RasterStyle {
+  const bands = [...style.bands]
+  bands[channel] = band
+  const rescale = [0, 1, 2].map((i) => (i === channel ? (facts.dataType === 'uint8' ? ([0, 255] as [number, number]) : defaultRange(facts.bands[band - 1], facts.dataType)) : (style.rescale?.[i] ?? [style.min, style.max]))) as [number, number][]
+  return { ...style, bands, rescale }
+}
+
+/** The range from a preset: one band for a ramp, each band's own for a colour image. */
+export function withRangePreset(style: RasterStyle, facts: RasterFacts, preset: RangePreset): RasterStyle {
+  if (style.mode === 'rgb') {
+    const rescale = style.bands.map((b) => (facts.dataType === 'uint8' && preset === 'percentile' ? ([0, 255] as [number, number]) : presetRange(facts.bands[b - 1], facts.dataType, preset)))
+    return { ...style, rescale, min: rescale[0][0], max: rescale[0][1] }
+  }
+  const [min, max] = presetRange(facts.bands[(style.bands[0] ?? 1) - 1], facts.dataType, preset)
+  return { ...style, min, max }
+}
+
+/** One range for every colour band (what typing a minimum and maximum does): the per-band ranges are dropped. */
+export function withCommonRange(style: RasterStyle, min: number, max: number): RasterStyle {
+  return { ...withoutRescale(style), min, max }
 }

@@ -32,6 +32,9 @@
     "spatial sql",
     "gtfs",
     "transit",
+    "geotiff",
+    "raster",
+    "cog",
     "duckdb"
   ],
   "engines": {

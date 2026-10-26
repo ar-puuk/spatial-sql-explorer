@@ -69,6 +69,7 @@
     TERRAIN_SOURCE_ID,
     terrainSource,
     controlsAt,
+    controlAvailable,
     CONTROL_GROUPS,
     MAP_CONTROLS,
     isControlOn,
@@ -257,6 +258,8 @@
   }: Props = $props()
 
   let container: HTMLDivElement
+  /** Spec 026: a raster is the open layer (the tools that need rows are not offered). */
+  const rasterOpen = $derived(!!layer?.raster)
   let map: MapLibreMap | null = null
   let mapReady = $state(false)
 
@@ -1939,7 +1942,7 @@
   /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
   function cornerSegments(corner: ControlPosition): Segment[] {
     const out: Segment[] = []
-    for (const id of controlsAt(controls, corner, (c) => c !== 'resetView' || tilted)) {
+    for (const id of controlsAt(controls, corner, (c) => controlAvailable(c, rasterOpen ? 'raster' : 'vector') && (c !== 'resetView' || tilted))) {
       if (!BUTTONS.has(id)) {
         out.push({ kind: 'item', key: `i:${id}`, id })
         continue

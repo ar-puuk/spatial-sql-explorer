@@ -2,7 +2,7 @@
 // real `cog.info()`, `cog.levels`, `cog.statistics()` and geotiff.js headers of the GDAL-made test rasters
 // (tests/core/fixtures/raster/tiler-info.json, captured by specs/026-raster-view/spikes).
 import { describe, expect, it } from 'vitest'
-import { crsFromGeoKeys, dataTypeOf, factsFromTiler, placeholderLayer, type FactsInput, type RasterFacts } from '@spatial-explorer/core'
+import { crsFromGeoKeys, dataTypeOf, factsFromTiler, paletteFromColorMap, placeholderLayer, type FactsInput, type RasterFacts } from '@spatial-explorer/core'
 import captured from './fixtures/raster/tiler-info.json'
 
 type Captured = Record<string, Pick<FactsInput, 'info' | 'levels' | 'mode' | 'hasPalette' | 'header' | 'stats'>>
@@ -83,6 +83,33 @@ describe('facts of a COG', () => {
     expect(f.overviews).toBe(0)
     expect(f.warnings.join(' ')).toMatch(/no overviews/i)
     expect(factsFromTiler({ ...base, info: { ...base.info, width: 1000, height: 1000 }, levels: [base.levels[0]] }).warnings).toEqual([])
+  })
+})
+
+describe('the classes of a colour table', () => {
+  it('the real fixture: the classes between the lowest and highest value, with their colours', () => {
+    const f = facts('classes_pal')
+    expect(f.palette).toEqual([
+      { value: 1, color: '#c83c28' },
+      { value: 2, color: '#f09632' },
+      { value: 3, color: '#f0dc50' },
+      { value: 4, color: '#5aaa5a' },
+      { value: 5, color: '#285aaa' },
+    ])
+  })
+  it('without statistics: the whole table up to 256 entries', () => {
+    const cm = new Uint16Array(768)
+    cm[1] = 255 << 8
+    expect(paletteFromColorMap(cm)).toHaveLength(256)
+    expect(paletteFromColorMap(cm)[1]).toEqual({ value: 1, color: '#ff0000' })
+  })
+  it('a table that is not 3 planes, or none: nothing', () => {
+    expect(paletteFromColorMap(null)).toEqual([])
+    expect(paletteFromColorMap([1, 2])).toEqual([])
+    expect(paletteFromColorMap(new Uint16Array(0))).toEqual([])
+  })
+  it('a file without a table has none', () => {
+    expect(facts('dem_32612').palette).toBeUndefined()
   })
 })
 

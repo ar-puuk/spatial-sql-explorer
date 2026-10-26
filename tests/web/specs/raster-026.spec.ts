@@ -2,8 +2,10 @@
 // Fixtures: scripts/fixtures-026.mjs (tests/vscode-ext/fixtures/raster/, see its README); the 4.9 GB file for the
 // range-read check comes from `npm run large-data -- --raster` (skipped when it is not there). Run with npm run test:web:chrome.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import AxeBuilder from '@axe-core/playwright'
 import { test, expect, type Page } from '@playwright/test'
 import { fixture } from './helpers'
 
@@ -390,5 +392,352 @@ test.describe('a very large COG (needs npm run large-data -- --raster)', () => {
     expect(sliced.size).toBeGreaterThan(4e9)
     expect(sliced.bytes / sliced.size).toBeLessThan(0.1)
     expect(took).toBeLessThan(15000)
+  })
+})
+
+test.describe('with a raster open, nothing that needs rows is shown (FR-013, SC-007)', () => {
+  const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
+
+  test('the map tools, the query panel, the table and the Labels panel are gone; the rest stays', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    for (const gone of ['Draw', 'Measure', 'Select by shape', 'Bin into cells…', 'Dot density…', 'Time slider']) await expect(button(page, gone), gone).toHaveCount(0)
+    for (const kept of ['Zoom in', 'Zoom out', 'Zoom to layer', 'Globe view', 'Terrain', 'Print map…']) await expect(button(page, kept), kept).toHaveCount(1)
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveCount(0)
+    // No bottom panel at all: no tabs, no splitter, no table, no query.
+    await expect(page.getByRole('tab', { name: 'Table' })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'SQL' })).toHaveCount(0)
+    await expect(page.getByRole('separator', { name: 'Resize panel' })).toHaveCount(0)
+    await expect(page.getByRole('grid', { name: 'Attribute table' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Query' })).toHaveCount(0)
+    await expect(button(page, 'Export data…')).toHaveCount(0)
+    // The rail: Style, Basemap and Map controls; no Labels.
+    await expect(page.getByRole('button', { name: 'Labels', exact: true })).toHaveCount(0)
+    for (const kept of ['Style', 'Basemap', 'Map controls']) await expect(page.getByRole('button', { name: kept, exact: true })).toHaveCount(1)
+  })
+
+  test('the map takes the room the panel had', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    const box = (await page.locator('.canvas-host').boundingBox())!
+    // 720 px window, 41 px header, 25 px status bar: with no panel the map is most of what is left.
+    expect(box.height).toBeGreaterThan(600)
+  })
+
+  test('the shortcut for the SQL panel does nothing', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await page.keyboard.press('Control+Shift+Q')
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('textbox', { name: 'SQL query' })).toHaveCount(0)
+  })
+
+  test('the Map controls panel offers only what a raster can use', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await page.getByRole('button', { name: 'Map controls', exact: true }).click()
+    const panel = page.getByRole('region', { name: 'Map controls' })
+    for (const gone of ['Search', 'Draw shapes', 'Measure', 'Select by shape', 'Bin into cells', 'Dot density', 'Time slider', 'Hover tooltip']) await expect(panel.getByRole('switch', { name: new RegExp(`^${gone}`) }), gone).toHaveCount(0)
+    for (const kept of ['Zoom in and out', 'Globe view', 'Terrain', 'Print map', 'Coordinates', 'Scale bar']) await expect(panel.getByRole('switch', { name: new RegExp(`^${kept}`) }), kept).toHaveCount(1)
+  })
+
+  test('opening a vector file brings everything back, in the state it was left', async ({ page }) => {
+    await open(page, fixture('sample.geojson'))
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await expect(button(page, 'Draw')).toHaveCount(1)
+    // Leave the SQL tab selected, then go through a raster.
+    await page.getByRole('tab', { name: 'SQL' }).click()
+    await expect(page.getByRole('textbox', { name: 'SQL query' })).toBeVisible()
+    await openRaster(page, raster('dem-utm12.tif'))
+    await expect(button(page, 'Draw')).toHaveCount(0)
+    await open(page, fixture('sample.geojson'))
+    await expect.poll(async () => (await state(page)).kind, { timeout: 60000 }).toBe('vector')
+    await expect(button(page, 'Draw')).toHaveCount(1)
+    await expect(button(page, 'Time slider')).toHaveCount(1)
+    await expect(page.getByRole('tab', { name: 'SQL' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('textbox', { name: 'SQL query' })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Labels', exact: true })).toHaveCount(1)
+  })
+})
+
+// --- US3: styling -------------------------------------------------------------------------------------------------
+
+async function openStylePanel(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Style', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Range' })).toBeVisible()
+}
+const setField = async (page: Page, name: string, value: string): Promise<void> => {
+  const f = page.getByRole('textbox', { name })
+  await f.fill(value)
+  await f.press('Enter')
+}
+
+test.describe('styling a raster', () => {
+  test('the default: one band, viridis, the 2nd to 98th percentile of the file (not the extremes)', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    const s = await state(page)
+    const band = s.facts!.bands[0]
+    expect(s.style).toMatchObject({ mode: 'single', colormap: 'viridis', bands: [1] })
+    expect(s.style!.min).toBe(band.p2)
+    expect(s.style!.max).toBe(band.p98)
+  })
+
+  test('a colormap picked from previews redraws the map; reversing it changes it again; opacity only dims', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    const before = await state(page)
+    // The picker lists previews (a gradient and a name each): the short list first, then "More colormaps".
+    await page.getByRole('button', { name: 'Colormap: viridis' }).click()
+    const list = page.getByRole('listbox', { name: 'Colormap choices' })
+    await expect(list.getByRole('option', { name: 'magma' })).toBeVisible()
+    await expect(list.getByRole('option').first().locator('.strip')).toHaveCSS('background-image', /linear-gradient/)
+    await list.getByRole('option', { name: 'magma' }).click()
+    await expect(page.getByRole('button', { name: 'Colormap: magma' })).toBeVisible()
+    const picked = await state(page)
+    expect(picked.style!.colormap).toBe('magma')
+    expect(picked.version).toBeGreaterThan(before.version)
+    // The new picture is drawn (the marker names the version).
+    await expect.poll(() => readyMarker(page), { timeout: 30000 }).toContain(`/${picked.version}/`)
+    // Reverse.
+    await page.getByRole('switch', { name: 'Reverse' }).click()
+    expect((await state(page)).style!.reversed).toBe(true)
+    // Opacity is a paint property: no new picture, no new tiles.
+    const v = (await state(page)).version
+    await page.getByRole('slider', { name: 'Opacity', exact: true }).fill('50')
+    const dim = await state(page)
+    expect(dim.style!.opacity).toBe(0.5)
+    expect(dim.version).toBe(v)
+  })
+
+  test('the range: typing low and high redraws; the presets go back to the values of the file; the histogram and the color bar show it', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    const start = await state(page)
+    await setField(page, 'Low end of the range', '1500')
+    await setField(page, 'High end of the range', '1900')
+    const s = await state(page)
+    expect([s.style!.min, s.style!.max]).toEqual([1500, 1900])
+    expect(s.version).toBeGreaterThan(start.version)
+    await expect(page.getByRole('img', { name: /histogram of values/ })).toHaveAttribute('aria-label', /stretch from 1,500 to 1,900/)
+    // The legend on the map: a gradient with the same ends.
+    const legend = page.getByRole('region', { name: 'Legend' })
+    await expect(legend.getByRole('img', { name: /Band 1: 1,500 to 1,900/ })).toBeVisible()
+    // The high end must stay above the low end: a value under it is put back.
+    await setField(page, 'High end of the range', '1000')
+    expect((await state(page)).style!.max).toBe(1900)
+    // Presets.
+    await page.getByRole('button', { name: '2 to 98 percent' }).click()
+    const p = await state(page)
+    expect([p.style!.min, p.style!.max]).toEqual([start.style!.min, start.style!.max])
+    await page.getByRole('button', { name: 'Lowest to highest' }).click()
+    const f = await state(page)
+    expect([f.style!.min, f.style!.max]).toEqual([f.facts!.bands[0].min, f.facts!.bands[0].max])
+  })
+
+  test('no data: None draws the hole like any other value, From file makes it transparent again', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    // The middle of the map is in the hole of nodata (-111.92 to -111.90, 40.73 to 40.75): the basemap shows through.
+    await page.evaluate(() => (window as unknown as { __spatialExplorerE2E: { jumpTo(lon: number, lat: number, zoom: number): void } }).__spatialExplorerE2E.jumpTo(-111.91, 40.74, 13))
+    const isBackground = async (): Promise<boolean> => {
+      const box = (await page.locator('.canvas-host').boundingBox())!
+      const shot = await page.screenshot({ clip: { x: box.x + box.width / 2 - 3, y: box.y + box.height / 2 - 3, width: 6, height: 6 } })
+      return page.evaluate(async (b64) => {
+        const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob())
+        const c = new OffscreenCanvas(bmp.width, bmp.height)
+        const ctx = c.getContext('2d')!
+        ctx.drawImage(bmp, 0, 0)
+        const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
+        // the stub basemap is #ddd
+        return Math.abs(d[0] - 221) < 4 && Math.abs(d[1] - 221) < 4 && Math.abs(d[2] - 221) < 4
+      }, shot.toString('base64'))
+    }
+    await expect.poll(isBackground, { timeout: 30000 }).toBe(true)
+    await page.getByRole('radio', { name: 'None' }).click()
+    expect((await state(page)).style!.nodata).toEqual({ mode: 'none' })
+    await expect.poll(isBackground, { timeout: 30000 }).toBe(false)
+    await page.getByRole('radio', { name: 'From file' }).click()
+    expect((await state(page)).style!.nodata).toEqual({ mode: 'file' })
+    await expect.poll(isBackground, { timeout: 30000 }).toBe(true)
+  })
+
+  test('a colour image: switch between colour bands and one band; a colour table has classes and no ramp', async ({ page }) => {
+    await openRaster(page, raster('ortho-u16.tif'))
+    await openStylePanel(page)
+    expect((await state(page)).style).toMatchObject({ mode: 'rgb', bands: [1, 2, 3] })
+    await page.getByRole('radio', { name: 'One band' }).click()
+    expect((await state(page)).style).toMatchObject({ mode: 'single', bands: [1] })
+    await expect(page.getByRole('button', { name: /Colormap:/ })).toBeVisible()
+    await page.getByRole('radio', { name: 'Colors' }).click()
+    expect((await state(page)).style!.mode).toBe('rgb')
+    await expect(page.getByRole('button', { name: /Colormap:/ })).toHaveCount(0)
+    await openRaster(page, raster('classes.tif'))
+    await expect(page.getByRole('heading', { name: 'Classes' })).toBeVisible()
+    await expect(page.getByRole('list', { name: /classes/ }).first().locator('li')).toHaveCount(5)
+    await expect(page.getByRole('button', { name: /Colormap:/ })).toHaveCount(0)
+  })
+
+  test('the style is saved as a QGIS .qml (a download on the web), with the raster renderer and our settings', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    await setField(page, 'Low end of the range', '1600')
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download dem-utm12.qml' }).click()])
+    expect(download.suggestedFilename()).toBe('dem-utm12.qml')
+    const text = fs.readFileSync((await download.path())!, 'utf8')
+    expect(text).toMatch(/<rasterrenderer type="singlebandpseudocolor" band="1"/)
+    expect(text).toMatch(/classificationMin="1600"/)
+    expect(text).toContain('spatialExplorer/raster')
+    expect((text.match(/<item value=/g) ?? []).length).toBe(16)
+  })
+
+  test('the style is remembered for the file: open it again and it is back', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    await page.getByRole('button', { name: 'Colormap: viridis' }).click()
+    await page.getByRole('listbox', { name: 'Colormap choices' }).getByRole('option', { name: 'plasma' }).click()
+    await setField(page, 'High end of the range', '1800')
+    await page.waitForTimeout(700) // saved a moment after the last edit
+    await page.goto('/?e2e=1')
+    await page.locator('input[type="file"]').setInputFiles(raster('dem-utm12.tif'))
+    await expect.poll(async () => (await state(page)).style?.colormap, { timeout: 60000 }).toBe('plasma')
+    expect((await state(page)).style!.max).toBe(1800)
+  })
+
+  test('a .qml opened with the file is its style; a style for a vector layer is ignored, and says so', async ({ page }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-qml-'))
+    fs.copyFileSync(raster('dem-utm12.tif'), path.join(dir, 'dem-utm12.tif'))
+    const qgis = '<!DOCTYPE qgis PUBLIC "http://mrcc.com/qgis.dtd" "SYSTEM"><qgis version="3.34.2"><pipe><rasterrenderer type="singlebandgray" grayBand="1" gradient="BlackToWhite" opacity="0.7"><contrastEnhancement><minValue>1400</minValue><maxValue>2200</maxValue></contrastEnhancement></rasterrenderer></pipe></qgis>'
+    fs.writeFileSync(path.join(dir, 'dem-utm12.qml'), qgis)
+    await openRaster(page, [path.join(dir, 'dem-utm12.tif'), path.join(dir, 'dem-utm12.qml')])
+    expect((await state(page)).style).toMatchObject({ mode: 'single', colormap: 'gray', min: 1400, max: 2200, opacity: 0.7 })
+    await openStylePanel(page)
+    await expect(page.getByText('From dem-utm12.qml')).toBeVisible()
+    // A vector style next to a raster.
+    fs.writeFileSync(path.join(dir, 'dem-utm12.qml'), '<qgis><renderer-v2 type="singleSymbol"/></qgis>')
+    await page.goto('/?e2e=1')
+    await page.locator('input[type="file"]').setInputFiles([path.join(dir, 'dem-utm12.tif'), path.join(dir, 'dem-utm12.qml')])
+    await page.locator('.canvas-host[data-raster-ready]').waitFor({ state: 'attached', timeout: 60000 })
+    await page.getByRole('button', { name: 'Style', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'it is a style for a vector layer' })).toBeVisible({ timeout: 30000 })
+  })
+})
+
+// --- US4: the rest of the map keeps working; US-polish: accessibility -----------------------------------------------
+
+test.describe('the rest of the map with a raster open', () => {
+  test('a basemap change keeps the raster on top and unchanged; blank works', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    const before = await mapColors(page)
+    await page.getByRole('button', { name: 'Basemap', exact: true }).click()
+    // Blank background: the raster stays, the basemap's own drawing goes.
+    await page.getByRole('radio', { name: /Blank/ }).click()
+    await expect(page.getByRole('radio', { name: /Blank/ })).toHaveAttribute('aria-checked', 'true')
+    await page.waitForTimeout(800)
+    const after = await mapColors(page)
+    expect(after.distinct).toBeGreaterThan(20)
+    // (The blank background is not the stub basemap's grey, so the share of non-background pixels is not comparable.)
+    expect(before.distinct).toBeGreaterThan(20)
+    // The raster source and layer are still ours (`se-raster`), above the basemap.
+    expect(await readyMarker(page)).not.toBeNull()
+  })
+
+  test('the globe draws it; flat again', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await page.getByRole('button', { name: 'Globe view' }).click()
+    await expect(page.getByRole('button', { name: 'Globe view' })).toHaveAttribute('aria-pressed', 'true')
+    await page.waitForTimeout(1500)
+    expect((await mapColors(page)).distinct).toBeGreaterThan(20)
+    await page.getByRole('button', { name: 'Globe view' }).click()
+    await expect(page.getByRole('button', { name: 'Globe view' })).toHaveAttribute('aria-pressed', 'false')
+    await page.waitForTimeout(800)
+    expect((await mapColors(page)).distinct).toBeGreaterThan(20)
+  })
+
+  test('the Print map page has the raster, its color bar as the legend and the raster\'s coordinate system in the info block; no data blocks or atlas', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await page.getByRole('button', { name: 'Print map…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Print map' })
+    await expect(dialog.getByRole('button', { name: 'Export PNG' })).toBeEnabled({ timeout: 30000 })
+    // Nothing that reads rows is offered.
+    await expect(dialog.getByText('Attribute table')).toHaveCount(0)
+    await expect(dialog.getByRole('checkbox', { name: /atlas/i })).toHaveCount(0)
+    await expect(dialog.getByText(/Atlas/)).toHaveCount(0)
+    // The info block takes the raster's own system until another is typed.
+    const info = dialog.getByRole('checkbox', { name: /info block/i })
+    if (await info.count()) await info.check()
+    await expect(dialog.locator('input[placeholder="EPSG:4326"]')).toHaveCount(await dialog.locator('input[placeholder="EPSG:4326"]').count())
+    const [png] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'Export PNG' }).click()])
+    const bytes = fs.readFileSync((await png.path())!)
+    expect(bytes.subarray(1, 4).toString('latin1')).toBe('PNG')
+    expect(bytes.length).toBeGreaterThan(20000)
+    const [pdf] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'Export PDF' }).click()])
+    expect(fs.readFileSync((await pdf.path())!).subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  })
+})
+
+test.describe('accessibility with a raster open', () => {
+  async function audit(page: Page, state: string): Promise<void> {
+    const results = await new AxeBuilder({ page }).exclude('.maplibregl-canvas').analyze()
+    const summary = results.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)
+    expect(summary, `axe violations in state "${state}"`).toEqual([])
+  }
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`axe: no violations in the raster states (${scheme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      await openRaster(page, raster('dem-utm12.tif'))
+      await audit(page, 'raster open, card closed')
+      await page.getByRole('region', { name: 'Raster' }).getByRole('button').first().click()
+      await audit(page, 'card open')
+      await openStylePanel(page)
+      await audit(page, 'style panel')
+      await page.getByRole('button', { name: /Colormap:/ }).click()
+      await audit(page, 'colormap list')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Map controls', exact: true }).click()
+      await audit(page, 'map controls')
+    })
+  }
+
+  test('the style panel and the colormap list work from the keyboard', async ({ page }) => {
+    await openRaster(page, raster('dem-utm12.tif'))
+    await openStylePanel(page)
+    const trigger = page.getByRole('button', { name: /Colormap:/ })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    const list = page.getByRole('listbox', { name: 'Colormap choices' })
+    await expect(list).toBeVisible()
+    // The current one has focus; arrows move; Enter picks; Esc closes and returns focus.
+    await expect(list.getByRole('option', { name: 'viridis' })).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(list).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect((await state(page)).style!.colormap).not.toBe('viridis')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Escape')
+    await expect(list).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  })
+})
+
+// A real file, when one is given (SE_RASTER_SAMPLE=<path to a GeoTIFF>), like SE_GDB_SAMPLE for geodatabases. The numbers are
+// those of the first one used, a 1001 x 1001, 3 band, 16 bit, striped scene in UTM 31N (`gdalinfo`: origin 590520, 5790630,
+// pixel 10 m); another file is only checked for opening and drawing.
+test.describe('a real file (SE_RASTER_SAMPLE)', () => {
+  const sample = process.env.SE_RASTER_SAMPLE
+  test.skip(!sample || !fs.existsSync(sample), 'SE_RASTER_SAMPLE is not set')
+  test.setTimeout(180000)
+
+  test('opens, is placed where gdalinfo says, and draws', async ({ page }) => {
+    await openRaster(page, sample as string)
+    const s = await state(page)
+    expect(s.facts!.width).toBeGreaterThan(0)
+    expect(s.facts!.crs.code ?? 0).toBeGreaterThan(0)
+    expect((await mapColors(page)).distinct).toBeGreaterThan(20)
+    if (path.basename(sample as string) === 'sample.tif') {
+      expect(s.facts).toMatchObject({ width: 1001, height: 1001, origin: 'converted', crs: { code: 32631, units: 'metres' }, pixelSize: [10, 10] })
+      expect(s.facts!.extent).toEqual([590520, 5780620, 600530, 5790630])
+      expect(s.facts!.bands).toHaveLength(3)
+      // Three 16-bit bands are an image, converted or not.
+      expect(s.style).toMatchObject({ mode: 'rgb', bands: [1, 2, 3] })
+    }
   })
 })

@@ -1,6 +1,6 @@
 // Spec 026 T021: what the facts card says, from the real facts of the fixtures.
 import { describe, expect, it } from 'vitest'
-import { bandsText, describeRaster, factsFromTiler, nodataText, valueText, type FactsInput, type RasterFacts } from '@spatial-explorer/core'
+import { bandsText, describeRaster, rasterLegendGroup, factsFromTiler, nodataText, valueText, type FactsInput, type RasterFacts } from '@spatial-explorer/core'
 import captured from './fixtures/raster/tiler-info.json'
 
 const files = captured as unknown as Record<string, Pick<FactsInput, 'info' | 'levels' | 'mode' | 'hasPalette' | 'header' | 'stats'>>
@@ -89,5 +89,41 @@ describe('words for single facts', () => {
     expect(valueText(412.3456)).toBe('412.35')
     expect(valueText(4.17967)).toBe('4.180')
     expect(valueText(0.012345)).toBe('0.0123')
+  })
+})
+
+describe('the legend on the print page', () => {
+  const dem = facts('dem_32612')
+  const rgbFacts = facts('rgb_cog')
+  it('a ramp: the band, a gradient and its two ends', () => {
+    const g = rasterLegendGroup(dem, { mode: 'single', bands: [1], min: 1500, max: 1900.5, opacity: 0.8 }, ['#000000', '#ffffff'])
+    expect(g).toEqual({ title: 'Band 1', shape: 'area', alpha: 0.8, rows: [], ramp: { colors: ['#000000', '#ffffff'], min: '1,500', max: '1,900.5' } })
+  })
+  it('a ramp before the engine is up: the title only, no empty gradient', () => {
+    expect(rasterLegendGroup(dem, { mode: 'single', bands: [1], min: 0, max: 1, opacity: 1 }, null).ramp).toBeUndefined()
+  })
+  it('classes: a row per class with the cell value', () => {
+    const classes = facts('classes_pal')
+    const g = rasterLegendGroup(classes, { mode: 'paletted', bands: [1], min: 0, max: 255, opacity: 1 }, null)
+    expect(g.rows.map((r) => r.label)).toEqual(['1', '2', '3', '4', '5'])
+    expect(g.rows[0].color).toBe('#c83c28')
+  })
+  it('colour bands: which band is which colour', () => {
+    const g = rasterLegendGroup(rgbFacts, { mode: 'rgb', bands: [3, 2, 1], min: 0, max: 255, opacity: 1 }, null)
+    expect(g.title).toBe('Colors')
+    expect(g.note).toBe('Red: Band 3, green: Band 2, blue: Band 1')
+    expect(g.rows).toEqual([])
+  })
+})
+
+describe('a converted file says what the file holds', () => {
+  it('the card names both types', () => {
+    const f = { ...factsFromTiler(files.rgb_u16), dataType: 'float32' as const, originalDataType: 'uint16' as const }
+    expect(describeRaster(f).find((r) => r.label === 'Data type')?.value).toBe('32-bit floating point (the file holds 16-bit unsigned integer)')
+  })
+  it('only when they differ', () => {
+    const f = factsFromTiler({ ...files.rgb_u16, info: { ...files.rgb_u16.info, dtype: 'uint16' }, originalDataType: 'uint16' })
+    expect(f.originalDataType).toBeUndefined()
+    expect(f.dataType).toBe('uint16')
   })
 })

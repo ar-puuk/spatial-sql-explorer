@@ -2,7 +2,7 @@
 // No all-caps labels and no dot-joined strings (spec 015): one fact per row.
 // Adapted from GeoLibre (MIT): apps/geolibre-desktop/src/lib/raster-info.ts (which facts a raster card lists).
 import type { CrsUnits } from '../models.js'
-import type { RasterDataType, RasterFacts } from './types.js'
+import type { RasterDataType, RasterFacts, RasterStyle } from './types.js'
 
 export interface FactRow {
   label: string
@@ -50,7 +50,7 @@ export function describeRaster(facts: RasterFacts): FactRow[] {
     { label: 'Coordinate system', value: facts.crs.label },
     { label: 'Size', value: `${nf.format(facts.width)} × ${nf.format(facts.height)} pixels` },
     { label: 'Bands', value: bandsText(facts) },
-    { label: 'Data type', value: DATA_TYPE_NAMES[facts.dataType] },
+    { label: 'Data type', value: facts.originalDataType ? `${DATA_TYPE_NAMES[facts.dataType]} (the file holds ${DATA_TYPE_NAMES[facts.originalDataType]})` : DATA_TYPE_NAMES[facts.dataType] },
     { label: 'No data', value: nodataText(facts.nodata) },
   ]
   if (facts.pixelSize) {
@@ -80,4 +80,27 @@ export function valueText(value: number | null): string {
   // Enough digits to tell neighbouring pixels apart without a wall of decimals.
   const digits = a >= 1000 ? 1 : a >= 100 ? 2 : a >= 1 ? 3 : 4
   return fixed(value, digits)
+}
+
+/** A legend group as the print page and the map draw it (the same shape as the UI's `LegendGroup`). */
+export interface RasterLegendGroup {
+  title: string
+  shape: 'area'
+  alpha: number
+  rows: Array<{ color: string; label: string }>
+  ramp?: { colors: string[]; min: string; max: string }
+  note?: string
+}
+
+/**
+ * The legend of a raster for the print page (spec 026 FR-012): a gradient with its lowest and highest value for a color
+ * ramp, a row per class for a colour table, the three band names for a colour image. `ramp` is the colormap sampled from
+ * low to high (null before the engine is up: the title and ends still print).
+ */
+export function rasterLegendGroup(facts: Pick<RasterFacts, 'bands' | 'palette'>, style: Pick<RasterStyle, 'mode' | 'bands' | 'min' | 'max' | 'opacity'>, ramp: readonly string[] | null): RasterLegendGroup {
+  const bandName = (i: number): string => facts.bands[(style.bands[i] ?? i + 1) - 1]?.name ?? `Band ${style.bands[i] ?? i + 1}`
+  const base = { shape: 'area' as const, alpha: style.opacity }
+  if (style.mode === 'rgb') return { ...base, title: 'Colors', rows: [], note: `Red: ${bandName(0)}, green: ${bandName(1)}, blue: ${bandName(2)}` }
+  if (style.mode === 'paletted') return { ...base, title: bandName(0), rows: (facts.palette ?? []).map((p) => ({ color: p.color, label: String(p.value) })) }
+  return { ...base, title: bandName(0), rows: [], ...(ramp && ramp.length > 1 ? { ramp: { colors: [...ramp], min: valueText(style.min), max: valueText(style.max) } } : {}) }
 }

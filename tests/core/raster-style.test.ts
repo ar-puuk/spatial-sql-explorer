@@ -1,6 +1,6 @@
 // Spec 026 T008: defaults chosen from the file, the tiler's options, and reading a style back safely.
 import { describe, expect, it } from 'vitest'
-import { NO_NODATA_VALUE, RASTER_COLORMAPS, COLORMAP_GROUPS, defaultRange, defaultRasterStyle, factsFromTiler, isColormap, sameRender, sanitizeRasterStyle, toRenderOptions, type FactsInput, type RasterFacts, type RasterStyle } from '@spatial-explorer/core'
+import { NO_NODATA_VALUE, RASTER_COLORMAPS, COLORMAP_GROUPS, defaultRange, defaultRasterStyle, factsFromTiler, isColormap, sameRender, sanitizeRasterStyle, toRenderOptions, withBand, withChannel, withCommonRange, withMode, withRangePreset, type FactsInput, type RasterFacts, type RasterStyle } from '@spatial-explorer/core'
 import captured from './fixtures/raster/tiler-info.json'
 import colormapFixture from './fixtures/raster/colormaps.json'
 
@@ -119,5 +119,63 @@ describe('reading a style back', () => {
     const rgb = facts('rgb_cog')
     expect(sanitizeRasterStyle({ mode: 'rgb', bands: [3, 2, 1] }, rgb)!.bands).toEqual([3, 2, 1])
     expect(sanitizeRasterStyle({ mode: 'rgb', bands: [1] }, rgb)!.bands).toEqual([1, 2, 3])
+  })
+})
+
+describe('the edits the style panel makes', () => {
+  const rgbFacts = facts('rgb_u16')
+  const d = facts('dem_32612')
+  it('a ramp to colour bands: bands 1, 2, 3 and a range for each', () => {
+    const s = withMode(defaultRasterStyle(rgbFacts), rgbFacts, 'rgb')
+    expect(s).toMatchObject({ mode: 'rgb', bands: [1, 2, 3] })
+    expect(s.rescale).toHaveLength(3)
+    expect([s.min, s.max]).toEqual(s.rescale![0])
+  })
+  it('colour bands to a ramp: one band, its own range, no per-band ranges left', () => {
+    const rgb = defaultRasterStyle(rgbFacts)
+    const s = withMode({ ...rgb, bands: [2, 3, 1] }, rgbFacts, 'single')
+    expect(s.mode).toBe('single')
+    expect(s.bands).toEqual([2])
+    expect(s).not.toHaveProperty('rescale')
+    expect(s.min).toBeLessThan(s.max)
+  })
+  it('another band for a ramp takes that band percentiles; another band for a channel changes only that channel', () => {
+    const s = withBand(defaultRasterStyle(rgbFacts), rgbFacts, 3)
+    expect(s.bands).toEqual([3])
+    const c = withChannel(defaultRasterStyle(rgbFacts), rgbFacts, 1, 4)
+    expect(c.bands).toEqual([1, 4, 3])
+    expect(c.rescale![0]).toEqual(defaultRasterStyle(rgbFacts).rescale![0])
+  })
+  it('the presets: percentiles inside the extremes, the full range at them', () => {
+    const base = defaultRasterStyle(d)
+    const full = withRangePreset(base, d, 'full')
+    const pct = withRangePreset(full, d, 'percentile')
+    expect([full.min, full.max]).toEqual([d.bands[0].min, d.bands[0].max])
+    expect([pct.min, pct.max]).toEqual([d.bands[0].p2, d.bands[0].p98])
+    expect(pct.min).toBeGreaterThan(full.min)
+    expect(pct.max).toBeLessThan(full.max)
+  })
+  it('the presets for colour bands act on each band; 8 bit stays 0 to 255', () => {
+    const u8 = facts('rgb_cog')
+    const s = withRangePreset(defaultRasterStyle(u8), u8, 'percentile')
+    expect(s.rescale).toEqual([[0, 255], [0, 255], [0, 255]])
+    const s16 = withRangePreset(defaultRasterStyle(rgbFacts), rgbFacts, 'full')
+    expect(s16.rescale![0][1]).toBe(rgbFacts.bands[0].max)
+  })
+  it('one range for every colour band drops the per-band ranges', () => {
+    const s = withCommonRange(defaultRasterStyle(rgbFacts), 10, 20)
+    expect([s.min, s.max]).toEqual([10, 20])
+    expect(s).not.toHaveProperty('rescale')
+    expect(toRenderOptions(s, rgbFacts).rescale).toEqual([[10, 20], [10, 20], [10, 20]])
+  })
+})
+
+describe('a converted file keeps what it was', () => {
+  it('a 16-bit three band file that was prepared as float is still drawn as a colour image', () => {
+    const base = facts('rgb_u16')
+    const converted: RasterFacts = { ...base, dataType: 'float32', originalDataType: 'uint16', origin: 'converted' }
+    expect(defaultRasterStyle(converted)).toMatchObject({ mode: 'rgb', bands: [1, 2, 3] })
+    // ... and a float file of three bands is not.
+    expect(defaultRasterStyle({ ...base, dataType: 'float32' }).mode).toBe('single')
   })
 })
