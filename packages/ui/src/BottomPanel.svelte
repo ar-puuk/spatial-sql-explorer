@@ -7,24 +7,29 @@
   import { tick } from 'svelte'
   import Icon from './Icon.svelte'
 
-  type Tab = 'table' | 'sql'
+  type Tab = string
   interface Props {
     tab: Tab
     onTab: (tab: Tab) => void
+    /** Spec 027: other tabs than Table and SQL (a raster's profile and statistics); each body comes from `body(id)`. */
+    tabs?: ReadonlyArray<{ id: string; label: string }>
+    body?: Snippet<[string]>
     collapsed: boolean
     onToggleCollapsed: () => void
     maximized: boolean
     onToggleMaximized: () => void
     actions?: Snippet
-    table: Snippet
-    sql: Snippet
+    table?: Snippet
+    sql?: Snippet
   }
-  let { tab, onTab, collapsed, onToggleCollapsed, maximized, onToggleMaximized, actions, table, sql }: Props = $props()
+  let { tab, onTab, tabs, body, collapsed, onToggleCollapsed, maximized, onToggleMaximized, actions, table, sql }: Props = $props()
 
-  const TABS: Array<{ id: Tab; label: string }> = [
-    { id: 'table', label: 'Table' },
-    { id: 'sql', label: 'SQL' },
-  ]
+  const TABS: ReadonlyArray<{ id: Tab; label: string }> = $derived(
+    tabs ?? [
+      { id: 'table', label: 'Table' },
+      { id: 'sql', label: 'SQL' },
+    ]
+  )
   let bar = $state<HTMLDivElement>()
 
   function tabKeydown(e: KeyboardEvent): void {
@@ -80,12 +85,20 @@
       <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} size={14} />
     </button>
   </div>
-  <div class="body" id="panel-body-table" role="tabpanel" aria-labelledby="panel-tab-table" hidden={collapsed || tab !== 'table'}>
-    {@render table()}
-  </div>
-  <div class="body" id="panel-body-sql" role="tabpanel" aria-labelledby="panel-tab-sql" hidden={collapsed || tab !== 'sql'}>
-    {@render sql()}
-  </div>
+  {#if tabs}
+    {#each tabs as t (t.id)}
+      <div class="body" id="panel-body-{t.id}" role="tabpanel" aria-labelledby="panel-tab-{t.id}" hidden={collapsed || tab !== t.id}>
+        {@render body?.(t.id)}
+      </div>
+    {/each}
+  {:else}
+    <div class="body" id="panel-body-table" role="tabpanel" aria-labelledby="panel-tab-table" hidden={collapsed || tab !== 'table'}>
+      {@render table?.()}
+    </div>
+    <div class="body" id="panel-body-sql" role="tabpanel" aria-labelledby="panel-tab-sql" hidden={collapsed || tab !== 'sql'}>
+      {@render sql?.()}
+    </div>
+  {/if}
 </section>
 
 <style>

@@ -106,7 +106,7 @@ import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
 import { colormapColors } from './raster/engine.js'
 import { createRasterState } from './rasterState.svelte.js'
-import { createProbeState, type Probe } from './raster/probeState.svelte.js'
+import { createProbeState, type Probe, type ProbeKind } from './raster/probeState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
@@ -483,8 +483,13 @@ export interface ViewerStore {
   readonly drawTool: { purpose: ShapePurpose; tool: DrawTool } | null
   /** Spec 027: what the last profile line or area drawn over the raster says. */
   readonly rasterProbe: Probe | null
-  /** Takes the answer and its shape off the map. */
-  clearRasterProbe(): void
+  /** The latest profile and the latest area statistics (each in its tab of the bottom panel), and the tab shown. */
+  readonly profileProbe: Probe | null
+  readonly areaProbe: Probe | null
+  readonly probeTab: ProbeKind
+  setProbeTab(kind: ProbeKind): void
+  /** Takes an answer (of one kind, or both) and its shape off the map. */
+  clearRasterProbe(kind?: ProbeKind): void
   /** The place of the profile chart the pointer is on, marked on the map (null: none). */
   readonly probeMarker: [number, number] | null
   setProbeMarker(place: readonly number[] | null): void
@@ -2997,13 +3002,29 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     onShapeDrawn(shape, additive) {
       if (shape.purpose === 'select') void selectShapes([shape], additive)
-      else if (shape.purpose === 'profile' || shape.purpose === 'area') rasterProbe.start(shape)
+      else if (shape.purpose === 'profile' || shape.purpose === 'area') {
+        rasterProbe.start(shape)
+        // The answer shows in the bottom panel, opened for it.
+        layout = { ...layout, bottomCollapsed: false }
+      }
     },
     get rasterProbe(): Probe | null {
       return rasterProbe.probe
     },
-    clearRasterProbe() {
-      rasterProbe.clear()
+    get profileProbe(): Probe | null {
+      return rasterProbe.profileProbe
+    },
+    get areaProbe(): Probe | null {
+      return rasterProbe.areaProbe
+    },
+    get probeTab(): ProbeKind {
+      return rasterProbe.tab
+    },
+    setProbeTab(kind) {
+      rasterProbe.setTab(kind)
+    },
+    clearRasterProbe(kind) {
+      rasterProbe.clear(kind)
     },
     get probeMarker() {
       return rasterProbe.marker

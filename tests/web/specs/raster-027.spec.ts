@@ -147,7 +147,7 @@ test.describe('a profile along a line (US3)', () => {
     // The figures and the table are there as text.
     await expect(page.getByLabel('Figures')).toContainText('Length')
     await expect(page.getByLabel('Figures')).toContainText('Rise')
-    await page.getByText('Table of values').click()
+    await page.getByRole('radio', { name: 'Table' }).click()
     await expect(page.getByRole('columnheader', { name: 'Distance' })).toBeVisible()
   })
 
@@ -186,7 +186,7 @@ test.describe('a profile along a line (US3)', () => {
     const values = (await probe(page))!.profile!.bands[0].values
     expect(values[0]).toBeNull()
     expect(values.some((v) => v !== null)).toBe(true)
-    await expect(page.getByLabel('Figures')).toContainText('have no data')
+    await expect(page.getByLabel('Figures')).toContainText('No data')
     // A vector layer never offers it.
     await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
     await expect(page.locator('.canvas-host[data-rendered-features]')).toBeAttached({ timeout: 60000 })

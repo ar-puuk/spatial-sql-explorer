@@ -289,12 +289,13 @@ Select by shape, grid and dot tools, the time slider, search) are not shown. Mea
 - **Profile.** The **Profile** button on the map: draw a line and read the value
   along it as a chart (gaps where there is no data or the line leaves the
   raster), with the minimum, maximum, mean, rise and fall, a marker that follows
-  the chart on the map, a table of values and a CSV. It takes about one place per
+  the chart on the map, the same values as a table and a CSV. It opens in the
+  bottom panel, so the line stays in view. It takes about one place per
   cell, at most 2,000, with the same reader as the cursor values.
 - **Area statistics.** The **Area statistics** button: draw a polygon, rectangle
   or circle and read, for each band, the number of cells whose centers are inside
   it, the cells with no data, minimum, maximum, mean, sum, standard deviation and
-  a histogram. A very large area reads a reduced level of the file and says the
+  a histogram (in the bottom panel, next to the profile). A very large area reads a reduced level of the file and says the
   figures are approximate.
 - **Style file.** Saved as `<name>.qml` next to the file, which QGIS loads with
   the data (the Spatial Explorer settings ride along inside it).

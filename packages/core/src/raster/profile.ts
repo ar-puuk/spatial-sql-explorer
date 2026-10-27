@@ -162,3 +162,23 @@ export function profileCsv(samples: ProfileSamples, bands: readonly ProfileBand[
   })
   return lines.join('\n') + '\n'
 }
+
+/** Round numbers for an axis from `min` to `max`: about `count` of them, steps of 1, 2 or 5 times a power of ten, all inside the range. */
+export function niceTicks(min: number, max: number, count = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return []
+  if (max === min) return [min]
+  const raw = (max - min) / Math.max(1, count)
+  const pow = 10 ** Math.floor(Math.log10(raw))
+  const f = raw / pow
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow
+  const first = Math.ceil(min / step - 1e-9) * step
+  const out: number[] = []
+  for (let v = first; v <= max + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : Number(v.toPrecision(12)))
+  return out
+}
+
+/** The unit and size for the distance axis: meters or kilometers (miles and feet for imperial) by how long the line is. */
+export function distanceAxis(totalMeters: number, imperial: boolean): { unit: string; perUnit: number } {
+  if (imperial) return totalMeters >= 1609.344 ? { unit: 'mi', perUnit: 1609.344 } : { unit: 'ft', perUnit: 0.3048 }
+  return totalMeters >= 1000 ? { unit: 'km', perUnit: 1000 } : { unit: 'm', perUnit: 1 }
+}

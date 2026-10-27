@@ -1,6 +1,6 @@
 // Spec 027 US3: where a profile asks, and what its answers say.
 import { describe, expect, it } from 'vitest'
-import { MAX_PROFILE_POINTS, cellMeters, distanceMeters, flattenPoints, interpolateGreatCircle, profileBands, profileCsv, profileSamples, summarizeProfile } from '@spatial-explorer/core'
+import { MAX_PROFILE_POINTS, cellMeters, distanceAxis, niceTicks, distanceMeters, flattenPoints, interpolateGreatCircle, profileBands, profileCsv, profileSamples, summarizeProfile } from '@spatial-explorer/core'
 
 const line: Array<[number, number]> = [[-112, 40], [-111, 40]]
 
@@ -99,5 +99,25 @@ describe('the answers', () => {
     expect(rows).toHaveLength(samples.points.length + 1)
     expect(rows[1].endsWith(',2')).toBe(true)
     expect(rows[2].endsWith(',')).toBe(true)
+  })
+})
+
+describe('axis helpers', () => {
+  it('nice ticks are round, inside the range and about the count asked', () => {
+    expect(niceTicks(0, 100, 5)).toEqual([0, 20, 40, 60, 80, 100])
+    const t = niceTicks(1598.4, 2363.9, 5)
+    expect(t[0]).toBeGreaterThanOrEqual(1598.4)
+    expect(t.at(-1)!).toBeLessThanOrEqual(2363.9)
+    expect(t.length).toBeGreaterThanOrEqual(3)
+    expect(t.length).toBeLessThanOrEqual(9)
+    expect(niceTicks(5, 5)).toEqual([5])
+    expect(niceTicks(3, 1)).toEqual([])
+    expect(niceTicks(-1, 1, 4)).toContain(0)
+  })
+  it('the distance axis picks a unit that suits the length', () => {
+    expect(distanceAxis(7740, false)).toEqual({ unit: 'km', perUnit: 1000 })
+    expect(distanceAxis(400, false)).toEqual({ unit: 'm', perUnit: 1 })
+    expect(distanceAxis(20000, true).unit).toBe('mi')
+    expect(distanceAxis(200, true).unit).toBe('ft')
   })
 })

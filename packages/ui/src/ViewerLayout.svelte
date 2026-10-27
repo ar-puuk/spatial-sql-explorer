@@ -41,7 +41,8 @@
   import TerrainSection from './TerrainSection.svelte'
   import ShapesBar from './ShapesBar.svelte'
   import TimeSlider from './TimeSlider.svelte'
-  import RasterProbePanel from './raster/RasterProbePanel.svelte'
+  import ProfileView from './raster/ProfileView.svelte'
+  import StatsView from './raster/StatsView.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -283,6 +284,16 @@
   // Spec 026 (FR-013): with a raster open nothing that needs rows is shown: no bottom panel (table and SQL), no shape
   // tools, no Labels panel. One flag, from the store's capabilities.
   const isRaster = $derived(store.layerKind === 'raster')
+  // Spec 027: a raster has no table or SQL, so the bottom panel is there only while a profile or area statistics are (their tabs).
+  const rasterDock = $derived(isRaster && (store.profileProbe !== null || store.areaProbe !== null))
+  // A maximized panel that goes away (its answers closed) must not leave the map hidden.
+  $effect(() => {
+    if (isRaster && !rasterDock) maximized = false
+  })
+  const PROBE_TABS = [
+    { id: 'profile', label: 'Profile' },
+    { id: 'area', label: 'Statistics' },
+  ]
   // Spec 027: the shaded relief, when it is on and the raster can have it (one band of numbers).
   function reliefFor() {
     const st = store.rasterStyle
@@ -437,7 +448,7 @@
 
   <div class="workbench">
     <div class="main" bind:this={main} bind:clientHeight={mainHeight}>
-      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed && !isRaster} bind:clientHeight={mapPaneHeight}>
+      <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed && (!isRaster || rasterDock)} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
           raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, display: store.rasterStyle.display, hasPalette: store.raster.facts.hasPalette, bounds: store.raster.facts.extentWgs84, relief: reliefFor() } : null}
@@ -507,9 +518,6 @@
         {#if store.timeSlider.open && !isRaster}
           <div class="time-slot" class:above={store.shapes.length > 0}><TimeSlider {store} /></div>
         {/if}
-        {#if isRaster && store.rasterProbe}
-          <div class="probe-slot"><RasterProbePanel {store} /></div>
-        {/if}
         {#if store.shapes.length > 0 && !isRaster}
           <div class="shapes-slot"><ShapesBar {store} /></div>
         {/if}
@@ -542,7 +550,7 @@
         {@render mapOverlay?.()}
       </div>
 
-      {#if !isRaster}
+      {#if !isRaster || rasterDock}
       <!-- A focusable separator is the WAI-ARIA "window splitter" pattern: it is
            interactive (drag, arrow keys, Enter to collapse). -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -563,10 +571,34 @@
       </div>
 
       <div class="bottom" style:height="{bottomHeight}px">
+        {#if isRaster}
+          <BottomPanel
+            tab={store.probeTab}
+            tabs={PROBE_TABS}
+            onTab={(tab) => {
+              store.setProbeTab(tab === 'area' ? 'area' : 'profile')
+              store.setLayout({ bottomCollapsed: false })
+            }}
+            collapsed={layout.bottomCollapsed}
+            onToggleCollapsed={() => {
+              maximized = false
+              store.setLayout({ bottomCollapsed: !layout.bottomCollapsed })
+            }}
+            {maximized}
+            onToggleMaximized={() => {
+              maximized = !maximized
+              if (maximized) store.setLayout({ bottomCollapsed: false })
+            }}
+          >
+            {#snippet body(id)}
+              {#if id === 'area'}<StatsView {store} />{:else}<ProfileView {store} />{/if}
+            {/snippet}
+          </BottomPanel>
+        {:else}
         <BottomPanel
           tab={layout.bottomTab}
           onTab={(tab) => {
-            store.setLayout({ bottomTab: tab, bottomCollapsed: false })
+            store.setLayout({ bottomTab: tab === 'sql' ? 'sql' : 'table', bottomCollapsed: false })
             if (tab === 'sql') void tick().then(() => queryPanel?.focusEditor())
           }}
           collapsed={layout.bottomCollapsed}
@@ -692,6 +724,7 @@
             </div>
           {/snippet}
         </BottomPanel>
+        {/if}
       </div>
       {/if}
     </div>
@@ -898,15 +931,6 @@
   }
   .time-slot.above {
     bottom: calc(var(--se-map-bottom-inset, 0px) + 88px);
-  }
-  .probe-slot {
-    position: absolute;
-    left: 50%;
-    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
-    z-index: 6;
-    transform: translateX(-50%);
-    width: calc(100% - 140px);
-    max-width: 680px;
   }
   .shapes-slot {
     position: absolute;
