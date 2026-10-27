@@ -21,6 +21,16 @@ test.describe('Bin into cells of a query result (issue 2)', () => {
   const mapBin = (page: Page) => page.getByRole('button', { name: 'Bin into cells…' })
   const dialog = (page: Page) => page.getByRole('dialog', { name: 'Bin into cells' })
 
+  test('a query that names the file by its own name (not `layer`) works the same', async ({ page }) => {
+    test.setTimeout(120000)
+    await openFile(page, writeParcels(2000), '?e2e=1')
+    await runQuery(page, "SELECT * FROM parcels_2000 WHERE zone = 'R1'")
+    await mapBin(page).click()
+    await dialog(page).getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(editor(page)).toContainText('FROM parcels_2000')
+    expect(await sumOf(page, 'n')).toBe(400)
+  })
+
   test('after a query that keeps some rows, the cells count only those rows', async ({ page }) => {
     test.setTimeout(120000)
     await openFile(page, writeParcels(2000), '?e2e=1')
