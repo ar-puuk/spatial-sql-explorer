@@ -668,7 +668,7 @@
   function applyRaster(r: NonNullable<Props['raster']> | null): void {
     const m = map
     if (!m) return
-    const sig = r ? `${r.key}/${r.version}` : null
+    const sig = r ? `${r.key}/${r.version}/` : null
     if (r && sig === shownRasterSig && m.getLayer(RASTER_ID)) {
       // Opacity and the picture adjustments are layer paint: no new tiles (spec 027).
       m.setPaintProperty(RASTER_ID, 'raster-opacity', r.opacity)
