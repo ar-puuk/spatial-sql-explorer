@@ -117,13 +117,14 @@ or [Open VSX](https://open-vsx.org/extension/arpuuk/spatial-explorer)
   number of features or by the sum, average, minimum, maximum or median of a number column.
   Choose a size (shown in km or miles, with about how many cells it gives) and the map
   previews it; **Keep** puts the SQL it wrote in the query editor for you to change and
-  rerun. It follows your column filters and shape filter, can use only the selected rows,
-  and a clicked cell shows its id. For lines and polygons, **Every cell touched** counts a
+  rerun. It uses the rows you are looking at: your column filters and shape filter, and after a query, only the rows
+  that query returned. It can use only the selected rows of the layer itself, and a clicked cell shows its id. For lines and polygons, **Every cell touched** counts a
   feature in each cell it touches, and for H3, **Smooth** gives each cell the value of its
   neighbors within up to 9 rings. The result styles and exports like any other.
 - **Dot density.** **Dot density…** (a button on the map, for polygon layers) draws a count as
   dots placed at random inside each polygon: choose up to six number columns (each its own
-  color) and what one dot stands for. The same layer always gives the same dots, and the SQL is
+  color) and what one dot stands for. It draws the rows you are looking at (after a query, only the
+  rows that query returned). The same data always gives the same dots, and the SQL is
   in the query editor to change and rerun.
 - **Zoom.** The style panel's **Zoom** slider (beside Opacity) shows the layer only between two zoom
   levels, with two small triangles on the track at the map's current zoom, and **Sizes follow zoom**
@@ -323,6 +324,11 @@ No telemetry is collected.
 
 - **View → Output → Spatial Explorer** logs each open, query and engine
   download with timings.
+- **Some coordinate systems need a workaround to open.** In the browser build of the SQL engine, listing the layers of
+  a file in EPSG:27700 (British National Grid) or EPSG:31467 (Germany, Gauss-Krüger zone 3) fails. A GeoPackage in
+  one of them is listed from its own catalog instead, and a GML file opens as its first layer; the output log
+  says when this happened. Shapefile, GeoJSON and FlatGeobuf are not affected. Reported to the engine's authors
+  (duckdb/duckdb-spatial#901).
 
 ## Acknowledgements
 

@@ -65,6 +65,7 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   they touch, and H3 cells can take in their neighbors (smoothing).
 - **Dot density**: a count drawn as dots placed at random inside its polygons;
   one dot stands for an amount you choose, with up to six columns in their own colors.
+  Like the grid cells, it draws the rows you are looking at, so a query or filter narrows it.
 - **Time slider**: a window over a date column that filters the map and table,
   and plays across time. **Arrows** show the direction of lines.
 - **Snippets and search**: 24 ready-made queries for the open layer, filled with
