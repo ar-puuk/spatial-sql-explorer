@@ -34,5 +34,5 @@
 - [x] T020 Web tests: relief on/off, light changes the paint only (no tile build), flat vs sloped pixel check, persistence, axe; 6x CPU performance spec (`raster-027-performance.spec.ts`: light change under 300 ms, no task over 200 ms).
 
 ## Phase 6: Polish
-- [ ] T021 Docs: `README.md`, `apps/vscode-ext/README.md` (raster section), `CHANGELOG.md` (Unreleased, Added), `CLAUDE.md` raster section (new capabilities, the value-tile adapter and its pin), `tests/vscode-ext/fixtures/README.md` if fixtures are added, memory note.
+- [x] T021 Docs: `README.md`, `apps/vscode-ext/README.md` (raster section), `CHANGELOG.md` (Unreleased, Added), `CLAUDE.md` raster section (new capabilities, the value-tile adapter and its pin), `tests/vscode-ext/fixtures/README.md` if fixtures are added, memory note.
 - [ ] T022 Full verification: core suite, lint, svelte-check, raster web specs, VS Code raster suite, QGIS read-back; record in this file.

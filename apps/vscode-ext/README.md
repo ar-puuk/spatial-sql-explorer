@@ -277,11 +277,31 @@ Select by shape, grid and dot tools, the time slider, search) are not shown. Mea
   percentile, marked on a histogram; curve, gamma, no data and opacity. A colour
   table raster is drawn with its own classes. The color bar is on the map and on
   the print page.
+- **Appearance.** Black and white levels (brightness), contrast, saturation, hue
+  and smooth or sharp pixels, applied on the graphics card, so they change at
+  once. The color bar and legend show the colors as set in the style, without
+  them.
+- **Shaded relief.** For one band of heights: hillshade with five methods, the
+  direction and height of the light, strength and the shadow, light and edge
+  colors. The values are taken as meters; ground with no data is flat, so the
+  edge of the data shows as a step. Not offered for a colour image or a colour
+  table.
+- **Profile.** The **Profile** button on the map: draw a line and read the value
+  along it as a chart (gaps where there is no data or the line leaves the
+  raster), with the minimum, maximum, mean, rise and fall, a marker that follows
+  the chart on the map, a table of values and a CSV. It takes about one place per
+  cell, at most 2,000, with the same reader as the cursor values.
+- **Area statistics.** The **Area statistics** button: draw a polygon, rectangle
+  or circle and read, for each band, the number of cells whose centers are inside
+  it, the cells with no data, minimum, maximum, mean, sum, standard deviation and
+  a histogram. A very large area reads a reduced level of the file and says the
+  figures are approximate.
 - **Style file.** Saved as `<name>.qml` next to the file, which QGIS loads with
   the data (the Spatial Explorer settings ride along inside it).
-- Not included: raster analysis (slope, hillshade, band math, zonal statistics),
-  several rasters, vector data over a raster, a `.tif` placed only by a world
-  file, NetCDF, Zarr, STAC and WCS.
+- Not included: raster analysis (slope, aspect, band math, viewshed, derived
+  rasters), zonal statistics over a vector layer, several rasters, vector data
+  over a raster, a `.tif` placed only by a world file, NetCDF, Zarr, STAC and
+  WCS.
 
 ## Commands
 
