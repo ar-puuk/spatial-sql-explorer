@@ -183,15 +183,17 @@
             <div class="table-wrap" role="region" aria-label="Profile values, scrollable" tabindex="0">
               <table aria-label="Profile values">
                 <thead>
-                  <tr><th scope="col">Distance</th><th scope="col">Longitude</th><th scope="col">Latitude</th>{#each profile.bands as b (b.band)}<th scope="col">{b.name}</th>{/each}</tr>
+                  <tr><th scope="col" class="id"><span class="sr">Place</span></th><th scope="col" class="num">Distance</th><th scope="col" class="num">Longitude</th><th scope="col" class="num">Latitude</th>{#each profile.bands as b (b.band)}<th scope="col" class="num">{b.name}</th>{/each}<th scope="col" class="filler" aria-hidden="true"></th></tr>
                 </thead>
                 <tbody>
                   {#each profile.samples.points as p, i (i)}
                     <tr>
-                      <td>{formatLength(profile.samples.distances[i], units)}</td>
-                      <td>{p[0].toFixed(5)}</td>
-                      <td>{p[1].toFixed(5)}</td>
-                      {#each profile.bands as b (b.band)}<td>{valueText(b.values[i])}</td>{/each}
+                      <td class="id">{i + 1}</td>
+                      <td class="num v-decimal">{formatLength(profile.samples.distances[i], units)}</td>
+                      <td class="num v-decimal">{p[0].toFixed(5)}</td>
+                      <td class="num v-decimal">{p[1].toFixed(5)}</td>
+                      {#each profile.bands as b (b.band)}{#if b.values[i] === null}<td class="num null">no data</td>{:else}<td class="num v-decimal">{valueText(b.values[i])}</td>{/if}{/each}
+                      <td class="filler" aria-hidden="true"></td>
                     </tr>
                   {/each}
                 </tbody>
@@ -364,26 +366,77 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
+    background: var(--se-table-bg, var(--se-bg-base));
     border: 1px solid var(--se-border);
     border-radius: var(--se-radius-sm);
   }
+  .table-wrap:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: -1px;
+  }
   table {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     width: 100%;
-    font-variant-numeric: tabular-nums;
   }
-  th,
-  td {
-    padding: 3px 12px;
-    text-align: right;
-    border-bottom: 1px solid var(--se-border);
-  }
-  th {
+  thead th {
     position: sticky;
     top: 0;
-    background: var(--se-bg-base);
-    color: var(--se-text-secondary);
-    font-weight: 500;
+    z-index: 2;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--se-table-header-bg);
+    color: var(--se-table-header-fg);
+    border-bottom: var(--se-table-header-border);
+    font: var(--se-table-header-font);
+    text-transform: var(--se-table-header-transform);
+    letter-spacing: var(--se-table-header-tracking);
+    white-space: nowrap;
+  }
+  th.num,
+  td.num {
+    text-align: right;
+  }
+  th.id,
+  td.id {
+    width: 44px;
+    text-align: right;
+  }
+  th.filler,
+  td.filler {
+    width: 100%;
+    padding: 0;
+  }
+  td {
+    height: 24px;
+    padding: 0 8px;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--se-table-row-border);
+    font-family: var(--se-font-data);
+    font-variant-numeric: tabular-nums;
+  }
+  td.id {
+    color: var(--se-text-muted);
+    font-family: var(--se-font-mono);
+    font-size: 0.92em;
+  }
+  td.v-decimal {
+    color: var(--se-type-decimal);
+  }
+  td.null {
+    color: var(--se-text-muted);
+    font-family: var(--se-font-mono);
+    font-size: 0.85em;
+  }
+  tbody tr:hover {
+    background: var(--se-bg-hover);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
   button {
     font: inherit;
