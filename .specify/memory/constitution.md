@@ -1,6 +1,21 @@
 <!--
 Sync Impact Report
-Version change: 1.7.0 → 1.8.0 (spec 026, user decision 2026-10-26)
+Version change: 1.8.0 → 1.9.0 (spec 027, user decision 2026-10-26)
+Modified principles:
+  - I. Scope Discipline: two more things are in scope for the open raster. (1) Display functions of the
+    one raster, as STYLE: brightness, contrast, saturation, hue, smooth or sharp pixels, and hillshade
+    (shaded relief drawn from a single-band raster's values, with the light the person sets). (2) Values read
+    along or inside a scratch shape drawn on the map, as LOOK: a profile along a line, and count, area, min,
+    max, mean, sum, standard deviation and a histogram inside an area. None of these changes the file or
+    makes a raster; the answer is a picture or a number. Still out of scope: derived rasters, band math,
+    reclassify, slope, aspect, curvature, viewshed, contours, flow and watershed tools, the whitebox tool
+    suite, mosaic, several rasters, vector data over a raster, zonal statistics over a vector layer.
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: none. Viewshed and the whitebox tools (a 17.6 MB engine) are deferred until asked for.
+
+Previous: 1.7.0 → 1.8.0 (spec 026, user decision 2026-10-26)
 Modified principles:
   - I. Scope Discipline: viewing and styling a GeoTIFF or Cloud-Optimized GeoTIFF is LOOK and STYLE.
     The raster is the open layer and replaces any vector layer (and the reverse), so the one-layer rule
@@ -127,9 +142,13 @@ explicitly out of scope. Viewing and styling a GeoTIFF or Cloud-Optimized GeoTIF
 scope as LOOK and STYLE (spec 026): the raster is the open layer, replaces any vector
 layer and is replaced by one, shows its facts and the value of each band under the
 cursor, and is styled by band, color ramp, range and opacity; it has no table and no SQL.
-Raster analysis (slope, hillshade, band math, reclassify, mosaic, zonal statistics,
-contours, polygonize), raster in SQL, vector data over a raster and more than one raster
-stay out. Three 3D-adjacent map options are in scope as part of LOOK
+Spec 027 adds, for that one raster, display functions as STYLE (brightness, contrast,
+saturation, hue, smooth or sharp pixels, hillshade) and values read along or inside a
+scratch shape drawn on the map as LOOK (a profile along a line; count, area, minimum,
+maximum, mean, sum, standard deviation and a histogram inside an area). Raster analysis
+(slope, aspect, band math, reclassify, mosaic, viewshed, contours, polygonize, derived
+rasters, the whitebox tools), zonal statistics over a vector layer, raster in SQL,
+vector data over a raster and more than one raster stay out. Three 3D-adjacent map options are in scope as part of LOOK
 and STYLE: a Mercator/Globe projection toggle, polygon extrusion by a column, and a
 terrain on/off switch (a height source the one basemap and the data are lifted onto,
 never a second basemap). Shapes the user draws on the map to measure, select and filter
@@ -279,4 +298,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.8.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-26
+**Version**: 1.9.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-26

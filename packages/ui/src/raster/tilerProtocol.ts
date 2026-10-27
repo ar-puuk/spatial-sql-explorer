@@ -2,7 +2,7 @@
 // waits on them: measured at 6x CPU, a tile took 190 to 240 ms and a style change held the main thread for up to 500 ms; the
 // conversion of a big striped file holds it for 17 s. The main thread sends small requests and gets finished results back.
 // This file is the messages, shared by the worker (tilerWorker.ts) and the client (tilerClient.ts).
-import type { RasterRenderOptions, TilerBandStats, TilerInfo, TilerLevel } from '@spatial-explorer/core'
+import type { BandAreaStats, RasterRenderOptions, TilerBandStats, TilerInfo, TilerLevel } from '@spatial-explorer/core'
 
 /** Something the tiler can read: a URL (HTTP ranges), a `File` or `Blob` (slices), or bytes. */
 export type CogInput = string | File | Blob | Uint8Array
@@ -42,6 +42,9 @@ export type ToWorker =
   | { id: number; type: 'convert'; handle: number; source: Exclude<CogInput, Uint8Array>; striped: StripedInfo }
   | { id: number; type: 'statistics'; handle: number; maxSize: number }
   | { id: number; type: 'point'; handle: number; lon: number; lat: number }
+  | { id: number; type: 'profile'; handle: number; /** lon0, lat0, lon1, lat1, … */ points: Float64Array; bands: number[] }
+  | { id: number; type: 'areaStats'; handle: number; /** lon0, lat0, lon1, lat1, … of the outer ring */ ring: Float64Array; bands: Array<{ index: number; name: string }>; nodata: number | 'nan' | null }
+  | { id: number; type: 'demTile'; handle: number; z: number; x: number; y: number; band: number; base: number; step: number; /** what a cell with no value is packed as (the same in every tile) */ fill: number; /** undefined: the file's own */ nodata?: number | null }
   | { id: number; type: 'tile'; handle: number; z: number; x: number; y: number; options: RasterRenderOptions }
   | { id: number; type: 'close'; handle: number }
 
@@ -56,6 +59,13 @@ export interface PointAnswer {
   values: number[]
   band_names: string[]
   outside?: boolean
+}
+
+/** The figures inside an area, and which level was read (`scale`: how many full-size cells wide one cell of it is). */
+export interface AreaStatsAnswer {
+  bands: BandAreaStats[]
+  approximate: boolean
+  scale: number
 }
 
 export type StatisticsAnswer = Record<string, TilerBandStats>

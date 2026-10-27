@@ -101,11 +101,12 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type DemEncoding, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
 import { colormapColors } from './raster/engine.js'
 import { createRasterState } from './rasterState.svelte.js'
+import { createProbeState, type Probe, type ProbeKind } from './raster/probeState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
@@ -480,6 +481,22 @@ export interface ViewerStore {
   readonly shapes: readonly DrawnShape[]
   /** The open drawing tool (null: none): what it is for, and which tool. */
   readonly drawTool: { purpose: ShapePurpose; tool: DrawTool } | null
+  /** Spec 027: what the last profile line or area drawn over the raster says. */
+  readonly rasterProbe: Probe | null
+  /** The latest profile and the latest area statistics (each in its tab of the bottom panel), and the tab shown. */
+  readonly profileProbe: Probe | null
+  readonly areaProbe: Probe | null
+  readonly probeTab: ProbeKind
+  setProbeTab(kind: ProbeKind): void
+  /** Takes an answer (of one kind, or both) and its shape off the map. */
+  clearRasterProbe(kind?: ProbeKind): void
+  /** The place of the profile chart the pointer is on, marked on the map (null: none). */
+  readonly probeMarker: [number, number] | null
+  setProbeMarker(place: readonly number[] | null): void
+  /** Saves the profile as a CSV file (a download on the web). */
+  saveRasterExport(name: string, content: string | Uint8Array): Promise<void>
+  /** The name of the file that is open (for the names of what is saved from it). */
+  readonly openFileName: string | null
   /** Opens a purpose's tools (draw, measure, select by shape); the same purpose again closes them. */
   toggleDrawPurpose(purpose: ShapePurpose): void
   setDrawTool(tool: DrawTool | null): void
@@ -596,6 +613,9 @@ export interface ViewerStore {
   readonly rasterStyle: RasterStyle | null
   /** Bumped when the raster's picture changes: part of the tile URL. */
   readonly rasterVersion: number
+  /** Spec 027: the version of the relief tiles and how they pack the values of the band drawn. */
+  readonly rasterDemVersion: number
+  readonly rasterDemEncoding: DemEncoding | null
   /** The band values under the cursor, or null. */
   readonly pixel: PixelReading | null
   /** The facts card is open. */
@@ -1304,6 +1324,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     (reading) => {
       rasterState.setPixel(reading)
       hostAdapter.setStatus({ pixel: reading ? pixelText(reading) : null })
+    }
+  )
+  // Spec 027: what a profile line or an area drawn over the raster says (one at a time).
+  const rasterProbe = createProbeState(
+    () => rasterState.handle,
+    () => {
+      const st = rasterState.style
+      return st ? (st.mode === 'rgb' ? st.bands.slice(0, 3) : [st.bands[0] ?? 1]) : [1]
+    },
+    (ids) => {
+      shapesRequest = { seq: (shapesRequest?.seq ?? 0) + 1, remove: ids }
     }
   )
   const layerKind = $derived<LayerKind>(displayedLayer?.raster ? 'raster' : 'vector')
@@ -2081,6 +2112,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     initialLayerState = null
     tilesArchive = null
     pixelProbe.leave()
+    rasterProbe.clear()
     rasterState.clear()
     const previousSession = querySession
     querySession = null
@@ -2953,7 +2985,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         return
       }
       // The first tool of each purpose: a rectangle selects, a line measures, a polygon draws.
-      drawTool = { purpose, tool: purpose === 'select' ? 'rectangle' : purpose === 'measure' ? 'line' : 'polygon' }
+      drawTool = { purpose, tool: purpose === 'select' ? 'rectangle' : purpose === 'measure' || purpose === 'profile' ? 'line' : 'polygon' }
     },
     setDrawTool(tool) {
       drawTool = tool === null ? null : { purpose: drawTool?.purpose ?? 'draw', tool }
@@ -2972,6 +3004,41 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     onShapeDrawn(shape, additive) {
       if (shape.purpose === 'select') void selectShapes([shape], additive)
+      else if (shape.purpose === 'profile' || shape.purpose === 'area') {
+        rasterProbe.start(shape)
+        // The answer shows in the bottom panel, opened for it.
+        layout = { ...layout, bottomCollapsed: false }
+      }
+    },
+    get rasterProbe(): Probe | null {
+      return rasterProbe.probe
+    },
+    get profileProbe(): Probe | null {
+      return rasterProbe.profileProbe
+    },
+    get areaProbe(): Probe | null {
+      return rasterProbe.areaProbe
+    },
+    get probeTab(): ProbeKind {
+      return rasterProbe.tab
+    },
+    setProbeTab(kind) {
+      rasterProbe.setTab(kind)
+    },
+    clearRasterProbe(kind) {
+      rasterProbe.clear(kind)
+    },
+    get probeMarker() {
+      return rasterProbe.marker
+    },
+    setProbeMarker(place) {
+      rasterProbe.setMarker(place)
+    },
+    async saveRasterExport(name, content) {
+      await hostAdapter.saveFile(name, content, { kind: 'data' })
+    },
+    get openFileName() {
+      return currentFileName
     },
     get shapesRequest() {
       return shapesRequest
@@ -3256,6 +3323,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get rasterVersion() {
       return rasterState.version
+    },
+    get rasterDemVersion() {
+      return rasterState.demVersion
+    },
+    get rasterDemEncoding() {
+      return rasterState.demEncoding
     },
     get pixel() {
       return rasterState.pixel

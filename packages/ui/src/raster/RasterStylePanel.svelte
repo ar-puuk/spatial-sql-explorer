@@ -3,7 +3,7 @@
   // (a colour table raster draws its own classes); the range the colors run between, started from the file's 2nd and 98th
   // percentile and marked on a histogram; the curve; the colormap, picked from previews; how no data is shown; opacity.
   // Every edit is a pure function in core (withMode, withBand, withRangePreset, ...), so this only shows and calls them.
-  import { withBand, withChannel, withCommonRange, withMode, withRangePreset, type RasterStretch, type RasterStyle } from '@spatial-explorer/core'
+  import { DEFAULT_RELIEF, NEUTRAL_DISPLAY, RELIEF_METHODS, canOfferRelief, isNeutralDisplay, isReliefStored, type RasterRelief, type ReliefMethod, withBand, withChannel, withCommonRange, withMode, withRangePreset, type RasterDisplay, type RasterResampling, type RasterStretch, type RasterStyle } from '@spatial-explorer/core'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
   import Segmented from '../kit/Segmented.svelte'
   import Select from '../kit/Select.svelte'
@@ -53,6 +53,26 @@
     { value: 'value', label: 'A value', title: 'Transparent where the cells have this value' },
     { value: 'none', label: 'None', title: 'Nothing is transparent: the no-data value is drawn like any other' },
   ]
+  // Spec 027 US1: picture adjustments, applied by the graphics card (no tiles are read again).
+  const display = $derived<RasterDisplay>(style?.display ?? NEUTRAL_DISPLAY)
+  const RESAMPLING: Array<{ value: string; label: string; title: string }> = [
+    { value: 'auto', label: 'Automatic', title: 'Sharp cells for classes, smooth for everything else' },
+    { value: 'linear', label: 'Smooth', title: 'Blends between cells' },
+    { value: 'nearest', label: 'Sharp', title: 'Shows each cell as a square' },
+  ]
+  const adjust = (p: Partial<RasterDisplay>): void => {
+    const next = { ...display, ...p }
+    // Neutral is stored as no display at all.
+    patch({ display: isNeutralDisplay(next) ? undefined : next })
+  }
+  // Spec 027 US2: shaded relief from one band of heights.
+  const relief = $derived<RasterRelief>(style?.relief ?? DEFAULT_RELIEF)
+  const offer = $derived(facts && style ? canOfferRelief(facts, style) : { ok: false })
+  const reliefMethods = RELIEF_METHODS.map((m) => ({ value: m.id, label: m.label }))
+  const shade = (p: Partial<RasterRelief>): void => {
+    const next = { ...relief, ...p }
+    patch({ relief: isReliefStored(next) ? next : undefined })
+  }
   const fileNodata = $derived(facts ? (facts.nodata === null ? 'none recorded' : facts.nodata === 'nan' ? 'NaN' : String(facts.nodata)) : '')
 </script>
 
@@ -154,6 +174,77 @@
         {/if}
       </section>
 
+      <section aria-labelledby="rs-relief">
+        <h3 id="rs-relief">Relief</h3>
+        {#if !offer.ok}
+          <p class="hint">{offer.reason}</p>
+        {:else}
+          <div class="row switch">
+            <span class="label" id="rs-relief-on">Shaded relief</span>
+            <Switch checked={relief.on} labelledby="rs-relief-on" onChange={(on) => shade({ on })} />
+          </div>
+          {#if relief.on}
+            <div class="row field">
+              <span class="label">Method</span>
+              <Select label="Relief method" options={reliefMethods} value={relief.method} onChange={(v) => shade({ method: v as ReliefMethod })} />
+            </div>
+            {#if relief.method !== 'multidirectional'}
+              <div class="row">
+                <span class="label">Light from</span>
+                <span class="wide"><Slider value={relief.direction} min={0} max={359} step={1} unit="°" label="Light direction" onChange={(v) => shade({ direction: v })} /></span>
+              </div>
+            {/if}
+            <div class="row">
+              <span class="label">Light height</span>
+              <span class="wide"><Slider value={relief.altitude} min={0} max={90} step={1} unit="°" label="Light height" onChange={(v) => shade({ altitude: v })} /></span>
+            </div>
+            <div class="row">
+              <span class="label">Strength</span>
+              <span class="wide"><Slider value={relief.exaggeration} min={0} max={1} step={0.01} label="Relief strength" onChange={(v) => shade({ exaggeration: v })} /></span>
+            </div>
+            <div class="row colors">
+              <span class="label">Colors</span>
+              <span class="swatches">
+                <label>Shadow <input type="color" value={relief.shadow} aria-label="Shadow color" onchange={(e) => shade({ shadow: e.currentTarget.value })} /></label>
+                <label>Light <input type="color" value={relief.highlight} aria-label="Highlight color" onchange={(e) => shade({ highlight: e.currentTarget.value })} /></label>
+                <label>Edge <input type="color" value={relief.accent} aria-label="Accent color" onchange={(e) => shade({ accent: e.currentTarget.value })} /></label>
+              </span>
+            </div>
+            <div class="presets"><button type="button" onclick={() => patch({ relief: undefined })} title="Switch the relief off and put its settings back">Reset relief</button></div>
+            <p class="hint">The values are taken as meters. Ground with no data is flat, so its edge shows as a step.</p>
+          {/if}
+        {/if}
+      </section>
+
+      <section aria-labelledby="rs-appearance">
+        <h3 id="rs-appearance">Appearance</h3>
+        <div class="row">
+          <span class="label">Black level</span>
+          <span class="wide"><Slider value={display.brightnessMin} min={0} max={1} step={0.01} label="Black level" onChange={(v) => adjust({ brightnessMin: Math.min(v, display.brightnessMax) })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">White level</span>
+          <span class="wide"><Slider value={display.brightnessMax} min={0} max={1} step={0.01} label="White level" onChange={(v) => adjust({ brightnessMax: Math.max(v, display.brightnessMin) })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Contrast</span>
+          <span class="wide"><Slider value={display.contrast} min={-1} max={1} step={0.01} label="Contrast" onChange={(v) => adjust({ contrast: v })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Saturation</span>
+          <span class="wide"><Slider value={display.saturation} min={-1} max={1} step={0.01} label="Saturation" onChange={(v) => adjust({ saturation: v })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Hue</span>
+          <span class="wide"><Slider value={display.hue} min={0} max={360} step={1} unit="°" label="Hue" onChange={(v) => adjust({ hue: v })} /></span>
+        </div>
+        <Segmented label="Pixels" options={RESAMPLING} value={display.resampling} onChange={(v) => adjust({ resampling: v as RasterResampling })} />
+        <div class="presets">
+          <button type="button" disabled={isNeutralDisplay(style.display)} onclick={() => patch({ display: undefined })} title="Brightness, contrast, saturation, hue and pixels back to neutral">Reset appearance</button>
+        </div>
+        <p class="hint">These change how the picture looks on the map and the print page. The color bar and legend show the colors as set above.</p>
+      </section>
+
       <section aria-labelledby="rs-file">
         <h3 id="rs-file">Style file</h3>
         <div class="presets">
@@ -242,6 +333,25 @@
   }
   .notice.error {
     border-left-color: var(--se-error);
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--se-text-secondary);
+  }
+  .swatches label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .swatches input[type="color"] {
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: transparent;
   }
   .presets {
     display: flex;

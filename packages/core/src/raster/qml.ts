@@ -3,6 +3,7 @@
 // (renderer type, band, range, colors, opacity, transparency) and our whole style rides in a custom property
 // (`spatialExplorer/raster`, JSON), so nothing is lost on a round trip through us. A file written by QGIS alone is read from
 // its elements, with a note for what could not be matched.
+import { fromQgis, isNeutralAdjustment, toQgisBrightnessContrast, toQgisSaturation } from './display.js'
 import type { RasterFacts, RasterPaletteEntry, RasterStyle } from './types.js'
 import { RASTER_COLORMAPS, defaultRasterStyle, isColormap, sanitizeRasterStyle } from './style.js'
 
@@ -30,6 +31,7 @@ export interface RasterQmlOptions {
 export function rasterQmlNotes(style: RasterStyle): string[] {
   const notes: string[] = []
   if (style.mode !== 'paletted' && (style.stretch !== 'linear' || style.gamma !== 1)) notes.push('QGIS draws this with a linear stretch: the curve and gamma are kept in the file for Spatial Explorer only.')
+  if (style.display && !isNeutralAdjustment(style.display)) notes.push('QGIS shows the brightness, contrast and saturation; the hue turn, and the exact brightness range, are kept in the file for Spatial Explorer only.')
   if (style.nodata.mode === 'none') notes.push('"No nodata" is kept in the file for Spatial Explorer only; QGIS uses the file\'s own nodata value.')
   return notes
 }
@@ -67,10 +69,16 @@ export function rasterStyleToQml(style: RasterStyle, facts: Pick<RasterFacts, 'b
     renderer = `<rasterrenderer type="singlebandpseudocolor" band="${band}" alphaBand="-1" opacity="${opacity}" classificationMin="${num(style.min)}" classificationMax="${num(style.max)}" nodataColor="">${transparency(style)}<rastershader><colorrampshader colorRampType="INTERPOLATED" classificationMode="1" clip="0" minimumValue="${num(style.min)}" maximumValue="${num(style.max)}" labelPrecision="4">${items}</colorrampshader></rastershader></rasterrenderer>`
   }
   const json = esc(JSON.stringify(style))
+  const display = style.display && !isNeutralAdjustment(style.display) ? style.display : null
+  const filters = display
+    ? `
+    <brightnesscontrast brightness="${toQgisBrightnessContrast(display).brightness}" contrast="${toQgisBrightnessContrast(display).contrast}" gamma="1"/>
+    <huesaturation colorizeBlue="128" colorizeGreen="128" colorizeOn="0" colorizeRed="255" colorizeStrength="100" grayscaleMode="0" invertColors="0" saturation="${toQgisSaturation(display)}"/>`
+    : ''
   return `<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis version="${esc(options.version ?? '3.34.0')}">
   <pipe>
-    ${renderer}
+    ${renderer}${filters}
   </pipe>
   <blendMode>0</blendMode>
   <customproperties>
@@ -170,6 +178,12 @@ export function rasterStyleFromQml(text: string, facts: RasterFacts): RasterQmlR
     } else notes.push('This style uses a color table the file does not have; the default style is used.')
   } else {
     notes.push(`This style uses a renderer ("${type ?? 'unknown'}") Spatial Explorer does not draw; the default style is used.`)
+  }
+  const bc = /<brightnesscontrast[^>]*>/i.exec(text)?.[0]
+  const hs = /<huesaturation[^>]*>/i.exec(text)?.[0]
+  if (bc || hs) {
+    const q = fromQgis(bc ? (numAttr(bc, 'brightness') ?? 0) : 0, bc ? (numAttr(bc, 'contrast') ?? 0) : 0, hs ? (numAttr(hs, 'saturation') ?? 0) : 0)
+    style.display = { brightnessMin: 0, brightnessMax: 1, contrast: 0, saturation: 0, hue: 0, resampling: 'auto', ...q }
   }
   const checked = sanitizeRasterStyle(style, facts) ?? base
   return { style: checked, notes }

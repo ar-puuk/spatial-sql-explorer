@@ -1,10 +1,10 @@
 // Spec 026: the raster half of the viewer store (kept apart so viewerStore.svelte.ts, already very large,
 // only composes it). One raster at a time; it is the open layer, so installing one and clearing it go with
 // the store's own layer changes.
-import { defaultRasterStyle, sameRender, sanitizeRasterStyle, toRenderOptions, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { defaultRasterStyle, demEncodingFor, demFill, sameRender, sanitizeRasterStyle, toRenderOptions, type DemEncoding, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import type { RasterHandle } from './raster/handle.js'
 import { rasterTileProvider } from './raster/rasterSource.js'
-import { registerRasterProvider } from './raster/rasterTiles.js'
+import { registerDemProvider, registerRasterProvider } from './raster/rasterTiles.js'
 
 export function createRasterState() {
   let handle = $state.raw<RasterHandle | null>(null)
@@ -12,6 +12,13 @@ export function createRasterState() {
   /** Bumped when the picture changes (not for opacity): it is in the tile URL, so the map fetches again. */
   let version = $state(0)
   let pixel = $state.raw<PixelReading | null>(null)
+  /** Spec 027: goes up when what the relief tiles hold changes (the band, or what counts as no data); it is in their URL. */
+  let demVersion = $state(0)
+  let demSig = ''
+  let unregisterDem: (() => void) | null = null
+  const demSigOf = (s: RasterStyle): string => `${s.bands[0] ?? 1}/${s.nodata.mode}/${s.nodata.mode === 'value' ? s.nodata.value : ''}`
+  /** The nodata the relief tiles use: undefined is the file's own. */
+  const demNodata = (s: RasterStyle): number | null | undefined => (s.nodata.mode === 'value' ? s.nodata.value : s.nodata.mode === 'none' ? null : undefined)
   let cardOpen = $state(false)
   let unregister: (() => void) | null = null
 
@@ -28,12 +35,20 @@ export function createRasterState() {
     get pixel() {
       return pixel
     },
+    get demVersion() {
+      return demVersion
+    },
+    /** How the relief tiles pack the values of the band being drawn. */
+    get demEncoding(): DemEncoding | null {
+      return handle && style ? demEncodingFor(handle.facts.bands[(style.bands[0] ?? 1) - 1], handle.facts.dataType) : null
+    },
     get cardOpen() {
       return cardOpen
     },
     /** A raster became the open layer, with the style it starts with (a sidecar's, saved, or the file's default). */
     install(next: RasterHandle, start?: RasterStyle | null): void {
       unregister?.()
+      unregisterDem?.()
       handle?.dispose()
       handle = next
       style = start ? (sanitizeRasterStyle(start, next.facts) ?? defaultRasterStyle(next.facts)) : defaultRasterStyle(next.facts)
@@ -41,11 +56,22 @@ export function createRasterState() {
       pixel = null
       // Tiles are drawn with the style in force when MapLibre asks for them.
       unregister = registerRasterProvider(next.key, rasterTileProvider(next, () => toRenderOptions(style ?? defaultRasterStyle(next.facts), next.facts)))
+      demSig = demSigOf(style)
+      demVersion++
+      // The values of the band being drawn, packed for the hillshade (spec 027); read from the style in force when MapLibre asks.
+      unregisterDem = registerDemProvider(next.key, (z, x, y) => {
+        const st = style ?? defaultRasterStyle(next.facts)
+        const band = next.facts.bands[(st.bands[0] ?? 1) - 1]
+        const enc = demEncodingFor(band, next.facts.dataType)
+        return next.reader.demTilePng(z, x, y, st.bands[0] ?? 1, enc.base, enc.step, demFill(band, enc), demNodata(st))
+      })
     },
     /** The raster is no longer the open layer. */
     clear(): void {
       unregister?.()
       unregister = null
+      unregisterDem?.()
+      unregisterDem = null
       handle?.dispose()
       handle = null
       style = null
@@ -64,6 +90,10 @@ export function createRasterState() {
       if (!safe) return false
       const redraw = !sameRender(style, safe, handle.facts)
       style = safe
+      if (demSigOf(safe) !== demSig) {
+        demSig = demSigOf(safe)
+        demVersion++
+      }
       if (redraw) version++
       return redraw
     },

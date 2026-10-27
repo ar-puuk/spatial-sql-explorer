@@ -73,6 +73,13 @@ def check(case_dir, name):
         want = [(c['value'], c['color']) for c in expected['classes']]
         if got != want:
             problems.append('classes %s, expected %s' % (got, want))
+    if 'brightness' in expected:
+        bf = layer.brightnessFilter()
+        hf = layer.hueSaturationFilter()
+        if bf is None or bf.brightness() != expected['brightness'] or bf.contrast() != expected['contrastShift']:
+            problems.append('brightness/contrast %s/%s, expected %s/%s' % (bf and bf.brightness(), bf and bf.contrast(), expected['brightness'], expected['contrastShift']))
+        if hf is None or hf.saturation() != expected['saturation']:
+            problems.append('saturation %s, expected %s' % (hf and hf.saturation(), expected['saturation']))
     if 'transparentValue' in expected:
         entries = r.rasterTransparency().transparentSingleValuePixelList() if r.rasterTransparency() else []
         hit = [e for e in entries if close(e.min, expected['transparentValue']) and close(e.max, expected['transparentValue']) and e.percentTransparent == 100]

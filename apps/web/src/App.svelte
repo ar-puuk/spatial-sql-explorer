@@ -172,6 +172,27 @@
         capabilities: JSON.parse(JSON.stringify(store.capabilities)),
         tiles: (await import('@spatial-explorer/ui')).rasterTileStats(),
       }),
+      /** Spec 027: the last profile line or area drawn over the raster, as the panel shows it. */
+      rasterProbe: () => JSON.parse(JSON.stringify(store.rasterProbe)),
+      /** Spec 027: the outer ring of the shape the last probe was made for (a test works its figures out from it). */
+      rasterProbeShape: () => {
+        const id = store.rasterProbe?.shapeId
+        const shape = store.shapes.find((sh) => sh.id === id)
+        return shape && shape.geometry.type === 'Polygon' ? JSON.parse(JSON.stringify(shape.geometry.coordinates[0])) : null
+      },
+      /** Spec 027: one tile of the raster's values packed for the hillshade, with how it is packed (the test unpacks it). */
+      rasterDemTile: async (z: number, x: number, y: number) => {
+        const raster = store.raster
+        const style = store.rasterStyle
+        const enc = store.rasterDemEncoding
+        if (!raster || !style || !enc) return null
+        const png = await raster.reader.demTilePng(z, x, y, style.bands[0] ?? 1, enc.base, enc.step, raster.facts.bands[(style.bands[0] ?? 1) - 1]?.mean ?? enc.base)
+        let binary = ''
+        for (const b of png) binary += String.fromCharCode(b)
+        return { base64: btoa(binary), base: enc.base, step: enc.step }
+      },
+      /** Spec 027: the raster's own answer at a place (what the cursor readout uses), to check a profile against. */
+      rasterPointAt: async (lon: number, lat: number) => (store.raster ? JSON.parse(JSON.stringify(await store.raster.reader.point(lon, lat))) : null),
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),

@@ -70,6 +70,10 @@
     terrainSource,
     controlsAt,
     controlAvailable,
+    displayPaint,
+    demSourceEncoding,
+    type DemEncoding,
+    type RasterDisplay,
     CONTROL_GROUPS,
     MAP_CONTROLS,
     isControlOn,
@@ -93,7 +97,7 @@
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawArrowIcon, drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
-  import { rasterTileUrl } from './raster/rasterTiles.js'
+  import { demTileUrl, rasterTileUrl } from './raster/rasterTiles.js'
 
   interface Props {
     layer: Layer | null
@@ -190,7 +194,18 @@
     /** Why Bin into cells is not available, or null. */
     binUnavailable?: string | null
     /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
-    raster?: { key: string; version: number; opacity: number; resampling: 'linear' | 'nearest'; bounds: [number, number, number, number] } | null
+    /** Spec 027: the place of the profile chart the pointer is on (a marker on the map). */
+    probeMarker?: [number, number] | null
+    raster?: {
+      key: string
+      version: number
+      opacity: number
+      display?: RasterDisplay
+      hasPalette: boolean
+      bounds: [number, number, number, number]
+      /** Spec 027: shaded relief, when it is on: the packing of the values, the tile version, and the hillshade paint. */
+      relief?: { version: number; encoding: DemEncoding; paint: Record<string, number | string> } | null
+    } | null
     /** Spec 026: the band values under the cursor (a raster only). */
     pixel?: PixelReading | null
   }
@@ -254,6 +269,7 @@
     timeSliderUnavailable = null,
     binUnavailable = null,
     raster = null,
+    probeMarker = null,
     pixel = null,
   }: Props = $props()
 
@@ -284,6 +300,9 @@
   const SELECTION_HALO ='se-selection-halo'
   /** Spec 026: the raster's source and layer (one id for both). The `se-` prefix is load-bearing: see replaceDataSource and the basemap error check. */
   const RASTER_ID = 'se-raster'
+  // Spec 027: shaded relief: a raster-dem source of the raster's values and a hillshade layer above the picture.
+  const DEM_ID = 'se-raster-dem'
+  const RELIEF_ID = 'se-raster-relief'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   // Feature ids are promoted from this property so selection/hover use
   // feature-state (no per-selection filter rebuild — GeoLibre-style perf, see
@@ -645,10 +664,12 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE, RASTER_ID]) if (m.getSource(id)) m.removeSource(id)
+    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE, RASTER_ID, DEM_ID]) if (m.getSource(id)) m.removeSource(id)
+    shownReliefSig = null
     // The raster went with the other `se-` layers: the effect below puts it back when one is open.
     shownRasterSig = null
     delete container.dataset.rasterReady
+    delete container.dataset.rasterPaint
     for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
@@ -662,12 +683,49 @@
    * is only a paint property. It is above the basemap and the (empty) vector layers, below nothing of ours.
    */
   let shownRasterSig: string | null = null
+  let shownReliefSig: string | null = null
+  /** Spec 027: the hillshade over the picture. Paint changes need no tiles; a new packing or version builds the source again. */
+  function applyRelief(m: MapLibreMap, r: NonNullable<Props['raster']> | null): void {
+    const want = r?.relief ?? null
+    if (!r || !want) {
+      if (m.getLayer(RELIEF_ID)) m.removeLayer(RELIEF_ID)
+      if (m.getSource(DEM_ID)) m.removeSource(DEM_ID)
+      shownReliefSig = null
+      delete container.dataset.reliefReady
+      return
+    }
+    const sig = `${r.key}/${want.version}/${want.encoding.base}/${want.encoding.step}`
+    if (sig === shownReliefSig && m.getLayer(RELIEF_ID)) {
+      for (const [name, value] of Object.entries(want.paint)) m.setPaintProperty(RELIEF_ID, name as never, value as never)
+      container.dataset.reliefPaint = JSON.stringify(want.paint)
+      return
+    }
+    if (m.getLayer(RELIEF_ID)) m.removeLayer(RELIEF_ID)
+    if (m.getSource(DEM_ID)) m.removeSource(DEM_ID)
+    delete container.dataset.reliefReady
+    const [w, s, e, n] = r.bounds
+    const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v))
+    m.addSource(DEM_ID, { type: 'raster-dem', tiles: [demTileUrl(r.key, want.version)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: [clamp(w, 180), clamp(s, 85.0511), clamp(e, 180), clamp(n, 85.0511)], ...demSourceEncoding(want.encoding) } as never)
+    m.addLayer({ id: RELIEF_ID, type: 'hillshade', source: DEM_ID, paint: want.paint } as never)
+    container.dataset.reliefPaint = JSON.stringify(want.paint)
+    shownReliefSig = sig
+  }
+
   function applyRaster(r: NonNullable<Props['raster']> | null): void {
     const m = map
     if (!m) return
-    const sig = r ? `${r.key}/${r.version}/${r.resampling}` : null
+    applyRasterPicture(m, r)
+    applyRelief(m, r)
+  }
+  function applyRasterPicture(m: MapLibreMap, r: NonNullable<Props['raster']> | null): void {
+    const sig = r ? `${r.key}/${r.version}/` : null
     if (r && sig === shownRasterSig && m.getLayer(RASTER_ID)) {
+      // Opacity and the picture adjustments are layer paint: no new tiles (spec 027).
       m.setPaintProperty(RASTER_ID, 'raster-opacity', r.opacity)
+      const paint = displayPaint(r.display, r.hasPalette)
+      for (const [name, value] of Object.entries(paint)) m.setPaintProperty(RASTER_ID, name as never, value as never)
+      // Test hook, like data-raster-ready: the paint the layer has now.
+      container.dataset.rasterPaint = JSON.stringify(paint)
       return
     }
     if (!r && !shownRasterSig) return
@@ -680,7 +738,8 @@
     const [w, s, e, n] = r.bounds
     const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v))
     m.addSource(RASTER_ID, { type: 'raster', tiles: [rasterTileUrl(r.key, r.version)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: [clamp(w, 180), clamp(s, 85.0511), clamp(e, 180), clamp(n, 85.0511)] })
-    m.addLayer({ id: RASTER_ID, type: 'raster', source: RASTER_ID, paint: { 'raster-opacity': r.opacity, 'raster-resampling': r.resampling, 'raster-fade-duration': 0 } })
+    m.addLayer({ id: RASTER_ID, type: 'raster', source: RASTER_ID, paint: { 'raster-opacity': r.opacity, ...displayPaint(r.display, r.hasPalette), 'raster-fade-duration': 0 } as never })
+    container.dataset.rasterPaint = JSON.stringify(displayPaint(r.display, r.hasPalette))
     shownRasterSig = sig
   }
 
@@ -906,6 +965,7 @@
       }
       // Spec 026: the raster's tiles in view are drawn (the idle after the source was added or replaced).
       if (shownRasterSig && m.getSource(RASTER_ID) && m.isSourceLoaded(RASTER_ID)) container.dataset.rasterReady = shownRasterSig
+      if (shownReliefSig && m.getSource(DEM_ID) && m.isSourceLoaded(DEM_ID)) container.dataset.reliefReady = shownReliefSig
       // Only meaningful once this layer's data is set: an idle before it
       // arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
@@ -1398,8 +1458,30 @@
   $effect(() => {
     const r = raster
     void r?.opacity
+    void r?.display
+    void r?.relief
     if (!mapReady || !map) return
     untrack(() => applyRaster(r))
+  })
+
+  // Spec 027: the place of the profile chart the pointer is on.
+  let probePin: Marker | null = null
+  $effect(() => {
+    const place = probeMarker
+    const m = map
+    if (!mapReady || !m) return
+    untrack(() => {
+      if (!place) {
+        probePin?.remove()
+        probePin = null
+        return
+      }
+      if (!probePin) {
+        const el = document.createElement('div')
+        el.className = 'probe-pin'
+        probePin = new Marker({ element: el }).setLngLat(place).addTo(m)
+      } else probePin.setLngLat(place)
+    })
   })
 
   // Spec 024: the companion layer's features, set when they arrive (never per pan).
@@ -1838,6 +1920,8 @@
     draw: ['point', 'line', 'polygon', 'rectangle', 'circle', 'freehand', 'edit'],
     measure: ['line', 'polygon', 'rectangle', 'circle'],
     select: ['rectangle', 'polygon', 'circle', 'freehand'],
+    profile: ['line', 'freehand'],
+    area: ['polygon', 'rectangle', 'circle', 'freehand'],
   }
   const TOOL_ICON: Record<DrawTool, IconName> = { point:'shape-point', line:'shape-line', polygon:'shape-polygon', rectangle:'shape-rect', circle:'shape-circle', freehand:'shape-freehand', edit: 'pointer' }
   const TOOL_LABEL: Record<DrawTool, string> = { point: 'Point', line: 'Line', polygon: 'Polygon', rectangle: 'Rectangle', circle: 'Circle', freehand: 'Freehand', edit: 'Edit shapes' }
@@ -1850,7 +1934,7 @@
     freehand: 'Press and drag to draw a free shape',
     edit: 'Click a shape to select it: drag it or its corners; Delete removes it',
   }
-  const PURPOSE_LABEL: Record<ShapePurpose, string> = { draw: 'Draw', measure: 'Measure', select: 'Select by shape' }
+  const PURPOSE_LABEL: Record<ShapePurpose, string> = { draw: 'Draw', measure: 'Measure', select: 'Select by shape', profile: 'Profile', area: 'Area statistics' }
 
   // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
@@ -1935,9 +2019,9 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure','select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure','select', 'rasterProfile', 'rasterArea', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
-  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select:'select' }
+  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select', profile: 'rasterProfile', area: 'rasterArea' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
   /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
   function cornerSegments(corner: ControlPosition): Segment[] {
@@ -2038,9 +2122,9 @@
                     {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
                   {:else if id === 'terrain'}
                     {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
-                  {:else if id === 'draw' || id === 'measure' || id ==='select'}
-                    {@const purpose: ShapePurpose = id}
-                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' :'select-shape', corner, {
+                  {:else if id === 'draw' || id === 'measure' || id === 'select' || id === 'rasterProfile' || id === 'rasterArea'}
+                    {@const purpose: ShapePurpose = id === 'rasterProfile' ? 'profile' : id === 'rasterArea' ? 'area' : id}
+                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], purpose === 'draw' ? 'draw' : purpose === 'measure' ? 'ruler' : purpose === 'profile' ? 'profile' : purpose === 'area' ? 'sigma' : 'select-shape', corner, {
                       pressed: drawTool?.purpose === purpose,
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
@@ -2586,5 +2670,14 @@
     font-variant-numeric: tabular-nums;
     padding: 0 4px;
     backdrop-filter: var(--se-overlay-blur);
+  }
+  :global(.probe-pin) {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--se-accent, #2563eb);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
   }
 </style>

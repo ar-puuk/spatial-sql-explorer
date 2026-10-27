@@ -3,7 +3,7 @@
 // wasm only when a striped file is opened. The worker's code is imported lazily (and built inline as a blob worker), so a page
 // that never opens a raster loads none of it.
 import { RasterOpenError, loadConverterBytes, loadRasterEngineBytes, type EngineSource, type RasterRenderOptions } from '@spatial-explorer/core'
-import type { CogInput, ColormapTable, ConvertedCog, FromWorker, OpenedCog, PointAnswer, StatisticsAnswer, StripedInfo, ToWorker } from './tilerProtocol.js'
+import type { AreaStatsAnswer, CogInput, ColormapTable, ConvertedCog, FromWorker, OpenedCog, PointAnswer, StatisticsAnswer, StripedInfo, ToWorker } from './tilerProtocol.js'
 
 type Pending = { resolve(value: unknown): void; reject(error: Error): void; onNote?: (text: string) => void }
 
@@ -75,6 +75,21 @@ export class TilerClient {
 
   point(handle: number, lon: number, lat: number): Promise<PointAnswer> {
     return this.call<PointAnswer>({ type: 'point', handle, lon, lat })
+  }
+
+  /** The value of each of `bands` (1-based) at each place (lon, lat pairs); NaN where a place is off the raster. */
+  profile(handle: number, points: Float64Array, bands: number[]): Promise<Float64Array> {
+    return this.call<Float64Array>({ type: 'profile', handle, points, bands })
+  }
+
+  /** The figures of each of `bands` over the cells inside the ring (lon, lat pairs). */
+  areaStats(handle: number, ring: Float64Array, bands: Array<{ index: number; name: string }>, nodata: number | 'nan' | null): Promise<AreaStatsAnswer> {
+    return this.call<AreaStatsAnswer>({ type: 'areaStats', handle, ring, bands, nodata })
+  }
+
+  /** A PNG tile of the values of `band`, packed as `base + n * step` in red, green and blue (for the hillshade). */
+  demTile(handle: number, z: number, x: number, y: number, band: number, base: number, step: number, fill: number, nodata?: number | null): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ type: 'demTile', handle, z, x, y, band, base, step, fill, nodata })
   }
 
   /** A PNG tile, made in the worker. */

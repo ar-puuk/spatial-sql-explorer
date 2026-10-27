@@ -18,8 +18,9 @@ Everything runs locally, in WebAssembly: your files are never uploaded.
   Cube 7 networks), FlatGeobuf, Shapefile, GeoParquet, Parquet, GML, CSV and
   PMTiles and Excel, on a map and in an attribute table kept in sync. A
   GeoTIFF or Cloud-Optimized GeoTIFF opens as a raster to look at (no table or
-  SQL for it): its facts, the value of each band under the cursor, and a style
-  with band, colormap and range. File
+  SQL for it): its facts, the value of each band under the cursor, a style
+  with band, colormap and range, brightness and contrast, shaded relief for a
+  DEM, an elevation profile along a line and statistics inside an area. File
   Geodatabases (a `.gdb` folder or `.gdb.zip`, experimental), GTFS transit
   feeds (a zip or folder: routes and stops, colored as the feed says) and zipped data
   open too; a geodatabase's layers are tables in one schema, and coded domains
