@@ -2,7 +2,7 @@
   // Spec 027 US3 and US4: what a line or an area drawn over the raster says. A profile is a chart of the value along the
   // line (gaps where there is no data or the line leaves the raster) with the figures that matter and a CSV; the keys
   // and the pointer move a marker along the line on the map. The same table is there as text for screen readers.
-  import { formatLength, profileCsv, summarizeProfile, valueText } from '@spatial-explorer/core'
+  import { areaCsv, formatArea, formatLength, profileCsv, summarizeProfile, valueText } from '@spatial-explorer/core'
   import Icon from '../Icon.svelte'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
 
@@ -13,6 +13,7 @@
 
   const probe = $derived(store.rasterProbe)
   const profile = $derived(probe?.profile ?? null)
+  const area = $derived(probe?.area ?? null)
   const units = $derived(store.drawUnits)
 
   const W = 600
@@ -93,8 +94,16 @@
     return rows
   })
 
+  const count = (n: number): string => n.toLocaleString('en-US')
+  /** A tiny bar chart of the values inside the area. */
+  const bars = (h: number[]): Array<{ x: number; y: number; w: number; h: number }> => {
+    const top = Math.max(1, ...h)
+    return h.map((c, i) => ({ x: (i / h.length) * 100, y: 100 - (c / top) * 100, w: 100 / h.length, h: (c / top) * 100 }))
+  }
+
   async function saveCsv(): Promise<void> {
     if (profile) await store.saveRasterProfileCsv(profileCsv(profile.samples, profile.bands))
+    else if (area) await store.saveRasterProfileCsv(areaCsv(area.bands), 'area-statistics.csv')
   }
 </script>
 
@@ -105,7 +114,7 @@
       <h2>{probe.kind === 'profile' ? 'Profile' : 'Area statistics'}</h2>
       {#if probe.status === 'running'}<span class="muted" role="status">Reading the raster…</span>{/if}
       <span class="spacer"></span>
-      {#if profile}
+      {#if profile || area}
         <button type="button" class="text" onclick={() => void saveCsv()} title="Distance, longitude, latitude and the value of each band">Save CSV</button>
       {/if}
       <button type="button" class="icon" aria-label="Close the {probe.kind === 'profile' ? 'profile' : 'statistics'}" title="Close (the line comes off the map)" onclick={() => store.clearRasterProbe()}><Icon name="close" size={14} /></button>
@@ -113,6 +122,40 @@
 
     {#if probe.status === 'error'}
       <p class="error" role="alert">{probe.message}</p>
+    {:else if area}
+      <div class="figures" aria-label="Figures">
+        <span>Area <b>{formatArea(area.areaM2, units)}</b></span>
+        {#if area.cellMeters}<span class="muted">Cells of about {valueText(Math.round(area.cellMeters * 100) / 100)} m</span>{/if}
+        {#if area.approximate}<span class="muted" role="note">Approximate: the area is large, so a reduced level of the file was read.</span>{/if}
+      </div>
+      <table aria-label="Statistics per band">
+        <thead>
+          <tr><th scope="col">Band</th><th scope="col">Cells</th><th scope="col">No data</th><th scope="col">Min</th><th scope="col">Max</th><th scope="col">Mean</th><th scope="col">Sum</th><th scope="col">Std. dev.</th></tr>
+        </thead>
+        <tbody>
+          {#each area.bands as b (b.band)}
+            <tr>
+              <th scope="row">{b.name}</th>
+              <td>{count(b.count)}</td>
+              <td>{count(b.excluded)}</td>
+              <td>{valueText(b.min)}</td>
+              <td>{valueText(b.max)}</td>
+              <td>{valueText(b.mean)}</td>
+              <td>{valueText(b.sum)}</td>
+              <td>{valueText(b.std)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+      {#each area.bands as b (b.band)}
+        {#if b.histogram.length}
+          <svg class="hist" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Histogram of {b.name} inside the area, from {valueText(b.min)} to {valueText(b.max)}">
+            {#each bars(b.histogram) as r, i (i)}<rect x={r.x} y={r.y} width={r.w} height={r.h} fill={bandColor(area.bands.indexOf(b))} />{/each}
+          </svg>
+        {:else}
+          <p class="muted">{b.name}: no values inside the area{b.excluded ? ' (' + count(b.excluded) + ' cells have no data)' : ''}.</p>
+        {/if}
+      {/each}
     {:else if profile}
       <div class="figures" aria-label="Figures">
         <span>Length <b>{formatLength(total, units)}</b></span>
@@ -256,6 +299,12 @@
   .tick {
     fill: var(--se-text-secondary);
     font-size: 10px;
+  }
+  .hist {
+    width: 100%;
+    height: 48px;
+    background: var(--se-bg-input, transparent);
+    border-radius: var(--se-radius-sm);
   }
   .readout {
     margin: 0;

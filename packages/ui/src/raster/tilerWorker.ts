@@ -11,7 +11,9 @@ import type { CogSource } from 'cog-tiler-wasm'
 import { convertVerdict, overviewSteps, tooLargeToConvert } from '../../../core/src/raster/convert.js'
 import { RasterOpenError } from '../../../core/src/raster/errors.js'
 import { encodePng, transparentTilePng } from '../../../core/src/raster/png.js'
-import type { ColormapTable, ConvertedCog, FromWorker, OpenedCog, PointAnswer, StatisticsAnswer, ToWorker } from './tilerProtocol.js'
+import { chooseStatsLevel, densifyRing, polygonSpans, statsOfWindow } from '../../../core/src/raster/areaStats.js'
+import { internalsOf, toMercator } from './cogInternals.js'
+import type { AreaStatsAnswer, ColormapTable, ConvertedCog, FromWorker, OpenedCog, PointAnswer, StatisticsAnswer, ToWorker } from './tilerProtocol.js'
 
 const cogs = new Map<number, CogSource>()
 const hex2 = (n: number): string => n.toString(16).padStart(2, '0')
@@ -94,6 +96,51 @@ async function convert(id: number, message: Extract<ToWorker, { type: 'convert' 
   return { ...opened, sourceType: typeName(striped.bitsPerSample, striped.sampleFormat), hadPalette: striped.palette }
 }
 
+/** Spec 027 US4: the figures of the cells whose centers are inside the ring, from the finest level that fits in one read. */
+async function areaStats(cog: CogSource, message: Extract<ToWorker, { type: 'areaStats' }>): Promise<AreaStatsAnswer> {
+  const raster = internalsOf(cog)
+  const lonLat: Array<[number, number]> = []
+  for (let i = 0; i + 1 < message.ring.length; i += 2) lonLat.push([message.ring[i], message.ring[i + 1]])
+  // Straight in longitude and latitude (as drawn); split so the curve of the file's system is followed.
+  const lons = lonLat.map((p) => p[0])
+  const lats = lonLat.map((p) => p[1])
+  const span = Math.max(...lons) - Math.min(...lons) + (Math.max(...lats) - Math.min(...lats))
+  const ring = densifyRing(lonLat, Math.max(span / 400, 1e-9))
+  const source = ring.map(([lon, lat]) => raster.forward(toMercator(lon, lat)))
+  const toLevel = (level: number): Array<[number, number]> => {
+    const [pw, ph] = raster.levelPixelSize(level)
+    return source.map(([sx, sy]) => [(sx - raster.gt[0]) / pw, (raster.gt[3] - sy) / ph])
+  }
+  const bounds = (px: Array<[number, number]>, level: number): { c0: number; r0: number; w: number; h: number } => {
+    const lv = raster.levels[level]
+    const xs = px.map((p) => p[0])
+    const ys = px.map((p) => p[1])
+    const c0 = Math.max(0, Math.floor(Math.min(...xs)))
+    const r0 = Math.max(0, Math.floor(Math.min(...ys)))
+    const c1 = Math.min(lv.width, Math.ceil(Math.max(...xs)))
+    const r1 = Math.min(lv.height, Math.ceil(Math.max(...ys)))
+    return { c0, r0, w: Math.max(0, c1 - c0), h: Math.max(0, r1 - r0) }
+  }
+  const full = bounds(toLevel(0), 0)
+  const widths = raster.levels.map((l) => l.width)
+  const pick = chooseStatsLevel(widths, full.w * full.h)
+  if (!pick.fits) throw new Error('The area is too large to read. Draw a smaller one.')
+  const level = pick.level
+  const px = toLevel(level)
+  const win = bounds(px, level)
+  const scale = widths[0] / widths[level]
+  const none = (): AreaStatsAnswer => ({ bands: message.bands.map((b) => statsOfWindow([], 0, new Int32Array(0), message.nodata, b)), approximate: pick.approximate, scale })
+  if (win.w === 0 || win.h === 0) return none()
+  const spans = polygonSpans([px.map(([x, y]) => [x - win.c0, y - win.r0] as [number, number])], win.w, win.h)
+  if (spans.length === 0) return none()
+  const bands: AreaStatsAnswer['bands'] = []
+  for (const b of message.bands) {
+    const values = await raster.window(level, win.c0, win.r0, win.w, win.h, b.index - 1)
+    bands.push(statsOfWindow(values, win.w, spans, message.nodata, b))
+  }
+  return { bands, approximate: pick.approximate, scale }
+}
+
 async function handle(message: ToWorker): Promise<{ result: unknown; transfer?: Transferable[] }> {
   switch (message.type) {
     case 'init': {
@@ -140,6 +187,11 @@ async function handle(message: ToWorker): Promise<{ result: unknown; transfer?: 
         )
       }
       return { result: out, transfer: [out.buffer as ArrayBuffer] }
+    }
+    case 'areaStats': {
+      const cog = cogs.get(message.handle)
+      if (!cog) throw new Error('The raster is closed.')
+      return { result: await areaStats(cog, message) }
     }
     case 'tile': {
       const cog = cogs.get(message.handle)

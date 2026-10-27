@@ -489,7 +489,7 @@ export interface ViewerStore {
   readonly probeMarker: [number, number] | null
   setProbeMarker(place: readonly number[] | null): void
   /** Saves the profile as a CSV file (a download on the web). */
-  saveRasterProfileCsv(text: string): Promise<void>
+  saveRasterProfileCsv(text: string, name?: string): Promise<void>
   /** Opens a purpose's tools (draw, measure, select by shape); the same purpose again closes them. */
   toggleDrawPurpose(purpose: ShapePurpose): void
   setDrawTool(tool: DrawTool | null): void
@@ -3008,8 +3008,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     setProbeMarker(place) {
       rasterProbe.setMarker(place)
     },
-    async saveRasterProfileCsv(text) {
-      await hostAdapter.saveFile('profile.csv', text, { kind: 'data' })
+    async saveRasterProfileCsv(text, name = 'profile.csv') {
+      await hostAdapter.saveFile(name, text, { kind: 'data' })
     },
     get shapesRequest() {
       return shapesRequest

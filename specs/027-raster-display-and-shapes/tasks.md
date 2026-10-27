@@ -20,9 +20,9 @@
 - [x] T010 UI `RasterProfile.svelte`: SVG chart with gaps, summary, hover marker on the map, CSV through `saveFile`, table alternative for screen readers; shown at the foot of the map while a profile shape exists. Web tests: profile equals `point()`, gap outside raster, CSV, keyboard.
 
 ## Phase 4: US4 area statistics (P2)
-- [ ] T011 Core `areaStats.ts`: `AreaStatsAccumulator` (count, excluded, sum, sumsq, min, max, 64-bin histogram), `finishAreaStats`, `pointInRing`, `chooseStatsLevel(levels, bboxCells)`; test against a naive computation `tests/core/raster-area.test.ts`.
-- [ ] T012 Worker message `areaStats` (level choice, window read per band, centers tested against the ring transformed to the source CRS, `approximate` flag), client method.
-- [ ] T013 UI `RasterAreaStats.svelte` (table per band, area, histogram, approximate note), wired to the `area` shapes; web tests: exact count and mean against geotiff.js over the fixture, no-data only polygon, polygon partly outside.
+- [x] T011 Core `areaStats.ts`: `AreaStatsAccumulator` (count, excluded, sum, sumsq, min, max, 64-bin histogram), `finishAreaStats`, `pointInRing`, `chooseStatsLevel(levels, bboxCells)`; test against a naive computation `tests/core/raster-area.test.ts`.
+- [x] T012 Worker message `areaStats` (level choice, window read per band, centers tested against the ring transformed to the source CRS, `approximate` flag), client method.
+- [x] T013 UI `RasterAreaStats.svelte` (table per band, area, histogram, approximate note), wired to the `area` shapes; web tests: exact count and mean against geotiff.js over the fixture, no-data only polygon, polygon partly outside.
 
 ## Phase 5: US2 hillshade (P1, last because it carries the risk)
 - [ ] T014 Record in `research.md` how `cog-tiler-wasm` 0.5.0 builds a tile (members used: `toSource`, `gt`, `levels`, `_chooseLevel`, `_levelPixelSize`, `_assembleWindow`, `nodata`, `flipY`).

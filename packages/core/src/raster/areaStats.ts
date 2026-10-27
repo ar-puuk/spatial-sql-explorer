@@ -151,6 +151,14 @@ export function chooseStatsLevel(widths: readonly number[], cellsAtFull: number,
   return { level: widths.length - 1, approximate: widths.length > 1, fits: false }
 }
 
+/** A CSV of the figures: one row per band. */
+export function areaCsv(bands: readonly BandAreaStats[]): string {
+  const q = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+  const n = (v: number | null): string => (v === null ? '' : String(v))
+  const rows = bands.map((b) => [q(b.name), b.count, b.excluded, n(b.min), n(b.max), n(b.mean), n(b.sum), n(b.std)].join(','))
+  return ['band,cells,no_data_cells,min,max,mean,sum,std_dev', ...rows].join('\n') + '\n'
+}
+
 /** What the panel shows for an area. */
 export interface AreaResult {
   /** Square meters, from the drawn shape. */

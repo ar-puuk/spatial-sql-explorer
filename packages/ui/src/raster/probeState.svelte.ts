@@ -1,7 +1,7 @@
 // Spec 027: what a shape drawn over the open raster says (US3 a profile along a line, US4 the statistics inside an area).
 // One at a time: a new shape replaces the last, and the answer is dropped if the shape, or the raster, changed while it was
 // being read. The reading itself is the raster worker's; this only asks, keeps the answer and lets go of it.
-import { cellMeters, flattenPoints, profileBands, profileSamples, type DrawnShape, type ProfileBand, type ProfileSamples } from '@spatial-explorer/core'
+import { cellMeters, flattenPoints, measureShape, profileBands, profileSamples, type AreaResult, type DrawnShape, type ProfileBand, type ProfileSamples } from '@spatial-explorer/core'
 import type { RasterHandle } from './handle.js'
 
 export interface ProfileResult {
@@ -15,6 +15,7 @@ export interface Probe {
   status: 'running' | 'done' | 'error'
   message?: string
   profile?: ProfileResult
+  area?: AreaResult
 }
 
 export function createProbeState(getHandle: () => RasterHandle | null, getBands: () => number[], removeShapes: (ids: string[]) => void) {
@@ -42,6 +43,35 @@ export function createProbeState(getHandle: () => RasterHandle | null, getBands:
     }
   }
 
+  async function area(shape: DrawnShape, mine: number): Promise<void> {
+    const handle = getHandle()
+    if (!handle || shape.geometry.type !== 'Polygon') return
+    const outer = shape.geometry.coordinates[0] ?? []
+    if (outer.length < 4) {
+      probe = { kind: 'area', shapeId: shape.id, status: 'error', message: 'An area needs at least three corners.' }
+      return
+    }
+    const ring = new Float64Array(outer.length * 2)
+    outer.forEach((p, i) => {
+      ring[i * 2] = p[0]
+      ring[i * 2 + 1] = p[1]
+    })
+    const bands = getBands().map((b) => ({ index: b, name: handle.facts.bands[b - 1]?.name ?? `Band ${b}` }))
+    try {
+      const answer = await handle.reader.areaStats(ring, bands)
+      if (mine !== run || handle !== getHandle()) return
+      const cell = cellMeters(handle.facts)
+      probe = {
+        kind: 'area',
+        shapeId: shape.id,
+        status: 'done',
+        area: { areaM2: measureShape(shape).areaM2 ?? 0, approximate: answer.approximate, cellMeters: cell === null ? null : cell * answer.scale, bands: answer.bands },
+      }
+    } catch (error) {
+      if (mine === run) probe = { kind: 'area', shapeId: shape.id, status: 'error', message: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   return {
     get probe() {
       return probe
@@ -59,6 +89,7 @@ export function createProbeState(getHandle: () => RasterHandle | null, getBands:
       probe = { kind: shape.purpose === 'area' ? 'area' : 'profile', shapeId: shape.id, status: 'running' }
       if (previous && previous !== shape.id) removeShapes([previous])
       if (shape.purpose === 'profile') void profile(shape, mine)
+      else if (shape.purpose === 'area') void area(shape, mine)
     },
     /** Lets go of the answer and the shape. */
     clear(): void {
