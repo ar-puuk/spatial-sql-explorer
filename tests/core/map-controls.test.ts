@@ -59,7 +59,7 @@ describe('registry', () => {
 
 describe('stacks', () => {
   it('a corner stacks its controls in registry order', () => {
-    expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
+    expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure', 'select', 'rasterProfile', 'rasterArea', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'bottom-left')).toEqual(['legend', 'logo', 'scale'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'top-left')).toEqual(['search'])
     expect(controlsAt(DEFAULT_MAP_CONTROLS, 'bottom-right')).toEqual([])
@@ -118,15 +118,15 @@ describe('readMapControls', () => {
 
 describe('rasters (spec 026): the controls that need rows are not offered', () => {
   const NEEDS_ROWS = ['search', 'draw', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip']
-  it('a vector layer is offered every control', () => {
-    for (const c of MAP_CONTROLS) expect(controlAvailable(c.id, 'vector'), c.id).toBe(true)
+  it('a vector layer is offered every control except the two that read a raster', () => {
+    for (const c of MAP_CONTROLS) expect(controlAvailable(c.id, 'vector'), c.id).toBe(!['rasterProfile', 'rasterArea'].includes(c.id))
   })
   it('a raster is not offered search, the draw and select tools, the grid and dot tools, the time slider or the tooltip', () => {
     for (const id of NEEDS_ROWS) expect(controlAvailable(id as never, 'raster'), id).toBe(false)
   })
-  it('a raster keeps zoom, zoom to layer, reset view, globe, terrain, measure, print, legend, coordinates, logo and the scale bar', () => {
+  it('a raster keeps zoom, zoom to layer, reset view, globe, terrain, measure, the profile and area tools, print, legend, coordinates, logo and the scale bar', () => {
     const kept = MAP_CONTROLS.filter((c) => controlAvailable(c.id, 'raster')).map((c) => c.id)
-    expect(kept).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'measure', 'exportImage', 'legend', 'coordinates', 'logo', 'scale'])
+    expect(kept).toEqual(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'measure', 'rasterProfile', 'rasterArea', 'exportImage', 'legend', 'coordinates', 'logo', 'scale'])
   })
   it('the stacks at a position leave them out, so nothing is left behind (saved choices are not touched)', () => {
     const all = controlsAt(DEFAULT_MAP_CONTROLS, 'top-right')

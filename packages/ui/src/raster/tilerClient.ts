@@ -77,6 +77,11 @@ export class TilerClient {
     return this.call<PointAnswer>({ type: 'point', handle, lon, lat })
   }
 
+  /** The value of each of `bands` (1-based) at each place (lon, lat pairs); NaN where a place is off the raster. */
+  profile(handle: number, points: Float64Array, bands: number[]): Promise<Float64Array> {
+    return this.call<Float64Array>({ type: 'profile', handle, points, bands })
+  }
+
   /** A PNG tile, made in the worker. */
   tile(handle: number, z: number, x: number, y: number, options: RasterRenderOptions): Promise<Uint8Array> {
     return this.call<Uint8Array>({ type: 'tile', handle, z, x, y, options })

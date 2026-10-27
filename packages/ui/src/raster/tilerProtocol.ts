@@ -42,6 +42,7 @@ export type ToWorker =
   | { id: number; type: 'convert'; handle: number; source: Exclude<CogInput, Uint8Array>; striped: StripedInfo }
   | { id: number; type: 'statistics'; handle: number; maxSize: number }
   | { id: number; type: 'point'; handle: number; lon: number; lat: number }
+  | { id: number; type: 'profile'; handle: number; /** lon0, lat0, lon1, lat1, … */ points: Float64Array; bands: number[] }
   | { id: number; type: 'tile'; handle: number; z: number; x: number; y: number; options: RasterRenderOptions }
   | { id: number; type: 'close'; handle: number }
 

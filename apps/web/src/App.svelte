@@ -172,6 +172,10 @@
         capabilities: JSON.parse(JSON.stringify(store.capabilities)),
         tiles: (await import('@spatial-explorer/ui')).rasterTileStats(),
       }),
+      /** Spec 027: the last profile line or area drawn over the raster, as the panel shows it. */
+      rasterProbe: () => JSON.parse(JSON.stringify(store.rasterProbe)),
+      /** Spec 027: the raster's own answer at a place (what the cursor readout uses), to check a profile against. */
+      rasterPointAt: async (lon: number, lat: number, bidx?: number[]) => (store.raster ? JSON.parse(JSON.stringify(await store.raster.reader.point(lon, lat))) : null),
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),

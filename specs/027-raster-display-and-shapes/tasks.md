@@ -15,9 +15,9 @@
 
 ## Phase 3: US3 profile (P2)
 - [ ] T007 Core `profile.ts`: `profileSamples(line, maxPoints, cellMeters)` (great-circle spacing, distances), `summarizeProfile` (min, max, rise, fall, gaps), `profileCsv`. Test `tests/core/raster-profile.test.ts`.
-- [ ] T008 Worker: message `profile` in `tilerProtocol.ts`, `tilerWorker.ts` (one window read at a suitable level, nearest sampling the way `point()` does, no-data and outside as NaN), `tilerClient.ts` method. Test against `point()` at five places in the web spec.
-- [ ] T009 Draw: purposes `profile` and `area` in `packages/core/src/draw/shapes.ts`, controller palettes in `MapView.svelte` (line/freehand and polygon/rectangle/circle/freehand), map controls `rasterProfile` and `rasterArea` in `mapControls.ts` (`layerKinds` available only for a raster; vector layers never see them), store `toggleDrawPurpose` wiring.
-- [ ] T010 UI `RasterProfile.svelte`: SVG chart with gaps, summary, hover marker on the map, CSV through `saveFile`, table alternative for screen readers; shown at the foot of the map while a profile shape exists. Web tests: profile equals `point()`, gap outside raster, CSV, keyboard.
+- [x] T008 Worker: message `profile` in `tilerProtocol.ts`, `tilerWorker.ts` (one window read at a suitable level, nearest sampling the way `point()` does, no-data and outside as NaN), `tilerClient.ts` method. Test against `point()` at five places in the web spec.
+- [x] T009 Draw: purposes `profile` and `area` in `packages/core/src/draw/shapes.ts`, controller palettes in `MapView.svelte` (line/freehand and polygon/rectangle/circle/freehand), map controls `rasterProfile` and `rasterArea` in `mapControls.ts` (`layerKinds` available only for a raster; vector layers never see them), store `toggleDrawPurpose` wiring.
+- [x] T010 UI `RasterProfile.svelte`: SVG chart with gaps, summary, hover marker on the map, CSV through `saveFile`, table alternative for screen readers; shown at the foot of the map while a profile shape exists. Web tests: profile equals `point()`, gap outside raster, CSV, keyboard.
 
 ## Phase 4: US4 area statistics (P2)
 - [ ] T011 Core `areaStats.ts`: `AreaStatsAccumulator` (count, excluded, sum, sumsq, min, max, 64-bin histogram), `finishAreaStats`, `pointInRing`, `chooseStatsLevel(levels, bboxCells)`; test against a naive computation `tests/core/raster-area.test.ts`.

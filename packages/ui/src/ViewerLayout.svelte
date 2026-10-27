@@ -41,6 +41,7 @@
   import TerrainSection from './TerrainSection.svelte'
   import ShapesBar from './ShapesBar.svelte'
   import TimeSlider from './TimeSlider.svelte'
+  import RasterProbePanel from './raster/RasterProbePanel.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
@@ -433,6 +434,7 @@
           layer={store.mapLayer ?? layer}
           raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, display: store.rasterStyle.display, hasPalette: store.raster.facts.hasPalette, bounds: store.raster.facts.extentWgs84 } : null}
           pixel={store.pixel}
+          probeMarker={store.probeMarker}
           mapData={store.mapData}
           labelPoints={store.labelPoints}
           tileUrl={store.tileUrl}
@@ -496,6 +498,9 @@
         />
         {#if store.timeSlider.open && !isRaster}
           <div class="time-slot" class:above={store.shapes.length > 0}><TimeSlider {store} /></div>
+        {/if}
+        {#if isRaster && store.rasterProbe}
+          <div class="probe-slot"><RasterProbePanel {store} /></div>
         {/if}
         {#if store.shapes.length > 0 && !isRaster}
           <div class="shapes-slot"><ShapesBar {store} /></div>
@@ -885,6 +890,15 @@
   }
   .time-slot.above {
     bottom: calc(var(--se-map-bottom-inset, 0px) + 88px);
+  }
+  .probe-slot {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--se-map-bottom-inset, 0px) + 40px);
+    z-index: 6;
+    transform: translateX(-50%);
+    width: calc(100% - 140px);
+    max-width: 680px;
   }
   .shapes-slot {
     position: absolute;

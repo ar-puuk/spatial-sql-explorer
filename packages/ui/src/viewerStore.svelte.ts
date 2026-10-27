@@ -106,6 +106,7 @@ import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
 import { colormapColors } from './raster/engine.js'
 import { createRasterState } from './rasterState.svelte.js'
+import { createProbeState, type Probe } from './raster/probeState.svelte.js'
 import type { RasterHandle } from './raster/handle.js'
 import { temporalColumns, timeFilter, nextWindow, type TimeColumn, type TimeDomain, normalizePrintLayoutConfig, type AtlasFeatureRow, type BlockSpec, type GroupRow, type LineBlockResult, type PrintLayoutConfig, type TableBlockResult, DRAWN_QUERY, shapesGeoJson, type DrawnShape, type ShapePurpose, type SpatialPredicate, type UnitSystem, clampExaggeration, readExaggeration, TERRAIN_EXAGGERATION, TERRAIN_FAILURE_MESSAGE, DEFAULT_MAP_CONTROLS, readMapControls, type MapControlsPrefs, clusterTiles, computedColumns, formatFromFileName, styleDataColumns, type ComputedColumn, type LabelPoint, type MapData, type RuleSuggestions, type SearchHit, type WorkspaceFile } from '@spatial-explorer/core'
 import { DEFAULT_DOMAIN_DISPLAY, DOMAIN_DISPLAY_KEY, type ColumnDomains, type DomainDisplay } from '@spatial-explorer/core'
@@ -480,6 +481,15 @@ export interface ViewerStore {
   readonly shapes: readonly DrawnShape[]
   /** The open drawing tool (null: none): what it is for, and which tool. */
   readonly drawTool: { purpose: ShapePurpose; tool: DrawTool } | null
+  /** Spec 027: what the last profile line or area drawn over the raster says. */
+  readonly rasterProbe: Probe | null
+  /** Takes the answer and its shape off the map. */
+  clearRasterProbe(): void
+  /** The place of the profile chart the pointer is on, marked on the map (null: none). */
+  readonly probeMarker: [number, number] | null
+  setProbeMarker(place: readonly number[] | null): void
+  /** Saves the profile as a CSV file (a download on the web). */
+  saveRasterProfileCsv(text: string): Promise<void>
   /** Opens a purpose's tools (draw, measure, select by shape); the same purpose again closes them. */
   toggleDrawPurpose(purpose: ShapePurpose): void
   setDrawTool(tool: DrawTool | null): void
@@ -1306,6 +1316,17 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
       hostAdapter.setStatus({ pixel: reading ? pixelText(reading) : null })
     }
   )
+  // Spec 027: what a profile line or an area drawn over the raster says (one at a time).
+  const rasterProbe = createProbeState(
+    () => rasterState.handle,
+    () => {
+      const st = rasterState.style
+      return st ? (st.mode === 'rgb' ? st.bands.slice(0, 3) : [st.bands[0] ?? 1]) : [1]
+    },
+    (ids) => {
+      shapesRequest = { seq: (shapesRequest?.seq ?? 0) + 1, remove: ids }
+    }
+  )
   const layerKind = $derived<LayerKind>(displayedLayer?.raster ? 'raster' : 'vector')
   const capabilities = $derived(capabilitiesFor(displayedLayer, { tilesOnly: tilesArchive !== null }))
   const exportDisabled = $derived(
@@ -2081,6 +2102,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     initialLayerState = null
     tilesArchive = null
     pixelProbe.leave()
+    rasterProbe.clear()
     rasterState.clear()
     const previousSession = querySession
     querySession = null
@@ -2953,7 +2975,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         return
       }
       // The first tool of each purpose: a rectangle selects, a line measures, a polygon draws.
-      drawTool = { purpose, tool: purpose === 'select' ? 'rectangle' : purpose === 'measure' ? 'line' : 'polygon' }
+      drawTool = { purpose, tool: purpose === 'select' ? 'rectangle' : purpose === 'measure' || purpose === 'profile' ? 'line' : 'polygon' }
     },
     setDrawTool(tool) {
       drawTool = tool === null ? null : { purpose: drawTool?.purpose ?? 'draw', tool }
@@ -2972,6 +2994,22 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     onShapeDrawn(shape, additive) {
       if (shape.purpose === 'select') void selectShapes([shape], additive)
+      else if (shape.purpose === 'profile' || shape.purpose === 'area') rasterProbe.start(shape)
+    },
+    get rasterProbe(): Probe | null {
+      return rasterProbe.probe
+    },
+    clearRasterProbe() {
+      rasterProbe.clear()
+    },
+    get probeMarker() {
+      return rasterProbe.marker
+    },
+    setProbeMarker(place) {
+      rasterProbe.setMarker(place)
+    },
+    async saveRasterProfileCsv(text) {
+      await hostAdapter.saveFile('profile.csv', text, { kind: 'data' })
     },
     get shapesRequest() {
       return shapesRequest

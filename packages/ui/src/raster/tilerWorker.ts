@@ -120,6 +120,27 @@ async function handle(message: ToWorker): Promise<{ result: unknown; transfer?: 
       if (!cog) throw new Error('The raster is closed.')
       return { result: (await cog.point(message.lon, message.lat)) as unknown as PointAnswer }
     }
+    case 'profile': {
+      // Spec 027: the same reader as the cursor readout (point()), so a profile and a hover agree. Neighboring places share
+      // decoded tiles (the tiler caches them), so a line reads each tile once; a few questions overlap their range reads.
+      const cog = cogs.get(message.handle)
+      if (!cog) throw new Error('The raster is closed.')
+      const n = message.points.length / 2
+      const per = message.bands.length
+      const out = new Float64Array(n * per).fill(NaN)
+      const BATCH = 24
+      for (let start = 0; start < n; start += BATCH) {
+        const end = Math.min(n, start + BATCH)
+        await Promise.all(
+          Array.from({ length: end - start }, async (_, k) => {
+            const i = start + k
+            const answer = await cog.point(message.points[i * 2], message.points[i * 2 + 1], { bidx: message.bands })
+            if (!answer.outside) for (let b = 0; b < per; b++) out[i * per + b] = answer.values[b] ?? NaN
+          }),
+        )
+      }
+      return { result: out, transfer: [out.buffer as ArrayBuffer] }
+    }
     case 'tile': {
       const cog = cogs.get(message.handle)
       if (!cog) throw new Error('The raster is closed.')

@@ -7,6 +7,8 @@ export interface RasterReader {
   renderTilePng(z: number, x: number, y: number, options: RasterRenderOptions): Promise<Uint8Array>
   /** The value of each band at a WGS84 place. */
   point(lon: number, lat: number): Promise<{ coordinates: [number, number]; values: number[]; band_names: string[]; outside?: boolean }>
+  /** Spec 027: the value of each of `bands` at each place (lon, lat pairs), NaN where off the raster. */
+  profile(points: Float64Array, bands: number[]): Promise<Float64Array>
   /** Per-band statistics from the level the tiler picks for `maxSize`. */
   statistics(maxSize: number): Promise<Record<string, TilerBandStats>>
 }

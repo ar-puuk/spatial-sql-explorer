@@ -192,6 +192,8 @@
     /** Why Bin into cells is not available, or null. */
     binUnavailable?: string | null
     /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
+    /** Spec 027: the place of the profile chart the pointer is on (a marker on the map). */
+    probeMarker?: [number, number] | null
     raster?: { key: string; version: number; opacity: number; display?: RasterDisplay; hasPalette: boolean; bounds: [number, number, number, number] } | null
     /** Spec 026: the band values under the cursor (a raster only). */
     pixel?: PixelReading | null
@@ -256,6 +258,7 @@
     timeSliderUnavailable = null,
     binUnavailable = null,
     raster = null,
+    probeMarker = null,
     pixel = null,
   }: Props = $props()
 
@@ -1412,6 +1415,26 @@
     untrack(() => applyRaster(r))
   })
 
+  // Spec 027: the place of the profile chart the pointer is on.
+  let probePin: Marker | null = null
+  $effect(() => {
+    const place = probeMarker
+    const m = map
+    if (!mapReady || !m) return
+    untrack(() => {
+      if (!place) {
+        probePin?.remove()
+        probePin = null
+        return
+      }
+      if (!probePin) {
+        const el = document.createElement('div')
+        el.className = 'probe-pin'
+        probePin = new Marker({ element: el }).setLngLat(place).addTo(m)
+      } else probePin.setLngLat(place)
+    })
+  })
+
   // Spec 024: the companion layer's features, set when they arrive (never per pan).
   $effect(() => {
     const data = companion as GeoJSON.FeatureCollection | null
@@ -1848,6 +1871,8 @@
     draw: ['point', 'line', 'polygon', 'rectangle', 'circle', 'freehand', 'edit'],
     measure: ['line', 'polygon', 'rectangle', 'circle'],
     select: ['rectangle', 'polygon', 'circle', 'freehand'],
+    profile: ['line', 'freehand'],
+    area: ['polygon', 'rectangle', 'circle', 'freehand'],
   }
   const TOOL_ICON: Record<DrawTool, IconName> = { point:'shape-point', line:'shape-line', polygon:'shape-polygon', rectangle:'shape-rect', circle:'shape-circle', freehand:'shape-freehand', edit: 'pointer' }
   const TOOL_LABEL: Record<DrawTool, string> = { point: 'Point', line: 'Line', polygon: 'Polygon', rectangle: 'Rectangle', circle: 'Circle', freehand: 'Freehand', edit: 'Edit shapes' }
@@ -1860,7 +1885,7 @@
     freehand: 'Press and drag to draw a free shape',
     edit: 'Click a shape to select it: drag it or its corners; Delete removes it',
   }
-  const PURPOSE_LABEL: Record<ShapePurpose, string> = { draw: 'Draw', measure: 'Measure', select: 'Select by shape' }
+  const PURPOSE_LABEL: Record<ShapePurpose, string> = { draw: 'Draw', measure: 'Measure', select: 'Select by shape', profile: 'Profile', area: 'Area statistics' }
 
   // Spec 014: the cursor readout. It keeps the last position when the pointer moves onto it, so a click copies
   // what was under the cursor. Updated at most once a frame, and only while the control is on.
@@ -1945,9 +1970,9 @@
   })
 
   /** The controls drawn as buttons in a box; the rest (search, legend, readout, scale, logo) are their own elements. */
-  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure','select', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
+  const BUTTONS = new Set<MapControlId>(['zoom', 'zoomToLayer', 'resetView', 'globe', 'terrain', 'draw', 'measure','select', 'rasterProfile', 'rasterArea', 'binCells', 'dotDensity', 'timeSlider', 'exportImage'])
   const GROUP_LABEL = Object.fromEntries(CONTROL_GROUPS.map((g) => [g.id, g.label])) as Record<ControlGroupId, string>
-  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select:'select' }
+  const PURPOSE_CONTROL: Record<ShapePurpose, MapControlId> = { draw: 'draw', measure: 'measure', select: 'select', profile: 'rasterProfile', area: 'rasterArea' }
   type Segment = { kind: 'buttons'; key: string; group: ControlGroupId; ids: MapControlId[] } | { kind: 'item'; key: string; id: MapExtraId }
   /** What a corner holds, top to bottom: buttons of one group side by side share a box, anything else stands alone. */
   function cornerSegments(corner: ControlPosition): Segment[] {
@@ -2048,9 +2073,9 @@
                     {@render mapButton('Globe view', projection === 'globe' ? 'Flat map' : 'Globe view', 'globe', corner, { pressed: projection === 'globe', onclick: () => onToggleProjection?.() })}
                   {:else if id === 'terrain'}
                     {@render mapButton('Terrain', terrain.on ? 'Terrain off' : 'Terrain on', 'mountain', corner, { pressed: terrain.on, onclick: () => onToggleTerrain?.() })}
-                  {:else if id === 'draw' || id === 'measure' || id ==='select'}
-                    {@const purpose: ShapePurpose = id}
-                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], id === 'draw' ? 'draw' : id === 'measure' ? 'ruler' :'select-shape', corner, {
+                  {:else if id === 'draw' || id === 'measure' || id === 'select' || id === 'rasterProfile' || id === 'rasterArea'}
+                    {@const purpose: ShapePurpose = id === 'rasterProfile' ? 'profile' : id === 'rasterArea' ? 'area' : id}
+                    {@render mapButton(PURPOSE_LABEL[purpose], PURPOSE_LABEL[purpose], purpose === 'draw' ? 'draw' : purpose === 'measure' ? 'ruler' : purpose === 'profile' ? 'profile' : purpose === 'area' ? 'sigma' : 'select-shape', corner, {
                       pressed: drawTool?.purpose === purpose,
                       onclick: () => onToggleDrawPurpose(purpose),
                     })}
@@ -2596,5 +2621,14 @@
     font-variant-numeric: tabular-nums;
     padding: 0 4px;
     backdrop-filter: var(--se-overlay-blur);
+  }
+  :global(.probe-pin) {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--se-accent, #2563eb);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
   }
 </style>

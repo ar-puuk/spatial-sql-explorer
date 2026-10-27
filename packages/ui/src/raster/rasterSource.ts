@@ -144,6 +144,7 @@ export async function openRaster(source: FileSource, engineSource: EngineSource 
   const reader: RasterReader = {
     renderTilePng: (z, x, y, options) => engine.tile(cog.handle, z, x, y, options),
     point: (lon, lat) => engine.point(cog.handle, lon, lat),
+    profile: (points, bands) => engine.profile(cog.handle, points, bands),
     statistics: (maxSize) => engine.statistics(cog.handle, maxSize),
   }
   let closed = false

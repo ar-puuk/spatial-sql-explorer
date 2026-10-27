@@ -20,6 +20,8 @@ export type MapControlId =
   | 'draw'
   | 'measure'
   | 'select'
+  | 'rasterProfile'
+  | 'rasterArea'
   | 'binCells'
   | 'dotDensity'
   | 'timeSlider'
@@ -93,6 +95,8 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
   control('draw', 'tools', 'Draw shapes', 'Points, lines and shapes to use in queries and filters. They are scratch geometry, never edits to the data.', true, CORNERS, 'top-right'),
   control('measure', 'tools', 'Measure', 'Distances and areas, live while you draw.', true, CORNERS, 'top-right'),
   control('select', 'tools', 'Select by shape', 'Draw a shape to select the rows inside it.', true, CORNERS, 'top-right'),
+  control('rasterProfile', 'tools', 'Profile', 'Draw a line over a raster and read its values along it as a chart (spec 027).', true, CORNERS, 'top-right'),
+  control('rasterArea', 'tools', 'Area statistics', 'Draw an area over a raster and read the count, minimum, maximum, mean and sum of its cells (spec 027).', true, CORNERS, 'top-right'),
   control('binCells', 'tools', 'Bin into cells', 'Counts or averages the layer in H3 or A5 grid cells and draws them (spec 017).', true, CORNERS, 'top-right'),
   control('dotDensity', 'tools', 'Dot density', 'Draws a count as dots placed inside its polygons: one dot stands for a fixed amount (spec 022).', true, CORNERS, 'top-right'),
   control('timeSlider', 'tools', 'Time slider', 'Shows the rows within a window of a date column, and plays the window across time (spec 020).', true, CORNERS, 'top-right'),
@@ -112,9 +116,12 @@ export const MAP_CONTROLS: readonly MapControlDef[] = [
  */
 const VECTOR_ONLY: ReadonlySet<MapControlId> = new Set<MapControlId>(['search', 'draw', 'select', 'binCells', 'dotDensity', 'timeSlider', 'tooltip'])
 
+/** Spec 027: the controls that read a raster's values under a drawn shape; a vector layer never offers them. */
+const RASTER_ONLY: ReadonlySet<MapControlId> = new Set<MapControlId>(['rasterProfile', 'rasterArea'])
+
 /** Whether a control is offered while a layer of this kind is open. */
 export function controlAvailable(id: MapControlId, kind: LayerKind): boolean {
-  return kind === 'vector' || !VECTOR_ONLY.has(id)
+  return kind === 'vector' ? !RASTER_ONLY.has(id) : !VECTOR_ONLY.has(id)
 }
 
 export interface MapControlsPrefs {

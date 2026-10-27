@@ -7,7 +7,8 @@ import { formatArea, formatLength, geodesicGeometry, lineLengthMeters, polygonAr
 export type ShapeKind = 'point' | 'line' | 'polygon' | 'rectangle' | 'circle' | 'freehand'
 
 /** What the shape was drawn for: scratch geometry (draw), a measurement, or a selection of rows. */
-export type ShapePurpose = 'draw' | 'measure' | 'select'
+/** `profile` and `area` (spec 027) read a raster's values along a line or inside an area; they are never queries or filters. */
+export type ShapePurpose = 'draw' | 'measure' | 'select' | 'profile' | 'area'
 
 export interface DrawnShape {
   /** Terra Draw's feature id (a UUID). */
