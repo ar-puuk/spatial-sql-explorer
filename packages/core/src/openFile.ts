@@ -22,7 +22,7 @@ import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
-import { planSqliteSource } from './source/sqlite.js'
+import { listGeoPackageLayers, planSqliteSource } from './source/sqlite.js'
 import { fileSqlNames, RESERVED_NAMES_SQL, type FileSqlNames } from './sql/names.js'
 import { activeLayerOf, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, type FileLayer } from './source/layers.js'
 import { chooseDataset, extractDataset, inspectZip, isZipName, ZipChoiceError, type ZipDataset } from './source/zip.js'
@@ -454,7 +454,19 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (gtfs) await prepareGtfs(conn)
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
-    let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : []
+    if (!gtfs && !gdb && strategy === 'st_read' && mayHaveLayers(format)) {
+      try {
+        layers = await listLayers(conn, registered.primaryPath)
+      } catch (err) {
+        // ST_Read_Meta fails in this engine for a coordinate system with several datum transformations (EPSG:27700, issue 1), though ST_Read reads the file.
+        if (format !== 'geopackage') throw err
+        hostAdapter.log?.(`[open] ST_Read_Meta failed (${err instanceof Error ? err.message : String(err)}); listing layers from the GeoPackage catalog`)
+        layers = await listGeoPackageLayers(db, conn, registered.primaryPath, extraPaths).catch(() => {
+          throw err
+        })
+      }
+    }
     // Research §16: how each GeoPackage / SQLite layer is read.
     let readers = new Map<string, string>()
     if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
@@ -476,7 +488,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       })
       layers = plan.layers
       readers = plan.readers
-      extraPaths = plan.paths
+      extraPaths = [...extraPaths, ...plan.paths]
       timings.layers = lap()
     }
     checkCancelled()

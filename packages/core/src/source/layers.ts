@@ -30,7 +30,7 @@ export function isFileGeodatabase(name: string): boolean {
   return /\.gdb([\\/]|$)/i.test(name) || /\.gdb\.zip$/i.test(name) || /\.gdbtable$/i.test(name)
 }
 
-function geometryTypeOf(raw: string | null | undefined): GeometryType | null {
+export function geometryTypeOf(raw: string | null | undefined): GeometryType | null {
   if (!raw) return null
   const t = normalizeGeometryType(raw)
   return t ?? 'Mixed'
