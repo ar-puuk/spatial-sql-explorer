@@ -300,8 +300,10 @@ Select by shape, grid and dot tools, the time slider, search) are not shown. Mea
   statistics as CSV (with the file, area, cell size and whether it is approximate
   on every row), the histogram bins as CSV, and the histogram as SVG or PNG. A very large area reads a reduced level of the file and says the
   figures are approximate.
-- **Style file.** Saved as `<name>.qml` next to the file, which QGIS loads with
-  the data (the Spatial Explorer settings ride along inside it).
+- **Style file.** **Save** writes `<name>.qml` next to the file, which QGIS loads
+  with the data (the Spatial Explorer settings ride along inside it); **Load…**
+  reads a QGIS raster `.qml`; the broom resets to the file's default style. The
+  panel's footer is the vector style panel's.
 - Not included: raster analysis (slope, aspect, band math, viewshed, derived
   rasters), zonal statistics over a vector layer, several rasters, vector data
   over a raster, a `.tif` placed only by a world file, NetCDF, Zarr, STAC and

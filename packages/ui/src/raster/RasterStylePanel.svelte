@@ -5,6 +5,7 @@
   // Every edit is a pure function in core (withMode, withBand, withRangePreset, ...), so this only shows and calls them.
   import { DEFAULT_RELIEF, NEUTRAL_DISPLAY, RELIEF_METHODS, canOfferRelief, isNeutralDisplay, isReliefStored, type RasterRelief, type ReliefMethod, withBand, withChannel, withCommonRange, withMode, withRangePreset, type RasterDisplay, type RasterResampling, type RasterStretch, type RasterStyle } from '@spatial-explorer/core'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
+  import Icon from '../Icon.svelte'
   import Segmented from '../kit/Segmented.svelte'
   import Select from '../kit/Select.svelte'
   import Slider from '../kit/Slider.svelte'
@@ -175,7 +176,12 @@
       </section>
 
       <section aria-labelledby="rs-relief">
-        <h3 id="rs-relief">Relief</h3>
+        <div class="head">
+          <h3 id="rs-relief">Relief</h3>
+          {#if relief.on || isReliefStored(style.relief)}
+            <button type="button" class="icon-button" aria-label="Reset relief" title="Reset the relief: switch it off and put its settings back" onclick={() => patch({ relief: undefined })}><Icon name="undo" size={14} /></button>
+          {/if}
+        </div>
         {#if !offer.ok}
           <p class="hint">{offer.reason}</p>
         {:else}
@@ -210,14 +216,16 @@
                 <label>Edge <input type="color" value={relief.accent} aria-label="Accent color" onchange={(e) => shade({ accent: e.currentTarget.value })} /></label>
               </span>
             </div>
-            <div class="presets"><button type="button" onclick={() => patch({ relief: undefined })} title="Switch the relief off and put its settings back">Reset relief</button></div>
             <p class="hint">The values are taken as meters. Ground with no data is flat, so its edge shows as a step.</p>
           {/if}
         {/if}
       </section>
 
       <section aria-labelledby="rs-appearance">
-        <h3 id="rs-appearance">Appearance</h3>
+        <div class="head">
+          <h3 id="rs-appearance">Appearance</h3>
+          <button type="button" class="icon-button" aria-label="Reset appearance" title="Reset the appearance: brightness, contrast, saturation, hue and pixels back to neutral" disabled={isNeutralDisplay(style.display)} onclick={() => patch({ display: undefined })}><Icon name="undo" size={14} /></button>
+        </div>
         <div class="row">
           <span class="label">Black level</span>
           <span class="wide"><Slider value={display.brightnessMin} min={0} max={1} step={0.01} label="Black level" onChange={(v) => adjust({ brightnessMin: Math.min(v, display.brightnessMax) })} /></span>
@@ -239,23 +247,19 @@
           <span class="wide"><Slider value={display.hue} min={0} max={360} step={1} unit="°" label="Hue" onChange={(v) => adjust({ hue: v })} /></span>
         </div>
         <Segmented label="Pixels" options={RESAMPLING} value={display.resampling} onChange={(v) => adjust({ resampling: v as RasterResampling })} />
-        <div class="presets">
-          <button type="button" disabled={isNeutralDisplay(style.display)} onclick={() => patch({ display: undefined })} title="Brightness, contrast, saturation, hue and pixels back to neutral">Reset appearance</button>
-        </div>
         <p class="hint">These change how the picture looks on the map and the print page. The color bar and legend show the colors as set above.</p>
       </section>
 
-      <section aria-labelledby="rs-file">
-        <h3 id="rs-file">Style file</h3>
-        <div class="presets">
-          <button type="button" class="primary" onclick={() => void store.saveRasterStyle()} title="QGIS loads {sidecarName} automatically with the data">
-            {store.canSaveSidecar ? `Save ${sidecarName}` : `Download ${sidecarName}`}
-          </button>
-          <button type="button" onclick={() => store.resetRasterStyle()} title="Back to the style the file starts with">Reset</button>
-        </div>
-        <p class="hint">{store.styleSource ? `From ${store.styleSource}${store.styleDirty ? ', modified' : ''}.` : store.styleDirty ? 'Modified, not saved to a file. It is remembered for this file in this viewer.' : 'The file’s default.'}</p>
-      </section>
+      <p class="hint source">{store.styleSource ? `From ${store.styleSource}${store.styleDirty ? ', modified' : ''}.` : store.styleDirty ? 'Modified, not saved to a file. It is remembered for this file in this viewer.' : 'The file’s default.'}</p>
     </div>
+    <footer>
+      <button type="button" class="primary" onclick={() => void store.saveRasterStyle()} title="QGIS loads {sidecarName} automatically with the data">
+        <Icon name="export" size={14} />{store.canSaveSidecar ? `Save ${sidecarName}` : `Download ${sidecarName}`}
+      </button>
+      <button type="button" class="secondary" aria-label="Load style…" title="Load a style: a QGIS .qml saved for a raster" onclick={() => void store.importRasterStyle()}><Icon name="import" size={14} />Load…</button>
+      <span class="spacer"></span>
+      <button type="button" class="icon-button" aria-label="Reset style" title="Reset to the default style" onclick={() => store.resetRasterStyle()}><Icon name="reset-style" /></button>
+    </footer>
   </div>
 {/if}
 
@@ -334,6 +338,80 @@
   .notice.error {
     border-left-color: var(--se-error);
   }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .hint.source {
+    margin-top: 4px;
+  }
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px 8px 12px;
+    border-top: 1px solid var(--se-border);
+  }
+  .spacer {
+    flex: 1;
+  }
+  footer .primary,
+  footer .secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--se-button-border);
+    border-radius: var(--se-radius-sm);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  footer .primary {
+    border-color: transparent;
+    background: var(--se-button-bg);
+    color: var(--se-button-fg);
+  }
+  footer .primary:hover {
+    background: var(--se-button-hover-bg, var(--se-button-bg));
+  }
+  footer .secondary {
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+  }
+  footer .secondary:hover {
+    background: var(--se-button-secondary-hover);
+  }
+  footer :global(button:focus-visible) {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
+  }
+  .icon-button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: pointer;
+  }
+  .icon-button:hover:not(:disabled) {
+    background: var(--se-control-hover);
+    color: var(--se-text-primary);
+  }
+  .icon-button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .icon-button:focus-visible {
+    outline: 1px solid var(--se-focus);
+  }
   .swatches {
     display: flex;
     flex-wrap: wrap;
@@ -370,11 +448,6 @@
   }
   .presets button:hover {
     background: var(--se-button-secondary-hover);
-  }
-  .presets button.primary {
-    border-color: transparent;
-    background: var(--se-button-bg);
-    color: var(--se-button-fg);
   }
   .presets button:focus-visible {
     outline: 1px solid var(--se-focus);

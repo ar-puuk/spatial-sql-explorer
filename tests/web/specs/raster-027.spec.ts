@@ -198,7 +198,7 @@ test.describe('a profile along a line (US3)', () => {
     await openRaster(page, raster('dem-utm12.tif'))
     await pickRasterTool(page, 'Profile')
     const m = await mapBox(page)
-    await drawLine(page, [[m.x + m.width / 2 - 60, m.y + m.height / 2], [m.x + m.width / 2, m.y + m.height / 2 + 15], [m.x + m.width / 2 + 60, m.y + m.height / 2 + 30]])
+    await drawLine(page, [[m.x + m.width / 2 - 120, m.y + m.height * 0.75], [m.x + m.width / 2, m.y + m.height * 0.5], [m.x + m.width / 2 + 120, m.y + m.height * 0.25]])
     await expect.poll(async () => (await probe(page))?.status, { timeout: 30000 }).toBe('done')
     const results = await new AxeBuilder({ page }).include('[aria-label="Profile along the line"]').analyze()
     expect(results.violations).toEqual([])

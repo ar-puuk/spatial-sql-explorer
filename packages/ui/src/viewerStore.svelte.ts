@@ -625,6 +625,8 @@ export interface ViewerStore {
   replaceRasterStyle(style: RasterStyle): void
   /** Writes the style beside the file (VS Code) or downloads it (web), as a QGIS `.qml`. */
   saveRasterStyle(): Promise<void>
+  /** Loads a QGIS raster style (.qml) the user picks. */
+  importRasterStyle(): Promise<void>
   /** Back to the style the file starts with (its percentiles, a ramp or colors). */
   resetRasterStyle(): void
   setPixel(reading: PixelReading | null): void
@@ -3367,6 +3369,23 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
         styleNotice = { kind: notes.length > 0 ? 'warning' : 'info', text: [`Saved ${result.location ?? name}. QGIS loads it automatically with the data.`, ...notes].join(' ') }
       } catch (err) {
         styleNotice = { kind: 'error', text: `Could not save ${name}: ${err instanceof Error ? err.message : String(err)}` }
+      }
+    },
+    async importRasterStyle(): Promise<void> {
+      const h = rasterState.handle
+      if (!h) return
+      try {
+        const picked = await hostAdapter.pickTextFile({ title: 'Load raster style', extensions: ['.qml'] })
+        if (!picked) return
+        if (!isRasterQml(picked.text)) throw new Error(`${picked.name} is not a raster style: it has no raster renderer. Load a QGIS .qml saved for a raster.`)
+        const result = rasterStyleFromQml(picked.text, h.facts)
+        rasterState.replaceStyle(result.style)
+        styleSource = picked.name
+        rasterStyleChanged()
+        styleDirty = false
+        styleNotice = result.notes.length > 0 ? { kind: 'warning', text: result.notes.join(' ') } : { kind: 'info', text: `Applied ${picked.name}.` }
+      } catch (err) {
+        styleNotice = { kind: 'error', text: err instanceof Error ? err.message : String(err) }
       }
     },
     setPixel(reading: PixelReading | null): void {
