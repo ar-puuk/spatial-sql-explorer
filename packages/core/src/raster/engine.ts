@@ -3,11 +3,16 @@
 // opened; the converter (geolibre_wasm_bg.wasm, 6.7 MB) only for a striped GeoTIFF. Each is checked against
 // the SHA-256 recorded by scripts/engine-assets.mjs before it is used, and kept by the host (engineFile).
 // The bytes are handed to the packages' init functions in packages/ui/src/raster/engine.ts.
-import { type EngineSource, loadRasterFile } from '../engineAssets.js'
+import { type EngineSource, loadRasterFile, rasterEngineBytes } from '../engineAssets.js'
 
 export interface RasterEngineBytes {
   whitebox: ArrayBuffer
   cogTiler: ArrayBuffer
+}
+
+/** What the open says while the raster engine is fetched: its size, and that it is kept (so the next open does not wait). */
+export function rasterEngineNote(): string {
+  return `Downloading the raster engine (${(rasterEngineBytes() / 1e6).toFixed(1)} MB). It is kept, so this happens once.`
 }
 
 /** The two tiler wasm files, verified. */

@@ -129,6 +129,11 @@ export function loadGdalFile(file: GdalFileName, source: EngineSource = {}): Pro
 export type RasterEngineFile = keyof typeof assets.raster
 
 /** Downloads (or reads the host's copy of) one raster engine wasm file, verified. `converter` is only needed for a striped GeoTIFF. */
+/** Spec 027: what the raster engine weighs to download (the tiler and its core), for the message shown while it loads. */
+export function rasterEngineBytes(): number {
+  return assets.raster.whitebox.bytes + assets.raster.cogTiler.bytes
+}
+
 export function loadRasterFile(file: RasterEngineFile, source: EngineSource = {}): Promise<ArrayBuffer> {
   const f = assets.raster[file]
   return fetchVerified(f.url, f.sha256, `raster engine (${f.url.split('/').pop()})`, source, 'raster engine')

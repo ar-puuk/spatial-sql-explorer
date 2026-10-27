@@ -101,7 +101,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type DemEncoding, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterEngineNote, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type DemEncoding, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
 import { colormapColors } from './raster/engine.js'
@@ -2132,14 +2132,14 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     openInterrupt = async () => abort.abort()
     openStartedAt = performance.now()
     openPhase = 'converting'
-    openNote = 'Loading the raster reader…'
+    openNote = 'Opening the raster…'
     let opened: OpenedRaster
     try {
       const source = await hostAdapter.getFileSource(ref, { rangeOnly: true })
       opened = await openRaster(source, duckdbAssets, {
         signal: abort.signal,
         onPhase: (phase) => {
-          if (phase !== 'converting') openNote = phase === 'engine' ? 'Loading the raster reader (the first time only)…' : 'Reading the raster…'
+          if (phase !== 'converting') openNote = phase === 'engine' ? rasterEngineNote() : 'Reading the raster…'
         },
         onNote: (text) => {
           openNote = text
