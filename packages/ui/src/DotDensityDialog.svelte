@@ -96,10 +96,6 @@
       </div>
     </div>
 
-    {#if dots.info?.filtersIgnored}
-      <p class="notice" role="status"><Icon name="info" size={14} /><span>The filters are on a query result, not on the layer, so every row of the layer is used.</span></p>
-    {/if}
-
     {#if dots.problem}
       <p class="notice invalid" role="alert"><Icon name="info" size={14} /><span>{dots.problem}</span></p>
     {:else if dots.overLimit}

@@ -42,6 +42,8 @@ export interface BinLayerFacts {
   columns: ReadonlyArray<{ name: string; type: string }>
   /** The WHERE text for the rows the layer currently shows (column filters and shape filter), or null. */
   where?: string | null
+  /** The relation the rows come from: `layer` (absent), or the query behind the result on show, in parentheses (the bin reads the rows shown). */
+  source?: string
   /** The table holding the selected rows (SELECTED_ROWS_TABLE), read instead of `layer` when the spec asks for the selected rows only. */
   selectedSource?: string | null
 }
@@ -54,12 +56,12 @@ export interface BinLayerInfo {
   geometryType: GeometryType
   /** The layer's WGS84 extent, or null when unknown. */
   extent: Bbox | null
-  /** Rows in the layer. */
+  /** Rows in the layer, or in the result on show. */
   rows: number
   /** Columns a measure can use. */
   numericColumns: string[]
-  /** Filters are active on a query result, whose columns are not the layer's: the bin reads the whole layer and says so. */
-  filtersIgnored: boolean
+  /** Whether "selected rows only" can be offered: the selection is of the layer's own rows, not of a result on show. */
+  selectable: boolean
   /** Spec 021: the average size of a feature's box (km² and its width plus height in km), for estimating how many cells covering gives; null when not measured. */
   featureSize?: FeatureSize | null
 }
@@ -73,13 +75,13 @@ export interface FeatureSize {
  * Spec 021: SQL for the average box of the layer's features (the first 5,000 rows), as `area_km2` and `span_km`. In degrees a box
  * is turned into kilometers at its latitude; in any other coordinate system the units are taken to be meters.
  */
-export function featureSizeSql(geom: string, srid: number | null): string {
+export function featureSizeSql(geom: string, srid: number | null, source = 'layer'): string {
   const w = `(ST_XMax(${geom}) - ST_XMin(${geom}))`
   const h = `(ST_YMax(${geom}) - ST_YMin(${geom}))`
   const geographic = srid === null || srid === 4326
   const kmX = geographic ? `${w} * 111.32 * cos(radians((ST_YMax(${geom}) + ST_YMin(${geom})) / 2))` : `${w} / 1000.0`
   const kmY = geographic ? `${h} * 111.32` : `${h} / 1000.0`
-  return `SELECT avg(x * y) AS area_km2, avg(x + y) AS span_km FROM (SELECT ${kmX} AS x, ${kmY} AS y FROM layer WHERE ${geom} IS NOT NULL AND NOT ST_IsEmpty(${geom}) LIMIT 5000)`
+  return `SELECT avg(x * y) AS area_km2, avg(x + y) AS span_km FROM (SELECT ${kmX} AS x, ${kmY} AS y FROM ${source} WHERE ${geom} IS NOT NULL AND NOT ST_IsEmpty(${geom}) LIMIT 5000)`
 }
 
 export interface BinQuery {
@@ -148,9 +150,9 @@ function pointSql(geom: string, srid: number | null): string {
   return srid === null || srid === 4326 ? centre : `ST_Transform(${centre}, 'EPSG:${Math.floor(srid)}', 'EPSG:4326', always_xy := true)`
 }
 
-/** The relation to bin: `layer`, or the selected rows. */
+/** The relation to bin: the layer (or the result on show), or the selected rows. */
 function sourceOf(spec: BinSpec, facts: BinLayerFacts): string {
-  return spec.selectedOnly && facts.selectedSource ? facts.selectedSource : 'layer'
+  return spec.selectedOnly && facts.selectedSource ? facts.selectedSource : (facts.source ?? 'layer')
 }
 
 /** The WHERE clause for the rows to bin (the filters the layer currently shows), or ''. */
