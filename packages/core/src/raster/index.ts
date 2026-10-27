@@ -2,6 +2,7 @@
 export * from './capabilities.js'
 export * from './convert.js'
 export * from './describe.js'
+export * from './display.js'
 export * from './engine.js'
 export * from './errors.js'
 export * from './facts.js'

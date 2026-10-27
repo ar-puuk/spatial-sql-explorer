@@ -5,7 +5,7 @@
 import { describe, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { defaultRasterStyle, factsFromTiler, rasterStyleToQml, type FactsInput, type RasterFacts, type RasterStyle } from '@spatial-explorer/core'
+import { defaultRasterStyle, factsFromTiler, toQgisBrightnessContrast, toQgisSaturation, rasterStyleToQml, type FactsInput, type RasterFacts, type RasterStyle } from '@spatial-explorer/core'
 import captured from './fixtures/raster/tiler-info.json'
 
 const OUT = process.env.SE_QGIS_026
@@ -33,6 +33,7 @@ const CASES: Case[] = [
   { name: 'gray-reversed', tif: 'dem-utm12.tif', facts: dem, style: { ...defaultRasterStyle(dem), colormap: 'gray', reversed: true, min: 1450, max: 2000 } },
   { name: 'nodata-value', tif: 'dem-utm12.tif', facts: dem, style: { ...defaultRasterStyle(dem), nodata: { mode: 'value', value: -9999 } }, ramp: RAMP },
   { name: 'colors', tif: 'ortho-rgb.tif', facts: rgb, style: { ...defaultRasterStyle(rgb), bands: [3, 2, 1], rescale: [[0, 200], [10, 220], [20, 240]] } },
+  { name: 'adjusted', tif: 'dem-utm12.tif', facts: dem, style: { ...defaultRasterStyle(dem), display: { brightnessMin: 0.2, brightnessMax: 1, contrast: 0.4, saturation: -0.3, hue: 90, resampling: 'nearest' } }, ramp: RAMP },
   { name: 'classes', tif: 'classes.tif', facts: classes, style: defaultRasterStyle(classes) },
 ]
 
@@ -55,6 +56,7 @@ describe.runIf(OUT)('QGIS parity cases for raster styles (SE_QGIS_026)', () => {
         ...(s.nodata.mode === 'value' ? { transparentValue: s.nodata.value } : {}),
         ...(c.ramp && s.mode === 'single' && s.colormap !== 'gray' ? { ramp: s.reversed ? [...c.ramp].reverse() : c.ramp } : {}),
         ...(s.mode === 'paletted' ? { classes: c.facts.palette } : {}),
+        ...(s.display ? { brightness: toQgisBrightnessContrast(s.display).brightness, contrastShift: toQgisBrightnessContrast(s.display).contrast, saturation: toQgisSaturation(s.display) } : {}),
       }
       fs.writeFileSync(path.join(dir, `${c.name}.expected.json`), JSON.stringify(expected, null, 1))
     }

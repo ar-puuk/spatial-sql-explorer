@@ -1,6 +1,8 @@
 // Spec 026 data model (specs/026-raster-view/data-model.md). Pure types and constants.
 import type { Bbox, CrsInfo } from '../models.js'
 
+import type { RasterDisplay } from './display.js'
+
 export type RasterDataType = 'uint8' | 'int8' | 'uint16' | 'int16' | 'uint32' | 'int32' | 'float32' | 'float64'
 
 export type BandInterpretation = 'gray' | 'red' | 'green' | 'blue' | 'alpha' | 'palette' | 'undefined'
@@ -89,6 +91,8 @@ export interface RasterStyle {
   nodata: NodataTreatment
   /** 0 to 1, drawn as the map layer's opacity. */
   opacity: number
+  /** Spec 027: picture adjustments and resampling, applied by the graphics card; absent means neutral. */
+  display?: RasterDisplay
 }
 
 /** The value of each band at one place. `value: null` is no data. */
