@@ -1,7 +1,9 @@
 <script lang="ts">
   // Spec 027 US4: the statistics inside a drawn area, in the bottom panel: the figures of each band as a table, and a
   // histogram of the values with the mean marked. The panel is opaque and below the map, so the shape stays in view.
-  import { areaCsv, formatArea, valueText } from '@spatial-explorer/core'
+  import { areaCsv, formatArea, histogramCsv, histogramSvg, valueText } from '@spatial-explorer/core'
+  import { svgToPng } from './chartImage.js'
+  import SaveMenu from './SaveMenu.svelte'
   import Icon from '../Icon.svelte'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
 
@@ -26,8 +28,21 @@
   const meanAt = (b: { min: number | null; max: number | null; mean: number | null }): number | null =>
     b.min !== null && b.max !== null && b.mean !== null && b.max > b.min ? ((b.mean - b.min) / (b.max - b.min)) * 100 : null
 
-  async function saveCsv(): Promise<void> {
-    if (area) await store.saveRasterProfileCsv(areaCsv(area.bands), 'area-statistics.csv')
+  const SAVE_ITEMS = [
+    { id: 'csv', label: 'Statistics (CSV)', hint: 'One row per band, with the file, the area, the cell size and whether it is approximate' },
+    { id: 'hist', label: 'Histogram (CSV)', hint: 'One row per bin of each band' },
+    { id: 'svg', label: 'Histogram (SVG)', hint: 'The histograms as an editable vector picture, on white' },
+    { id: 'png', label: 'Histogram (PNG)', hint: 'The histograms as a picture, on white' },
+  ]
+  async function save(id: string): Promise<void> {
+    if (!area) return
+    const file = store.openFileName ?? 'raster'
+    const base = file.replace(/\.[^.]+$/, '')
+    if (id === 'csv') return store.saveRasterExport(`${base}-area-statistics.csv`, areaCsv(area, file))
+    if (id === 'hist') return store.saveRasterExport(`${base}-area-histogram.csv`, histogramCsv(area.bands))
+    const chart = histogramSvg(area.bands, { title: `Values inside the area: ${file}` })
+    if (id === 'svg') return store.saveRasterExport(`${base}-area-histogram.svg`, chart.svg)
+    await store.saveRasterExport(`${base}-area-histogram.png`, await svgToPng(chart.svg, chart.width, chart.height))
   }
 </script>
 
@@ -41,7 +56,7 @@
       {#if probe.status === 'running'}<span class="muted" role="status">Reading the raster…</span>{/if}
       <span class="spacer"></span>
       {#if area}
-        <button type="button" class="text" onclick={() => void saveCsv()} title="One row per band">Save CSV</button>
+        <SaveMenu items={SAVE_ITEMS} onPick={save} />
       {/if}
       <button type="button" class="icon" aria-label="Close the statistics" title="Close (the area comes off the map)" onclick={() => store.clearRasterProbe('area')}><Icon name="close" size={14} /></button>
     </header>
@@ -273,14 +288,6 @@
     font: inherit;
     cursor: pointer;
   }
-  button.text {
-    height: 22px;
-    padding: 0 8px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-button-secondary-bg);
-    color: var(--se-button-secondary-fg);
-  }
   button.icon {
     display: grid;
     place-items: center;
@@ -292,8 +299,7 @@
     background: transparent;
     color: inherit;
   }
-  button.icon:hover,
-  button.text:hover {
+  button.icon:hover {
     background: var(--se-bg-hover);
   }
   button:focus-visible {

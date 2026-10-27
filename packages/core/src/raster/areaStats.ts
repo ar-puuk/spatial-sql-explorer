@@ -151,12 +151,29 @@ export function chooseStatsLevel(widths: readonly number[], cellsAtFull: number,
   return { level: widths.length - 1, approximate: widths.length > 1, fits: false }
 }
 
-/** A CSV of the figures: one row per band. */
-export function areaCsv(bands: readonly BandAreaStats[]): string {
-  const q = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
-  const n = (v: number | null): string => (v === null ? '' : String(v))
-  const rows = bands.map((b) => [q(b.name), b.count, b.excluded, n(b.min), n(b.max), n(b.mean), n(b.sum), n(b.std)].join(','))
-  return ['band,cells,no_data_cells,min,max,mean,sum,std_dev', ...rows].join('\n') + '\n'
+const csvQuote = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+const csvNum = (v: number | null): string => (v === null ? '' : String(v))
+
+/**
+ * A CSV of the figures that stands on its own: one row per band, with the file, the area, the cell size read and whether the
+ * figures are approximate on every row, so the file still says what it measured when it is opened later.
+ */
+export function areaCsv(area: AreaResult, fileName = ''): string {
+  const rows = area.bands.map((b) =>
+    [csvQuote(fileName), csvQuote(b.name), b.count, b.excluded, csvNum(b.min), csvNum(b.max), csvNum(b.mean), csvNum(b.sum), csvNum(b.std), Math.round(area.areaM2 * 100) / 100, csvNum(area.cellMeters === null ? null : Math.round(area.cellMeters * 1000) / 1000), area.approximate ? 'yes' : 'no'].join(',')
+  )
+  return ['file,band,cells,no_data_cells,min,max,mean,sum,std_dev,area_m2,cell_size_m,approximate', ...rows].join('\n') + '\n'
+}
+
+/** A CSV of the histograms: one row per bin of each band (its start, end and the number of cells). */
+export function histogramCsv(bands: readonly BandAreaStats[]): string {
+  const rows: string[] = []
+  for (const b of bands) {
+    if (!b.histogram.length || b.min === null || b.max === null) continue
+    const width = (b.max - b.min) / b.histogram.length
+    b.histogram.forEach((count, i) => rows.push([csvQuote(b.name), b.min! + i * width, i === b.histogram.length - 1 ? b.max : b.min! + (i + 1) * width, count].join(',')))
+  }
+  return ['band,bin_start,bin_end,cells', ...rows].join('\n') + '\n'
 }
 
 /** What the panel shows for an area. */

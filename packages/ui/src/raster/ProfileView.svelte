@@ -2,7 +2,9 @@
   // Spec 027 US3: the profile along a drawn line, in the bottom panel: the chart fills the panel (axes, gridlines, a marker
   // that follows the pointer or the arrow keys and is shown on the map), the figures beside it, and the same values as a
   // table. The panel is opaque and below the map, so the line stays in view.
-  import { distanceAxis, formatLength, niceTicks, profileCsv, summarizeProfile, valueText } from '@spatial-explorer/core'
+  import { distanceAxis, formatLength, niceTicks, profileCsv, profileSvg, summarizeProfile, valueText } from '@spatial-explorer/core'
+  import { svgToPng } from './chartImage.js'
+  import SaveMenu from './SaveMenu.svelte'
   import Icon from '../Icon.svelte'
   import Segmented from '../kit/Segmented.svelte'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
@@ -99,8 +101,18 @@
     return `${d}: ${vals}`
   })
 
-  async function saveCsv(): Promise<void> {
-    if (profile) await store.saveRasterProfileCsv(profileCsv(profile.samples, profile.bands))
+  const SAVE_ITEMS = [
+    { id: 'csv', label: 'Values (CSV)', hint: 'Distance, longitude, latitude and the value of each band' },
+    { id: 'svg', label: 'Chart (SVG)', hint: 'The chart as an editable vector picture, on white' },
+    { id: 'png', label: 'Chart (PNG)', hint: 'The chart as a picture, on white' },
+  ]
+  async function save(id: string): Promise<void> {
+    if (!profile) return
+    const base = (store.openFileName ?? 'raster').replace(/\.[^.]+$/, '')
+    if (id === 'csv') return store.saveRasterExport(`${base}-profile.csv`, profileCsv(profile.samples, profile.bands))
+    const chart = profileSvg(profile.samples, profile.bands, { title: `Profile: ${store.openFileName ?? 'raster'}`, imperial: units === 'imperial' })
+    if (id === 'svg') return store.saveRasterExport(`${base}-profile.svg`, chart.svg)
+    await store.saveRasterExport(`${base}-profile.png`, await svgToPng(chart.svg, chart.width, chart.height))
   }
 </script>
 
@@ -123,7 +135,7 @@
           value={view}
           onChange={(v) => (view = v === 'table' ? 'table' : 'chart')}
         />
-        <button type="button" class="text" onclick={() => void saveCsv()} title="Distance, longitude, latitude and the value of each band">Save CSV</button>
+        <SaveMenu items={SAVE_ITEMS} onPick={save} />
       {/if}
       <button type="button" class="icon" aria-label="Close the profile" title="Close (the line comes off the map)" onclick={() => store.clearRasterProbe('profile')}><Icon name="close" size={14} /></button>
     </header>
@@ -442,14 +454,6 @@
     font: inherit;
     cursor: pointer;
   }
-  button.text {
-    height: 22px;
-    padding: 0 8px;
-    border: 1px solid var(--se-input-border);
-    border-radius: var(--se-radius-sm);
-    background: var(--se-button-secondary-bg);
-    color: var(--se-button-secondary-fg);
-  }
   button.icon {
     display: grid;
     place-items: center;
@@ -461,8 +465,7 @@
     background: transparent;
     color: inherit;
   }
-  button.icon:hover,
-  button.text:hover {
+  button.icon:hover {
     background: var(--se-bg-hover);
   }
   button:focus-visible {
