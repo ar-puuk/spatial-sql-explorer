@@ -5,6 +5,8 @@
 //   npm run large-data              -> tests/.large-data/ (gitignored, ~4 GB)
 //   npm run large-data -- --huge    -> also the ~5 GB parcels-27m.parquet (SC-002)
 //   npm run large-data -- --fixtures -> the small committed fixtures in tests/vscode-ext/fixtures/
+//   npm run large-data -- --raster  -> only tests/.large-data/raster-big.tif (spec 026: a 30,000 x 30,000 float32 COG, about 4.8 GB,
+//                                      with overviews; needs GDAL; the small raster fixtures are `node scripts/fixtures-026.mjs`)
 //
 // Existing files are kept: delete one to regenerate it.
 import { spawnSync } from 'node:child_process'
@@ -76,6 +78,47 @@ function ogr2ogr(argv) {
     }
   }
   return spawnSync('ogr2ogr', argv, { encoding: 'utf8' })
+}
+
+/** GDAL command line tools from PATH, or OSGeo4W on Windows. */
+function gdalTool(command) {
+  const osgeo = process.env.OSGEO4W_ROOT ?? 'C:\\OSGeo4W'
+  if (process.platform === 'win32' && fs.existsSync(path.join(osgeo, 'bin', 'o4w_env.bat'))) {
+    const script = path.join(dir, '.gdal.bat')
+    fs.writeFileSync(script, `@echo off
+call "${path.join(osgeo, 'bin', 'o4w_env.bat')}"
+${command}
+`)
+    try {
+      return spawnSync('cmd', ['/c', script], { encoding: 'utf8' })
+    } finally {
+      fs.rmSync(script, { force: true })
+    }
+  }
+  return spawnSync(command, { encoding: 'utf8', shell: true })
+}
+
+// Spec 026: the big raster for the range-read checks (SC-001): written uncompressed, so a first view that reads a few MB is
+// visible against a multi-GB file. Burned with one value (the reader's cost does not depend on the values).
+if (args.has('--raster')) {
+  const big = path.join(dir, 'raster-big.tif')
+  if (fs.existsSync(big)) {
+    console.log(`kept      raster-big.tif (${mb(big)})`)
+  } else {
+    const q = (f) => `"${f.replaceAll('\\', '/')}"`
+    const source = path.join(dir, 'raster-big-source.tif')
+    const t0 = Date.now()
+    let r = gdalTool(`gdal_create -q -outsize 30000 30000 -bands 1 -ot Float32 -a_srs EPSG:32612 -a_ullr 400000 4500000 700000 4200000 -burn 1 -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=NONE -co BIGTIFF=YES ${q(source)}`)
+    if (r.status === 0) r = gdalTool(`gdal_translate -q -of COG -co COMPRESS=NONE -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS ${q(source)} ${q(big)}`)
+    fs.rmSync(source, { force: true })
+    if (r.status !== 0 || !fs.existsSync(big)) {
+      console.error(`GDAL failed or is unavailable:
+${r.stdout ?? ''}${r.stderr ?? ''}`)
+      process.exit(1)
+    }
+    console.log(`wrote     raster-big.tif (${mb(big)}, ${((Date.now() - t0) / 1000).toFixed(1)} s)`)
+  }
+  process.exit(0)
 }
 
 for (const [file, rows, select] of parquet) {

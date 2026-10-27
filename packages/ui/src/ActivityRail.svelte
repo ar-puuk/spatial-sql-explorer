@@ -10,13 +10,15 @@
     active: SideTab | null
     /** A reason a panel can't open (shown as its tooltip); PMTiles disables Style and Labels. */
     disabled?: { style?: string | null; labels?: string | null }
+    /** Spec 026: panels that are not offered at all (a raster has nothing to label). */
+    hidden?: { labels?: boolean }
     /** The Basemap button's tooltip names the basemap shown. */
     basemapName?: string
     /** Spec 011 US6: what labels show, when on (the Labels button's tooltip). */
     labelsOn?: string | null
     onSelect: (panel: SideTab | null) => void
   }
-  let { active, disabled = {}, basemapName = '', labelsOn = null, onSelect }: Props = $props()
+  let { active, disabled = {}, hidden = {}, basemapName = '', labelsOn = null, onSelect }: Props = $props()
 
   const BUTTONS: Array<{ id: SideTab; label: string; icon: IconName }> = [
     { id: 'style', label: 'Style', icon: 'paint' },
@@ -49,7 +51,7 @@
 </script>
 
 <div class="rail" role="toolbar" aria-orientation="vertical" aria-label="Panels" tabindex="-1" bind:this={rail} onkeydown={keydown}>
-  {#each BUTTONS as b (b.id)}
+  {#each BUTTONS.filter((b) => !(b.id === 'labels' && hidden.labels)) as b (b.id)}
     {@const off = (b.id === 'style' && !!disabled.style) || (b.id === 'labels' && !!disabled.labels)}
     <Tip text={title(b)} side="left">
       {#snippet trigger(props)}

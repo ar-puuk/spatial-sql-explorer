@@ -5,7 +5,7 @@
 import type { ReadModeKind } from '../models.js'
 import { TILE_ROWS } from '../view/drawMode.js'
 
-export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'xlsx' | 'pmtiles'
+export type FormatId = 'geoparquet' | 'flatgeobuf' | 'geojson' | 'shapefile' | 'geopackage' | 'sqlite' | 'gml' | 'csv' | 'xlsx' | 'pmtiles' | 'geotiff'
 
 const MB = 1024 * 1024
 
@@ -48,11 +48,18 @@ export const READ_MODES: readonly ReadModeRow[] = [
   // Spec 010: the first sheet of a workbook, with lon/lat or WKT columns, like CSV.
   { format: 'xlsx', mode: 'whole', extensions: ['.xlsx'] },
   { format: 'pmtiles', mode: 'tiles', extensions: ['.pmtiles'] },
+  // Spec 026: a GeoTIFF or COG is drawn by the raster reader, which asks for the parts it draws (the engine never sees it).
+  { format: 'geotiff', mode: 'partial', extensions: ['.tif', '.tiff'] },
 ]
 
 export function formatFromFileName(name: string): FormatId | null {
   const lower = name.toLowerCase()
   return READ_MODES.find((r) => r.extensions.some((ext) => lower.endsWith(ext)))?.format ?? null
+}
+
+/** Spec 026: a GeoTIFF or Cloud-Optimized GeoTIFF, which opens as the raster layer instead of a query result. */
+export function isRasterName(name: string): boolean {
+  return formatFromFileName(name) === 'geotiff'
 }
 
 export interface ReadMode {

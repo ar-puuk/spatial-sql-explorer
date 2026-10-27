@@ -83,7 +83,11 @@ export function exportStyle(
 export function importStyle(fileName: string, text: string): StyleImportResult {
   const lower = fileName.toLowerCase()
   const head = text.trimStart().slice(0, 512)
-  if (lower.endsWith('.qml') || /<qgis[\s>]/.test(head)) return qmlToStyle(text)
+  if (lower.endsWith('.qml') || /<qgis[\s>]/.test(head)) {
+    // Spec 026: a raster's style (QGIS's raster renderers) is read by raster/qml.ts, never by this vector reader.
+    if (/<rasterrenderer[\s>]/i.test(text)) throw new Error('This style is for a raster layer. Open a GeoTIFF to use it.')
+    return qmlToStyle(text)
+  }
   if (lower.endsWith('.sld') || /StyledLayerDescriptor/.test(head)) return sldToStyle(text)
   if (lower.endsWith('.json') || head.startsWith('{') || head.startsWith('[')) return mapboxToStyle(text)
   throw new Error(`"${fileName}" is not a recognized style file (QGIS .qml, OGC .sld, or Mapbox GL style .json).`)

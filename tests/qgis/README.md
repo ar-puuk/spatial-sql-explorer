@@ -115,3 +115,9 @@ C:\OSGeo4W\bin\python-qgis.bat tests\qgis\check_clusters.py <dir>
 
 Last run (2026-10-14, QGIS 4.2.3): pointCluster, 40 px, singleSymbol inside;
 the groups drew #f28cb1 and #f1f075, the lone point #3b82f6.
+
+## Raster styles (`check_raster.py`, spec 026)
+
+The `.qml` the app saves beside a GeoTIFF, read by QGIS. `tests/core/qgis-raster-cases.test.ts` (with `SE_QGIS_026=<dir>`)
+writes seven cases (a copy of a fixture raster, its QML and what it should mean); `check_raster.py <dir>` loads each pair in
+QGIS and prints PASS or FAIL per case. Last run: all seven pass (specs/026-raster-view/research.md §4a).

@@ -46,7 +46,7 @@ export class AtlasState {
     this.#layout = layout
   }
 
-  enabled = $derived.by(() => this.#layout().atlasEnabled)
+  enabled = $derived.by(() => this.#layout().atlasEnabled && this.#store.layerKind !== 'raster')
 
   /**
    * Reads the coverage features from the engine (again when the layer or the coverage changes). One read at a time: a

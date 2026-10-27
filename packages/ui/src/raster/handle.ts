@@ -1,0 +1,22 @@
+// Spec 026: what the interface holds for an open raster. `RasterReader` is what the app asks of the raster worker (which owns
+// the tiler, see tilerWorker.ts), so the store, the map and tests never touch the wasm.
+import type { RasterFacts, RasterRenderOptions, TilerBandStats } from '@spatial-explorer/core'
+
+export interface RasterReader {
+  /** A 256 x 256 PNG tile, made in the raster worker (a transparent one when nothing is there). */
+  renderTilePng(z: number, x: number, y: number, options: RasterRenderOptions): Promise<Uint8Array>
+  /** The value of each band at a WGS84 place. */
+  point(lon: number, lat: number): Promise<{ coordinates: [number, number]; values: number[]; band_names: string[]; outside?: boolean }>
+  /** Per-band statistics from the level the tiler picks for `maxSize`. */
+  statistics(maxSize: number): Promise<Record<string, TilerBandStats>>
+}
+
+/** An opened raster: the file's facts, the reader, and how to let go of it. */
+export interface RasterHandle {
+  /** Names the tile provider (`se-raster://<key>/...`). */
+  key: string
+  facts: RasterFacts
+  reader: RasterReader
+  /** Frees the reader (and the converted COG's bytes). Safe to call twice. */
+  dispose(): void
+}

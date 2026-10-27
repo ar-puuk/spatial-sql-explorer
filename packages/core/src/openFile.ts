@@ -22,7 +22,7 @@ import { reprojectToWgs84Sql, resolveCrsInfo } from './crs.js'
 import type { Bbox, DatasetFacts, Layer, OpenPhase, QueryableTable, ReadModeKind, SpatialIndexKind } from './models.js'
 import { QuerySession, SOURCE_TABLE, type LayerViewInfo } from './query/session.js'
 import { geometryTypeOf, QueryCancelledError, quoteIdent, singleRow, streamRows } from './query/util.js'
-import { planSqliteSource } from './source/sqlite.js'
+import { listGeoPackageLayers, planSqliteSource } from './source/sqlite.js'
 import { fileSqlNames, RESERVED_NAMES_SQL, type FileSqlNames } from './sql/names.js'
 import { activeLayerOf, isFileGeodatabase, listLayers, mayHaveLayers, readLayerSql, type FileLayer } from './source/layers.js'
 import { chooseDataset, extractDataset, inspectZip, isZipName, ZipChoiceError, type ZipDataset } from './source/zip.js'
@@ -389,7 +389,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       // Spec 024: it looks like a transit feed, but is missing files it needs.
       throw new Error(`"${ref.displayName}" looks like a GTFS transit feed but is missing ${contents.gtfsMissing.join(', ')}. A feed needs stops.txt, routes.txt, trips.txt and stop_times.txt.`)
     } else {
-      throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel or a File Geodatabase).`)
+      throw new Error(`"${ref.displayName}" holds no data Spatial Explorer can open (GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, CSV, GML, SQLite, Excel, a GeoTIFF or a File Geodatabase).`)
     }
   } else {
     source = await hostAdapter.getFileSource(ref)
@@ -397,9 +397,9 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
   checkCancelled()
   const strategy = detectStrategy(source.name)
   const format = formatFromFileName(source.name)
-  if (strategy === 'unsupported' || format === null || format === 'pmtiles') {
+  if (strategy === 'unsupported' || format === null || format === 'pmtiles' || format === 'geotiff') {
     throw new Error(
-      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, SQLite/SpatiaLite, Shapefile, GML and PMTiles (view only).`
+      `"${ref.displayName}" is not a supported format. Spatial Explorer supports GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, SQLite/SpatiaLite, Shapefile, GML, PMTiles and GeoTIFF (the last two view only).`
     )
   }
 
@@ -454,7 +454,25 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
     if (gtfs) await prepareGtfs(conn)
     await testDelay(checkCancelled)
     // Spec 008 US3: a file holding several layers is listed (its catalog only), and one is opened.
-    let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : strategy === 'st_read' && mayHaveLayers(format) ? await listLayers(conn, registered.primaryPath) : []
+    let layers: FileLayer[] = gtfs ? gtfs.layers : gdb ? gdb.catalog.layers : []
+    if (!gtfs && !gdb && strategy === 'st_read' && mayHaveLayers(format)) {
+      try {
+        layers = await listLayers(conn, registered.primaryPath)
+      } catch (err) {
+        // Engine limitation, not a bad file: in this engine's GDAL, ST_Read_Meta cannot describe a coordinate system whose
+        // transformation to WGS84 is not a plain 7-parameter shift (EPSG:27700, 31467: "Transformation cannot be formatted
+        // as WKT1 TOWGS84 parameters"), though ST_Read reads the data and types the column with its EPSG code. Say so in
+        // the output log and read what ST_Read can: a GeoPackage's layers come from its own catalog tables, another
+        // format opens as its first layer. A placeholder until this is fixed upstream (duckdb/duckdb-spatial#901): remove it then (specs/issue-1-towgs84.md).
+        const why = err instanceof Error ? err.message : String(err)
+        hostAdapter.log?.(`[open] ST_Read_Meta failed (${why}); ${format === 'geopackage' ? 'listing layers from the GeoPackage catalog' : 'opening the first layer only'}`)
+        if (format === 'geopackage') {
+          layers = await listGeoPackageLayers(db, conn, registered.primaryPath, extraPaths).catch(() => {
+            throw err
+          })
+        }
+      }
+    }
     // Research §16: how each GeoPackage / SQLite layer is read.
     let readers = new Map<string, string>()
     if (layers.length && (format === 'geopackage' || format === 'sqlite')) {
@@ -476,7 +494,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       })
       layers = plan.layers
       readers = plan.readers
-      extraPaths = plan.paths
+      extraPaths = [...extraPaths, ...plan.paths]
       timings.layers = lap()
     }
     checkCancelled()

@@ -36,7 +36,8 @@ function isLikelySidecar(name: string): boolean {
   const lower = name.toLowerCase()
   // .qml/.sld: a style dropped alongside the data (QGIS sidecar convention),
   // never the primary data file.
-  return ['.shx', '.dbf', '.prj', '.cpg', '.qml', '.sld'].some((ext) => lower.endsWith(ext))
+  // Spec 026: a raster's world file, statistics and external overviews belong to it too.
+  return ['.shx', '.dbf', '.prj', '.cpg', '.qml', '.sld', '.tfw', '.wld', '.aux.xml', '.ovr'].some((ext) => lower.endsWith(ext))
 }
 
 const STYLE_EXTENSIONS = ['.qml', '.sld']

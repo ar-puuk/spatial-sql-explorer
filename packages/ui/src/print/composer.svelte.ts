@@ -184,7 +184,8 @@ export class PrintComposer {
       showInfoBlock: l.showInfoBlock,
       author: l.author,
       projectNumber: l.projectNumber,
-      crs: l.crs,
+      // Spec 026: a raster's own coordinate system fills the info block until the person types another.
+      crs: l.crs.trim() ? l.crs : (this.#store.raster?.facts.crs.label ?? l.crs),
       revision: l.revision,
       legend: this.legend,
       dataTable: this.dataTable,
@@ -210,6 +211,11 @@ export class PrintComposer {
   isMmPage = $derived(resolvePageSize(this.options).unit === 'mm')
   /** The 1:N scale the page renders the capture at, or 0. */
   currentRatio = $derived(computeScaleRatio(this.options))
+
+  /** Spec 026: a raster has no rows: no table, chart or atlas on its page (they read the engine's rows). */
+  get isRaster(): boolean {
+    return this.#store.layerKind === 'raster'
+  }
 
   /** The layer's columns a block can show: not geometry, not the app's helpers. */
   get fields(): Array<{ name: string; numeric: boolean }> {
@@ -250,7 +256,7 @@ export class PrintComposer {
     const title = (own: string): string => (own.trim() ? own : store.printBaseName)
     let table: LayoutOptions['dataTable'] = null
     let chart: LayoutOptions['dataChart'] = null
-    if (l.showDataTable && this.tableColumns.length) {
+    if (l.showDataTable && this.tableColumns.length && !this.isRaster) {
       const r = await store.printBlock({ kind: 'table', columns: this.tableColumns, sortField: l.tableSortField, sortDesc: l.tableSortDesc, limit: l.tableFitRows ? MAX_TABLE_ROWS : l.tableMaxRows, ...tableScope })
       if (r && 'rows' in r) table = { title: title(l.tableTitle), columns: (r as TableBlockResult).columns, rows: (r as TableBlockResult).rows, truncated: (r as TableBlockResult).truncated, position: l.tablePosition }
     }

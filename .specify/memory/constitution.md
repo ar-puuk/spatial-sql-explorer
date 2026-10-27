@@ -1,6 +1,28 @@
 <!--
 Sync Impact Report
-Version change: 1.6.0 → 1.7.0 (spec 024, user decision 2026-10-19)
+Version change: 1.7.0 → 1.8.0 (spec 026, user decision 2026-10-26)
+Modified principles:
+  - I. Scope Discipline: viewing and styling a GeoTIFF or Cloud-Optimized GeoTIFF is LOOK and STYLE.
+    The raster is the open layer and replaces any vector layer (and the reverse), so the one-layer rule
+    holds; it has no table and no SQL, and the vector-only tools are not shown for it. Still out of
+    scope: raster analysis and processing of any kind (slope, hillshade, band math, reclassify,
+    mosaic, zonal statistics, contours, polygonize), raster in SQL, vector data drawn over a raster,
+    more than one raster, and other raster formats (NetCDF, Zarr, STAC, WCS) until asked for.
+  - IV. Local-First and Private: one more pinned download. The raster engine (the cog-tiler-wasm and
+    whitebox-wasm WebAssembly files, about 4.6 MB, and, only when a striped GeoTIFF is opened, the
+    geolibre-wasm converter, 6.7 MB) comes from jsDelivr like the SQL engine: pinned URL, SHA-256
+    recorded at build time, checked before it runs, kept as a local copy, fetched the first time a
+    raster is opened. The raster reader makes no network request of its own.
+  - Technology & Platform Constraints: `.tif` and `.tiff` open with priority "default" (VS Code's
+    built-in Image Preview does not claim them); the reader runs in the webview and reads by
+    byte ranges, never a whole large file.
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: none. Raster analysis would need its own amendment (research: specs/026-raster-view/research.md
+§1 and §2; DuckDB community raster extensions have no WebAssembly build for the engine in use).
+
+Previous: 1.6.0 → 1.7.0 (spec 024, user decision 2026-10-19)
 Modified principles:
   - I. Scope Discipline: a GTFS feed is two layers, routes and stops, drawn on the map together. One is
     the open layer (the table, filters, selection and export) and the other is a read-only companion
@@ -101,7 +123,13 @@ Follow-up TODOs: none
 The product does LOOK, QUERY, STYLE and EXPORT only — nothing else. Feature editing,
 georeferencing, the processing toolbox, print layouts, notebook/ipynb integration, a
 plugin system, 3D tiles/planets, raster analysis, and stacked basemaps are
-explicitly out of scope. Three 3D-adjacent map options are in scope as part of LOOK
+explicitly out of scope. Viewing and styling a GeoTIFF or Cloud-Optimized GeoTIFF is in
+scope as LOOK and STYLE (spec 026): the raster is the open layer, replaces any vector
+layer and is replaced by one, shows its facts and the value of each band under the
+cursor, and is styled by band, color ramp, range and opacity; it has no table and no SQL.
+Raster analysis (slope, hillshade, band math, reclassify, mosaic, zonal statistics,
+contours, polygonize), raster in SQL, vector data over a raster and more than one raster
+stay out. Three 3D-adjacent map options are in scope as part of LOOK
 and STYLE: a Mercator/Globe projection toggle, polygon extrusion by a column, and a
 terrain on/off switch (a height source the one basemap and the data are lifted onto,
 never a second basemap). Shapes the user draws on the map to measure, select and filter
@@ -136,6 +164,7 @@ first-party VS Code feature, not a web page embedded in a webview.
 User data never leaves the machine. No telemetry is collected without explicit
 opt-in. The network is used only for basemap tiles/styles, downloading the SQL engine's code
 (DuckDB-WASM, its extensions, sql.js and, only when a File Geodatabase or a GTFS feed is opened, gdal3.js,
+and, only when a GeoTIFF is opened, the raster engine (and, for a striped GeoTIFF, its converter),
 from pinned URLs, each checked against a SHA-256 recorded at build time before it runs;
 the engine is not bundled, and each shell keeps a local copy after the first download), and the place search, which sends only the text the user
 types, is disclosed before first use, and can be turned off — never for user data
@@ -208,7 +237,7 @@ rebuilding rather than patching.
   version and hash-checked (not bundled), one instance per custom-editor webview, `retainContextWhenHidden` for the MVP; MapLibre GL JS for
   rendering (deck.gl only later, only if needed).
 - VS Code integration: `customEditors` with `Open With`; priority `"default"` for
-  `.gpkg .fgb .shp .pmtiles .geoparquet`, priority `"option"` for
+  `.gpkg .fgb .shp .pmtiles .geoparquet .tif .tiff`, priority `"option"` for
   `.geojson .csv .parquet .json` (never hijack built-in text/data viewers); an
   explorer/context command for folder-based formats (`.gdb`) that cannot bind to a
   custom editor (spec 013 reads them with gdal3.js: in a child process of the extension host,
@@ -250,4 +279,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.7.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-19
+**Version**: 1.8.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-26

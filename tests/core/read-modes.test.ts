@@ -1,6 +1,6 @@
 // T005 (spec 007, research §4, FR-003/FR-004/FR-015): how the engine reaches each format.
 import { afterEach, describe, expect, it } from 'vitest'
-import { READ_MODES, formatFromFileName, readModeFor, setTestOverrides, testOverrides, WHOLE_READ_THRESHOLD_BYTES } from '@spatial-explorer/core'
+import { READ_MODES, formatFromFileName, isRasterName, readModeFor, setTestOverrides, testOverrides, WHOLE_READ_THRESHOLD_BYTES } from '@spatial-explorer/core'
 
 const MB = 1024 * 1024
 
@@ -10,7 +10,7 @@ describe('read-mode catalog', () => {
   it('has exactly one row per format', () => {
     const ids = READ_MODES.map((r) => r.format)
     expect(new Set(ids).size).toBe(ids.length)
-    expect([...ids].sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geopackage', 'geoparquet', 'gml', 'pmtiles', 'shapefile', 'sqlite', 'xlsx'])
+    expect([...ids].sort()).toEqual(['csv', 'flatgeobuf', 'geojson', 'geopackage', 'geoparquet', 'geotiff', 'gml', 'pmtiles', 'shapefile', 'sqlite', 'xlsx'])
   })
 
   it('maps each format to its measured mode', () => {
@@ -80,5 +80,18 @@ describe('test overrides', () => {
       memoryLimit: '64MB',
       slowParse: true,
     })
+  })
+})
+
+describe('rasters (spec 026)', () => {
+  it('.tif and .tiff are the geotiff format, whatever the case; nothing else is', () => {
+    for (const n of ['dem.tif', 'DEM.TIF', 'ortho.tiff', 'a.b.Tiff']) {
+      expect(formatFromFileName(n)).toBe('geotiff')
+      expect(isRasterName(n)).toBe(true)
+    }
+    for (const n of ['dem.tif.aux.xml', 'dem.tfw', 'dem.tif.qml', 'x.parquet', 'x.png', 'tif', 'x.gtiff']) expect(isRasterName(n), n).toBe(false)
+  })
+  it('is read in parts (the raster reader asks for what it draws)', () => {
+    expect(READ_MODES.find((r) => r.format === 'geotiff')?.mode).toBe('partial')
   })
 })

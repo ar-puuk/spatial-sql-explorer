@@ -162,6 +162,16 @@
       drawCalls: () => store.drawCalls,
       /** Spec 010: engine tiles built, and served from the tile cache. */
       tileStats: async () => (await import('@spatial-explorer/ui')).engineTileStats(),
+      /** Spec 026: the open raster: kind, facts, style, picture version and the tile counters. */
+      raster: async () => ({
+        kind: store.layerKind,
+        facts: JSON.parse(JSON.stringify(store.raster?.facts ?? null)),
+        style: JSON.parse(JSON.stringify(store.rasterStyle ?? null)),
+        version: store.rasterVersion,
+        pixel: JSON.parse(JSON.stringify(store.pixel)),
+        capabilities: JSON.parse(JSON.stringify(store.capabilities)),
+        tiles: (await import('@spatial-explorer/ui')).rasterTileStats(),
+      }),
       jumpTo: (lon: number, lat: number, zoom: number) => store.jumpTo([lon, lat], zoom),
       /** Spec 008 US7: the link Copy link would copy. */
       shareLink: () => shareUrl(),
@@ -259,7 +269,7 @@
       },
       () => provideFiles(files)
     )
-    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld)$/i.test(f.name))?.name ?? files[0].name
+    fileName = files.find((f) => /^[^/]+\.gdb\//i.test(f.webkitRelativePath))?.webkitRelativePath.split('/')[0] ?? files.find((f) => !/\.(shx|dbf|prj|cpg|qml|sld|tfw|wld|ovr)$/i.test(f.name) && !/\.aux\.xml$/i.test(f.name))?.name ?? files[0].name
   }
 
   /** Spec 013: a File Geodatabase is a folder. */
@@ -477,6 +487,7 @@
         {#snippet statusBar()}
           <StatusBar
             docked
+            pixel={store.pixel}
             session={store.session}
             facts={store.openFacts}
             draw={{

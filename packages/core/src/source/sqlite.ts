@@ -16,7 +16,7 @@
 import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm'
 import { SOURCE_DIR } from '../duckdbService.js'
 import { quoteIdent, quoteLiteral } from '../query/util.js'
-import type { FileLayer } from './layers.js'
+import { geometryTypeOf, type FileLayer } from './layers.js'
 
 /** Lets GDAL's SQLite driver open attribute-only tables by name. */
 export const SQLITE_OPEN_OPTIONS = ['LIST_ALL_TABLES=YES'] as const
@@ -172,4 +172,39 @@ async function attributeTables(
     log?.(`[open] attribute tables not listed: ${err instanceof Error ? err.message : String(err)}`)
     return []
   }
+}
+
+/**
+ * A GeoPackage's layers from its own catalog tables, read with sqlite_scanner. The fallback for a file `ST_Read_Meta` cannot
+ * list: in this engine it builds every layer's coordinate system as WKT1 and fails for one that has several datum
+ * transformations ("Transformation cannot be formatted as WKT1 TOWGS84 parameters", seen with EPSG:27700), though ST_Read
+ * reads the same file. Features and attribute tables, by name; the coordinate system is the registered EPSG code.
+ */
+export async function listGeoPackageLayers(db: AsyncDuckDB, conn: AsyncDuckDBConnection, path: string, paths: string[]): Promise<FileLayer[]> {
+  const journal = `${path}-journal`
+  await db.registerFileBuffer(journal, new Uint8Array(0))
+  paths.push(journal)
+  const scan = (table: string): string => `sqlite_scan(${quoteLiteral(path)}, ${quoteLiteral(table)})`
+  const res = await conn.query(`
+    SELECT c.table_name AS name, c.data_type AS kind, g.column_name AS gname, g.geometry_type_name AS gtype,
+           CASE WHEN upper(s.organization) = 'EPSG' THEN s.organization_coordsys_id END AS epsg
+    FROM ${scan('gpkg_contents')} c
+    LEFT JOIN ${scan('gpkg_geometry_columns')} g ON g.table_name = c.table_name
+    LEFT JOIN ${scan('gpkg_spatial_ref_sys')} s ON s.srs_id = g.srs_id
+    WHERE c.data_type IN ('features', 'attributes')
+    ORDER BY c.table_name`)
+  const layers: FileLayer[] = []
+  for (const r of res.toArray()) {
+    const j = r.toJSON() as { name: string; gname: string | null; gtype: string | null; epsg: bigint | number | null }
+    const count = await conn.query(`SELECT count(*) AS n FROM ${scan(String(j.name))}`)
+    const hasGeometry = !!j.gname
+    layers.push({
+      name: String(j.name),
+      geometryType: hasGeometry ? geometryTypeOf(j.gtype) : null,
+      geometryColumn: hasGeometry ? String(j.gname) : null,
+      featureCount: Number(count.toArray()[0]?.toJSON().n ?? 0),
+      srid: j.epsg !== null && j.epsg !== undefined && Number(j.epsg) > 0 ? Number(j.epsg) : null,
+    })
+  }
+  return layers
 }

@@ -92,5 +92,25 @@
         "bytes": 11595145
       }
     }
+  },
+  "raster": {
+    "whitebox": {
+      "package": "0.6.1",
+      "url": "https://cdn.jsdelivr.net/npm/whitebox-wasm@0.6.1/whitebox_wasm_bg.wasm",
+      "sha256": "57c61def990cd80ec15522a381b225fb866b0bafb5ab54705f164cda59f8c8a1",
+      "bytes": 4460541
+    },
+    "cogTiler": {
+      "package": "0.5.0",
+      "url": "https://cdn.jsdelivr.net/npm/cog-tiler-wasm@0.5.0/cog_tiler_wasm_bg.wasm",
+      "sha256": "3582ad28acdef6c6ab2660fe0a15f27c61bbaaa0ffb92b96f4241d85106ecd19",
+      "bytes": 133410
+    },
+    "converter": {
+      "package": "1.7.1",
+      "url": "https://cdn.jsdelivr.net/npm/geolibre-wasm@1.7.1/geolibre_wasm_bg.wasm",
+      "sha256": "f762fa998977fa45d1e716d844e160ce75d6f946763fe69c1a6ed4c16c421457",
+      "bytes": 6663421
+    }
   }
 }
