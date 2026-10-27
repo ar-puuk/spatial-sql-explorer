@@ -135,8 +135,10 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 - Sizes and estimates come from the engine's own tables (`gridSizes.ts`, checked by a core test against specs/017-grid-cells/spikes/cell-sizes.json). A5 starts at
   resolution 1 (0 fails the date-line split). Cells across the date line are cut into a MultiPolygon in SQL; H3's two pole cells are drawn as caps.
   Under 5,000 estimated cells the dialog previews on change; over 100,000 it asks first.
-- The rows binned are those the layer shows: the column filters and the shape filter are inlined as WHERE (only while the layer itself is displayed); "selected
-  rows only" first publishes them as the temp table `selected_rows` (the SQL policy protects the engine's hidden row ids). Rows without a location are
+- The rows binned are those on show (issue 2, 2026-10-26): while the layer itself is displayed, `layer` with the column filters and the shape filter inlined as WHERE; while a query result is displayed, the statement behind it, written into the generated SQL as a subquery (`FROM (
+<statement>
+)`), with the filters on that result. The source is fixed when the dialog opens (`QuerySession.freezeGridSource`): the dialog's own previews replace the result on show, and the choices (columns, filters) keep referring to the rows it was opened over (`QuerySession.gridSource`, `baseResult`; a bin or dot result never becomes the source). "selected
+  rows only" (offered for the layer itself only: the selection holds the layer's row ids) first publishes them as the temp table `selected_rows` (the SQL policy protects the engine's hidden row ids). Rows without a location are
   left out and counted.
 - Spec 021: `BinSpec.assign: 'cover'` puts a line or polygon in every cell it touches (H3: `h3_polygon_wkt_to_cells_experimental(..., 'overlap')` per part, lines and A5 by sampled points: `coverSql` in gridSystems.ts); `smooth` (a number of rings, 1 to 9, warned past 5: a switch and a `kit/NumberField`; H3 only) makes a cell's value that of its neighborhood (`diskSql`). They are alternatives. A5's own polygon and neighbor functions are incomplete (specs/021-grid-extras/spec.md), so A5 is sampled and not smoothed. Lambda names in generated SQL start with `_` (a name like `g` or `v` loses to the query's columns).
 - h3 and a5 are community extensions (constitution v1.4.0): pinned, hash-checked, optional. The a5 extension phones home to Query.Farm when it loads; the engine
@@ -155,6 +157,7 @@ saveFile; loadState/saveState; setStatus (status bar in VS Code, no-op on web).
 
 ## Dot density (spec 022)
 - The map control `dotDensity` (user request 2026-10-17) opens a dialog (`DotDensityDialog.svelte`, like Bin into cells: floating over the map, the SQL tab holds the query, Esc restores) for a polygon layer: one to six number columns (each its own color, `category`) and the amount one dot stands for (a 1, 2, 5 ladder, first chosen for about 5,000 dots). The result is a points layer `feature, category, one_dot, geom`, a user-editable query like the bin (`packages/core/src/dots/dotSql.ts`, `QuerySession.dotQuerySql`, store `openDotDialog`, `setDotSpec`, `applyDots`, `cancelDots`).
+- Dot density reads the rows on show like the bin (issue 2): the layer with its filters, or the query behind the result on show as a subquery. The totals that choose the amount per dot are over those rows.
 - The engine has no point-in-polygon generator (`ST_GeneratePoints` takes a box), so the SQL samples each polygon's box with `hash(feature, column, k)` (the same map every time) and keeps the first n points that are `ST_Within`; a remainder is one more dot with that chance. Limits: preview to 20,000 dots, asks over 100,000, refuses over 1,000,000. Very detailed polygons are slow (cost is vertices times candidates: specs/022-dot-density/spec.md).
 
 ## File Geodatabase and zips (spec 013, experimental)

@@ -198,9 +198,6 @@
           </div>
         </div>
       {/if}
-      {#if bin.info?.filtersIgnored}
-        <p class="notice" role="status"><Icon name="info" size={14} /><span>The filters are on a query result, not on the layer, so every row of the layer is used.</span></p>
-      {/if}
 
       {#if bin.skipped}
         <p class="notice" role="status"><Icon name="info" size={14} /><span>{nf2.format(bin.skipped)} {bin.skipped === 1 ? 'row has' : 'rows have'} no location and {bin.skipped === 1 ? 'is' : 'are'} not counted.</span></p>

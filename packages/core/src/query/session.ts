@@ -49,14 +49,15 @@ import { checkExpression, expressionTypeSql, expressionValueSql, ruleCountsSql, 
 import type { RuleSuggestions } from '../style/edit.js'
 import { resolveResultCrs } from './resultCrs.js'
 import { loadCatalog } from './catalog.js'
-import type { CatalogSnapshot } from '../models.js'
+import type { Bbox, CatalogSnapshot, GeometryType } from '../models.js'
 import { isTemporalType, QueryCancelledError, quoteIdent, sanitizeAttributes, singleRow, streamRows } from './util.js'
 import { filtersToSql, parseFilter, type ColumnFilter } from './filters.js'
 import { selectionExtentSqlFor, selectionPredicate, selectionTableSql, type Selection } from './selection.js'
 import { INTERNAL_LAYER, visibleColumns } from '../source/layerSql.js'
 import { snippetContextFor, type SnippetContext } from '../snippets/snippets.js'
-import { dotQuerySql as buildDotQuery, dotTotalsSql, type DotLayerFacts, type DotLayerInfo, type DotQuery, type DotSpec } from '../dots/dotSql.js'
-import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, featureSizeSql, type FeatureSize, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
+import { dotQuerySql as buildDotQuery, dotSpecProblem, dotTotalsSql, isDotResult, type DotLayerFacts, type DotLayerInfo, type DotQuery, type DotSpec } from '../dots/dotSql.js'
+import { isBinResult } from '../grid/gridStyle.js'
+import { SELECTED_ROWS_TABLE, binQuerySql as buildBinQuery, binSkippedSql, binSpecProblem, featureSizeSql, type FeatureSize, type BinLayerFacts, type BinLayerInfo, type BinQuery, type BinSpec } from '../grid/binSql.js'
 import type { GridSystemId } from '../grid/gridSystems.js'
 import { DRAWN_TABLE, drawnTableSql, shapesInCrsSql, spatialPredicateSql, type DrawnShape, type SpatialPredicate } from '../draw/shapes.js'
 import { jenksSample, testOverrides } from '../source/readModes.js'
@@ -194,6 +195,20 @@ export function resultFacts(built: BuiltResult, table: QueryableTable, defaultVi
   }
 }
 
+/** Where the bin and the dots read their rows (QuerySession.gridSource). */
+interface GridSource {
+  /** The relation in SQL text (a parenthesized query); undefined: `layer`. */
+  source: string | undefined
+  geom: string
+  srid: number | null
+  columns: ReadonlyArray<{ name: string; type: string }>
+  rows: number
+  geometryType: GeometryType
+  extent: Bbox | null
+  /** A result on show, not the layer itself. */
+  shown: boolean
+}
+
 /** How map views reach `layer` (set by openFile; spec 007 research §6). */
 export interface LayerViewInfo {
   index: ViewTarget['index']
@@ -259,6 +274,14 @@ export class QuerySession {
   private catalogCache: CatalogSnapshot | null = null
   private facts: ResultFacts | null = null
   private defaultFacts: ResultFacts | null = null
+  /**
+   * The last result that is not itself a bin or a dot density (those read it): what "Bin into cells" and "Dot density" take their
+   * rows from, so a query in force narrows them too, with the facts of its columns (the result on show may be the bin made from it).
+   * Null while the layer itself is shown.
+   */
+  private baseResult: { statement: string; geometryColumn: string | null; columns: ReadonlyArray<{ name: string; type: string }>; srid: number | null; rows: number } | null = null
+  /** What the open Bin or Dot density dialog reads, fixed when it opened: the rows, their columns and the filters on them (see freezeGridSource). */
+  private gridBase: { src: GridSource | null; where: string | null } | null = null
   /** Spec 008 FR-010/FR-011: the table filters over the displayed result, and their WHERE body. */
   private filters: ColumnFilter[] = []
   private filterWhere: string | null = null
@@ -340,6 +363,8 @@ export class QuerySession {
           if ((isDefaultQuery(span.text, this.defaultQuery) || isDefaultQuery(span.text, DEFAULT_QUERY)) && request.crsOverride === null) {
             const result = defaultResult(this.table)
             this.facts = resultFacts(result, this.table, true)
+            this.baseResult = null
+            this.gridBase = null
             this.resultChanged()
             return { kind: 'result', result, durationMs: elapsed(), statement }
           }
@@ -357,12 +382,19 @@ export class QuerySession {
             sql
           )
           this.facts = resultFacts(result, this.table, false)
+          const made = result.layer.columns
+          if (!isBinResult(made) && !isDotResult(made)) {
+            this.baseResult = { statement: span.text, geometryColumn: result.geometryColumn, columns: result.layer.columns, srid: result.resultCrs?.srid ?? null, rows: result.totalRows }
+            this.gridBase = null
+          }
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
         if (policy.kind === 'utility') {
           const result = await this.utilityResult(sql, isCancelled)
           this.facts = { ...resultFacts(result, this.table, false), exportable: false }
+          this.baseResult = null
+          this.gridBase = null
           this.resultChanged()
           return { kind: 'result', result, durationMs: elapsed(), statement }
         }
@@ -688,25 +720,74 @@ export class QuerySession {
    * outlines (grid/binSql.ts). Null when the spec is not valid for this layer, or it has no geometry.
    */
   binQuerySql(spec: BinSpec): BinQuery | null {
-    const lv = this.layerView
-    if (!lv) return null
-    return buildBinQuery(spec, this.binFacts(lv.geom))
+    const src = this.gridSource()
+    return src ? buildBinQuery(spec, this.binFacts(src)) : null
+  }
+
+  /** Why `spec` is not valid for the rows the bin reads (a column that is not there or not a number), or null. */
+  binProblem(spec: BinSpec): string | null {
+    return binSpecProblem(spec, { columns: this.gridSource()?.columns ?? this.table.columns })
+  }
+
+  /** Why `spec` is not valid for the rows the dots read, or null. */
+  dotProblem(spec: DotSpec): string | null {
+    return dotSpecProblem(spec, { columns: this.gridSource()?.columns ?? this.table.columns })
   }
 
   /**
-   * The rows the layer currently shows, as the bin reads them: the column filters and the shape filter, inlined as
-   * WHERE text. They are written for the layer's own columns, so they apply while the layer itself is displayed; over
-   * a query result (other columns) the bin reads the whole layer and the dialog says so.
+   * Where the bin and the dots read their rows (issue 2): the layer itself while it is shown, otherwise the query behind the result
+   * on show, written into the generated SQL as a subquery so that SQL stands alone. Null: nothing to read (no layer, or the result
+   * has no geometry column).
    */
-  private binRestriction(): { where: string | null; ignored: boolean } {
-    const parts = [this.filterWhere, this.spatialWhere].filter((p): p is string => !!p)
-    if (parts.length === 0) return { where: null, ignored: false }
-    if (this.facts && !this.facts.defaultView) return { where: null, ignored: true }
-    return { where: parts.map((p) => `(${p})`).join(' AND '), ignored: false }
+  private gridSource(): GridSource | null {
+    return this.gridBase ? this.gridBase.src : this.liveGridSource()
   }
 
-  private binFacts(geom: string): BinLayerFacts {
-    return { geom, srid: this.table.srid, columns: this.table.columns, where: this.binRestriction().where, selectedSource: SELECTED_ROWS_TABLE }
+  private liveGridSource(): GridSource | null {
+    const lv = this.layerView
+    if (!lv) return null
+    const base = this.baseResult
+    if (!this.facts || this.facts.defaultView || base === null) {
+      return { source: undefined, geom: lv.geom, srid: this.table.srid, columns: this.table.columns, rows: this.table.totals.rows, geometryType: this.table.geometryType, extent: this.table.extent, shown: false }
+    }
+    if (!base.geometryColumn) return null
+    // The statement's closing semicolon must not leak out of the parentheses.
+    const text = base.statement.replace(/;\s*$/, '').trim()
+    return { source: `(\n${text}\n)`, geom: quoteIdent(base.geometryColumn), srid: base.srid, columns: base.columns, rows: base.rows, geometryType: 'Mixed', extent: null, shown: true }
+  }
+
+  /** Whether the result on show is a bin or a dot density: its columns are not the ones the dialogs read. */
+  private showingGridResult(): boolean {
+    const f = this.facts
+    return !!f && !f.defaultView && (isBinResult(f.columns) || isDotResult(f.columns))
+  }
+
+  /**
+   * Fixes what the Bin or Dot density dialog reads when it opens (and keeps it across its own previews, whose results replace the one
+   * on show): the rows, their columns, and the filters on them. A new result of the user's, or Reset, lets go of it.
+   */
+  freezeGridSource(): void {
+    if (this.showingGridResult() && this.gridBase) return
+    const src = this.liveGridSource()
+    // Filters are written for the columns on show: over a bin or dots result they are not the base's.
+    this.gridBase = src ? { src, where: this.showingGridResult() ? null : this.liveRestriction() } : null
+  }
+
+  /**
+   * The rows currently shown, as the bin reads them: the column filters and the shape filter, inlined as WHERE text. They are
+   * written for the columns on show (the layer's, or the result's), which are the columns of the source the bin reads.
+   */
+  private binRestriction(): string | null {
+    return this.gridBase ? this.gridBase.where : this.liveRestriction()
+  }
+
+  private liveRestriction(): string | null {
+    const parts = [this.filterWhere, this.spatialWhere].filter((p): p is string => !!p)
+    return parts.length === 0 ? null : parts.map((p) => `(${p})`).join(' AND ')
+  }
+
+  private binFacts(src: GridSource): BinLayerFacts {
+    return { geom: src.geom, srid: src.srid, columns: src.columns, where: this.binRestriction(), ...(src.source ? { source: src.source } : {}), selectedSource: SELECTED_ROWS_TABLE }
   }
 
   /**
@@ -718,6 +799,8 @@ export class QuerySession {
     const where = selectionPredicate(selection)
     if (!where) return false
     const fill = selectionTableSql(selection)
+    // Row ids are the layer's: a result on show has its own (the dialog offers the selection only for the layer itself).
+    if (this.gridSource()?.shown) return false
     await this.exclusive(async () => {
       if (fill) for (const sql of fill) await this.conn.query(sql)
       await this.conn.query(`CREATE OR REPLACE TEMP TABLE ${SELECTED_ROWS_TABLE} AS SELECT * EXCLUDE (__se_rowid, __se_xmin, __se_ymin, __se_xmax, __se_ymax) FROM ${INTERNAL_LAYER} WHERE ${where}`)
@@ -727,8 +810,8 @@ export class QuerySession {
 
   /** How many rows the bin leaves out for having no usable location. */
   async binSkippedRows(spec: BinSpec): Promise<number> {
-    const lv = this.layerView
-    const sql = lv ? binSkippedSql(spec, this.binFacts(lv.geom)) : null
+    const src = this.gridSource()
+    const sql = src ? binSkippedSql(spec, this.binFacts(src)) : null
     if (!sql) return 0
     return this.exclusive(async (isCancelled) => Number((await singleRow<{ skipped: number | bigint }>(this.conn, sql, isCancelled)).skipped), 'background')
   }
@@ -750,13 +833,14 @@ export class QuerySession {
 
   /** What the Bin into cells dialog shows about the open layer. */
   layerFactsForBin(): BinLayerInfo | null {
-    if (!this.layerView) return null
+    const src = this.gridSource()
+    if (!src) return null
     return {
-      geometryType: this.table.geometryType,
-      extent: this.table.extent,
-      rows: this.table.totals.rows,
-      numericColumns: this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
-      filtersIgnored: this.binRestriction().ignored,
+      geometryType: src.geometryType,
+      extent: src.extent,
+      rows: src.rows,
+      numericColumns: src.columns.filter((c) => isNumericType(c.type)).map((c) => c.name),
+      selectable: !src.shown,
     }
   }
 
@@ -769,44 +853,45 @@ export class QuerySession {
 
   // --- Spec 022: dot density ------------------------------------------------------
 
-  private dotFacts(geom: string): DotLayerFacts {
-    return { geom, srid: this.table.srid, columns: this.table.columns, where: this.binRestriction().where }
+  private dotFacts(src: GridSource): DotLayerFacts {
+    return { geom: src.geom, srid: src.srid, columns: src.columns, where: this.binRestriction(), ...(src.source ? { source: src.source } : {}) }
   }
 
   /** Why dot density is not possible for the open layer (it needs polygons), or null. */
   dotUnavailable(): string | null {
-    if (!this.layerView) return 'Open a layer first.'
-    const type = this.table.geometryType
+    const src = this.gridSource()
+    if (!src) return this.layerView ? 'The result on show has no geometry to draw dots in.' : 'Open a layer first.'
+    const type = src.geometryType
     if (type !== 'Polygon' && type !== 'Mixed') return 'Dot density needs a layer of polygons.'
-    return this.table.columns.some((c) => isNumericType(c.type)) ? null : 'Dot density needs a number column to draw as dots.'
+    return src.columns.some((c) => isNumericType(c.type)) ? null : 'Dot density needs a number column to draw as dots.'
   }
 
   /** The query "Dot density" writes (grid/dotSql.ts); null when the spec is not valid for this layer. */
   dotQuerySql(spec: DotSpec): DotQuery | null {
-    const lv = this.layerView
-    return lv && !this.dotUnavailable() ? buildDotQuery(spec, this.dotFacts(lv.geom)) : null
+    const src = this.gridSource()
+    return src && !this.dotUnavailable() ? buildDotQuery(spec, this.dotFacts(src)) : null
   }
 
   /** What the Dot density dialog shows about the open layer, with the sums of its number columns over the rows shown. */
   async layerFactsForDots(): Promise<DotLayerInfo | null> {
-    const lv = this.layerView
-    if (!lv || this.dotUnavailable()) return null
-    const numericColumns = this.table.columns.filter((c) => isNumericType(c.type)).map((c) => c.name)
-    const sql = dotTotalsSql(numericColumns, this.dotFacts(lv.geom))
+    const src = this.gridSource()
+    if (!src || this.dotUnavailable()) return null
+    const numericColumns = src.columns.filter((c) => isNumericType(c.type)).map((c) => c.name)
+    const sql = dotTotalsSql(numericColumns, this.dotFacts(src))
     const totals: Record<string, number> = {}
     if (sql) {
       const row = await this.exclusive(async (isCancelled) => singleRow<Record<string, number | null>>(this.conn, sql, isCancelled), 'background')
       numericColumns.forEach((c, i) => (totals[c] = Number(row[`t${i}`] ?? 0)))
     }
-    return { numericColumns, rows: this.table.totals.rows, filtersIgnored: this.binRestriction().ignored, totals }
+    return { numericColumns, rows: src.rows, totals }
   }
 
   /** Spec 021: the average box of the layer's features, for the dialog's estimate of covering; null when it cannot be read. */
   async featureSizeForBin(): Promise<FeatureSize | null> {
-    const lv = this.layerView
-    if (!lv) return null
+    const src = this.gridSource()
+    if (!src) return null
     return this.exclusive(async (isCancelled) => {
-      const row = await singleRow<{ area_km2: number | null; span_km: number | null }>(this.conn, featureSizeSql(lv.geom, this.table.srid), isCancelled)
+      const row = await singleRow<{ area_km2: number | null; span_km: number | null }>(this.conn, featureSizeSql(src.geom, src.srid, src.source), isCancelled)
       return row.area_km2 === null || row.span_km === null ? null : { areaKm2: Number(row.area_km2), spanKm: Number(row.span_km) }
     }, 'background')
   }
@@ -1790,6 +1875,8 @@ export class QuerySession {
   async runDefault(): Promise<BuiltResult> {
     const built = defaultResult(this.table)
     this.facts = resultFacts(built, this.table, true)
+    this.baseResult = null
+    this.gridBase = null
     this.defaultFacts = this.facts
     this.resultChanged()
     return built
@@ -1881,6 +1968,8 @@ export class QuerySession {
    */
   showDefaultView(): void {
     this.facts = this.defaultFacts
+    this.baseResult = null
+    this.gridBase = null
     this.resultChanged()
   }
 

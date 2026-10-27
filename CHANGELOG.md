@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Bin into cells and Dot density used every row of the layer after a query** (issue #2). When the table showed a query result (for example `SELECT * FROM layer WHERE state = 'UT'`), the cells and the dots were still made from the whole layer, with no hint. They now read the rows on show: the query behind the result is written into the generated SQL as a subquery, and the column filters on that result apply too. What the dialog reads is fixed when it opens, so changing the resolution or the amount per dot after the preview keeps working. "Selected rows only" is offered for the layer itself, not for a result; a result with no geometry cannot be put in cells.
 - **A GeoPackage or GML file in EPSG:27700 (British National Grid) or EPSG:31467 failed to open** with "Transformation cannot be formatted as WKT1 TOWGS84 parameters" (issue #1). In the browser build of the engine, listing a file's layers (`ST_Read_Meta`) raises an error PROJ would otherwise handle for these systems, although reading and reprojecting the data work. The layers of a GeoPackage are now read from its own catalog tables when that happens, a GML file opens as its first layer, and the output log says why. A placeholder until the engine is fixed (reported as duckdb/duckdb-spatial#901); findings in `specs/issue-1-towgs84.md`.
 
 ## [1.0.1] - 2026-10-19

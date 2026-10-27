@@ -1,6 +1,6 @@
 // Spec 017: the query "Bin into cells" writes (grid/binSql.ts), as text; the engine tests are in tests/web.
 import { describe, expect, it } from 'vitest'
-import { QuerySession, SELECTED_ROWS_TABLE, binQuerySql, binSkippedSql, binSpecProblem, measureLabel, type BinLayerFacts, type BinSpec, type QueryableTable } from '@spatial-explorer/core'
+import { QuerySession, SELECTED_ROWS_TABLE, binQuerySql, binSkippedSql, dotQuerySql, dotTotalsSql, featureSizeSql, binSpecProblem, measureLabel, type BinLayerFacts, type BinSpec, type QueryableTable } from '@spatial-explorer/core'
 
 const facts: BinLayerFacts = {
   geom: '"geom"',
@@ -159,6 +159,24 @@ describe('QuerySession bin methods (spec 017)', () => {
   it('tells the dialog what the layer holds', () => {
     const qs = session()
     qs.setLayerView({ index: 'columns', geom: '"geom"', attrs: ['name', 'pop'] })
-    expect(qs.layerFactsForBin()).toEqual({ geometryType: 'Point', extent: [-112, 40, -111, 41], rows: 1234, numericColumns: ['pop'], filtersIgnored: false })
+    expect(qs.layerFactsForBin()).toEqual({ geometryType: 'Point', extent: [-112, 40, -111, 41], rows: 1234, numericColumns: ['pop'], selectable: true })
+  })
+})
+
+describe('bin and dots of the rows on show (issue 2)', () => {
+  const source = "(\nSELECT * FROM layer WHERE state = 'UT'\n)"
+  it('reads the given relation instead of `layer`, with the filters on top', () => {
+    const q = binQuerySql({ system: 'h3', resolution: 5, measure: { kind: 'count' } }, { geom: '"geom"', srid: 4326, columns: [], source, where: '"x" > 1' })!
+    expect(q.sql).toContain(`FROM ${source}\n      WHERE ("x" > 1)`)
+  })
+  it('the selected rows still win over the source', () => {
+    const q = binQuerySql({ system: 'h3', resolution: 5, measure: { kind: 'count' }, selectedOnly: true }, { geom: '"geom"', srid: 4326, columns: [], source, selectedSource: 'selected_rows' })!
+    expect(q.sql).toContain('FROM selected_rows')
+  })
+  it('the dots read it too, and so do their totals and the feature size', () => {
+    const facts = { geom: '"geom"', srid: 4326, columns: [{ name: 'pop', type: 'BIGINT' }], source }
+    expect(dotQuerySql({ columns: ['pop'], perDot: 10 }, facts)!.sql).toContain(`FROM ${source}`)
+    expect(dotTotalsSql(['pop'], facts)).toContain(`FROM ${source}`)
+    expect(featureSizeSql('"geom"', 4326, source)).toContain(`FROM ${source} WHERE`)
   })
 })

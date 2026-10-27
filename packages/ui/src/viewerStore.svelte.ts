@@ -9,7 +9,6 @@ import {
   DOT_LIMIT,
   MAX_DOTS,
   PREVIEW_DOT_LIMIT,
-  dotSpecProblem,
   dotStyle,
   estimateDots,
   isDotResult,
@@ -20,7 +19,6 @@ import {
   CELL_LIMIT,
   normalizeBinPreference,
   PREVIEW_CELL_LIMIT,
-  binSpecProblem,
   estimateCells,
   getGridSystem,
   gridStyle,
@@ -1534,6 +1532,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   function binUnavailable(): string | null {
     // `queryTable` is reactive state set when a layer opens; the session itself is a plain variable.
     if (!queryTable) return 'Open a layer first.'
+    // The result on show is what the bin reads (reactive through its geometry column).
+    if (!resultGeometryColumn) return 'The result on show has no geometry to put in cells.'
     if (querySession && !querySession.layerFactsForBin()) return 'This layer has no geometry to put in cells.'
     return null
   }
@@ -1545,7 +1545,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const system = getGridSystem(spec.system)
     const estimate = system && info ? estimateCells(system, spec.resolution, info.extent, info.rows, { cover: spec.assign === 'cover', smooth: spec.smooth, featureSize: info?.featureSize }) : 0
     const query = qs?.binQuerySql(spec) ?? null
-    const problem = query ? null : qs ? binSpecProblem(spec, qs.table) : 'Open a layer first.'
+    const problem = query ? null : qs ? qs.binProblem(spec) : 'Open a layer first.'
     binDialog = { ...binDialog, spec, estimate, sql: query?.sql ?? null, valueLabel: query?.valueLabel ?? '', problem, overLimit: estimate > CELL_LIMIT, previewed: false, skipped: null }
     if (binTimer) clearTimeout(binTimer)
     binTimer = null
@@ -1602,6 +1602,8 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function openBinDialog(): Promise<void> {
     const qs = querySession
     if (!qs || binUnavailable()) return
+    // What the dialog reads is fixed now: its own previews replace the result on show.
+    qs.freezeGridSource()
     const base = qs.layerFactsForBin()
     // Lines and polygons: how big a feature is decides how many cells covering gives (the estimate, and so the preview).
     const featureSize = base && base.geometryType !== 'Point' ? await retryWhenBusy(qs, () => qs.featureSizeForBin()).catch(() => null) : null
@@ -1617,7 +1619,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const measure: BinSpec['measure'] = saved.measureKind !== 'count' && column !== undefined ? { kind: saved.measureKind, column } : { kind: 'count' }
     const spec: BinSpec = { system, resolution: suggestResolution(grid, info.extent, info.rows), measure }
     binPrev = { text: queryText, ranText: lastRunText, style, styleDirty, bottomTab: layout.bottomTab, bottomCollapsed: layout.bottomCollapsed }
-    binDialog = { ...closedBin(), open: true, info, support, selectedCount: selection.kind === 'ids' ? selection.ids.size : 0 }
+    binDialog = { ...closedBin(), open: true, info, support, selectedCount: info.selectable && selection.kind === 'ids' ? selection.ids.size : 0 }
     updateBin(spec)
   }
 
@@ -1700,6 +1702,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
 
   function dotUnavailable(): string | null {
     if (!queryTable) return 'Open a layer first.'
+    if (!resultGeometryColumn) return 'The result on show has no geometry to draw dots in.'
     return querySession?.dotUnavailable() ?? null
   }
 
@@ -1710,7 +1713,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     const total = info ? spec.columns.reduce((sum, c) => sum + (info.totals[c] ?? 0), 0) : 0
     const estimate = estimateDots(total, spec.perDot)
     const query = qs?.dotQuerySql(spec) ?? null
-    let problem = query ? null : qs ? dotSpecProblem(spec, qs.table) : 'Open a layer first.'
+    let problem = query ? null : qs ? qs.dotProblem(spec) : 'Open a layer first.'
     if (!problem && estimate > MAX_DOTS) problem = `That is about ${estimate.toLocaleString('en-US')} dots, more than the ${MAX_DOTS.toLocaleString('en-US')} this tool draws: let one dot stand for more.`
     dotDialog = { ...dotDialog, spec, estimate, sql: problem ? null : (query?.sql ?? null), label: query?.label ?? '', problem, overLimit: estimate > DOT_LIMIT, previewed: false }
     if (dotTimer) clearTimeout(dotTimer)
@@ -1752,6 +1755,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   async function openDotDialog(): Promise<void> {
     const qs = querySession
     if (!qs || dotUnavailable()) return
+    qs.freezeGridSource()
     const info = await retryWhenBusy(qs, () => qs.layerFactsForDots()).catch(() => null)
     if (!info) return
     const column = info.numericColumns[0]

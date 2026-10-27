@@ -47,6 +47,8 @@ export interface DotLayerFacts {
   /** EPSG code of the layer's geometry; null (unknown) is read as WGS84. */
   srid: number | null
   columns: ReadonlyArray<{ name: string; type: string }>
+  /** The relation the polygons come from: `layer` (absent), or the query behind the result on show, in parentheses. */
+  source?: string
   /** The WHERE text for the rows the layer currently shows (column filters and shape filter), or null. */
   where?: string | null
 }
@@ -55,10 +57,8 @@ export interface DotLayerFacts {
 export interface DotLayerInfo {
   /** Columns that can be drawn as dots. */
   numericColumns: string[]
-  /** Rows in the layer. */
+  /** Rows in the layer, or in the result on show. */
   rows: number
-  /** Filters are active on a query result, whose columns are not the layer's: the dots use the whole layer and say so. */
-  filtersIgnored: boolean
   /** The sum of each number column's positive values over the rows shown (what the dots add up to, times the amount per dot). */
   totals: Record<string, number>
 }
@@ -134,7 +134,7 @@ export function dotQuerySql(spec: DotSpec, facts: DotLayerFacts): DotQuery | nul
     `    SELECT feature, g, ST_XMin(g) AS x0, ST_XMax(g) - ST_XMin(g) AS w, ST_YMin(g) AS y0, ST_YMax(g) - ST_YMin(g) AS h, ${spec.columns.map((_, i) => `v${i}`).join(', ')}`,
     '    FROM (',
     `      SELECT row_number() OVER () AS feature, ${wholeGeometrySql(facts.geom, facts.srid)} AS g, ${values}`,
-    `      FROM layer${where}`,
+    `      FROM ${facts.source ?? 'layer'}${where}`,
     '    )',
     `    WHERE ${USABLE_GEOMETRY} AND ST_Area(g) > 0`,
     '  )',
@@ -169,8 +169,8 @@ export function dotQuerySql(spec: DotSpec, facts: DotLayerFacts): DotQuery | nul
  * SQL for the sum of each of `columns` over the rows the layer shows (negative and missing values count as nothing), as
  * `t0`, `t1`, …; null for no columns.
  */
-export function dotTotalsSql(columns: readonly string[], facts: Pick<DotLayerFacts, 'where'>): string | null {
+export function dotTotalsSql(columns: readonly string[], facts: Pick<DotLayerFacts, 'where' | 'source'>): string | null {
   if (columns.length === 0) return null
   const sums = columns.map((c, i) => `coalesce(sum(greatest(TRY_CAST(${quoteIdent(c)} AS DOUBLE), 0)), 0)::DOUBLE AS t${i}`).join(', ')
-  return `SELECT ${sums} FROM layer${facts.where ? ` WHERE (${facts.where})` : ''}`
+  return `SELECT ${sums} FROM ${facts.source ?? 'layer'}${facts.where ? ` WHERE (${facts.where})` : ''}`
 }
