@@ -28,7 +28,7 @@
   import Flame from '@lucide/svelte/icons/flame'
   import Funnel from '@lucide/svelte/icons/funnel'
   import Globe from '@lucide/svelte/icons/globe'
-  import ChartLine from '@lucide/svelte/icons/chart-line'
+  import ChartArea from '@lucide/svelte/icons/chart-area'
   import ChartScatter from '@lucide/svelte/icons/chart-scatter'
   import Sigma from '@lucide/svelte/icons/sigma'
   import Library from '@lucide/svelte/icons/library'
@@ -148,7 +148,7 @@
     mountain: MountainSnow,
     draw: PenTool,
     ruler: RulerDimensionLine,
-    profile: ChartLine,
+    profile: ChartArea,
     sigma: Sigma,
     'select-shape': SquareDashedMousePointer,
     'shape-point': MapPin,
