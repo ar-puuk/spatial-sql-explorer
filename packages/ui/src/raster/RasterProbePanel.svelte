@@ -79,8 +79,9 @@
 
   const readout = $derived.by(() => {
     if (!profile || at === null) return ''
-    const d = formatLength(profile.samples.distances[at], units)
-    const vals = profile.bands.map((b) => `${profile.bands.length > 1 ? `${b.name} ` : ''}${valueText(b.values[at!])}`).join(', ')
+    const i = at
+    const d = formatLength(profile.samples.distances[i], units)
+    const vals = profile.bands.map((b) => `${profile.bands.length > 1 ? `${b.name} ` : ''}${valueText(b.values[i])}`).join(', ')
     return `${d}: ${vals}`
   })
 
