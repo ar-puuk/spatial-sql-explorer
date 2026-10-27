@@ -87,6 +87,11 @@ export class TilerClient {
     return this.call<AreaStatsAnswer>({ type: 'areaStats', handle, ring, bands, nodata })
   }
 
+  /** A PNG tile of the values of `band`, packed as `base + n * step` in red, green and blue (for the hillshade). */
+  demTile(handle: number, z: number, x: number, y: number, band: number, base: number, step: number, fill: number, nodata?: number | null): Promise<Uint8Array> {
+    return this.call<Uint8Array>({ type: 'demTile', handle, z, x, y, band, base, step, fill, nodata })
+  }
+
   /** A PNG tile, made in the worker. */
   tile(handle: number, z: number, x: number, y: number, options: RasterRenderOptions): Promise<Uint8Array> {
     return this.call<Uint8Array>({ type: 'tile', handle, z, x, y, options })

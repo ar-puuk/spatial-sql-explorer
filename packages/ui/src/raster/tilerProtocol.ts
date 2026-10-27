@@ -44,6 +44,7 @@ export type ToWorker =
   | { id: number; type: 'point'; handle: number; lon: number; lat: number }
   | { id: number; type: 'profile'; handle: number; /** lon0, lat0, lon1, lat1, … */ points: Float64Array; bands: number[] }
   | { id: number; type: 'areaStats'; handle: number; /** lon0, lat0, lon1, lat1, … of the outer ring */ ring: Float64Array; bands: Array<{ index: number; name: string }>; nodata: number | 'nan' | null }
+  | { id: number; type: 'demTile'; handle: number; z: number; x: number; y: number; band: number; base: number; step: number; /** what a cell with no value is packed as (the same in every tile) */ fill: number; /** undefined: the file's own */ nodata?: number | null }
   | { id: number; type: 'tile'; handle: number; z: number; x: number; y: number; options: RasterRenderOptions }
   | { id: number; type: 'close'; handle: number }
 

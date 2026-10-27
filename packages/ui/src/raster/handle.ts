@@ -12,6 +12,8 @@ export interface RasterReader {
   profile(points: Float64Array, bands: number[]): Promise<Float64Array>
   /** Spec 027: the figures of each of `bands` over the cells inside the ring (lon, lat pairs). */
   areaStats(ring: Float64Array, bands: Array<{ index: number; name: string }>): Promise<AreaStatsAnswer>
+  /** Spec 027: a PNG tile of the values of `band` packed as `base + n * step` (24 bits in red, green, blue), for the hillshade. */
+  demTilePng(z: number, x: number, y: number, band: number, base: number, step: number, fill: number, nodata?: number | null): Promise<Uint8Array>
   /** Per-band statistics from the level the tiler picks for `maxSize`. */
   statistics(maxSize: number): Promise<Record<string, TilerBandStats>>
 }

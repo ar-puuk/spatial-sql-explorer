@@ -101,7 +101,7 @@ import {
   type ColumnFilter,
   type Selection,
 } from '@spatial-explorer/core'
-import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
+import { type RasterFacts, capabilitiesFor, defaultRasterStyle, isRasterName, isRasterQml, pixelText, placeholderLayer, rasterQmlNotes, rasterStyleFromQml, rasterStyleToQml, sanitizeRasterStyle, type Capabilities, type DemEncoding, type LayerKind, type PixelReading, type RasterStyle } from '@spatial-explorer/core'
 import { openRaster, type OpenedRaster } from './raster/rasterSource.js'
 import { createPixelProbe } from './raster/pixel.js'
 import { colormapColors } from './raster/engine.js'
@@ -606,6 +606,9 @@ export interface ViewerStore {
   readonly rasterStyle: RasterStyle | null
   /** Bumped when the raster's picture changes: part of the tile URL. */
   readonly rasterVersion: number
+  /** Spec 027: the version of the relief tiles and how they pack the values of the band drawn. */
+  readonly rasterDemVersion: number
+  readonly rasterDemEncoding: DemEncoding | null
   /** The band values under the cursor, or null. */
   readonly pixel: PixelReading | null
   /** The facts card is open. */
@@ -3294,6 +3297,12 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     get rasterVersion() {
       return rasterState.version
+    },
+    get rasterDemVersion() {
+      return rasterState.demVersion
+    },
+    get rasterDemEncoding() {
+      return rasterState.demEncoding
     },
     get pixel() {
       return rasterState.pixel

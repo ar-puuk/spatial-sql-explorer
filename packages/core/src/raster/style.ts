@@ -1,6 +1,7 @@
 // Spec 026: how a raster is drawn. Defaults come from the file (an image or a measurement, percentile
 // stretch), and `toRenderOptions` turns a style into what the tiler's `renderTileRGBA` takes.
 import { isNeutralDisplay, sanitizeDisplay } from './display.js'
+import { isReliefStored, sanitizeRelief } from './relief.js'
 import type { NodataTreatment, RasterBand, RasterFacts, RasterStretch, RasterStyle } from './types.js'
 
 /** Every colormap the tiler (cog-tiler-wasm 0.5.0 `colormaps()`) can draw a single band with. A name not in it is refused. */
@@ -106,6 +107,7 @@ export function sanitizeRasterStyle(raw: unknown, facts: RasterFacts): RasterSty
   const rescale = Array.isArray(r.rescale) && r.rescale.length >= 3 && r.rescale.every((p) => Array.isArray(p) && p.length === 2 && finite(p[0]) && finite(p[1]) && p[0] < p[1]) ? (r.rescale.slice(0, 3) as [number, number][]) : undefined
   const nd = r.nodata as { mode?: unknown; value?: unknown } | undefined
   const display = r.display === undefined ? undefined : sanitizeDisplay(r.display)
+  const relief = r.relief === undefined ? undefined : sanitizeRelief(r.relief)
   const nodata: NodataTreatment = nd?.mode === 'none' ? { mode: 'none' } : nd?.mode === 'value' && finite(nd.value) ? { mode: 'value', value: nd.value } : { mode: 'file' }
   return {
     mode,
@@ -120,6 +122,7 @@ export function sanitizeRasterStyle(raw: unknown, facts: RasterFacts): RasterSty
     nodata,
     opacity: finite(r.opacity) ? Math.min(1, Math.max(0, r.opacity)) : 1,
     ...(display && !isNeutralDisplay(display) ? { display } : {}),
+    ...(relief && isReliefStored(relief) ? { relief } : {}),
   }
 }
 

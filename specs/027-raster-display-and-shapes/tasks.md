@@ -25,12 +25,12 @@
 - [x] T013 UI `RasterAreaStats.svelte` (table per band, area, histogram, approximate note), wired to the `area` shapes; web tests: exact count and mean against geotiff.js over the fixture, no-data only polygon, polygon partly outside.
 
 ## Phase 5: US2 hillshade (P1, last because it carries the risk)
-- [ ] T014 Record in `research.md` how `cog-tiler-wasm` 0.5.0 builds a tile (members used: `toSource`, `gt`, `levels`, `_chooseLevel`, `_levelPixelSize`, `_assembleWindow`, `nodata`, `flipY`).
-- [ ] T015 SPIKE (gate): in Chrome through the real app, a custom-protocol `raster-dem` source with `encoding: 'custom'` drives a `hillshade` layer over the DEM fixture; precision check of the 24-bit encoding against file values; record in `research.md`. If it fails, stop and report; US1, US3 and US4 ship without relief.
-- [ ] T016 Worker `valueTile.ts` (adapter with member check, warp to mercator without colors, nodata fill, 24-bit encoding, PNG), message `demTile`, client, protocol `se-raster-dem` in `rasterTiles.ts`.
-- [ ] T017 Core `relief.ts` (`RasterRelief` type, defaults, sanitize, MapLibre paint mapping, `canOfferRelief(facts)`), `RasterStyle.relief`, QML JSON entry; tests `tests/core/raster-relief.test.ts`.
-- [ ] T018 Map: DEM source `se-raster-dem` and layer `se-raster-relief` above `se-raster`, removed on layer change, paint updates without new tiles, version bump when the file's range changes; keep the terrain feature's ids untouched.
-- [ ] T019 Style panel "Relief" group (switch, method, direction, height, strength, colors, "values are taken as meters" note, not offered with the reason for colour or palette rasters).
+- [x] T014 Record in `research.md` how `cog-tiler-wasm` 0.5.0 builds a tile (members used: `toSource`, `gt`, `levels`, `_chooseLevel`, `_levelPixelSize`, `_assembleWindow`, `nodata`, `flipY`).
+- [x] T015 SPIKE (gate): in Chrome through the real app, a custom-protocol `raster-dem` source with `encoding: 'custom'` drives a `hillshade` layer over the DEM fixture; precision check of the 24-bit encoding against file values; record in `research.md`. If it fails, stop and report; US1, US3 and US4 ship without relief.
+- [x] T016 Worker `valueTile.ts` (adapter with member check, warp to mercator without colors, nodata fill, 24-bit encoding, PNG), message `demTile`, client, protocol `se-raster-dem` in `rasterTiles.ts`.
+- [x] T017 Core `relief.ts` (`RasterRelief` type, defaults, sanitize, MapLibre paint mapping, `canOfferRelief(facts)`), `RasterStyle.relief`, QML JSON entry; tests `tests/core/raster-relief.test.ts`.
+- [x] T018 Map: DEM source `se-raster-dem` and layer `se-raster-relief` above `se-raster`, removed on layer change, paint updates without new tiles, version bump when the file's range changes; keep the terrain feature's ids untouched.
+- [x] T019 Style panel "Relief" group (switch, method, direction, height, strength, colors, "values are taken as meters" note, not offered with the reason for colour or palette rasters).
 - [ ] T020 Web tests: relief on/off, light changes the paint only (no tile build), flat vs sloped pixel check, persistence, axe; 6x CPU performance spec (`raster-027-performance.spec.ts`: light change under 300 ms, no task over 200 ms).
 
 ## Phase 6: Polish

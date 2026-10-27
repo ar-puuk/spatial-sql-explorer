@@ -6,7 +6,7 @@
   // `layout`, remembered by the host. No header here: that's per-shell chrome
   // (design-plan.md §4.3); the web shell passes its status bar.
   import type { Snippet } from 'svelte'
-  import { DEFAULT_LAYER_STYLE, controlAvailable, rasterLegendGroup, hasDomains, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
+  import { DEFAULT_LAYER_STYLE, canOfferRelief, controlAvailable, rasterLegendGroup, reliefPaint, hasDomains, isBinResult, type ControlPosition, legendGroups, classSymbols, clusterLegendRows, rendererOf, rendererTitle, setLabels, sidecarStyleFileName, sizeSymbols, type ChannelId, type LegendGroup } from '@spatial-explorer/core'
   import './kit/base.css'
   import MapView from './MapView.svelte'
   import AttributeTable from './AttributeTable.svelte'
@@ -283,6 +283,14 @@
   // Spec 026 (FR-013): with a raster open nothing that needs rows is shown: no bottom panel (table and SQL), no shape
   // tools, no Labels panel. One flag, from the store's capabilities.
   const isRaster = $derived(store.layerKind === 'raster')
+  // Spec 027: the shaded relief, when it is on and the raster can have it (one band of numbers).
+  function reliefFor() {
+    const st = store.rasterStyle
+    const facts = store.raster?.facts
+    const enc = store.rasterDemEncoding
+    if (!st?.relief?.on || !facts || !enc || !canOfferRelief(facts, st).ok) return null
+    return { version: store.rasterDemVersion, encoding: enc, paint: reliefPaint(st.relief) }
+  }
   // A Labels panel left open from the previous layer gives way to Style.
   $effect(() => {
     if (isRaster && layout.sideTab === 'labels') store.setLayout({ sideTab: 'style' })
@@ -432,7 +440,7 @@
       <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed && !isRaster} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
-          raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, display: store.rasterStyle.display, hasPalette: store.raster.facts.hasPalette, bounds: store.raster.facts.extentWgs84 } : null}
+          raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, display: store.rasterStyle.display, hasPalette: store.raster.facts.hasPalette, bounds: store.raster.facts.extentWgs84, relief: reliefFor() } : null}
           pixel={store.pixel}
           probeMarker={store.probeMarker}
           mapData={store.mapData}

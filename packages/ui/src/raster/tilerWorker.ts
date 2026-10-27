@@ -13,6 +13,7 @@ import { RasterOpenError } from '../../../core/src/raster/errors.js'
 import { encodePng, transparentTilePng } from '../../../core/src/raster/png.js'
 import { chooseStatsLevel, densifyRing, polygonSpans, statsOfWindow } from '../../../core/src/raster/areaStats.js'
 import { internalsOf, toMercator } from './cogInternals.js'
+import { encodeValueTile, valueTile } from './valueTile.js'
 import type { AreaStatsAnswer, ColormapTable, ConvertedCog, FromWorker, OpenedCog, PointAnswer, StatisticsAnswer, ToWorker } from './tilerProtocol.js'
 
 const cogs = new Map<number, CogSource>()
@@ -187,6 +188,14 @@ async function handle(message: ToWorker): Promise<{ result: unknown; transfer?: 
         )
       }
       return { result: out, transfer: [out.buffer as ArrayBuffer] }
+    }
+    case 'demTile': {
+      const cog = cogs.get(message.handle)
+      if (!cog) throw new Error('The raster is closed.')
+      const values = await valueTile(cog, message.z, message.x, message.y, message.band, message.nodata)
+      // A tile with no value in it is flat: the hillshade of a flat surface is nothing.
+      const png = encodeValueTile(values ?? new Float64Array(256 * 256).fill(NaN), { base: message.base, step: message.step }, message.fill)
+      return { result: png, transfer: [png.buffer as ArrayBuffer] }
     }
     case 'areaStats': {
       const cog = cogs.get(message.handle)

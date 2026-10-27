@@ -71,6 +71,8 @@
     controlsAt,
     controlAvailable,
     displayPaint,
+    demSourceEncoding,
+    type DemEncoding,
     type RasterDisplay,
     CONTROL_GROUPS,
     MAP_CONTROLS,
@@ -95,7 +97,7 @@
   import type { TilesArchive } from './pmtilesSource.js'
   import { drawArrowIcon, drawMarkerIcon } from './markerIcon.js'
   import { ensureEngineTilesProtocol } from './engineTiles.js'
-  import { rasterTileUrl } from './raster/rasterTiles.js'
+  import { demTileUrl, rasterTileUrl } from './raster/rasterTiles.js'
 
   interface Props {
     layer: Layer | null
@@ -194,7 +196,16 @@
     /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
     /** Spec 027: the place of the profile chart the pointer is on (a marker on the map). */
     probeMarker?: [number, number] | null
-    raster?: { key: string; version: number; opacity: number; display?: RasterDisplay; hasPalette: boolean; bounds: [number, number, number, number] } | null
+    raster?: {
+      key: string
+      version: number
+      opacity: number
+      display?: RasterDisplay
+      hasPalette: boolean
+      bounds: [number, number, number, number]
+      /** Spec 027: shaded relief, when it is on: the packing of the values, the tile version, and the hillshade paint. */
+      relief?: { version: number; encoding: DemEncoding; paint: Record<string, number | string> } | null
+    } | null
     /** Spec 026: the band values under the cursor (a raster only). */
     pixel?: PixelReading | null
   }
@@ -289,6 +300,9 @@
   const SELECTION_HALO ='se-selection-halo'
   /** Spec 026: the raster's source and layer (one id for both). The `se-` prefix is load-bearing: see replaceDataSource and the basemap error check. */
   const RASTER_ID = 'se-raster'
+  // Spec 027: shaded relief: a raster-dem source of the raster's values and a hillshade layer above the picture.
+  const DEM_ID = 'se-raster-dem'
+  const RELIEF_ID = 'se-raster-relief'
   const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   // Feature ids are promoted from this property so selection/hover use
   // feature-state (no per-selection filter rebuild — GeoLibre-style perf, see
@@ -650,7 +664,8 @@
     if (!map) return
     const m = map
     for (const l of m.getStyle().layers ?? []) if (l.id.startsWith('se-')) m.removeLayer(l.id)
-    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE, RASTER_ID]) if (m.getSource(id)) m.removeSource(id)
+    for (const id of [SOURCE_ID, DOT_SOURCE, LABEL_SOURCE, COMPANION_SOURCE, SELECTION_SOURCE, RASTER_ID, DEM_ID]) if (m.getSource(id)) m.removeSource(id)
+    shownReliefSig = null
     // The raster went with the other `se-` layers: the effect below puts it back when one is open.
     shownRasterSig = null
     delete container.dataset.rasterReady
@@ -668,9 +683,41 @@
    * is only a paint property. It is above the basemap and the (empty) vector layers, below nothing of ours.
    */
   let shownRasterSig: string | null = null
+  let shownReliefSig: string | null = null
+  /** Spec 027: the hillshade over the picture. Paint changes need no tiles; a new packing or version builds the source again. */
+  function applyRelief(m: MapLibreMap, r: NonNullable<Props['raster']> | null): void {
+    const want = r?.relief ?? null
+    if (!r || !want) {
+      if (m.getLayer(RELIEF_ID)) m.removeLayer(RELIEF_ID)
+      if (m.getSource(DEM_ID)) m.removeSource(DEM_ID)
+      shownReliefSig = null
+      delete container.dataset.reliefReady
+      return
+    }
+    const sig = `${r.key}/${want.version}/${want.encoding.base}/${want.encoding.step}`
+    if (sig === shownReliefSig && m.getLayer(RELIEF_ID)) {
+      for (const [name, value] of Object.entries(want.paint)) m.setPaintProperty(RELIEF_ID, name as never, value as never)
+      container.dataset.reliefPaint = JSON.stringify(want.paint)
+      return
+    }
+    if (m.getLayer(RELIEF_ID)) m.removeLayer(RELIEF_ID)
+    if (m.getSource(DEM_ID)) m.removeSource(DEM_ID)
+    delete container.dataset.reliefReady
+    const [w, s, e, n] = r.bounds
+    const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v))
+    m.addSource(DEM_ID, { type: 'raster-dem', tiles: [demTileUrl(r.key, want.version)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: [clamp(w, 180), clamp(s, 85.0511), clamp(e, 180), clamp(n, 85.0511)], ...demSourceEncoding(want.encoding) } as never)
+    m.addLayer({ id: RELIEF_ID, type: 'hillshade', source: DEM_ID, paint: want.paint } as never)
+    container.dataset.reliefPaint = JSON.stringify(want.paint)
+    shownReliefSig = sig
+  }
+
   function applyRaster(r: NonNullable<Props['raster']> | null): void {
     const m = map
     if (!m) return
+    applyRasterPicture(m, r)
+    applyRelief(m, r)
+  }
+  function applyRasterPicture(m: MapLibreMap, r: NonNullable<Props['raster']> | null): void {
     const sig = r ? `${r.key}/${r.version}/` : null
     if (r && sig === shownRasterSig && m.getLayer(RASTER_ID)) {
       // Opacity and the picture adjustments are layer paint: no new tiles (spec 027).
@@ -918,6 +965,7 @@
       }
       // Spec 026: the raster's tiles in view are drawn (the idle after the source was added or replaced).
       if (shownRasterSig && m.getSource(RASTER_ID) && m.isSourceLoaded(RASTER_ID)) container.dataset.rasterReady = shownRasterSig
+      if (shownReliefSig && m.getSource(DEM_ID) && m.isSourceLoaded(DEM_ID)) container.dataset.reliefReady = shownReliefSig
       // Only meaningful once this layer's data is set: an idle before it
       // arrives must not publish a premature "0".
       if (!layer || !dataLoaded) return
@@ -1411,6 +1459,7 @@
     const r = raster
     void r?.opacity
     void r?.display
+    void r?.relief
     if (!mapReady || !map) return
     untrack(() => applyRaster(r))
   })
