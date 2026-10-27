@@ -431,7 +431,7 @@
       <div class="map-pane" class:hidden={maximized && !layout.bottomCollapsed && !isRaster} bind:clientHeight={mapPaneHeight}>
         <MapView
           layer={store.mapLayer ?? layer}
-          raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, resampling: store.raster.facts.hasPalette ? 'nearest' : 'linear', bounds: store.raster.facts.extentWgs84 } : null}
+          raster={store.raster && store.rasterStyle ? { key: store.raster.key, version: store.rasterVersion, opacity: store.rasterStyle.opacity, display: store.rasterStyle.display, hasPalette: store.raster.facts.hasPalette, bounds: store.raster.facts.extentWgs84 } : null}
           pixel={store.pixel}
           mapData={store.mapData}
           labelPoints={store.labelPoints}

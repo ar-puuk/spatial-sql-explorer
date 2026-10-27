@@ -3,7 +3,7 @@
   // (a colour table raster draws its own classes); the range the colors run between, started from the file's 2nd and 98th
   // percentile and marked on a histogram; the curve; the colormap, picked from previews; how no data is shown; opacity.
   // Every edit is a pure function in core (withMode, withBand, withRangePreset, ...), so this only shows and calls them.
-  import { withBand, withChannel, withCommonRange, withMode, withRangePreset, type RasterStretch, type RasterStyle } from '@spatial-explorer/core'
+  import { NEUTRAL_DISPLAY, isNeutralDisplay, withBand, withChannel, withCommonRange, withMode, withRangePreset, type RasterDisplay, type RasterResampling, type RasterStretch, type RasterStyle } from '@spatial-explorer/core'
   import type { ViewerStore } from '../viewerStore.svelte.ts'
   import Segmented from '../kit/Segmented.svelte'
   import Select from '../kit/Select.svelte'
@@ -53,6 +53,18 @@
     { value: 'value', label: 'A value', title: 'Transparent where the cells have this value' },
     { value: 'none', label: 'None', title: 'Nothing is transparent: the no-data value is drawn like any other' },
   ]
+  // Spec 027 US1: picture adjustments, applied by the graphics card (no tiles are read again).
+  const display = $derived<RasterDisplay>(style?.display ?? NEUTRAL_DISPLAY)
+  const RESAMPLING: Array<{ value: string; label: string; title: string }> = [
+    { value: 'auto', label: 'Automatic', title: 'Sharp cells for classes, smooth for everything else' },
+    { value: 'linear', label: 'Smooth', title: 'Blends between cells' },
+    { value: 'nearest', label: 'Sharp', title: 'Shows each cell as a square' },
+  ]
+  const adjust = (p: Partial<RasterDisplay>): void => {
+    const next = { ...display, ...p }
+    // Neutral is stored as no display at all.
+    patch({ display: isNeutralDisplay(next) ? undefined : next })
+  }
   const fileNodata = $derived(facts ? (facts.nodata === null ? 'none recorded' : facts.nodata === 'nan' ? 'NaN' : String(facts.nodata)) : '')
 </script>
 
@@ -152,6 +164,35 @@
         {:else if style.nodata.mode === 'file'}
           <p class="hint">The file says: {fileNodata}.</p>
         {/if}
+      </section>
+
+      <section aria-labelledby="rs-appearance">
+        <h3 id="rs-appearance">Appearance</h3>
+        <div class="row">
+          <span class="label">Black level</span>
+          <span class="wide"><Slider value={display.brightnessMin} min={0} max={1} step={0.01} label="Black level" onChange={(v) => adjust({ brightnessMin: Math.min(v, display.brightnessMax) })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">White level</span>
+          <span class="wide"><Slider value={display.brightnessMax} min={0} max={1} step={0.01} label="White level" onChange={(v) => adjust({ brightnessMax: Math.max(v, display.brightnessMin) })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Contrast</span>
+          <span class="wide"><Slider value={display.contrast} min={-1} max={1} step={0.01} label="Contrast" onChange={(v) => adjust({ contrast: v })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Saturation</span>
+          <span class="wide"><Slider value={display.saturation} min={-1} max={1} step={0.01} label="Saturation" onChange={(v) => adjust({ saturation: v })} /></span>
+        </div>
+        <div class="row">
+          <span class="label">Hue</span>
+          <span class="wide"><Slider value={display.hue} min={0} max={360} step={1} unit="°" label="Hue" onChange={(v) => adjust({ hue: v })} /></span>
+        </div>
+        <Segmented label="Pixels" options={RESAMPLING} value={display.resampling} onChange={(v) => adjust({ resampling: v as RasterResampling })} />
+        <div class="presets">
+          <button type="button" disabled={isNeutralDisplay(style.display)} onclick={() => patch({ display: undefined })} title="Brightness, contrast, saturation, hue and pixels back to neutral">Reset appearance</button>
+        </div>
+        <p class="hint">These change how the picture looks on the map and the print page. The color bar and legend show the colors as set above.</p>
       </section>
 
       <section aria-labelledby="rs-file">

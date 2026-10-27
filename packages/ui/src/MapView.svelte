@@ -70,6 +70,8 @@
     terrainSource,
     controlsAt,
     controlAvailable,
+    displayPaint,
+    type RasterDisplay,
     CONTROL_GROUPS,
     MAP_CONTROLS,
     isControlOn,
@@ -190,7 +192,7 @@
     /** Why Bin into cells is not available, or null. */
     binUnavailable?: string | null
     /** Spec 026: the open raster (it is the open layer): its tiles, the picture version they belong to, how it is drawn. */
-    raster?: { key: string; version: number; opacity: number; resampling: 'linear' | 'nearest'; bounds: [number, number, number, number] } | null
+    raster?: { key: string; version: number; opacity: number; display?: RasterDisplay; hasPalette: boolean; bounds: [number, number, number, number] } | null
     /** Spec 026: the band values under the cursor (a raster only). */
     pixel?: PixelReading | null
   }
@@ -649,6 +651,7 @@
     // The raster went with the other `se-` layers: the effect below puts it back when one is open.
     shownRasterSig = null
     delete container.dataset.rasterReady
+    delete container.dataset.rasterPaint
     for (const [id, source] of Object.entries(dataSources())) m.addSource(id, source as never)
     for (const l of dataLayers()) m.addLayer(l as never)
     hoveredId = null
@@ -665,9 +668,14 @@
   function applyRaster(r: NonNullable<Props['raster']> | null): void {
     const m = map
     if (!m) return
-    const sig = r ? `${r.key}/${r.version}/${r.resampling}` : null
+    const sig = r ? `${r.key}/${r.version}` : null
     if (r && sig === shownRasterSig && m.getLayer(RASTER_ID)) {
+      // Opacity and the picture adjustments are layer paint: no new tiles (spec 027).
       m.setPaintProperty(RASTER_ID, 'raster-opacity', r.opacity)
+      const paint = displayPaint(r.display, r.hasPalette)
+      for (const [name, value] of Object.entries(paint)) m.setPaintProperty(RASTER_ID, name as never, value as never)
+      // Test hook, like data-raster-ready: the paint the layer has now.
+      container.dataset.rasterPaint = JSON.stringify(paint)
       return
     }
     if (!r && !shownRasterSig) return
@@ -680,7 +688,8 @@
     const [w, s, e, n] = r.bounds
     const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v))
     m.addSource(RASTER_ID, { type: 'raster', tiles: [rasterTileUrl(r.key, r.version)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: [clamp(w, 180), clamp(s, 85.0511), clamp(e, 180), clamp(n, 85.0511)] })
-    m.addLayer({ id: RASTER_ID, type: 'raster', source: RASTER_ID, paint: { 'raster-opacity': r.opacity, 'raster-resampling': r.resampling, 'raster-fade-duration': 0 } })
+    m.addLayer({ id: RASTER_ID, type: 'raster', source: RASTER_ID, paint: { 'raster-opacity': r.opacity, ...displayPaint(r.display, r.hasPalette), 'raster-fade-duration': 0 } as never })
+    container.dataset.rasterPaint = JSON.stringify(displayPaint(r.display, r.hasPalette))
     shownRasterSig = sig
   }
 
@@ -1398,6 +1407,7 @@
   $effect(() => {
     const r = raster
     void r?.opacity
+    void r?.display
     if (!mapReady || !map) return
     untrack(() => applyRaster(r))
   })

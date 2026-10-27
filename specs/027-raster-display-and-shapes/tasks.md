@@ -9,9 +9,9 @@
 ## Phase 2: US1 display adjustments (P1)
 - [x] T002 Core `packages/core/src/raster/display.ts`: `RasterDisplay` type, `NEUTRAL_DISPLAY`, `sanitizeDisplay`, `isNeutralDisplay`, MapLibre paint mapping, QGIS mapping (`toQgisBrightnessContrast`, `toQgisSaturation`); `RasterStyle.display?` in `types.ts`; `sanitizeRasterStyle`/`defaultRasterStyle` in `style.ts`; export from index. Test `tests/core/raster-display.test.ts`.
 - [x] T003 QML: write `brightnesscontrast` and `huesaturation` in `qml.ts` (only when not neutral), keep exact values in the JSON entry, read back; update `contracts` note in research.md; extend `tests/core/qgis-raster-cases.test.ts` and `tests/qgis/check_raster.py`.
-- [ ] T004 Map: `applyRaster` in `MapView.svelte` sets the five paint properties from `display` without a new tile URL; the `raster` prop carries `display`; remove the separate `resampling` prop path.
-- [ ] T005 Style panel: "Appearance" group in `RasterStylePanel.svelte` (brightness low/high, contrast, saturation, hue, Smooth/Sharp pixels, Reset) using the kit; note that the legend does not follow.
-- [ ] T006 Web test `tests/web/specs/raster-027.spec.ts` (US1): each control changes the paint property, no tile read (tile stats unchanged), Reset, persistence after reopen, axe. VS Code test for persistence.
+- [x] T004 Map: `applyRaster` in `MapView.svelte` sets the five paint properties from `display` without a new tile URL; the `raster` prop carries `display`; remove the separate `resampling` prop path.
+- [x] T005 Style panel: "Appearance" group in `RasterStylePanel.svelte` (brightness low/high, contrast, saturation, hue, Smooth/Sharp pixels, Reset) using the kit; note that the legend does not follow.
+- [x] T006 Web test `tests/web/specs/raster-027.spec.ts` (US1): each control changes the paint property, no tile read (tile stats unchanged), Reset, persistence after reopen, axe. VS Code test for persistence.
 
 ## Phase 3: US3 profile (P2)
 - [ ] T007 Core `profile.ts`: `profileSamples(line, maxPoints, cellMeters)` (great-circle spacing, distances), `summarizeProfile` (min, max, rise, fall, gaps), `profileCsv`. Test `tests/core/raster-profile.test.ts`.
