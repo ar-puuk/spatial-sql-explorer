@@ -31,7 +31,7 @@
 - [x] T017 Core `relief.ts` (`RasterRelief` type, defaults, sanitize, MapLibre paint mapping, `canOfferRelief(facts)`), `RasterStyle.relief`, QML JSON entry; tests `tests/core/raster-relief.test.ts`.
 - [x] T018 Map: DEM source `se-raster-dem` and layer `se-raster-relief` above `se-raster`, removed on layer change, paint updates without new tiles, version bump when the file's range changes; keep the terrain feature's ids untouched.
 - [x] T019 Style panel "Relief" group (switch, method, direction, height, strength, colors, "values are taken as meters" note, not offered with the reason for colour or palette rasters).
-- [ ] T020 Web tests: relief on/off, light changes the paint only (no tile build), flat vs sloped pixel check, persistence, axe; 6x CPU performance spec (`raster-027-performance.spec.ts`: light change under 300 ms, no task over 200 ms).
+- [x] T020 Web tests: relief on/off, light changes the paint only (no tile build), flat vs sloped pixel check, persistence, axe; 6x CPU performance spec (`raster-027-performance.spec.ts`: light change under 300 ms, no task over 200 ms).
 
 ## Phase 6: Polish
 - [ ] T021 Docs: `README.md`, `apps/vscode-ext/README.md` (raster section), `CHANGELOG.md` (Unreleased, Added), `CLAUDE.md` raster section (new capabilities, the value-tile adapter and its pin), `tests/vscode-ext/fixtures/README.md` if fixtures are added, memory note.
