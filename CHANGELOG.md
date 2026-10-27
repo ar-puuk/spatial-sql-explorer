@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **A GeoPackage or GML file in EPSG:27700 (British National Grid) or EPSG:31467 failed to open** with "Transformation cannot be formatted as WKT1 TOWGS84 parameters" (issue #1). In the browser build of the engine, listing a file's layers (`ST_Read_Meta`) raises an error PROJ would otherwise handle for these systems, although reading and reprojecting the data work. The layers of a GeoPackage are now read from its own catalog tables when that happens, a GML file opens as its first layer, and the output log says why. Findings in `specs/issue-1-towgs84.md`.
+- **A GeoPackage or GML file in EPSG:27700 (British National Grid) or EPSG:31467 failed to open** with "Transformation cannot be formatted as WKT1 TOWGS84 parameters" (issue #1). In the browser build of the engine, listing a file's layers (`ST_Read_Meta`) raises an error PROJ would otherwise handle for these systems, although reading and reprojecting the data work. The layers of a GeoPackage are now read from its own catalog tables when that happens, a GML file opens as its first layer, and the output log says why. A placeholder until the engine is fixed (reported as duckdb/duckdb-spatial#901); findings in `specs/issue-1-towgs84.md`.
 
 ## [1.0.1] - 2026-10-19
 

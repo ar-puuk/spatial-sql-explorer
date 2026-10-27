@@ -1,5 +1,7 @@
 # Issue 1: "Transformation cannot be formatted as WKT1 TOWGS84 parameters"
 
+Reported upstream: https://github.com/duckdb/duckdb-spatial/issues/901. What the app does (last section) is a placeholder until that is fixed.
+
 A GeoPackage in EPSG:27700 (British National Grid) did not open in the web app. Findings, 2026-10-26, DuckDB 1.5.6, spatial
 extension `v1.5.6/wasm_eh`, PROJ 9.1.1 (the same in the native and the WebAssembly builds: `DuckDB_Proj_Version()`).
 
@@ -28,4 +30,4 @@ Not a different datum transformation: both builds ask PROJ for the same thing. T
 ## What the app does
 `openFile` lists layers with `ST_Read_Meta` and, when it throws, logs it ("[open] ST_Read_Meta failed ...") and reads what `ST_Read`
 can: a GeoPackage's layers from its own catalog tables (`listGeoPackageLayers`), another format as its first layer. Remove that
-branch, and `listGeoPackageLayers`, when `ST_Read_Meta` works for these systems: try 27700 and 31467 files on each engine upgrade.
+branch, and `listGeoPackageLayers`, when the upstream issue is fixed and `ST_Read_Meta` works for these systems: try 27700 and 31467 files on each engine upgrade.

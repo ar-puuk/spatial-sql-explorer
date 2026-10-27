@@ -463,7 +463,7 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
         // transformation to WGS84 is not a plain 7-parameter shift (EPSG:27700, 31467: "Transformation cannot be formatted
         // as WKT1 TOWGS84 parameters"), though ST_Read reads the data and types the column with its EPSG code. Say so in
         // the output log and read what ST_Read can: a GeoPackage's layers come from its own catalog tables, another
-        // format opens as its first layer. Remove when ST_Read_Meta works for these systems (specs/issue-1-towgs84.md).
+        // format opens as its first layer. A placeholder until this is fixed upstream (duckdb/duckdb-spatial#901): remove it then (specs/issue-1-towgs84.md).
         const why = err instanceof Error ? err.message : String(err)
         hostAdapter.log?.(`[open] ST_Read_Meta failed (${why}); ${format === 'geopackage' ? 'listing layers from the GeoPackage catalog' : 'opening the first layer only'}`)
         if (format === 'geopackage') {
