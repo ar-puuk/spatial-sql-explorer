@@ -35,4 +35,4 @@
 
 ## Phase 6: Polish
 - [x] T021 Docs: `README.md`, `apps/vscode-ext/README.md` (raster section), `CHANGELOG.md` (Unreleased, Added), `CLAUDE.md` raster section (new capabilities, the value-tile adapter and its pin), `tests/vscode-ext/fixtures/README.md` if fixtures are added, memory note.
-- [ ] T022 Full verification: core suite, lint, svelte-check, raster web specs, VS Code raster suite, QGIS read-back; record in this file.
+- [x] T022 Full verification: core suite, lint, svelte-check, raster web specs, VS Code raster suite, QGIS read-back; record in this file.
