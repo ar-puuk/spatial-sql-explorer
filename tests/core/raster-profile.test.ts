@@ -1,6 +1,6 @@
 // Spec 027 US3: where a profile asks, and what its answers say.
 import { describe, expect, it } from 'vitest'
-import { MAX_PROFILE_POINTS, cellMeters, distanceAxis, niceTicks, distanceMeters, flattenPoints, interpolateGreatCircle, profileBands, profileCsv, profileSamples, summarizeProfile } from '@spatial-explorer/core'
+import { MAX_PROFILE_POINTS, cellMeters, distanceAxis, extremeIndex, niceTicks, distanceMeters, flattenPoints, interpolateGreatCircle, profileBands, profileCsv, profileSamples, summarizeProfile } from '@spatial-explorer/core'
 
 const line: Array<[number, number]> = [[-112, 40], [-111, 40]]
 
@@ -119,5 +119,16 @@ describe('axis helpers', () => {
     expect(distanceAxis(400, false)).toEqual({ unit: 'm', perUnit: 1 })
     expect(distanceAxis(20000, true).unit).toBe('mi')
     expect(distanceAxis(200, true).unit).toBe('ft')
+  })
+})
+
+describe('the highest and lowest place', () => {
+  it('the first of equal values, skipping gaps', () => {
+    expect(extremeIndex([null, 3, 9, 9, 1], 'max')).toBe(2)
+    expect(extremeIndex([null, 3, 9, 9, 1, 1], 'min')).toBe(4)
+  })
+  it('no value, no place', () => {
+    expect(extremeIndex([null, null], 'max')).toBe(-1)
+    expect(extremeIndex([], 'min')).toBe(-1)
   })
 })

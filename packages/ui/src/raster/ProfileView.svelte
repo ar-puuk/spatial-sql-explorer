@@ -2,7 +2,7 @@
   // Spec 027 US3: the profile along a drawn line, in the bottom panel: the chart fills the panel (axes, gridlines, a marker
   // that follows the pointer or the arrow keys and is shown on the map), the figures beside it, and the same values as a
   // table. The panel is opaque and below the map, so the line stays in view.
-  import { distanceAxis, formatLength, niceTicks, profileCsv, profileSvg, summarizeProfile, valueText } from '@spatial-explorer/core'
+  import { distanceAxis, extremeIndex, formatLength, niceTicks, profileCsv, profileSvg, summarizeProfile, valueText } from '@spatial-explorer/core'
   import { svgToPng } from './chartImage.js'
   import SaveMenu from './SaveMenu.svelte'
   import Icon from '../Icon.svelte'
@@ -93,6 +93,26 @@
     e.preventDefault()
   }
 
+  /** The highest and lowest place, for the buttons and the table (one band only: with three, which one would it be?). */
+  const extremes = $derived.by(() => {
+    if (!profile || profile.bands.length !== 1) return null
+    const values = profile.bands[0].values
+    const max = extremeIndex(values, 'max')
+    const min = extremeIndex(values, 'min')
+    return max < 0 ? null : { max, min }
+  })
+  /** Chooses a place: it is marked on the chart, the table and the map. */
+  function goTo(i: number): void {
+    if (i >= 0 && i < n) at = i
+  }
+  // A place chosen from the chart, a key or a button is brought into view in the table.
+  let tableWrap = $state<HTMLDivElement>()
+  $effect(() => {
+    const i = at
+    if (view !== 'table' || i === null || !tableWrap) return
+    tableWrap.querySelector<HTMLElement>(`[data-row="${i}"]`)?.scrollIntoView({ block: 'nearest' })
+  })
+
   const readout = $derived.by(() => {
     if (!profile || at === null) return ''
     const i = at
@@ -158,7 +178,6 @@
               bind:clientWidth={width}
               bind:clientHeight={height}
               onpointermove={pointerMove}
-              onpointerleave={() => (at = null)}
               onkeydown={keyMove}
             >
               <svg {width} {height} aria-hidden="true">
@@ -192,20 +211,20 @@
             </div>
           {:else}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-            <div class="table-wrap" role="region" aria-label="Profile values, scrollable" tabindex="0">
+            <div class="table-wrap" role="region" aria-label="Profile values, scrollable" tabindex="0" bind:this={tableWrap}>
               <table aria-label="Profile values">
                 <thead>
                   <tr><th scope="col" class="id"><span class="sr">Place</span></th><th scope="col" class="num">Distance</th><th scope="col" class="num">Longitude</th><th scope="col" class="num">Latitude</th>{#each profile.bands as b (b.band)}<th scope="col" class="num">{b.name}</th>{/each}<th scope="col" class="filler" aria-hidden="true"></th></tr>
                 </thead>
                 <tbody>
                   {#each profile.samples.points as p, i (i)}
-                    <tr>
-                      <td class="id">{i + 1}</td>
+                    <tr data-row={i} class:selected={at === i} onclick={() => goTo(i)}>
+                      <td class="id"><button type="button" class="place" aria-label="Mark place {i + 1} on the map" aria-pressed={at === i} onclick={(e) => { e.stopPropagation(); goTo(i) }}>{i + 1}</button></td>
                       <td class="num v-decimal">{formatLength(profile.samples.distances[i], units)}</td>
                       <td class="num v-decimal">{p[0].toFixed(5)}</td>
                       <td class="num v-decimal">{p[1].toFixed(5)}</td>
                       {#each profile.bands as b (b.band)}{#if b.values[i] === null}<td class="num null">no data</td>{:else}<td class="num v-decimal">{valueText(b.values[i])}</td>{/if}{/each}
-                      <td class="filler" aria-hidden="true"></td>
+                      <td class="filler">{#if extremes && i === extremes.max}<span class="tag">highest</span>{:else if extremes && i === extremes.min}<span class="tag">lowest</span>{/if}</td>
                     </tr>
                   {/each}
                 </tbody>
@@ -235,6 +254,12 @@
               {#if s.gaps}<dt>No data</dt><dd>{s.gaps} of {s.total} places</dd>{/if}
             {/each}
           </dl>
+          {#if extremes}
+            <div class="goto">
+              <button type="button" onclick={() => goTo(extremes.max)} title="Mark the highest place on the chart, the table and the map">Go to highest</button>
+              <button type="button" onclick={() => goTo(extremes.min)} title="Mark the lowest place on the chart, the table and the map">Go to lowest</button>
+            </div>
+          {/if}
           {#if profile.samples.coarse}<p class="muted">The line is long: places are further apart than cells.</p>{/if}
           {#if view === 'chart'}
             <p class="readout" role="status" aria-live="polite">{readout || 'Move along the chart, or use the arrow keys, to read a place. It is marked on the map.'}</p>
@@ -440,8 +465,57 @@
     font-family: var(--se-font-mono);
     font-size: 0.85em;
   }
+  tbody tr {
+    cursor: pointer;
+  }
   tbody tr:hover {
     background: var(--se-bg-hover);
+  }
+  tbody tr.selected {
+    background: var(--se-selected-inactive-bg);
+    color: var(--se-selected-inactive-fg);
+    box-shadow: inset 2px 0 0 var(--se-selected-indicator);
+  }
+  button.place {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: right;
+    cursor: pointer;
+  }
+  button.place:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 2px;
+  }
+  .tag {
+    padding-left: 12px;
+    color: var(--se-text-secondary);
+    font-family: var(--se-font-ui);
+    font-size: 0.9em;
+  }
+  .goto {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .goto button {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--se-input-border);
+    border-radius: var(--se-radius-sm);
+    background: var(--se-button-secondary-bg);
+    color: var(--se-button-secondary-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .goto button:hover {
+    background: var(--se-button-secondary-hover, var(--se-bg-hover));
+  }
+  .goto button:focus-visible {
+    outline: 1px solid var(--se-focus);
   }
   .sr {
     position: absolute;

@@ -289,7 +289,7 @@ Select by shape, grid and dot tools, the time slider, search) are not shown. Mea
 - **Profile.** The **Profile** button on the map: draw a line and read the value
   along it as a chart (gaps where there is no data or the line leaves the
   raster), with the minimum, maximum, mean, rise and fall, a marker that follows
-  the chart on the map, the same values as a table. It opens in the bottom
+  the chart on the map, the same values as a table (click a row, or **Go to highest** or **Go to lowest**, to mark that place on the chart, the table and the map). It opens in the bottom
   panel, so the line stays in view. **Save as** gives the values as CSV and the
   chart as SVG or PNG (on white, ready for a document). It takes about one place per
   cell, at most 2,000, with the same reader as the cursor values.

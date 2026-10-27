@@ -182,3 +182,17 @@ export function distanceAxis(totalMeters: number, imperial: boolean): { unit: st
   if (imperial) return totalMeters >= 1609.344 ? { unit: 'mi', perUnit: 1609.344 } : { unit: 'ft', perUnit: 0.3048 }
   return totalMeters >= 1000 ? { unit: 'km', perUnit: 1000 } : { unit: 'm', perUnit: 1 }
 }
+
+/** The place of the highest or lowest value (the first, when it repeats); -1 when there is no value. */
+export function extremeIndex(values: ReadonlyArray<number | null>, which: 'max' | 'min'): number {
+  let best = -1
+  let bestValue = 0
+  values.forEach((v, i) => {
+    if (v === null) return
+    if (best === -1 || (which === 'max' ? v > bestValue : v < bestValue)) {
+      best = i
+      bestValue = v
+    }
+  })
+  return best
+}
