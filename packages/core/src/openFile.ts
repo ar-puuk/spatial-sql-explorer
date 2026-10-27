@@ -459,12 +459,18 @@ async function openFileOnce(ref: OpenedFileRef, deps: OpenFileDeps, hooks: OpenH
       try {
         layers = await listLayers(conn, registered.primaryPath)
       } catch (err) {
-        // ST_Read_Meta fails in this engine for a coordinate system with several datum transformations (EPSG:27700, issue 1), though ST_Read reads the file.
-        if (format !== 'geopackage') throw err
-        hostAdapter.log?.(`[open] ST_Read_Meta failed (${err instanceof Error ? err.message : String(err)}); listing layers from the GeoPackage catalog`)
-        layers = await listGeoPackageLayers(db, conn, registered.primaryPath, extraPaths).catch(() => {
-          throw err
-        })
+        // Engine limitation, not a bad file: in this engine's GDAL, ST_Read_Meta cannot describe a coordinate system whose
+        // transformation to WGS84 is not a plain 7-parameter shift (EPSG:27700, 31467: "Transformation cannot be formatted
+        // as WKT1 TOWGS84 parameters"), though ST_Read reads the data and types the column with its EPSG code. Say so in
+        // the output log and read what ST_Read can: a GeoPackage's layers come from its own catalog tables, another
+        // format opens as its first layer. Remove when ST_Read_Meta works for these systems (specs/issue-1-towgs84.md).
+        const why = err instanceof Error ? err.message : String(err)
+        hostAdapter.log?.(`[open] ST_Read_Meta failed (${why}); ${format === 'geopackage' ? 'listing layers from the GeoPackage catalog' : 'opening the first layer only'}`)
+        if (format === 'geopackage') {
+          layers = await listGeoPackageLayers(db, conn, registered.primaryPath, extraPaths).catch(() => {
+            throw err
+          })
+        }
       }
     }
     // Research §16: how each GeoPackage / SQLite layer is read.
