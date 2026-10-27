@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **A GeoPackage in a coordinate system with several datum transformations failed to open** with "Transformation cannot be formatted as WKT1 TOWGS84 parameters" (reported with EPSG:27700, British National Grid; issue #1). The engine's layer listing builds each layer's coordinate system as WKT1 and cannot for such a system, although reading the data and reprojecting it work. The layers are now listed from the GeoPackage's own catalog tables when that happens.
+- **A GeoPackage or GML file in EPSG:27700 (British National Grid) or EPSG:31467 failed to open** with "Transformation cannot be formatted as WKT1 TOWGS84 parameters" (issue #1). In the browser build of the engine, listing a file's layers (`ST_Read_Meta`) raises an error PROJ would otherwise handle for these systems, although reading and reprojecting the data work. The layers of a GeoPackage are now read from its own catalog tables when that happens, a GML file opens as its first layer, and the output log says why. Findings in `specs/issue-1-towgs84.md`.
 
 ## [1.0.1] - 2026-10-19
 
