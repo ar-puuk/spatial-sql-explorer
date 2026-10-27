@@ -7,6 +7,10 @@ name: Package and publish the VS Code extension
 # Secrets: VSCE_PAT (Marketplace), OVSX_PAT (Open VSX). A publish run also
 # creates the GitHub Release for the version's tag (notes from CHANGELOG.md,
 # the .vsix attached); push the tag first.
+# A pre-release (tick "prerelease" as well): the .vsix is packaged with vsce's
+# --pre-release, so the Marketplace lists it as a pre-release, Open VSX is told so,
+# and the GitHub Release is marked a pre-release. The Marketplace's convention is an
+# odd minor version for pre-releases and an even one for releases (1.1.0, then 1.2.0).
 
 on:
   push:
@@ -21,6 +25,10 @@ on:
     inputs:
       publish:
         description: 'Publish to the VS Code Marketplace and Open VSX'
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Package and publish it as a pre-release (use an odd minor version)'
         type: boolean
         default: false
 
@@ -57,7 +65,7 @@ jobs:
         working-directory: apps/vscode-ext
         run: |
           npm run build
-          npx --yes @vscode/vsce package --no-dependencies --out spatial-explorer.vsix
+          npx --yes @vscode/vsce package --no-dependencies ${{ inputs.prerelease && '--pre-release' || '' }} --out spatial-explorer.vsix
 
       - name: Upload .vsix artifact
         uses: actions/upload-artifact@v4
@@ -74,7 +82,7 @@ jobs:
       - name: Publish to Open VSX
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         working-directory: apps/vscode-ext
-        run: npx --yes ovsx publish spatial-explorer.vsix -p "${{ secrets.OVSX_PAT }}"
+        run: npx --yes ovsx publish spatial-explorer.vsix ${{ inputs.prerelease && '--pre-release' || '' }} -p "${{ secrets.OVSX_PAT }}"
 
       # The tag vX.Y.Z must already be pushed. Skipped when the release exists.
       - name: Create the GitHub Release
@@ -85,4 +93,4 @@ jobs:
           V=$(node -p "require('./apps/vscode-ext/package.json').version")
           if gh release view "v$V" >/dev/null 2>&1; then echo "Release v$V exists"; exit 0; fi
           awk -v v="$V" '/^## \[/ { on = index($0, "[" v "]") > 0; next } on' CHANGELOG.md > notes.md
-          gh release create "v$V" --verify-tag --title "Spatial Explorer $V" --notes-file notes.md "apps/vscode-ext/spatial-explorer.vsix#spatial-explorer-$V.vsix"
+          gh release create "v$V" --verify-tag ${{ inputs.prerelease && '--prerelease' || '' }} --title "Spatial Explorer $V" --notes-file notes.md "apps/vscode-ext/spatial-explorer.vsix#spatial-explorer-$V.vsix"
