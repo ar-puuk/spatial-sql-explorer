@@ -31,7 +31,6 @@ export interface RasterQmlOptions {
 export function rasterQmlNotes(style: RasterStyle): string[] {
   const notes: string[] = []
   if (style.mode !== 'paletted' && (style.stretch !== 'linear' || style.gamma !== 1)) notes.push('QGIS draws this with a linear stretch: the curve and gamma are kept in the file for Spatial Explorer only.')
-  if (style.display && !isNeutralAdjustment(style.display)) notes.push('QGIS shows the brightness, contrast and saturation; the hue turn, and the exact brightness range, are kept in the file for Spatial Explorer only.')
   if (style.nodata.mode === 'none') notes.push('"No nodata" is kept in the file for Spatial Explorer only; QGIS uses the file\'s own nodata value.')
   return notes
 }

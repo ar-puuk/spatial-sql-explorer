@@ -28,7 +28,7 @@ test.describe('the raster style panel footer', () => {
   test('Save, Load and Reset style sit in the footer; the resets of Appearance and Relief are icons', async ({ page }) => {
     await open(page)
     const footer = page.locator('.panel footer')
-    await expect(footer.getByRole('button', { name: /Download dem-utm12\.qml/ })).toBeVisible()
+    await expect(footer.getByRole('button', { name: 'Save style' })).toBeVisible()
     await expect(footer.getByRole('button', { name: 'Load style…' })).toBeVisible()
     await expect(footer.getByRole('button', { name: 'Reset style' })).toBeVisible()
     // The two small ones carry no words, only an icon and a name.
@@ -43,7 +43,7 @@ test.describe('the raster style panel footer', () => {
     await open(page)
     await page.getByRole('slider', { name: 'Contrast', exact: true }).fill('0.5')
     await expect.poll(() => paint(page)).toMatchObject({ 'raster-contrast': 0.5 })
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Download dem-utm12\.qml/ }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
     const saved = (await download.path())!
     await page.getByRole('button', { name: 'Reset style' }).click()
     await expect.poll(() => paint(page)).toMatchObject({ 'raster-contrast': 0 })
@@ -59,6 +59,23 @@ test.describe('the raster style panel footer', () => {
     await chooser.setFiles(VECTOR_QML)
     await expect(page.getByText(/not a raster style/)).toBeVisible()
     expect(await paint(page)).toMatchObject({ 'raster-contrast': 0 })
+  })
+
+  test('the footer is pinned to the foot of the panel for a vector layer too, with the same buttons', async ({ page }) => {
+    await page.route('https://tiles.openfreemap.org/styles/**', (route) =>
+      route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ddd' } }] } }),
+    )
+    await page.goto('/?e2e=1')
+    await page.locator('input[type="file"]').setInputFiles(fixture('sample.geojson'))
+    await page.locator('.canvas-host[data-rendered-features]').waitFor({ state: 'attached', timeout: 60000 })
+    await page.getByRole('button', { name: 'Style', exact: true }).click()
+    const footer = page.locator('.panel footer')
+    await expect(footer.getByRole('button', { name: 'Save style' })).toBeVisible()
+    await expect(footer.getByRole('button', { name: 'Load style…' })).toBeVisible()
+    await expect(footer.getByRole('button', { name: 'Reset style' })).toBeVisible()
+    const panel = (await page.locator('.panel[aria-label="Layer style"]').boundingBox())!
+    const foot = (await footer.boundingBox())!
+    expect(panel.y + panel.height - (foot.y + foot.height), 'the footer sits on the panel\'s bottom edge').toBeLessThan(2)
   })
 
   test('the Relief reset is an undo icon beside the heading, shown once relief is on', async ({ page }) => {

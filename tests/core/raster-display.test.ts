@@ -134,9 +134,8 @@ describe('the QGIS file', () => {
     expect(d.contrast).toBeCloseTo(0.4)
     expect(d.saturation).toBeCloseTo(-0.3)
   })
-  it('says what QGIS cannot show', () => {
-    expect(rasterQmlNotes({ ...defaultRasterStyle(dem), display: adjusted }).join(' ')).toMatch(/hue/)
-    expect(rasterQmlNotes(defaultRasterStyle(dem)).join(' ')).not.toMatch(/hue/)
+  it('says nothing about the adjustments: they are not a loss worth a warning', () => {
+    expect(rasterQmlNotes({ ...defaultRasterStyle(dem), display: adjusted })).toEqual([])
   })
   it('a color table keeps its sharp pixels in the JSON', () => {
     const style = { ...defaultRasterStyle(classes), display: { ...NEUTRAL_DISPLAY, resampling: 'linear' as const } }

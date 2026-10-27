@@ -253,8 +253,8 @@
       <p class="hint source">{store.styleSource ? `From ${store.styleSource}${store.styleDirty ? ', modified' : ''}.` : store.styleDirty ? 'Modified, not saved to a file. It is remembered for this file in this viewer.' : 'The file’s default.'}</p>
     </div>
     <footer>
-      <button type="button" class="primary" onclick={() => void store.saveRasterStyle()} title="QGIS loads {sidecarName} automatically with the data">
-        <Icon name="export" size={14} />{store.canSaveSidecar ? `Save ${sidecarName}` : `Download ${sidecarName}`}
+      <button type="button" class="primary" onclick={() => void store.saveRasterStyle()} title={store.canSaveSidecar ? `Save ${sidecarName} next to the data. QGIS loads it automatically.` : `Download ${sidecarName}. Keep it next to the data so QGIS loads it automatically.`}>
+        <Icon name="save" size={14} />Save style
       </button>
       <button type="button" class="secondary" aria-label="Load style…" title="Load a style: a QGIS .qml saved for a raster" onclick={() => void store.importRasterStyle()}><Icon name="import" size={14} />Load…</button>
       <span class="spacer"></span>

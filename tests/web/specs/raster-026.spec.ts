@@ -595,7 +595,7 @@ test.describe('styling a raster', () => {
     await openRaster(page, raster('dem-utm12.tif'))
     await openStylePanel(page)
     await setField(page, 'Low end of the range', '1600')
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download dem-utm12.qml' }).click()])
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save style' }).click()])
     expect(download.suggestedFilename()).toBe('dem-utm12.qml')
     const text = fs.readFileSync((await download.path())!, 'utf8')
     expect(text).toMatch(/<rasterrenderer type="singlebandpseudocolor" band="1"/)

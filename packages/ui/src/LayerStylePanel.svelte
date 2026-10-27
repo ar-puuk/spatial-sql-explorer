@@ -1631,6 +1631,7 @@
   .body {
     display: grid;
     align-content: start;
+    flex: 1;
     gap: 8px;
     min-height: 0;
     overflow-y: auto;
