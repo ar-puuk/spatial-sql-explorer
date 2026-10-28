@@ -123,8 +123,25 @@ ${workerScriptText}
  * research §15). Shells' CSP `connect-src` must allow extensions.duckdb.org and community-extensions.duckdb.org
  * (and `blob:`, which the worker reads the verified bytes from).
  */
-export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls = {}): Promise<void> {
-  await loadExtensions(conn, assets)
+export async function loadSpatialExtension(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls = {}, downloads: ExtensionDownloads = startExtensionDownloads(assets)): Promise<void> {
+  await loadExtensions(conn, downloads)
+}
+
+type ExtensionDownloads = Array<[ExtensionName, Promise<ArrayBuffer>]>
+
+/**
+ * Starts every extension's download and hash check. getDuckDb calls this before the engine itself is
+ * instantiated, so the (larger) spatial download overlaps with the wasm's download and compile instead of
+ * waiting for the engine to be connected. Nothing is loaded here: loadExtensions does that, in order.
+ */
+function startExtensionDownloads(assets: DuckDbAssetUrls): ExtensionDownloads {
+  const files = ENGINE_ASSETS.extensions.files
+  const names = Object.keys(files) as ExtensionName[]
+  return names.map((name) => {
+    const p = fetchVerified(files[name].url, files[name].sha256, `${name} extension`, assets)
+    p.catch(() => {})
+    return [name, p]
+  })
 }
 
 /** Extensions the app can start without: only spatial and parquet are required. */
@@ -137,7 +154,7 @@ const OPTIONAL_EXTENSIONS: ReadonlySet<ExtensionName> = new Set(['json', 'excel'
  * ignores it). DuckDB's own autoinstall/autoload are off first, so nothing
  * is fetched behind the check; its signature check stays on.
  */
-async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDbAssetUrls): Promise<void> {
+async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, downloads: ExtensionDownloads): Promise<void> {
   await conn.query('SET autoinstall_known_extensions = false')
   await conn.query('SET autoload_known_extensions = false')
   const release = String((await conn.query('SELECT library_version AS v FROM pragma_version()')).toArray()[0]?.toJSON().v ?? '')
@@ -149,15 +166,11 @@ async function loadExtensions(conn: duckdb.AsyncDuckDBConnection, assets: DuckDb
   // conversion" on every GeoParquet whose CRS is OGC:CRS84 (the GeoParquet
   // default). Order matters: the same call after LOAD spatial is the bug.
   await conn.query('SELECT count(*) FROM duckdb_coordinate_systems()')
-  const files = ENGINE_ASSETS.extensions.files
-  const names = Object.keys(files) as ExtensionName[]
-  // Downloads in parallel, loads in order.
-  const verified = names.map((name) => fetchVerified(files[name].url, files[name].sha256, `${name} extension`, assets))
-  verified.forEach((p) => p.catch(() => {}))
-  for (const [i, name] of names.entries()) {
+  // The downloads are already under way (startExtensionDownloads); loads are in order.
+  for (const [name, download] of downloads) {
     let bytes: ArrayBuffer
     try {
-      bytes = await verified[i]
+      bytes = await download
     } catch (err) {
       // Spec 008: JSON only serves JSON export; spec 010: excel xlsx export and input, sqlite_scanner
       // a SQLite file's attribute tables; spec 017: fts, h3 and a5 (SQL only). The app works without them.
@@ -219,12 +232,14 @@ let sharedDb: Promise<duckdb.AsyncDuckDB> | null = null
  */
 export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> {
   if (!sharedDb) {
+    // The extensions download while the engine itself downloads and compiles.
+    const downloads = startExtensionDownloads(assets)
     const attempt = (async () => {
       const db = await createDuckDb(assets)
       try {
         const conn = await db.connect()
         try {
-          await loadSpatialExtension(conn, assets)
+          await loadSpatialExtension(conn, assets, downloads)
           // e2e only (spec 007 out-of-memory tests): a smaller engine. Must
           // precede the lockdown, which locks the configuration.
           const memoryLimit = testOverrides().memoryLimit

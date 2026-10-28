@@ -12,22 +12,15 @@
   import AttributeTable from './AttributeTable.svelte'
   import ErrorBanner from './ErrorBanner.svelte'
   import LayerWarningBanner from './LayerWarningBanner.svelte'
-  import LayerStylePanel from './LayerStylePanel.svelte'
   import MapLegend from './MapLegend.svelte'
   import { axisEnds } from './style/axisEnds.js'
   import BasemapPicker from './BasemapPicker.svelte'
-  import BasemapGallery from './BasemapGallery.svelte'
   import FeatureInspector from './FeatureInspector.svelte'
   import OpenProgress from './OpenProgress.svelte'
   import RasterCard from './raster/RasterCard.svelte'
   import { colormapColors } from './raster/engine.js'
   import RasterLegend from './raster/RasterLegend.svelte'
-  import RasterStylePanel from './raster/RasterStylePanel.svelte'
-  import QueryPanel from './QueryPanel.svelte'
-  import BinCellsDialog from './BinCellsDialog.svelte'
-  import DotDensityDialog from './DotDensityDialog.svelte'
-  import ExportDialog from './ExportDialog.svelte'
-  import PrintComposer from './print/PrintComposer.svelte'
+  import type QueryPanelType from './QueryPanel.svelte'
   import type { LegendSpec } from './mapImage.js'
   import ReadWholeDialog from './ReadWholeDialog.svelte'
   import ZipChoiceDialog from './ZipChoiceDialog.svelte'
@@ -41,14 +34,13 @@
   import TerrainSection from './TerrainSection.svelte'
   import ShapesBar from './ShapesBar.svelte'
   import TimeSlider from './TimeSlider.svelte'
-  import ProfileView from './raster/ProfileView.svelte'
-  import StatsView from './raster/StatsView.svelte'
   import SidePanel from './SidePanel.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import SearchBox from './SearchBox.svelte'
   import LayerPicker from './LayerPicker.svelte'
   import WorkspaceFiles from './WorkspaceFiles.svelte'
-  import { tick, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
+  import { lazy } from './lazy.svelte.js'
   import Icon from './Icon.svelte'
   import type { SideTab, ViewerStore } from './viewerStore.svelte.js'
   import type { MapExtraId } from './MapView.svelte'
@@ -63,6 +55,20 @@
     fileName?: string | null
   }
   let { store, mapOverlay, statusBar, fileName = null }: Props = $props()
+
+  // Code the first paint does not need (the SQL editor's CodeMirror, the print composer, the dialogs, the style panels) is
+  // fetched when it is first wanted, so the bundle the map waits for stays small (a boot-size check guards it).
+  const LayerStylePanel = lazy(() => import('./LayerStylePanel.svelte'))
+  const RasterStylePanel = lazy(() => import('./raster/RasterStylePanel.svelte'))
+  const QueryPanel = lazy(() => import('./QueryPanel.svelte'))
+  const BinCellsDialog = lazy(() => import('./BinCellsDialog.svelte'))
+  const DotDensityDialog = lazy(() => import('./DotDensityDialog.svelte'))
+  const ExportDialog = lazy(() => import('./ExportDialog.svelte'))
+  const PrintComposer = lazy(() => import('./print/PrintComposer.svelte'))
+  const BasemapGallery = lazy(() => import('./BasemapGallery.svelte'))
+  const ProfileView = lazy(() => import('./raster/ProfileView.svelte'))
+  const StatsView = lazy(() => import('./raster/StatsView.svelte'))
+  const loadLater = (c: { load(): Promise<void> }): void => void c.load().catch(() => {})
 
   const session = $derived(store.session)
   const layer = $derived(session.layer)
@@ -193,7 +199,7 @@
   let main = $state<HTMLDivElement>()
   /** Not remembered: a maximized panel is a moment's need. */
   let maximized = $state(false)
-  let queryPanel = $state<QueryPanel>()
+  let queryPanel = $state<QueryPanelType>()
   let exportButton = $state<HTMLButtonElement>()
   let columnsOpen = $state(false)
   let galleryOpen = $state(false)
@@ -284,6 +290,41 @@
   // Spec 026 (FR-013): with a raster open nothing that needs rows is shown: no bottom panel (table and SQL), no shape
   // tools, no Labels panel. One flag, from the store's capabilities.
   const isRaster = $derived(store.layerKind === 'raster')
+  $effect(() => {
+    if (store.mapImageOpen) loadLater(PrintComposer)
+    if (galleryOpen) loadLater(BasemapGallery)
+    if (store.binDialog.open) loadLater(BinCellsDialog)
+    if (store.dotDialog.open) loadLater(DotDensityDialog)
+    if (store.exportOpen) loadLater(ExportDialog)
+    if (layout.sideOpen && layout.sideTab === 'style') loadLater(isRaster ? RasterStylePanel : LayerStylePanel)
+    if (isRaster) {
+      loadLater(ProfileView)
+      loadLater(StatsView)
+    }
+    if (layout.bottomTab === 'sql') loadLater(QueryPanel)
+  })
+  // The pieces a person reaches for next are fetched one by one in idle time once the map has had its turn (the SQL
+  // editor first: it is the largest), so opening them is instant. A small pause between them keeps each parse away from a file open.
+  onMount(() => {
+    const later = [QueryPanel, LayerStylePanel, ExportDialog, BinCellsDialog, DotDensityDialog, BasemapGallery, PrintComposer]
+    const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void }).requestIdleCallback
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
+    const next = (i: number): void => {
+      if (stopped || i >= later.length) return
+      const run = (): void => {
+        loadLater(later[i])
+        timer = setTimeout(() => next(i + 1), 400)
+      }
+      if (idle) idle(run, { timeout: 4000 })
+      else timer = setTimeout(run, 1500)
+    }
+    next(0)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  })
   // Spec 027: a raster has no table or SQL, so the bottom panel is there only while a profile or area statistics are (their tabs).
   const rasterDock = $derived(isRaster && (store.profileProbe !== null || store.areaProbe !== null))
   // A maximized panel that goes away (its answers closed) must not leave the map hidden.
@@ -591,7 +632,7 @@
             }}
           >
             {#snippet body(id)}
-              {#if id === 'area'}<StatsView {store} />{:else}<ProfileView {store} />{/if}
+              {#if id === 'area'}<StatsView.component {store} />{:else}<ProfileView.component {store} />{/if}
             {/snippet}
           </BottomPanel>
         {:else}
@@ -712,7 +753,7 @@
           {#snippet sql()}
             <div class="sql-body" class:narrow>
               <div class="query-col">
-                <QueryPanel bind:this={queryPanel} {store} embedded collapsed={false} onToggle={() => {}} />
+                <QueryPanel.component bind:this={queryPanel} {store} embedded collapsed={false} onToggle={() => {}} />
               </div>
               <div class="files-col">
                 <WorkspaceFiles
@@ -742,11 +783,11 @@
           {#if !layer}
             <p class="empty">Open a file to style it.</p>
           {:else if isRaster}
-            <RasterStylePanel {store} sidecarName={sidecarStyleFileName(fileName ?? 'raster')} />
+            <RasterStylePanel.component {store} sidecarName={sidecarStyleFileName(fileName ?? 'raster')} />
           {:else if store.tilesOnlyReason}
             <UnavailableNotice text={store.tilesOnlyReason} />
           {:else}
-            <LayerStylePanel
+            <LayerStylePanel.component
               embedded
               camera={store.mapCamera}
               zoom={store.mapZoom}
@@ -830,7 +871,7 @@
   {@render statusBar?.()}
 
   {#if store.mapImageOpen}
-    <PrintComposer
+    <PrintComposer.component
       {store}
       legend={legendSpec}
       anchor={main}
@@ -841,7 +882,7 @@
     />
   {/if}
   {#if galleryOpen}
-    <BasemapGallery
+    <BasemapGallery.component
       {store}
       initialQuery={galleryQuery}
       anchor={main}
@@ -853,13 +894,13 @@
     />
   {/if}
   {#if store.binDialog.open}
-    <BinCellsDialog {store} mapHeight={mapPaneHeight} />
+    <BinCellsDialog.component {store} mapHeight={mapPaneHeight} />
   {/if}
   {#if store.dotDialog.open}
-    <DotDensityDialog {store} mapHeight={mapPaneHeight} />
+    <DotDensityDialog.component {store} mapHeight={mapPaneHeight} />
   {/if}
   {#if store.exportOpen}
-    <ExportDialog
+    <ExportDialog.component
       {store}
       onClose={() => {
         store.closeExport()

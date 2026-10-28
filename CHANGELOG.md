@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster start.** The page's first JavaScript is about 37% smaller (the VS Code webview's main script went from 2.27 MB to 1.42 MB, 669 kB to 404 kB gzipped): the SQL editor, the print composer, the style panels and the Export, Bin into cells, Dot density and basemap dialogs are now fetched in idle time after the map has appeared, or when first used, instead of before the first paint. The SQL engine's extensions (spatial and the others) now start downloading together with the engine itself instead of after it has started, which shortens the first start on a slow connection. Measured with 6x CPU throttling, a file reaches the map about 0.3 to 0.6 s sooner (5.2 s to 4.9 s on a local copy of the engine); on a normal CPU, with the engine files on the same machine, the difference is within noise.
+- The build now fails if the JavaScript loaded at start grows past a budget (`scripts/boot-budget.json`), so a stray static import cannot quietly slow the start again.
+
 ## [1.1.0] - 2026-10-26 (pre-release)
 
 A pre-release (odd minor version, published with the Marketplace and Open VSX pre-release flag): GeoTIFF and Cloud-Optimized GeoTIFF support, with display options, shaded relief, profiles and area statistics, and two fixes. The stable release follows as 1.2.0 once it has had use.

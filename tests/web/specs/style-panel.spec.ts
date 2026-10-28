@@ -14,7 +14,8 @@ test('sections in a fixed order, and only those that apply', async ({ page }) =>
   await page.getByRole('button', { name: 'Style', exact: true }).click()
   const headings = () => panel(page).locator('section h3').allTextContents()
   // Spec 011: Vary by attribute takes the old Size section's place, under Appearance.
-  expect(await headings()).toEqual(['Color', 'Appearance', 'Vary by attribute', '3D'])
+  // The panel's code is fetched when first wanted (lazy.svelte.ts): wait for it.
+  await expect.poll(headings).toEqual(['Color', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Categorized')
   expect(await headings()).toEqual(['Color', 'Color by', 'Colors', 'Appearance', 'Vary by attribute', '3D'])
   await chooseStyleType(page, 'Graduated')

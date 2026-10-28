@@ -1,0 +1,4 @@
+{
+  "web": { "rawBytes": 2550000, "gzipBytes": 710000 },
+  "webview": { "rawBytes": 2400000, "gzipBytes": 680000 }
+}
