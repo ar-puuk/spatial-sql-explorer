@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { noBundledWasm } from '../../scripts/viteNoBundledWasm.mjs'
+import { bootBudget } from '../../scripts/viteBootBudget.mjs'
 
 // Webview bundle — built by Vite, same mechanism as apps/web, but with no
 // HTML entry point (the extension host constructs the HTML dynamically in
@@ -9,7 +10,7 @@ import { noBundledWasm } from '../../scripts/viteNoBundledWasm.mjs'
 // (non-hashed) output filenames so extension.ts can reference them directly.
 // Mirrors ../omx-viewer/apps/vscode-ext/vite.webview.config.ts.
 export default defineConfig({
-  plugins: [svelte(), noBundledWasm()],
+  plugins: [svelte(), noBundledWasm(), bootBudget('webview')],
 
   // jsPDF's optional HTML and SVG converters are not used (see packages/ui/src/print/emptyModule.ts).
   resolve: {
