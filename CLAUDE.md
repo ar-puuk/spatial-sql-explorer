@@ -31,7 +31,7 @@ Allowed by user decision (2026-10-11, spec 008): a Mercator/Globe projection tog
   scripts/engine-assets.mjs (packages/core/src/engineAssets.json). Rerun it after upgrading either package. On an engine upgrade also check whether the new DuckDB-WASM build uses WebAssembly's `try_table` exception instructions: Firefox prints "The WebAssembly exception handling 'try' instruction is deprecated" for the current build, and only an upstream rebuild removes it (the engine files are used unmodified).
   Tests serve the same files from /engine-mirror (scripts/engine-assets.mjs --mirror).
   Each shell keeps a local copy through HostAdapter.engineFile (VS Code: extension host global storage;
-  web: Cache Storage), so it works offline after the first start.
+  web: Cache Storage), so it works offline after the first start. The optional engines (sql.js, GDAL, the raster engine and converter, about 50 MB) are prefetched into that copy in the background once the SQL engine is ready (user decision 2026-11-03, `prefetchOptionalEngineFiles`, `engineFile(..., { cacheOnly })`; no opt-out, one file at a time, failures ignored and retried next start, skipped against a test mirror), so "offline after the first start" holds for every feature.
   Known ceiling: the engine's memory limit is 3.1 GiB in both shells (measured, specs/007-viewport-loading/research.md §1;
   omx-viewer's ~512 MB OOM was likely JS-side copies, not the engine). After an OOM the registered file handle must be re-registered.
   Design for it (see performance rules).

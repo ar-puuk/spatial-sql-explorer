@@ -173,15 +173,33 @@ const ENGINE_CACHE = 'spatial-explorer-engine'
 const engineKey = (sha256: string, name: string): string => `${location.origin}/__engine/${sha256}/${name}`
 let persistAsked = false
 
-async function engineFile(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer> {
-  // No Cache Storage (an insecure context, a locked-down browser): download every time.
-  if (typeof caches === 'undefined') return fetchFromNetwork(file.url, file.sha256, file.name)
+// A file the prefetch is downloading is shared with a feature that asks for it meanwhile (one download, not two).
+const engineDownloads = new Map<string, Promise<ArrayBuffer>>()
+
+async function engineFile(file: EngineFileRef, options?: { refresh?: boolean; cacheOnly?: boolean }): Promise<ArrayBuffer> {
+  if (options?.refresh) return engineFileOnce(file, options)
+  const key = engineKey(file.sha256, file.name)
+  // A copy already kept is only checked for: its bytes are not read into memory.
+  if (options?.cacheOnly && !engineDownloads.has(key) && (typeof caches === 'undefined' || (await (await caches.open(ENGINE_CACHE)).match(key)))) return new ArrayBuffer(0)
+  let running = engineDownloads.get(key)
+  if (!running) {
+    running = engineFileOnce(file, {})
+    engineDownloads.set(key, running)
+    const forget = (): void => void engineDownloads.delete(key)
+    running.then(forget, forget)
+  }
+  return options?.cacheOnly ? running.then(() => new ArrayBuffer(0)) : running.then((b) => b.slice(0))
+}
+
+async function engineFileOnce(file: EngineFileRef, options: { refresh?: boolean; cacheOnly?: boolean }): Promise<ArrayBuffer> {
+  // No Cache Storage (an insecure context, a locked-down browser): download every time (a prefetch has nowhere to keep it).
+  if (typeof caches === 'undefined') return options?.cacheOnly ? new ArrayBuffer(0) : fetchFromNetwork(file.url, file.sha256, file.name)
   const cache = await caches.open(ENGINE_CACHE)
   const key = engineKey(file.sha256, file.name)
   if (options?.refresh) await cache.delete(key)
   else {
     const hit = await cache.match(key)
-    if (hit) return hit.arrayBuffer()
+    if (hit) return options?.cacheOnly ? new ArrayBuffer(0) : hit.arrayBuffer()
   }
   const bytes = await fetchFromNetwork(file.url, file.sha256, file.name)
   await cache.put(key, new Response(bytes.slice(0), { headers: { 'Content-Type': 'application/octet-stream' } })).catch(() => {})
@@ -190,7 +208,7 @@ async function engineFile(file: EngineFileRef, options?: { refresh?: boolean }):
     persistAsked = true
     void navigator.storage?.persist?.().catch(() => false)
   }
-  return bytes
+  return options?.cacheOnly ? new ArrayBuffer(0) : bytes
 }
 
 async function pruneEngineFiles(keep: string[]): Promise<void> {

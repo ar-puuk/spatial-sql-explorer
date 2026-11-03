@@ -15,6 +15,8 @@ export interface EngineSource {
   mirror?: string
   /** The host's local copy (offline after first use); without it, every start downloads. */
   host?: Pick<HostAdapter, 'engineFile' | 'pruneEngineFiles'>
+  /** Which gdal3.js build this shell runs (the browser's or the extension host's), so the prefetch fetches only that one. */
+  gdalTarget?: 'web' | 'node'
 }
 
 /** Every engine file's SHA-256: what a host keeps (anything else is an old version). */
@@ -106,6 +108,30 @@ export function loadSqlWasm(source: EngineSource = {}): Promise<ArrayBuffer> {
     })
   }
   return sqlWasm
+}
+
+/**
+ * Makes the host keep a copy of every optional engine file (GDAL, sql.js, the raster engine and its
+ * converter, about 50 MB), one at a time, in that order, in the background, so "offline after the first start" holds for every feature and
+ * not only for the ones the user happened to open first. A failure is ignored: the feature that needs the
+ * file says so when it is used, and the next start tries again (a copy already kept is only checked for).
+ * Not run against a test mirror, where the tests count what a feature fetches.
+ */
+export async function prefetchOptionalEngineFiles(source: EngineSource): Promise<void> {
+  const host = source.host
+  if (!host?.engineFile || source.mirror) return
+  // In order of need (DuckDB and its extensions are already in by now): GDAL reads geodatabases and GTFS feeds,
+  // then the small sql.js (GeoPackage export), then the raster engine and, last, its converter (striped files only).
+  // A feature opened meanwhile fetches its own files at once and does not wait for this queue.
+  const files = [...(source.gdalTarget ? gdalFileRefs(source.gdalTarget) : []), assets.sqljs.wasm, assets.raster.whitebox, assets.raster.cogTiler, assets.raster.converter]
+  for (const f of files) {
+    const name = f.url.split('/').pop() ?? 'engine file'
+    try {
+      await host.engineFile({ name, url: f.url, sha256: f.sha256 }, { cacheOnly: true })
+    } catch {
+      // offline or blocked: left for the feature that needs it
+    }
+  }
 }
 
 // --- Spec 013: gdal3.js (GDAL 3.8.4 in WebAssembly, LGPL-2.1+), which reads File Geodatabases ---

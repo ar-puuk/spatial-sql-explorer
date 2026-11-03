@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
   const hostAdapter = createVsCodeHostAdapter()
   // Spec 008 research §15: the extension host keeps the engine's local copy (offline after first use).
-  const duckdbAssets = { ...(await getDuckDbAssets()), host: hostAdapter }
+  const duckdbAssets = { ...(await getDuckDbAssets()), host: hostAdapter, gdalTarget: 'node' as const }
   const fileName = await getPrimaryFileName()
   const store = createViewerStore(hostAdapter, duckdbAssets)
   // The asset URLs arrive before the file's bytes do: start DuckDB + spatial

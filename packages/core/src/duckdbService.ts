@@ -25,7 +25,7 @@
 // SHA-256 recorded at build time before they run (engineAssets.ts).
 import * as duckdb from '@duckdb/duckdb-wasm'
 import { testOverrides } from './source/readModes.js'
-import { ENGINE_ASSETS, EngineLoadError, engineHashes, fetchVerified, type EngineSource, type ExtensionName } from './engineAssets.js'
+import { ENGINE_ASSETS, EngineLoadError, engineHashes, fetchVerified, prefetchOptionalEngineFiles, type EngineSource, type ExtensionName } from './engineAssets.js'
 
 /**
  * Where the shell's engine comes from. Spec 008: always the pinned CDNs,
@@ -250,6 +250,8 @@ export function getDuckDb(assets: DuckDbAssetUrls): Promise<duckdb.AsyncDuckDB> 
         }
         // Spec 008 research §15: an upgrade leaves old local copies behind.
         void assets.host?.pruneEngineFiles?.(engineHashes()).catch(() => {})
+        // The optional engines (GDAL, raster, sql.js) are kept too, in the background, after the first query can run.
+        void prefetchOptionalEngineFiles(assets)
         return db
       } catch (err) {
         await db.terminate().catch(() => {})

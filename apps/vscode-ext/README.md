@@ -221,8 +221,8 @@ opening it again is immediate.
   in the table toolbar shows the stored code instead. SQL, filters and exports
   always use the code.
 - The reader (gdal3.js, GDAL in WebAssembly, about 40 MB) is downloaded once
-  the first time you open a geodatabase, checked against a recorded hash, and
-  kept for offline use. The extension runs it in a separate process.
+  in the background after the first start (or when you first open a geodatabase,
+  if that comes first), checked against a recorded hash, and kept for offline use. The extension runs it in a separate process.
 - Converted layers are cached in the extension's storage (up to
   `spatialExplorer.gdb.cacheLimitMB`, 2 GB by default; the least recently used
   go first). **Spatial Explorer: Clear Geodatabase Cache** removes them.
@@ -335,10 +335,13 @@ engine inside the editor. The network is used only for:
   refused if it doesn't match. A checked copy is kept in the extension's
   storage, so later starts work offline. Downloads follow VS Code's proxy
   settings.
-- **The raster engine, once, when you first open a GeoTIFF.** Two WebAssembly files
-  (about 4.6 MB) from jsDelivr, and a third (6.7 MB) only for a GeoTIFF that is not
-  stored in tiles. Pinned and checked against a SHA-256 like the SQL engine, and
-  kept in the extension's storage.
+- **The optional engines, once, in the background after the first start.** The raster
+  engine (two WebAssembly files, about 4.6 MB, and a third, 6.7 MB, for a GeoTIFF that
+  is not stored in tiles) and the geodatabase and GTFS reader (about 40 MB) from jsDelivr,
+  so a feature you open later works offline too. Pinned and checked against a SHA-256 like
+  the SQL engine, and kept in the extension's storage. A download that fails (offline, or a
+  blocked host) is tried again at the next start, and the feature itself says so if you
+  use it before then.
 - **Basemap tiles**, from the basemap you pick (or none with Blank).
 - **Place search**, only when you search: the typed text alone is sent to
   OpenStreetMap Nominatim, after a one-time notice. Turn it off with

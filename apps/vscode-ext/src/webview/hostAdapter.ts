@@ -350,9 +350,10 @@ export function createVsCodeHostAdapter(): HostAdapter {
     // Spec 008 research §15: the extension host downloads each engine file once
     // (from the same pinned URL), checks its hash and keeps it in its global
     // storage; the webview reads the local copy. The core checks the hash again.
-    async engineFile(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer> {
+    async engineFile(file: EngineFileRef, options?: { refresh?: boolean; cacheOnly?: boolean }): Promise<ArrayBuffer> {
       const result = await request<{ uri?: string; error?: string }>({ type: 'engineFile', name: file.name, url: file.url, sha256: file.sha256, refresh: options?.refresh === true })
       if (!result.uri) throw new Error(result.error ?? 'the extension could not download it')
+      if (options?.cacheOnly) return new ArrayBuffer(0)
       const res = await fetch(result.uri)
       if (!res.ok) throw new Error(`the local copy could not be read (${res.status})`)
       return res.arrayBuffer()

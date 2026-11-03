@@ -87,9 +87,9 @@ See [CHANGELOG.md](CHANGELOG.md) for everything in each release.
 ## Network use
 
 Data stays on your machine. The network is used for the SQL engine's code
-(DuckDB-WASM, its extensions and sql.js, downloaded once from pinned jsDelivr,
+(DuckDB-WASM, its extensions, sql.js, GDAL and the raster engine, about 100 MB in all, downloaded once from pinned jsDelivr,
 extensions.duckdb.org and community-extensions.duckdb.org URLs, checked against SHA-256 hashes, then kept
-locally so later starts work offline), for basemap tiles, and for the opt-out
+locally; the first start fetches the optional ones in the background too, so every feature works offline afterwards), for basemap tiles, and for the opt-out
 place search, which sends only the text you type.
 
 ## Development

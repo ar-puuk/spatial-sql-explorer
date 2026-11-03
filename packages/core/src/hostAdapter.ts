@@ -185,8 +185,11 @@ export interface HostAdapter {
    * VS Code: the extension host downloads into its global storage. Web: the
    * browser's Cache Storage. The core checks the SHA-256 of whatever comes
    * back. Hosts without it omit it: the core downloads every time.
+   * `cacheOnly` only makes sure the copy exists (the background prefetch of
+   * the optional engines) and returns an empty buffer, so a 28 MB file is not
+   * read into memory for nothing.
    */
-  engineFile?(file: EngineFileRef, options?: { refresh?: boolean }): Promise<ArrayBuffer>
+  engineFile?(file: EngineFileRef, options?: { refresh?: boolean; cacheOnly?: boolean }): Promise<ArrayBuffer>
 
   /** Drops local engine copies other than these SHA-256s (an upgrade's leftovers). */
   pruneEngineFiles?(keep: string[]): Promise<void>

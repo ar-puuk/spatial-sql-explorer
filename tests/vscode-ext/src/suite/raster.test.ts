@@ -81,20 +81,25 @@ suite('Spec 026: raster view in VS Code', () => {
     assert.deepStrictEqual({ bands: s.raster?.bands, type: s.raster?.dataType, ready: s.raster?.ready }, { bands: 3, type: 'uint8', ready: true })
   })
 
-  test('the raster engine is kept by hash, and the converter is only fetched for a striped file', async function () {
-    this.timeout(240000)
+  test('the raster engine and its converter are kept by hash (prefetched after the first start), and no raster downloads anything more', async function () {
+    this.timeout(300000)
     await openAndWait(fixture('dem-utm12.tif'))
     const { dir } = await engine()
     const kept = () => fs.readdirSync(dir).filter((f) => !f.endsWith('.part'))
-    for (const name of ['whitebox_wasm_bg.wasm', 'cog_tiler_wasm_bg.wasm']) assert.ok(kept().some((f) => /^[0-9a-f]{64}-/.test(f) && f.endsWith(`-${name}`)), `${name} is kept (${kept().join(', ')})`)
+    const has = (name: string): boolean => kept().some((f) => /^[0-9a-f]{64}-/.test(f) && f.endsWith(`-${name}`))
+    // The optional engines are downloaded in the background after the SQL engine starts: wait for the set.
+    const names = ['whitebox_wasm_bg.wasm', 'cog_tiler_wasm_bg.wasm', 'geolibre_wasm_bg.wasm']
+    for (const deadline = Date.now() + 120000; !names.every(has); ) {
+      assert.ok(Date.now() < deadline, `${names.join(', ')} are kept (${kept().join(', ')})`)
+      await new Promise((r) => setTimeout(r, 500))
+    }
     const before = (await engine()).downloaded.length
     await openAndWait(fixture('ortho-rgb.tif'))
-    assert.strictEqual((await engine()).downloaded.length, before, 'a second raster downloads nothing')
-    // A striped file brings the converter, once.
+    // A striped file uses the converter that is already there.
     const s = await openAndWait(fixture('striped.tif'))
     assert.strictEqual(s.loadState, 'ready', s.errorMessage ?? '')
     assert.strictEqual(s.raster?.origin, 'converted')
-    assert.ok(kept().some((f) => /^[0-9a-f]{64}-/.test(f) && f.endsWith('-geolibre_wasm_bg.wasm')), 'the converter is kept')
+    assert.strictEqual((await engine()).downloaded.length, before, 'rasters download nothing more')
   })
 
   test('a file with no georeferencing says so in plain words', async function () {
