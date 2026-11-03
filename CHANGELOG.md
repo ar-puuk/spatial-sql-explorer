@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-03
+
+The stable release that follows the 1.1.0 and 1.1.1 pre-releases: GeoTIFF and Cloud-Optimized GeoTIFF support (view, style, display options, shaded relief, profiles and area statistics), a faster start, and every feature working offline after the first start.
+
+### Changed
+
+- **The optional engines are kept after the first start, so every feature works offline.** After the SQL engine is ready, the first start downloads sql.js, the geodatabase and GTFS reader (GDAL, about 40 MB) and the raster engine and its converter (about 11 MB) in the background, one file at a time, checked against the same recorded hashes. Before this, only the SQL engine and its extensions were kept: a geodatabase, GeoTIFF or GeoPackage export first opened while offline failed. A download that fails is tried again at the next start; a copy already kept is only checked for.
+
 ## [1.1.1] - 2026-10-28 (pre-release)
 
 A pre-release: faster start.
