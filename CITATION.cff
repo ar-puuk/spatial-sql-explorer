@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use Spatial Explorer in your work, please cite it as below."
+title: "Spatial Explorer: Spatial SQL & Map Viewer"
+type: software
+authors:
+  - family-names: Bhandari
+    given-names: Pukar
+version: 1.2.0
+date-released: "2026-11-03"
+doi: 10.5281/zenodo.23931415
+license: MIT
+repository-code: "https://github.com/ar-puuk/spatial-sql-explorer"
+url: "https://ar-puuk.github.io/spatial-sql-explorer/"
+abstract: >-
+  Open a geospatial file and see it on a map and in a table, query it with
+  spatial SQL, style it, and export it, without opening a desktop GIS. Ships as
+  a VS Code extension and a web app from one codebase.
+keywords:
+  - GIS
+  - spatial SQL
+  - DuckDB
+  - GeoParquet
+  - GeoPackage
+  - VS Code extension
