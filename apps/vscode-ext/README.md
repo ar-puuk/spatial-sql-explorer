@@ -1,5 +1,7 @@
 # Spatial Explorer: Spatial SQL & Map Viewer
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23931415.svg)](https://doi.org/10.5281/zenodo.23931415)
+
 Open a geospatial file in VS Code and see it on a map and in an attribute
 table, query it with spatial SQL, style it, and export it, without opening a
 desktop GIS.
