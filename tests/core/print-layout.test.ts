@@ -23,7 +23,7 @@ import {
  */
 function recordingCanvas(): {
   canvas: HTMLCanvasElement;
-  fills: { text: string; x: number; y: number; textAlign: string; textBaseline: string }[];
+  fills: { text: string; x: number; y: number; textAlign: string; textBaseline: string; font: string; fillStyle: string }[];
   fillRects: { w: number; h: number; fillStyle: string }[];
   imageBoxes: { w: number; h: number }[];
   arcs: number;
@@ -37,6 +37,8 @@ function recordingCanvas(): {
     y: number;
     textAlign: string;
     textBaseline: string;
+    font: string;
+    fillStyle: string;
   }[] = [];
   // Filled rectangles (swatches, chart bars), with the fill colour in effect.
   const fillRects: { w: number; h: number; fillStyle: string }[] = [];
@@ -62,6 +64,8 @@ function recordingCanvas(): {
             y,
             textAlign: String(target.textAlign),
             textBaseline: String(target.textBaseline),
+            font: String(target.font),
+            fillStyle: String(target.fillStyle),
           });
       }
       if (prop === "fillRect") {
@@ -657,5 +661,136 @@ describe("mapPlacement (the preview's drag mapping)", () => {
     // Cover: the image fills the body, so one image pixel is at least body/width and body/height.
     assert.ok(Math.abs(p.coverScale - Math.max(p.bodyW / 2000, p.bodyH / 1000)) < 1e-9);
     assert.ok(p.bodyW > 0 && p.bodyH > 0);
+  });
+});
+
+describe("print text styles (user decision 2026-11-09)", () => {
+  const style = { family: "", color: "", size: 100, bold: false, italic: false, underline: false };
+  const draw = (o: Partial<LayoutOptions>) => {
+    const r = recordingCanvas();
+    drawLayout(r.canvas, baseOptions({ title: "My Title", subtitle: "A subtitle", ...o }));
+    return r;
+  };
+
+  it("draws the title in the chosen font, size, face and color", () => {
+    const { fills } = draw({ titleStyle: { family: "Georgia", color: "#ff0000", size: 200, bold: true, italic: true, underline: false } });
+    const title = fills.find((f) => f.text === "My Title");
+    assert.ok(title);
+    assert.match(title.font, /^italic 700 [\d.]+px "?Georgia"?/);
+    assert.equal(title.fillStyle, "#ff0000");
+    const plain = draw({}).fills.find((f) => f.text === "My Title");
+    assert.ok(plain);
+    const px = (font: string) => Number(/([\d.]+)px/.exec(font)?.[1]);
+    assert.ok(Math.abs(px(title.font) - 2 * px(plain.font)) < 1e-6, "twice the size");
+  });
+
+  it("falls back to the system sans, with the old title weight kept bold by default", () => {
+    const { fills } = draw({});
+    const title = fills.find((f) => f.text === "My Title");
+    assert.ok(title);
+    assert.match(title.font, /system-ui/);
+  });
+
+  it("draws an underline as a thin rule under the text, only when asked", () => {
+    const off = draw({ titleStyle: { ...style, bold: true } });
+    const on = draw({ titleStyle: { ...style, bold: true, underline: true } });
+    assert.equal(on.fillRects.length, off.fillRects.length + 1);
+  });
+
+  it("styles the panels' text, and draws the panels at the chosen size", () => {
+    const base = draw({ showScaleBar: true, metersPerPixel: 100 });
+    const styled = draw({ showScaleBar: true, metersPerPixel: 100, panelStyle: { ...style, family: "Courier New", size: 150, color: "#00ff00" } });
+    const label = (r: ReturnType<typeof draw>) => r.fills.find((f) => /\bkm\b|\bm\b/.test(f.text));
+    const a = label(base);
+    const b = label(styled);
+    assert.ok(a && b);
+    assert.match(b.font, /Courier New/);
+    assert.ok(b.fillStyle.includes("0,255,0") || b.fillStyle === "#00ff00");
+    const px = (font: string) => Number(/([\d.]+)px/.exec(font)?.[1]);
+    assert.ok(px(b.font) > px(a.font));
+  });
+
+  it("makes room for a larger title: the map starts lower", () => {
+    const small = mapBodyAspectRatio(baseOptions({ title: "T", titlePlacement: "outside" }));
+    const big = mapBodyAspectRatio(baseOptions({ title: "T", titlePlacement: "outside", titleStyle: { ...style, bold: true, size: 250 } }));
+    assert.ok(big > small, "a taller title leaves a wider-than-tall map");
+  });
+
+  it("saves and reads the styles, each part checked", async () => {
+    const { normalizePrintLayoutConfig, DEFAULT_PRINT_LAYOUT } = await import("../../packages/core/src/printLayoutConfig");
+    const ok = normalizePrintLayoutConfig({ ...DEFAULT_PRINT_LAYOUT, titleStyle: { family: "Lato", color: "#112233", size: 120, bold: false, italic: true, underline: true } });
+    assert.deepEqual(ok?.titleStyle, { family: "Lato", color: "#112233", size: 120, bold: false, italic: true, underline: true });
+    const bad = normalizePrintLayoutConfig({ ...DEFAULT_PRINT_LAYOUT, titleStyle: { family: 3, color: "red", size: 9000, bold: "yes" } });
+    assert.equal(bad?.titleStyle.color, "");
+    assert.equal(bad?.titleStyle.size, 250);
+    assert.equal(bad?.titleStyle.bold, true, "the default stays when the value is not a boolean");
+    const old = normalizePrintLayoutConfig({ paperSize: "a4" });
+    assert.equal(old?.titleStyle.bold, true);
+    assert.equal(old?.subtitleStyle.bold, false);
+    assert.equal(old?.panelStyle.family, "");
+  });
+
+  it("knows system fonts from Google families, and builds their stacks", async () => {
+    const { isGoogleFamily, fontStack, findGoogleFont, googleFontCatalog } = await import("../../packages/core/src/printFonts");
+    await googleFontCatalog();
+    assert.equal(isGoogleFamily(""), false);
+    assert.equal(isGoogleFamily("Arial"), false);
+    assert.equal(isGoogleFamily("georgia"), false);
+    assert.equal(isGoogleFamily("Lato"), true);
+    assert.match(fontStack("Lato"), /^"Lato", sans-serif$/);
+    assert.match(fontStack("Playfair Display"), /serif$/);
+    assert.match(fontStack("Roboto Mono"), /monospace$/);
+    assert.match(fontStack("Some Unlisted Family"), /^"Some Unlisted Family", sans-serif$/);
+    assert.equal(findGoogleFont("lato")?.name, "Lato");
+  });
+});
+
+describe("Google Fonts stylesheet reading (constitution v1.10.0)", () => {
+  const css = `
+/* cyrillic */
+@font-face { font-family: 'Lato'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/lato/cyr.woff2) format('woff2'); unicode-range: U+0301, U+0400-045F; }
+/* latin-ext */
+@font-face { font-family: 'Lato'; font-style: italic; font-weight: 700; src: url(https://fonts.gstatic.com/s/lato/lx.woff2) format('woff2'); unicode-range: U+0100-02BA; }
+/* latin */
+@font-face { font-family: 'Lato'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/lato/la.woff2) format('woff2'); unicode-range: U+0000-00FF; }`;
+  it("reads each block's subset, face and file", async () => {
+    const { parseFontFaces, googleCssUrl } = await import("../../packages/ui/src/print/fonts");
+    const blocks = parseFontFaces(css);
+    assert.equal(blocks.length, 3);
+    assert.deepEqual(blocks.map((b) => b.subset), ["cyrillic", "latin-ext", "latin"]);
+    assert.equal(blocks[1].style, "italic");
+    assert.equal(blocks[1].weight, "700");
+    assert.equal(blocks[2].url, "https://fonts.gstatic.com/s/lato/la.woff2");
+    assert.equal(googleCssUrl("Playfair Display", 0), "https://fonts.googleapis.com/css2?family=Playfair+Display&display=swap");
+    assert.match(googleCssUrl("Lato", 15), /family=Lato:ital,wght@0,400;0,700;1,400;1,700/);
+    assert.match(googleCssUrl("Unlisted Family", null), /ital,wght@0,400;0,700;1,400;1,700/);
+    // A family with a regular and a bold only is asked for those two, not for italics it lacks.
+    assert.match(googleCssUrl("Oswald", 3), /family=Oswald:ital,wght@0,400;0,700&/);
+  });
+  it("fetches only the subsets the text needs: latin always, another when its characters appear", async () => {
+    const { parseFontFaces, neededBlocks } = await import("../../packages/ui/src/print/fonts");
+    const blocks = parseFontFaces(css);
+    assert.deepEqual(neededBlocks(blocks, "Hello").map((b) => b.subset).sort(), ["latin", "latin-ext"]);
+    assert.ok(neededBlocks(blocks, "Привет").some((b) => b.subset === "cyrillic"));
+  });
+  it("lists the families a set of styles asks for, never a system font or the default", async () => {
+    const { googleFamiliesOf } = await import("../../packages/ui/src/print/fonts");
+    const st = (family: string) => ({ family, color: "", size: 100, bold: false, italic: false, underline: false });
+    assert.deepEqual(googleFamiliesOf([st(""), st("Arial"), st("Lato"), st("Lato"), undefined, st("Oswald")]), ["Lato", "Oswald"]);
+  });
+});
+
+describe("the Google Fonts catalog", () => {
+  it("lists every family, most popular first, with the faces each has", async () => {
+    const { googleFontCatalog, findGoogleFont, FACE_REGULAR, FACE_BOLD } = await import("../../packages/core/src/printFonts");
+    const all = await googleFontCatalog();
+    assert.ok(all.length > 1500, `a full list, not a sample (${all.length})`);
+    assert.equal(all[0].name, "Roboto");
+    assert.ok(new Set(all.map((f) => f.name)).size === all.length, "no name twice");
+    assert.ok(all.every((f) => ["sans", "serif", "mono", "display", "handwriting"].includes(f.category)));
+    const lato = findGoogleFont("LATO");
+    assert.equal(lato?.name, "Lato");
+    assert.ok(lato && lato.variants & FACE_REGULAR && lato.variants & FACE_BOLD);
+    assert.equal(findGoogleFont("Pacifico")?.variants, FACE_REGULAR, "a single-face font is asked for as such");
   });
 });

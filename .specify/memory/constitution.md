@@ -1,6 +1,20 @@
 <!--
 Sync Impact Report
-Version change: 1.8.0 → 1.9.0 (spec 027, user decision 2026-10-26)
+Version change: 1.9.0 → 1.10.0 (print text styles, user decision 2026-11-09)
+Modified principles:
+  - IV. Local-First and Private: one more allowed network use, Google Fonts for the print's text. The
+    person picks or types a font family in the Print layout; before the first fetch they are asked
+    (what is sent: their IP address and the family name, nothing about the map or data) and the answer is
+    remembered; without a yes the print draws a standard font and nothing is requested. Only the CSS and
+    the font files of the chosen family are fetched (fonts.googleapis.com, fonts.gstatic.com), as bytes into
+    the page's fonts. The webview's connect-src allows those two hosts and nothing else new. A PDF cannot
+    hold such a font, so it holds the page as a picture; the SVG names the font.
+Added sections: none
+Removed sections: none
+Templates: no change.
+Follow-up TODOs: none.
+
+Previous: 1.8.0 → 1.9.0 (spec 027, user decision 2026-10-26)
 Modified principles:
   - I. Scope Discipline: two more things are in scope for the open raster. (1) Display functions of the
     one raster, as STYLE: brightness, contrast, saturation, hue, smooth or sharp pixels, and hillshade
@@ -186,7 +200,8 @@ opt-in. The network is used only for basemap tiles/styles, downloading the SQL e
 and, only when a GeoTIFF is opened, the raster engine (and, for a striped GeoTIFF, its converter),
 from pinned URLs, each checked against a SHA-256 recorded at build time before it runs;
 the engine is not bundled, and each shell keeps a local copy after the first download), and the place search, which sends only the text the user
-types, is disclosed before first use, and can be turned off — never for user data
+types, is disclosed before first use, and can be turned off, and the print's Google Fonts (only the
+family the user picks, only after they agree, remembered; Google sees the IP address and the family name) — never for user data
 egress (no file contents, file names or paths).
 **Rationale**: the target user opens sensitive or proprietary geospatial files; trust
 requires a hard guarantee, not a policy statement.
@@ -298,4 +313,4 @@ complexity or scope drift is a blocking finding, not a note. Use `CLAUDE.md` at 
 repository root for day-to-day runtime development guidance that supplements, but does
 not override, this constitution.
 
-**Version**: 1.9.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-10-26
+**Version**: 1.10.0 | **Ratified**: 2026-10-09 | **Last Amended**: 2026-11-09

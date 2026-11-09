@@ -97,6 +97,11 @@
     if (!c.isMmPage && c.layout.atlasExtentMode === 'scale') c.set({ atlasExtentMode: 'margin' })
   })
   // The table and the chart come from the engine: asked again when what they depend on changes.
+  // Google fonts the print asks for are fetched once the user has agreed (never without it).
+  $effect(() => {
+    void c.fontKey
+    untrack(() => void c.ensureFonts())
+  })
   $effect(() => {
     void c.blocksKey
     void c.refreshBlocks()
@@ -147,7 +152,8 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (!busy) onClose()
+      if (c.askFontConsent) c.askFontConsent = false
+      else if (!busy) onClose()
       return
     }
     if (e.key === 'Tab' && dialog) {
@@ -256,6 +262,24 @@
         <button type="button" class="primary" disabled={busy || !c.captured} onclick={() => void c.export('png')}><Icon name="printer" size={14} />Export PNG</button>
       {/if}
     </footer>
+    {#if c.askFontConsent}
+      <div class="consent-backdrop" role="presentation">
+        <div class="consent" role="alertdialog" aria-modal="true" aria-labelledby="fonts-title" aria-describedby="fonts-text">
+          <h3 id="fonts-title">Use Google Fonts?</h3>
+          <p id="fonts-text">
+            To draw {c.googleFamilies.join(', ') || 'this font'}, Spatial Explorer downloads it from Google Fonts (fonts.googleapis.com and fonts.gstatic.com).
+            Google receives your IP address and the name of the font; nothing about your map or your data is sent.
+            Read <a href="https://developers.google.com/fonts/faq/privacy" target="_blank" rel="noreferrer noopener">what Google Fonts collects</a> and
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer noopener">Google's privacy policy</a>.
+            Without your agreement, a standard font is drawn instead. You can withdraw your agreement at any time with the Google Fonts button next to the font box.
+          </p>
+          <div class="consent-actions">
+            <button type="button" class="secondary" onclick={() => c.answerFontConsent(false)}>Don't allow</button>
+            <button type="button" class="primary" onclick={() => c.answerFontConsent(true)}>Allow Google Fonts</button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
   </div>
 </div>
@@ -297,6 +321,44 @@
     box-shadow: var(--se-shadow-elevated);
     font-family: var(--se-font-ui);
     font-size: var(--se-font-size);
+  }
+  .dialog {
+    position: relative;
+  }
+  .consent-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: color-mix(in srgb, var(--se-bg-elevated) 60%, transparent);
+    border-radius: var(--se-radius);
+  }
+  .consent {
+    display: grid;
+    gap: 10px;
+    max-width: 440px;
+    padding: 16px;
+    background: var(--se-bg-elevated);
+    border: 1px solid var(--se-control-border);
+    border-radius: var(--se-radius);
+    box-shadow: var(--se-shadow-elevated);
+  }
+  .consent h3 {
+    margin: 0;
+  }
+  .consent p {
+    margin: 0;
+    color: var(--se-text-secondary);
+  }
+  .consent a {
+    color: var(--se-text-primary);
+  }
+  .consent-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
   header {
     display: flex;

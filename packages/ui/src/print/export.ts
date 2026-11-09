@@ -4,6 +4,7 @@
 // MIT, © 2026 Qiusheng Wu).
 import { zipSync } from 'fflate'
 import { drawLayout, pageMm, pagePx, resolvePageSize, type LayoutOptions } from './layout.js'
+import { usesCustomFont } from './textStyle.js'
 
 /** The map as captured for the page. */
 export interface CapturedMap {
@@ -73,7 +74,8 @@ export async function layoutPng(opts: LayoutOptions, dpi = 150): Promise<PageFil
 export async function layoutSvg(opts: LayoutOptions): Promise<PageFile> {
   // Loaded on first use: PNG and PDF never load svgcanvas.
   const { renderLayoutSvg } = await import('./svg.js')
-  return { bytes: new TextEncoder().encode(renderLayoutSvg(opts)), size: sizeLabel(opts), notes: [] }
+  const notes = usesCustomFont(opts) ? ['The SVG names the fonts you chose but does not contain them: it shows them only where they are installed.'] : []
+  return { bytes: new TextEncoder().encode(renderLayoutSvg(opts)), size: sizeLabel(opts), notes }
 }
 
 async function loadJsPdf(): Promise<typeof import('jspdf').jsPDF> {
@@ -93,6 +95,8 @@ const ARROWS: Record<string, string> = { '→': '->', '←': '<-', '↑': '^', '
  * returns false then, for the caller to draw the page image instead.
  */
 async function drawVectorPage(pdf: InstanceType<typeof import('jspdf').jsPDF>, opts: LayoutOptions, widthMm: number, heightMm: number): Promise<boolean> {
+  // The PDF has only its built-in fonts: a font the user chose is drawn in the page picture instead.
+  if (usesCustomFont(opts)) return false
   const { layoutSvgDocument } = await import('./svg.js')
   const { svg2pdf } = await import('svg2pdf.js')
   const { svg } = layoutSvgDocument(opts)
@@ -145,7 +149,7 @@ export async function layoutPdf(opts: LayoutOptions, dpi = 150): Promise<PageFil
   const pdf = new JsPdf({ orientation: widthMm >= heightMm ? 'landscape' : 'portrait', unit: 'mm', format: [widthMm, heightMm], compress: true })
   if (opts.title.trim()) pdf.setProperties({ title: opts.title.trim() })
   if (!(await drawVectorPage(pdf, opts, widthMm, heightMm))) {
-    notes.push('The page has text in a script the PDF fonts do not have, so the PDF holds the page as a picture. The SVG keeps the text.')
+    notes.push(usesCustomFont(opts) ? 'A PDF cannot hold the fonts you chose, so it holds the page as a picture. The SVG keeps the text.' : 'The page has text in a script the PDF fonts do not have, so the PDF holds the page as a picture. The SVG keeps the text.')
     // The canvas itself, so jsPDF reads its pixels without a base64 copy.
     pdf.addImage(renderToCanvas(opts, dpi, notes), 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
   }
@@ -187,7 +191,7 @@ export async function atlasPdf(source: AtlasExportSource, dpi = 150): Promise<Pa
     else pdf.addPage([widthMm, heightMm], orientation)
     if (!(await drawVectorPage(pdf, opts, widthMm, heightMm))) {
       // This page's text has characters the PDF fonts lack: its picture instead.
-      if (!notes.length) notes.push('Some pages have text in a script the PDF fonts do not have: they are pictures in the PDF.')
+      if (!notes.length) notes.push('Some pages have a font or text the PDF cannot hold (a font you chose, or a script its fonts lack): they are pictures in the PDF.')
       pdf.addImage(renderToCanvas(opts, dpi, i === 0 ? notes : undefined), 'PNG', 0, 0, widthMm, heightMm, undefined, 'FAST')
     }
   }

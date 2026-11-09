@@ -37,6 +37,28 @@ export interface PrintLayoutLegendEntry {
   color: string;
 }
 
+/**
+ * How one kind of print text is drawn (user decision 2026-11-09). An empty family is the system sans; an empty color is
+ * the automatic one (it follows the page and the map panels); `size` is a percentage of the designed size.
+ */
+export interface PrintTextStyle {
+  family: string;
+  color: string;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+}
+
+/** The four kinds of print text: the title, the subtitle, the footer, and everything drawn in the map's panels. */
+export type PrintTextKind = "title" | "subtitle" | "footer" | "panels";
+
+export const PRINT_TEXT_SIZE_RANGE = { min: 50, max: 250 } as const;
+
+function textStyle(bold: boolean): PrintTextStyle {
+  return { family: "", color: "", size: 100, bold, italic: false, underline: false };
+}
+
 export interface PrintLayoutConfig {
   // Title block
   title: string;
@@ -69,6 +91,11 @@ export interface PrintLayoutConfig {
   mapBorderColor: string;
   mapBorderWidth: number;
   mapBackground: string;
+  /** How the title, the subtitle, the footer and the panels' text are drawn. */
+  titleStyle: PrintTextStyle;
+  subtitleStyle: PrintTextStyle;
+  footerStyle: PrintTextStyle;
+  panelStyle: PrintTextStyle;
   /** Colour of the page around the map (#RGB or #RRGGBB); empty follows the panel theme. */
   pageBackground: string;
   /** Palette of the panels drawn over the map. */
@@ -181,6 +208,10 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   mapBorderColor: "#9ca3af",
   mapBorderWidth: 1,
   mapBackground: "#e5e7eb",
+  titleStyle: textStyle(true),
+  subtitleStyle: textStyle(false),
+  footerStyle: textStyle(false),
+  panelStyle: textStyle(false),
   pageBackground: "",
   panelTheme: "light",
 
@@ -259,6 +290,10 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
 export function createDefaultPrintLayout(): PrintLayoutConfig {
   return {
     ...DEFAULT_PRINT_LAYOUT,
+    titleStyle: { ...DEFAULT_PRINT_LAYOUT.titleStyle },
+    subtitleStyle: { ...DEFAULT_PRINT_LAYOUT.subtitleStyle },
+    footerStyle: { ...DEFAULT_PRINT_LAYOUT.footerStyle },
+    panelStyle: { ...DEFAULT_PRINT_LAYOUT.panelStyle },
     tableColumns: [],
     customLegendEntries: DEFAULT_PRINT_LAYOUT.customLegendEntries.map((entry) => ({ ...entry })),
   };
@@ -275,6 +310,20 @@ function bool(value: unknown, fallback: boolean): boolean {
 function num(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
+}
+
+/** A saved text style, each part checked: a bad part falls back to the default's. */
+function textStyleOf(value: unknown, d: PrintTextStyle): PrintTextStyle {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const color = typeof raw.color === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw.color.trim()) ? raw.color.trim() : "";
+  return {
+    family: str(raw.family, d.family).trim().slice(0, 80),
+    color,
+    size: num(raw.size, d.size, PRINT_TEXT_SIZE_RANGE.min, PRINT_TEXT_SIZE_RANGE.max),
+    bold: bool(raw.bold, d.bold),
+    italic: bool(raw.italic, d.italic),
+    underline: bool(raw.underline, d.underline),
+  };
 }
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -398,6 +447,10 @@ export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | 
     mapBorderColor: str(raw.mapBorderColor, d.mapBorderColor),
     mapBorderWidth: num(raw.mapBorderWidth, d.mapBorderWidth, 0, 10),
     mapBackground: str(raw.mapBackground, d.mapBackground),
+    titleStyle: textStyleOf(raw.titleStyle, d.titleStyle),
+    subtitleStyle: textStyleOf(raw.subtitleStyle, d.subtitleStyle),
+    footerStyle: textStyleOf(raw.footerStyle, d.footerStyle),
+    panelStyle: textStyleOf(raw.panelStyle, d.panelStyle),
     pageBackground:
       typeof raw.pageBackground === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw.pageBackground.trim())
         ? raw.pageBackground.trim()
@@ -497,7 +550,7 @@ export function printLayoutConfigsEqual(a: PrintLayoutConfig, b: PrintLayoutConf
   for (const key of Object.keys(DEFAULT_PRINT_LAYOUT) as (keyof PrintLayoutConfig)[]) {
     const left = a[key];
     const right = b[key];
-    if (Array.isArray(left) || Array.isArray(right)) {
+    if (left !== null && typeof left === "object") {
       if (JSON.stringify(left) !== JSON.stringify(right)) return false;
     } else if (left !== right) {
       return false;

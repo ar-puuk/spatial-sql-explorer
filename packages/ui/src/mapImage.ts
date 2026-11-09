@@ -5,7 +5,7 @@
 // Data colors are the style's; the legend box is light with dark text whatever
 // the theme, for print.
 import { dashPattern, markerExtent, markerPolygon, type SymbolSpec } from '@spatial-explorer/core'
-import { panelColors, type PanelColors } from './print/panelColors'
+import { panelColors, panelFont, type PanelColors } from './print/panelColors'
 
 export interface LegendGroup {
   title: string
@@ -73,8 +73,6 @@ export interface MapShot {
 /** MapView's capture: the current view at `ratio` device pixels per CSS pixel, cut to `clip` (west, south, east, north) when given, with everything outside the polygon `mask` dimmed (the atlas). */
 export type MapCapture = (opts: { ratio: number; clip?: [number, number, number, number] | null; mask?: GeoJSON.Feature | null }) => Promise<MapShot>
 
-const FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif'
-const TITLE_FONT = '600 12px system-ui, -apple-system, "Segoe UI", sans-serif'
 const nf = new Intl.NumberFormat('en-US')
 
 /** `© <a href="…">OpenStreetMap</a>` → `© OpenStreetMap` */
@@ -147,7 +145,7 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: Pane
   })
   const maxLines = Math.max(1, Math.floor((h - 60) / row))
   const lines = all.length > maxLines ? [...all.slice(0, maxLines - 1), { kind: 'more' as const, n: all.length - (maxLines - 1) }] : all
-  ctx.font = FONT
+  ctx.font = panelFont(pc, 400, 12)
   const countW = (r: { count?: number }) => (r.count === undefined ? 0 : ctx.measureText(nf.format(r.count)).width + 12)
   const rowW = Math.max(
     0,
@@ -163,7 +161,7 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: Pane
               : 0
     )
   )
-  ctx.font = TITLE_FONT
+  ctx.font = panelFont(pc, 600, 12)
   const titleW = Math.max(0, ...lines.map((l) => (l.kind === 'title' ? ctx.measureText(l.text).width : 0)))
   const boxW = Math.min(320, Math.ceil(Math.max(titleW, sw + 8 + rowW) + pad * 2))
   const boxH = lines.length * row + pad * 2 - 2
@@ -180,10 +178,10 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: Pane
   for (const l of lines) {
     if (l.kind === 'title') {
       ctx.fillStyle = l.main ? pc.ink : pc.muted
-      ctx.font = TITLE_FONT
+      ctx.font = panelFont(pc, 600, 12)
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
     } else if (l.kind === 'axis') {
-      ctx.font = FONT
+      ctx.font = panelFont(pc, 400, 12)
       ctx.fillStyle = pc.muted
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
     } else if (l.kind === 'gradient') {
@@ -201,11 +199,11 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: Pane
       ctx.lineWidth = 1
       ctx.strokeRect(gx + 0.5, ty - 11.5, gw - 1, 11)
     } else if (l.kind === 'more') {
-      ctx.font = FONT
+      ctx.font = panelFont(pc, 400, 12)
       ctx.fillStyle = pc.muted
       ctx.fillText(`+${l.n} more`, x + pad + sw + 8, ty)
     } else {
-      ctx.font = FONT
+      ctx.font = panelFont(pc, 400, 12)
       const r = l.row
       const g = l.group
       const sy = ty - 11
@@ -248,7 +246,6 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: Pane
 }
 
 
-const SMALL_FONT = '10px system-ui, -apple-system, "Segoe UI", sans-serif'
 
 /**
  * The bivariate legend: the layer's name, the grid of cells with each axis named and its ends marked, and "No value".
@@ -264,9 +261,9 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
   const { nx, ny } = biv
   const xTitle = `${biv.x} →`
   const yTitle = `${biv.y} →`
-  ctx.font = TITLE_FONT
+  ctx.font = panelFont(pc, 600, 12)
   const titleW = Math.min(190, ctx.measureText(legend.title).width)
-  ctx.font = FONT
+  ctx.font = panelFont(pc, 400, 12)
   const xTitleW = ctx.measureText(xTitle).width
   const noValue = biv.noValue?.visible ? biv.noValue : null
   const noValueW = noValue ? 14 + 8 + ctx.measureText(noValue.label).width + (ctx.measureText(new Intl.NumberFormat('en-US').format(noValue.count)).width + 12) : 0
@@ -305,7 +302,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
   ctx.stroke()
 
   ctx.fillStyle = pc.ink
-  ctx.font = TITLE_FONT
+  ctx.font = panelFont(pc, 600, 12)
   ctx.fillText(clip(ctx, legend.title, boxW - pad * 2), x + pad, y + pad + 12)
 
   /** One cell, in the frame the grid is drawn in: (0, 0) the grid's top-left corner. */
@@ -334,7 +331,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
     ctx.restore()
     ctx.fillStyle = pc.muted
     // The x axis: its ends under the grid's ends, its name centered below.
-    ctx.font = SMALL_FONT
+    ctx.font = panelFont(pc, 400, 10)
     const valuesY = gridTop + H + 4 + 9
     if (biv.xRange) {
       ctx.textAlign = 'left'
@@ -342,14 +339,14 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
       ctx.textAlign = 'right'
       ctx.fillText(biv.xRange[1], gx + W, valuesY)
     }
-    ctx.font = FONT
+    ctx.font = panelFont(pc, 400, 12)
     ctx.fillStyle = pc.ink
     ctx.textAlign = 'center'
     ctx.fillText(clip(ctx, xTitle, Math.max(W, innerW - yCol)), gx + W / 2, valuesY + 4 + 12)
     ctx.textAlign = 'left'
     // The y axis, reading upward: its ends along the grid, its name beyond them.
     const labelX = (offset: number): number => x + pad + offset
-    ctx.font = SMALL_FONT
+    ctx.font = panelFont(pc, 400, 10)
     ctx.fillStyle = pc.muted
     if (biv.yRange) {
       ctx.save()
@@ -361,7 +358,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
       ctx.fillText(biv.yRange[1], H, 0)
       ctx.restore()
     }
-    ctx.font = FONT
+    ctx.font = panelFont(pc, 400, 12)
     ctx.fillStyle = pc.ink
     ctx.save()
     ctx.translate(labelX(11), gridTop + H / 2)
@@ -399,15 +396,15 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: P
       ctx.restore()
     }
     const ends = (r: [string, string] | undefined): string => (r ? `${r[0]} → ${r[1]}` : '')
-    edge('x', 11, ends(biv.xRange), SMALL_FONT, pc.muted, W)
-    edge('x', 24, `${biv.x} →`, FONT, pc.ink, W)
-    edge('y', 11, ends(biv.yRange), SMALL_FONT, pc.muted, H)
-    edge('y', 24, `← ${biv.y}`, FONT, pc.ink, H)
+    edge('x', 11, ends(biv.xRange), panelFont(pc, 400, 10), pc.muted, W)
+    edge('x', 24, `${biv.x} →`, panelFont(pc, 400, 12), pc.ink, W)
+    edge('y', 11, ends(biv.yRange), panelFont(pc, 400, 10), pc.muted, H)
+    edge('y', 24, `← ${biv.y}`, panelFont(pc, 400, 12), pc.ink, H)
     bottom = gridTop + gridH
   }
   if (noValue) {
     const ny0 = bottom + 8
-    ctx.font = FONT
+    ctx.font = panelFont(pc, 400, 12)
     ctx.textAlign = 'left'
     ctx.fillStyle = noValue.color
     ctx.fillRect(x + pad, ny0, 14, 12)

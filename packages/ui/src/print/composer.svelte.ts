@@ -7,6 +7,7 @@ import {
   barData,
   createDefaultPrintLayout,
   DEFAULT_TABLE_COLUMNS,
+  isGoogleFamily,
   MAX_TABLE_ROWS,
   pieData,
   rampColors,
@@ -23,6 +24,7 @@ import { applyLegendEdits, editRow, legendEditorRows, moveRow, NO_LEGEND_EDITS, 
 import type { ViewerStore } from '../viewerStore.svelte.js'
 import { atlasPdf, atlasPngZip, copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type AtlasExportSource, type CapturedMap, type PageFile } from './export.js'
 import type { PrintExtent } from './extent.js'
+import { googleFamiliesOf, loadGoogleFont, unloadGoogleFonts } from './fonts.js'
 import { computeScaleRatio, mapBodyAspectRatio, mapPlacement, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
 
 export type ExportKind = 'png' | 'pdf' | 'svg'
@@ -65,6 +67,14 @@ export class PrintComposer {
   mapBackgroundDraft = $state('')
   pageBackgroundDraft = $state('')
 
+  /** Google Fonts: whether the user agreed to fetch them (null: not asked), and the question being shown. */
+  fontConsent = $state<'granted' | 'denied' | null>(null)
+  askFontConsent = $state(false)
+  /** Says why a chosen font is not drawn (not allowed yet, could not be fetched). */
+  fontNotice = $state<string | null>(null)
+  /** Raised when a font has been added to the document: the page is drawn again with it. */
+  fontsVersion = $state(0)
+
   /** The atlas (map series): its coverage features, pages and current page. */
   atlas: AtlasState
 
@@ -81,6 +91,10 @@ export class PrintComposer {
     this.atlas = new AtlasState(store, () => this.layout)
     this.mapBackgroundDraft = this.layout.mapBackground
     this.pageBackgroundDraft = this.layout.pageBackground
+    void store.googleFontsConsent().then((v) => {
+      this.fontConsent = v
+      void this.ensureFonts()
+    })
     void store.loadPrintLayout().then((saved) => {
       if (saved && !this.#loaded) {
         this.layout = saved
@@ -103,6 +117,75 @@ export class PrintComposer {
     const c = this.captured
     if (!c) return
     this.set({ paperSize: 'custom', customUnit: 'px', customWidth: Math.round((c.width / c.pixelRatio) * scale), customHeight: Math.round((c.height / c.pixelRatio) * scale), pageMargin: 'none' })
+  }
+
+  /** The Google families the print asks for. */
+  get googleFamilies(): string[] {
+    const l = this.layout
+    return googleFamiliesOf([l.titleStyle, l.subtitleStyle, l.footerStyle, l.panelStyle])
+  }
+
+  /** Changes when the fonts to load do: the families and the text whose characters decide the subsets. */
+  get fontKey(): string {
+    const l = this.layout
+    return [this.googleFamilies.join('|'), this.fontConsent, l.title, l.subtitle, l.footerLeft, l.footerCenter, l.footerRight].join('\u0001')
+  }
+
+  /** Loads the Google fonts the print uses, when the user agreed; asks first when `ask` and the question is open. */
+  async ensureFonts(ask = false): Promise<void> {
+    const families = this.googleFamilies
+    if (!families.length) {
+      this.fontNotice = null
+      return
+    }
+    if (this.fontConsent === null) {
+      this.fontNotice = 'This print uses Google Fonts, which are fetched only after you agree.'
+      if (ask) this.askFontConsent = true
+      return
+    }
+    if (this.fontConsent === 'denied') {
+      this.fontNotice = 'Google Fonts is not allowed, so a standard font is drawn instead.'
+      return
+    }
+    const l = this.layout
+    const text = [l.title, l.subtitle, l.footerLeft, l.footerCenter, l.footerRight].join(' ')
+    const failed: string[] = []
+    for (const family of families) if (!(await loadGoogleFont(family, text))) failed.push(family)
+    this.fontNotice = failed.length ? `Could not get ${failed.join(', ')} from Google Fonts (offline, blocked, or no such family): a standard font is drawn instead.` : null
+    this.fontsVersion++
+  }
+
+  /** The answer to the Google Fonts question: remembered. Without a yes, no text keeps a Google font. */
+  answerFontConsent(allow: boolean): void {
+    this.fontConsent = allow ? 'granted' : 'denied'
+    this.askFontConsent = false
+    this.#store.setGoogleFontsConsent(this.fontConsent)
+    if (!allow) this.#resetGoogleFamilies()
+    void this.ensureFonts()
+  }
+
+  /** Every kind of text that uses a Google font goes back to the default font. */
+  #resetGoogleFamilies(): void {
+    const l = this.layout
+    const reset = (s: PrintLayoutConfig['titleStyle']): PrintLayoutConfig['titleStyle'] => (isGoogleFamily(s.family) ? { ...s, family: '' } : s)
+    this.set({ titleStyle: reset(l.titleStyle), subtitleStyle: reset(l.subtitleStyle), footerStyle: reset(l.footerStyle), panelStyle: reset(l.panelStyle) })
+  }
+
+  /** Takes the agreement back: the fonts are removed from the page, the text that used them returns to the default font, and the question is asked again next time. */
+  revokeFontConsent(): void {
+    this.fontConsent = null
+    this.askFontConsent = false
+    this.#store.setGoogleFontsConsent(null)
+    this.#resetGoogleFamilies()
+    unloadGoogleFonts()
+    this.fontsVersion++
+    void this.ensureFonts()
+  }
+
+  /** A text style changed: remembered. A Google family just chosen is asked for (or fetched); a system font never asks. */
+  setTextStyle(kind: 'titleStyle' | 'subtitleStyle' | 'footerStyle' | 'panelStyle', patch: Partial<PrintLayoutConfig['titleStyle']>): void {
+    this.set({ [kind]: { ...this.layout[kind], ...patch } })
+    if (patch.family !== undefined) void this.ensureFonts(isGoogleFamily(patch.family))
   }
 
   /** A typed or picked map background: a complete color is committed. */
@@ -146,6 +229,7 @@ export class PrintComposer {
   options = $derived.by((): LayoutOptions => {
     const l = this.layout
     const c = this.captured
+    void this.fontsVersion // a font fetched since: draw again with it
     const customSize: CustomSize | null = l.paperSize === 'custom' ? { width: l.customWidth, height: l.customHeight, unit: l.customUnit } : null
     const number = (text: string): number => (Number.isFinite(Number(text)) ? Number(text) : 0)
     return {
@@ -179,6 +263,10 @@ export class PrintComposer {
       mapBorderColor: l.mapBorderColor,
       mapBorderWidth: l.mapBorderWidth,
       mapBackground: l.mapBackground,
+      titleStyle: l.titleStyle,
+      subtitleStyle: l.subtitleStyle,
+      footerStyle: l.footerStyle,
+      panelStyle: l.panelStyle,
       pageBackground: l.pageBackground,
       panelTheme: l.panelTheme,
       colorbar: l.showColorbar
@@ -601,6 +689,7 @@ export class PrintComposer {
       optionsForPage: (i) => this.#atlasPageOptions(pages[i], total),
     }
     try {
+      await this.ensureFonts()
       // The combined file's name cannot carry any one page's tokens.
       const base = sanitizeFilename(stripAtlasTokens(this.layout.title) || this.#store.printBaseName)
       const file = kind === 'pdf' ? await atlasPdf(source) : await atlasPngZip(source, (i) => atlasEntryName(this.layout.atlasFilenamePattern, tokens(i)))
@@ -625,6 +714,7 @@ export class PrintComposer {
     this.exporting = true
     this.error = null
     try {
+      await this.ensureFonts()
       await copyLayoutToClipboard(this.display)
       this.copied = true
       if (this.#copiedTimer) clearTimeout(this.#copiedTimer)
@@ -643,6 +733,7 @@ export class PrintComposer {
     this.error = null
     this.saved = null
     try {
+      await this.ensureFonts()
       const file: PageFile = kind === 'png' ? await layoutPng(this.display) : kind === 'pdf' ? await layoutPdf(this.display) : await layoutSvg(this.display)
       const name = `${sanitizeFilename(this.display.title || this.#store.printBaseName)}.${kind}`
       const result = await this.#store.savePrintFile(name, file.bytes)

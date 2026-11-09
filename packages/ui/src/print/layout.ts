@@ -11,7 +11,9 @@
 // Adapted from GeoLibre's print layout (opengeos/GeoLibre, MIT, © 2026 Qiusheng Wu):
 // apps/geolibre-desktop/src/lib/print-layout.ts. The legend is ours (mapImage.ts),
 // drawn from the resolved style, not GeoLibre's layer-derived entries.
-import { autoPageBackground, panelColors, prefersLightForeground, type PanelColors, type PanelTheme } from "./panelColors.js";
+import { drawUnderline, styledFont, textScale } from "./textStyle.js";
+import type { PrintTextStyle } from "@spatial-explorer/core";
+import { autoPageBackground, panelColors, panelFont, prefersLightForeground, type PanelColors, type PanelTheme } from "./panelColors.js";
 import { drawLegendAt, legendHasContent, type LegendSpec } from "../mapImage.js";
 import { formatRoundNum, getRoundNum, scaleDenomination, type MapScaleUnit } from "./scaleUnits.js";
 
@@ -339,6 +341,11 @@ export interface LayoutOptions {
   pageBackground?: string;
   /** Palette of the panels drawn over the map; "light" when omitted. */
   panelTheme?: PanelTheme;
+  /** How the title, the subtitle, the footer and the panels' text are drawn (font, color, size, bold, italic, underline). */
+  titleStyle?: PrintTextStyle;
+  subtitleStyle?: PrintTextStyle;
+  footerStyle?: PrintTextStyle;
+  panelStyle?: PrintTextStyle;
   /**
    * An optional colorbar composed in the Print Layout (independent of any on-map
    * colorbar control), drawn crisply at export resolution at the chosen corner.
@@ -506,8 +513,8 @@ function computeBodyRect(opts: LayoutOptions, W: number, H: number): BodyRect {
 
   let bodyTop = margin;
   if (f.hasTitleBlock && !f.titleInside) {
-    const titleSize = unit * 4.5;
-    const subtitleSize = unit * 2.4;
+    const titleSize = unit * 4.5 * textScale(opts.titleStyle);
+    const subtitleSize = unit * 2.4 * textScale(opts.subtitleStyle);
     let y = edgeInset(unit, margin) + titleSize;
     if (f.hasSubtitleText) y += subtitleSize * 1.4;
     bodyTop = y + unit * 3;
@@ -515,7 +522,7 @@ function computeBodyRect(opts: LayoutOptions, W: number, H: number): BodyRect {
 
   let bodyBottom = H - margin;
   if (f.hasFooterRow) {
-    const footSize = unit * 2.2;
+    const footSize = unit * 2.2 * textScale(opts.footerStyle);
     bodyBottom = H - edgeInset(unit, margin) - footSize * 1.8;
   }
 
@@ -720,7 +727,9 @@ export function drawLayoutContext(
   const titleAlign = opts.titleAlign ?? "center";
 
   // The panels over the map follow the panel theme; text on the bare page follows the page color.
-  const pc = panelColors(opts.panelTheme);
+  const pc = panelColors(opts.panelTheme, opts.panelStyle);
+  // The panels are drawn at their own size: their unit is the page's, scaled by the panel text size.
+  const punit = unit * pc.size;
   const pageBg = opts.pageBackground || autoPageBackground(opts.panelTheme);
   const pageInk = panelColors(prefersLightForeground(pageBg) ? "dark" : "light");
 
@@ -733,32 +742,35 @@ export function drawLayoutContext(
 
   // --- Title block (outside the map) -------------------------------------
   if (hasTitleBlock && !titleInside) {
-    const titleSize = unit * 4.5;
-    const subtitleSize = unit * 2.4;
+    const titleSize = unit * 4.5 * textScale(opts.titleStyle);
+    const subtitleSize = unit * 2.4 * textScale(opts.subtitleStyle);
     let y = edgeInset(unit, margin) + titleSize;
     if (hasTitleText) {
-      ctx.fillStyle = pageInk.ink;
-      ctx.font = `600 ${titleSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = opts.titleStyle?.color || pageInk.ink;
+      ctx.font = styledFont(opts.titleStyle, titleSize);
       ctx.textAlign = titleAlign;
       ctx.textBaseline = "alphabetic";
       ctx.fillText(opts.title.trim(), titleX, y, W - margin * 2);
+      if (opts.titleStyle?.underline) drawUnderline(ctx, opts.title.trim(), titleX, y, titleSize, W - margin * 2);
     }
     if (hasSubtitleText) {
       y += subtitleSize * 1.4;
-      ctx.fillStyle = pageInk.muted;
-      ctx.font = `400 ${subtitleSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = opts.subtitleStyle?.color || pageInk.muted;
+      ctx.font = styledFont(opts.subtitleStyle, subtitleSize);
       ctx.textAlign = titleAlign;
       ctx.fillText(opts.subtitle.trim(), titleX, y, W - margin * 2);
+      if (opts.subtitleStyle?.underline) drawUnderline(ctx, opts.subtitle.trim(), titleX, y, subtitleSize, W - margin * 2);
     }
   }
 
   // --- Footer row --------------------------------------------------------
   if (hasFooterRow) {
-    const footSize = unit * 2.2;
+    const footSize = unit * 2.2 * textScale(opts.footerStyle);
     const edge = edgeInset(unit, margin);
     const baselineY = H - edge - footSize * 0.6;
-    ctx.fillStyle = pageInk.muted;
-    ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
+    const underline = opts.footerStyle?.underline === true;
+    ctx.fillStyle = opts.footerStyle?.color || pageInk.muted;
+    ctx.font = styledFont(opts.footerStyle, footSize);
     ctx.textBaseline = "middle";
     const rowL = edge;
     const rowR = W - edge;
@@ -771,23 +783,25 @@ export function drawLayoutContext(
       const left = truncateToWidth(ctx, footer.left, side);
       ctx.textAlign = "left";
       ctx.fillText(left, rowL, baselineY);
+      if (underline) drawUnderline(ctx, left, rowL, baselineY, footSize);
       textL = rowL + ctx.measureText(left).width + gap;
     }
     if (footer.right) {
       const right = truncateToWidth(ctx, footer.right, side);
       ctx.textAlign = "right";
       ctx.fillText(right, rowR, baselineY);
+      if (underline) drawUnderline(ctx, right, rowR, baselineY, footSize);
       textR = rowR - ctx.measureText(right).width - gap;
     }
     if (footer.center) {
       const room = Math.max(0, textR - textL);
       // A text that does not fit shrinks (to three quarters), then is cut with an ellipsis.
       let size = footSize;
-      ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
+      ctx.font = styledFont(opts.footerStyle, size);
       const wide = ctx.measureText(footer.center).width;
       if (wide > room && wide > 0) {
         size = Math.max(footSize * 0.75, (footSize * room) / wide);
-        ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
+        ctx.font = styledFont(opts.footerStyle, size);
       }
       const text = truncateToWidth(ctx, footer.center, room);
       const w = ctx.measureText(text).width;
@@ -795,6 +809,7 @@ export function drawLayoutContext(
       const x = Math.min(Math.max((rowL + rowR) / 2 - w / 2, textL), Math.max(textL, textR - w));
       ctx.textAlign = "left";
       ctx.fillText(text, x, baselineY);
+      if (underline) drawUnderline(ctx, text, x, baselineY, size);
     }
   }
 
@@ -854,8 +869,8 @@ export function drawLayoutContext(
     ctx.beginPath();
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
-    const titleSize = unit * 4;
-    const subtitleSize = unit * 2.2;
+    const titleSize = unit * 4 * textScale(opts.titleStyle);
+    const subtitleSize = unit * 2.2 * textScale(opts.subtitleStyle);
     const padY = unit * 3;
     // Seed the baseline at the first line that is actually drawn: when the title
     // is hidden, the subtitle takes the top slot rather than being pushed a full
@@ -888,19 +903,21 @@ export function drawLayoutContext(
       blockH - frameInset,
     );
     if (hasTitleText) {
-      ctx.fillStyle = pc.ink;
-      ctx.font = `600 ${titleSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = opts.titleStyle?.color || pc.ink;
+      ctx.font = styledFont(opts.titleStyle, titleSize);
       ctx.textAlign = titleAlign;
       ctx.textBaseline = "alphabetic";
       ctx.fillText(opts.title.trim(), tx, y, bodyW - insetX * 2);
+      if (opts.titleStyle?.underline) drawUnderline(ctx, opts.title.trim(), tx, y, titleSize, bodyW - insetX * 2);
     }
     if (hasSubtitleText) {
       // Only advance past the title line when one was drawn.
       if (hasTitleText) y += subtitleSize * 1.4;
-      ctx.fillStyle = pc.muted;
-      ctx.font = `400 ${subtitleSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = opts.subtitleStyle?.color || pc.muted;
+      ctx.font = styledFont(opts.subtitleStyle, subtitleSize);
       ctx.textAlign = titleAlign;
       ctx.fillText(opts.subtitle.trim(), tx, y, bodyW - insetX * 2);
+      if (opts.subtitleStyle?.underline) drawUnderline(ctx, opts.subtitle.trim(), tx, y, subtitleSize, bodyW - insetX * 2);
     }
     ctx.restore();
   }
@@ -908,7 +925,7 @@ export function drawLayoutContext(
   const inset = unit * 2;
   // The map credit is a thin strip along the bottom edge of the map, in its right corner (as MapLibre's own attribution is);
   // everything else keeps above it.
-  const creditSize = unit * 1.55;
+  const creditSize = punit * 1.55;
   const creditH = attributionText ? creditSize * 1.9 : 0;
   const floorH = bodyH - creditH;
   // Metres per pixel in the *output* image after cover scaling.
@@ -931,7 +948,7 @@ export function drawLayoutContext(
     ctx.beginPath();
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
-    drawInfoBlock(ctx, pc, bodyX + bodyW - inset, bodyY + floorH - inset, infoLines, unit);
+    drawInfoBlock(ctx, pc, bodyX + bodyW - inset, bodyY + floorH - inset, infoLines, punit);
     ctx.restore();
   }
 
@@ -946,7 +963,7 @@ export function drawLayoutContext(
       bodyY + floorH - inset,
       bodyW * 0.28,
       outputMpp,
-      unit,
+      punit,
       scaleRatio,
       opts.scaleUnit ?? "metric",
     );
@@ -964,7 +981,7 @@ export function drawLayoutContext(
       bodyY + arrowMargin + topExtent,
       arrowRadius,
       opts.bearingDeg,
-      unit,
+      punit,
     );
     arrowDepth = arrowMargin + topExtent + discRadius - inset;
   }
@@ -979,7 +996,7 @@ export function drawLayoutContext(
     ctx.rect(bodyX, bodyY, bodyW, bodyH);
     ctx.clip();
     // The legend is drawn at screen sizes (12 px text): scale it with the page like the rest of the furniture.
-    legendHeight = drawLegendAt(ctx, opts.legend, pc, bodyX + inset, bodyY + floorH - inset, floorH - inset * 2, unit / 6, true);
+    legendHeight = drawLegendAt(ctx, opts.legend, pc, bodyX + inset, bodyY + floorH - inset, floorH - inset * 2, punit / 6, true);
     ctx.restore();
   }
 
@@ -1023,7 +1040,7 @@ export function drawLayoutContext(
         bodyY,
         bodyW,
         floorH,
-        unit,
+        punit,
         stackOffset,
       ),
     );
@@ -1039,7 +1056,7 @@ export function drawLayoutContext(
         bodyY,
         bodyW,
         floorH,
-        unit,
+        punit,
         stackOffset,
       ),
     );
@@ -1055,7 +1072,7 @@ export function drawLayoutContext(
         bodyY,
         bodyW,
         floorH,
-        unit,
+        punit,
         stackOffset,
       ),
     );
@@ -1071,7 +1088,7 @@ export function drawLayoutContext(
         bodyY,
         bodyW,
         floorH,
-        unit,
+        punit,
         stackOffset,
       ),
     );
@@ -1119,7 +1136,7 @@ function drawMapCredit(
   const height = size * 1.9;
   const gap = size * 0.5;
   ctx.save();
-  const font = (weight: number) => `${weight} ${size}px system-ui, -apple-system, sans-serif`;
+  const font = (weight: number) => panelFont(pc, weight, size);
   ctx.font = font(600);
   const leadW = ctx.measureText(lead).width;
   ctx.font = font(400);
@@ -1177,7 +1194,7 @@ function drawNorthArrow(
   ctx.fill();
 
   ctx.fillStyle = pc.ink;
-  ctx.font = `700 ${unit * 1.8}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 700, unit * 1.8);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   // Keep the label upright (only the arrow rotates with bearing): move to the
@@ -1260,7 +1277,7 @@ function drawScaleBar(
   const pad = unit * 1.1;
   const hasRatio = scaleRatio > 0 && Number.isFinite(scaleRatio);
   const ratioH = hasRatio ? textSize * 1.5 : 0;
-  const font = (weight: number) => `${weight} ${textSize}px system-ui, -apple-system, sans-serif`;
+  const font = (weight: number) => panelFont(pc, weight, textSize);
   const endLabel = formatSpanLabel(rounded, label);
   const midLabel = formatRoundNum(rounded / 2);
 
@@ -1378,10 +1395,10 @@ function drawInfoBlock(
   const gap = unit * 1.2;
 
   ctx.save();
-  ctx.font = `600 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, labelSize);
   let labelW = 0;
   for (const l of lines) labelW = Math.max(labelW, ctx.measureText(l.label).width);
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   let valueW = 0;
   for (const l of lines) valueW = Math.max(valueW, ctx.measureText(l.value).width);
 
@@ -1403,12 +1420,12 @@ function drawInfoBlock(
   for (const l of lines) {
     cy += rowH;
     ctx.fillStyle = pc.muted;
-    ctx.font = `600 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 600, labelSize);
     // Cap each cell to its measured column width so a measureText rounding
     // error can never push a glyph past the box border.
     ctx.fillText(l.label, x + pad, cy, labelW);
     ctx.fillStyle = pc.ink;
-    ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 400, labelSize);
     ctx.fillText(l.value, x + pad + labelW + gap, cy, valueW);
   }
   ctx.restore();
@@ -1482,12 +1499,12 @@ function drawColorbar(
   });
 
   ctx.save();
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   let maxLabelW = 0;
   for (const tk of ticks) {
     maxLabelW = Math.max(maxLabelW, ctx.measureText(tk.text).width);
   }
-  ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, titleSize);
   const titleW = hasTitle ? ctx.measureText(title).width : 0;
   // Space reserved for the label: a horizontal line above the bar, or a rotated
   // line beside it (vertical orientation).
@@ -1539,7 +1556,7 @@ function drawColorbar(
       ctx.translate(px + pad + titleSize / 2, barY + barLen / 2);
       ctx.rotate(-Math.PI / 2);
       ctx.fillStyle = pc.ink;
-      ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+      ctx.font = panelFont(pc, 600, titleSize);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(title, 0, 0, barLen);
@@ -1553,7 +1570,7 @@ function drawColorbar(
     ctx.strokeStyle = pc.ink;
     ctx.lineWidth = lineW;
     ctx.strokeRect(barX, barY, barThick, barLen);
-    ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 400, labelSize);
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     for (const tk of ticks) {
@@ -1572,7 +1589,7 @@ function drawColorbar(
     // Label: horizontal, centred above the bar.
     if (hasTitle) {
       ctx.fillStyle = pc.ink;
-      ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+      ctx.font = panelFont(pc, 600, titleSize);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(title, centerX, cursorY, panelW - pad * 2);
@@ -1588,7 +1605,7 @@ function drawColorbar(
     ctx.strokeStyle = pc.ink;
     ctx.lineWidth = lineW;
     ctx.strokeRect(barX, barY, barLen, barThick);
-    ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 400, labelSize);
     ctx.textBaseline = "top";
     for (const tk of ticks) {
       const tx = barX + tk.t * barLen;
@@ -1638,9 +1655,9 @@ function drawCustomLegend(
   const hasTitle = title.length > 0;
 
   ctx.save();
-  ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, titleSize);
   let maxText = hasTitle ? ctx.measureText(title).width : 0;
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   for (const e of cl.entries) {
     const w = swatch + gap + ctx.measureText(e.label).width;
     if (w > maxText) maxText = w;
@@ -1674,11 +1691,11 @@ function drawCustomLegend(
   if (hasTitle) {
     cy += titleSize;
     ctx.fillStyle = pc.ink;
-    ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 600, titleSize);
     ctx.fillText(title, x + pad, cy, boxW - pad * 2);
     cy += unit;
   }
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   for (const e of cl.entries) {
     cy += rowH;
     ctx.fillStyle = e.color;
@@ -1793,9 +1810,9 @@ function drawDataTable(
   // Measure each column: the widest of its header (bold) and cells (regular),
   // capped so one long text field cannot swallow the page.
   const colW = table.columns.map((header, i) => {
-    ctx.font = `600 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 600, labelSize);
     let w = ctx.measureText(header).width;
-    ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 400, labelSize);
     for (const row of rows) {
       w = Math.max(w, ctx.measureText(row[i] ?? "").width);
     }
@@ -1810,7 +1827,7 @@ function drawDataTable(
     for (let i = 0; i < colW.length; i++) colW[i] *= scale;
     contentW = availW;
   }
-  ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, titleSize);
   const titleW = hasTitle ? ctx.measureText(title).width : 0;
 
   const boxW = pad * 2 + Math.max(contentW, Math.min(titleW, availW));
@@ -1840,7 +1857,7 @@ function drawDataTable(
   if (hasTitle) {
     cy += titleSize;
     ctx.fillStyle = pc.ink;
-    ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 600, titleSize);
     ctx.fillText(truncateToWidth(ctx, title, boxW - pad * 2), x + pad, cy);
     cy += unit;
   }
@@ -1848,7 +1865,7 @@ function drawDataTable(
   // Header row, with a hairline separating it from the data rows.
   cy += rowH;
   ctx.fillStyle = pc.ink;
-  ctx.font = `600 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, labelSize);
   let cx = x + pad;
   table.columns.forEach((header, i) => {
     ctx.fillText(truncateToWidth(ctx, header, colW[i]), cx, cy);
@@ -1862,7 +1879,7 @@ function drawDataTable(
   ctx.stroke();
 
   ctx.fillStyle = pc.ink;
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   for (const row of rows) {
     cy += rowH;
     cx = x + pad;
@@ -1914,7 +1931,7 @@ function drawDataChart(
   const data = chart.data;
 
   ctx.save();
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
 
   // Content size + a deferred content draw at (cx0, cy0), so panel sizing and
   // anchoring are computed once for all three chart kinds.
@@ -2062,7 +2079,7 @@ function drawDataChart(
     };
   }
 
-  ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 600, titleSize);
   const titleW = hasTitle ? ctx.measureText(title).width : 0;
   const boxW = pad * 2 + Math.max(contentW, Math.min(titleW, unit * 40));
   const boxH = pad * 2 + titleBlock + contentH;
@@ -2090,11 +2107,11 @@ function drawDataChart(
   let topY = y + pad;
   if (hasTitle) {
     ctx.fillStyle = pc.ink;
-    ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+    ctx.font = panelFont(pc, 600, titleSize);
     ctx.fillText(truncateToWidth(ctx, title, boxW - pad * 2), x + pad, topY + titleSize);
     topY += titleBlock;
   }
-  ctx.font = `400 ${labelSize}px system-ui, sans-serif`;
+  ctx.font = panelFont(pc, 400, labelSize);
   drawContent(x + pad, topY);
   ctx.restore();
   return boxH;

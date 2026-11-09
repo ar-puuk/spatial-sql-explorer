@@ -1,16 +1,18 @@
 <script lang="ts">
   // Spec 016: the composer's controls (GeoLibre's print-layout editors, one
   // section each): title, page, map frame, and the elements on the page.
-  import { RAMPS } from '@spatial-explorer/core'
+  import { PRINT_TEXT_SIZE_RANGE, RAMPS, isGoogleFamily, type PrintLayoutConfig } from '@spatial-explorer/core'
   import Icon from '../Icon.svelte'
   import ColorField from '../kit/ColorField.svelte'
+  import FontPicker from './FontPicker.svelte'
+  import GoogleFontsMark from './GoogleFontsMark.svelte'
   import Segmented from '../kit/Segmented.svelte'
   import Select from '../kit/Select.svelte'
   import Slider from '../kit/Slider.svelte'
   import Switch from '../kit/Switch.svelte'
   import type { PrintComposer } from './composer.svelte.js'
   import { PAPER_SIZES } from './layout.js'
-  import { autoPageBackground } from './panelColors.js'
+  import { autoPageBackground, panelColors, prefersLightForeground } from './panelColors.js'
 
   interface Props {
     c: PrintComposer
@@ -31,6 +33,25 @@
   ]
   const PAPER_OPTIONS = [...PAPER_SIZES.filter((p) => p.id !== 'custom').map((p) => ({ value: p.id, label: p.label })), { value: 'custom', label: 'Custom…' }]
   const RAMP_OPTIONS = RAMPS.filter((r) => r.kind !== 'qualitative').map((r) => ({ value: r.id, label: r.name }))
+
+  // The text styles: one editor, for the kind of text chosen.
+  type TextKind = 'title' | 'subtitle' | 'footer' | 'panels'
+  const TEXT_KINDS: { value: TextKind; label: string; key: 'titleStyle' | 'subtitleStyle' | 'footerStyle' | 'panelStyle' }[] = [
+    { value: 'title', label: 'Title', key: 'titleStyle' },
+    { value: 'subtitle', label: 'Subtitle', key: 'subtitleStyle' },
+    { value: 'footer', label: 'Footer', key: 'footerStyle' },
+    { value: 'panels', label: 'Panels', key: 'panelStyle' },
+  ]
+  let textKind = $state<TextKind>('title')
+  const textEntry = $derived(TEXT_KINDS.find((k) => k.value === textKind) ?? TEXT_KINDS[0])
+  const st = $derived(l[textEntry.key])
+  /** The color the text has while none is chosen: the page's or the panels' own. */
+  const autoColor = $derived.by(() => {
+    const light = textKind === 'panels' ? l.panelTheme === 'dark' : prefersLightForeground(l.pageBackground || autoPageBackground(l.panelTheme))
+    const p = panelColors(light ? 'dark' : 'light')
+    return textKind === 'title' || textKind === 'panels' ? p.ink : p.muted
+  })
+  const setStyle = (patch: Partial<PrintLayoutConfig['titleStyle']>): void => c.setTextStyle(textEntry.key, patch)
 
   const num = (e: Event): number => Number((e.currentTarget as HTMLInputElement).value)
   let legendDict = $state('')
@@ -137,6 +158,48 @@
   {@render scale?.()}
   {@render atlas?.()}
 
+  <section aria-label="Text">
+    <h3>Text</h3>
+    <div class="row">
+      <span>Style for</span>
+      <Segmented label="Text to style" value={textKind} onChange={(v) => (textKind = v as TextKind)} options={TEXT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
+    </div>
+    <div class="row">
+      <span>Font</span>
+      <div class="grow fontline">
+        <FontPicker label="Font" value={st.family} google={c.fontConsent === 'granted'} onChange={(family) => setStyle({ family })} />
+        <button
+          type="button"
+          class="face gtoggle"
+          aria-pressed={c.fontConsent === 'granted'}
+          title={c.fontConsent === 'granted' ? 'Google Fonts are in the list. Click to turn them off: your agreement is withdrawn and any text using a Google font goes back to the default font.' : 'Include Google Fonts in the list (fetched from Google once you agree).'}
+          aria-label="Google Fonts"
+          onclick={() => (c.fontConsent === 'granted' ? c.revokeFontConsent() : (c.askFontConsent = true))}
+        ><GoogleFontsMark /></button>
+      </div>
+    </div>
+    <div class="row">
+      <span id="text-color-label">Color</span>
+      <ColorField labelledby="text-color-label" value={st.color || autoColor} apply="end" onChange={(v) => setStyle({ color: v })} />
+      {#if st.color}<button type="button" class="secondary" title="Follow the page and the panels again" onclick={() => setStyle({ color: '' })}>Auto</button>{:else}<span class="hint">Auto</span>{/if}
+      <span class="faces" role="group" aria-label="Text face">
+        <button type="button" class="face bold" aria-pressed={st.bold} title="Bold" onclick={() => setStyle({ bold: !st.bold })}>B</button>
+        <button type="button" class="face italic" aria-pressed={st.italic} title="Italic" onclick={() => setStyle({ italic: !st.italic })}>I</button>
+        {#if textKind !== 'panels'}<button type="button" class="face underline" aria-pressed={st.underline} title="Underline" onclick={() => setStyle({ underline: !st.underline })}>U</button>{/if}
+      </span>
+    </div>
+    <div class="row">
+      <span>Size</span>
+      <div class="grow"><Slider label="Text size" value={st.size} min={PRINT_TEXT_SIZE_RANGE.min} max={textKind === 'panels' ? 200 : PRINT_TEXT_SIZE_RANGE.max} step={5} unit="%" onChange={(v) => setStyle({ size: v })} /></div>
+    </div>
+    {#if st.family && isGoogleFamily(st.family)}
+      <p class="hint">A Google font: it is fetched from Google Fonts (fonts.googleapis.com) once you agree. The PDF then holds the page as a picture.</p>
+    {/if}
+    {#if c.fontNotice && c.fontConsent !== 'denied'}
+      <p class="hint warn" role="status">{c.fontNotice}{#if c.fontConsent !== 'granted' && c.googleFamilies.length} <button type="button" class="link" onclick={() => (c.askFontConsent = true)}>Decide</button>{/if}</p>
+    {/if}
+  </section>
+
   <section aria-label="Map elements">
     <h3>Map elements</h3>
     {@render toggle('Title', l.showTitle, (v) => c.set({ showTitle: v }))}
@@ -221,6 +284,64 @@
 </div>
 
 <style>
+  .faces {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .face {
+    min-width: 28px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--se-border);
+    border-radius: var(--se-radius-sm);
+    background: transparent;
+    color: var(--se-text-secondary);
+    cursor: pointer;
+  }
+  /* On: a filled square in the accent color with a light mark, as the app's switches are filled when on. */
+  .face[aria-pressed='true'] {
+    background: var(--se-accent);
+    border-color: var(--se-accent);
+    color: var(--se-button-fg, #fff);
+  }
+  .face[aria-pressed='true']:hover {
+    filter: brightness(1.1);
+  }
+  .fontline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .gtoggle {
+    flex: none;
+    display: grid;
+    place-items: center;
+  }
+  .face.bold {
+    font-weight: 700;
+  }
+  .face.italic {
+    font-style: italic;
+  }
+  .face.underline {
+    text-decoration: underline;
+  }
+  .face:focus-visible {
+    outline: 1px solid var(--se-focus);
+    outline-offset: 1px;
+  }
+  .hint.warn {
+    color: var(--se-warning, var(--se-text-secondary));
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--se-text-primary);
+    cursor: pointer;
+    text-decoration: underline;
+  }
   .hint {
     margin: 0;
     color: var(--se-text-secondary);

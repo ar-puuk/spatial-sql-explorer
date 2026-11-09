@@ -3788,6 +3788,14 @@ Code: the extension's storage; web: the browser's Cache Storage).
 - **Fonts, web app only:** Inter and JetBrains Mono (SIL Open Font License
   1.1), served by Google Fonts. The VS Code extension uses the editor's own
   fonts.
+- **Google Fonts, in the print layout** (optional, only after the user agrees):
+  the font files and stylesheet of the family the user picks, fetched from
+  `fonts.googleapis.com` and `fonts.gstatic.com`. The families are under their own
+  open licenses (mostly SIL Open Font License 1.1). The list of families
+  (`packages/core/src/googleFontsCatalog.json`) is generated from the metadata
+  the Google Fonts site uses. The button's mark is Simple Icons' "Google Fonts"
+  icon (CC0 1.0); the mark is a trademark of Google LLC and is shown only to name
+  the service.
 - **Terrain elevation tiles** (optional, when the user turns 3D terrain on):
   Terrarium tiles from `s3.amazonaws.com/elevation-tiles-prod` (Mapzen / Tilezen
   "Terrain Tiles" on AWS Open Data), built from SRTM, GMTED, NED and other

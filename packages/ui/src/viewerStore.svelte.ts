@@ -341,6 +341,10 @@ export interface ViewerStore {
   readonly placeSearchConfigurable: boolean
   /** Whether the place search privacy notice was already shown (asked once per user). */
   placeSearchNoticeShown(): Promise<boolean>
+  /** Print text styles (constitution v1.10.0): whether the user agreed to fetch Google Fonts (null: not asked yet). */
+  googleFontsConsent(): Promise<'granted' | 'denied' | null>
+  /** Remembers the answer; null forgets it (the question is asked again). */
+  setGoogleFontsConsent(value: 'granted' | 'denied' | null): void
   markPlaceSearchNoticeShown(): void
   /** Fits the map to a WGS84 box (a found place). */
   fitTo(bbox: [number, number, number, number]): void
@@ -998,6 +1002,7 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
   let placeSearchEnabled = $state(hostAdapter.getPreference?.('placeSearch.enabled') !== false)
   hostAdapter.onPreferenceChange?.(() => (placeSearchEnabled = hostAdapter.getPreference?.('placeSearch.enabled') !== false))
   const PLACE_NOTICE_KEY = 'placeSearchNoticeShown'
+  const FONTS_CONSENT_KEY = 'googleFontsConsent'
   // The map always opens flat; the globe is a view for this session, not
   // remembered (user decision, 2026-10-11).
   let projection = $state<'mercator' | 'globe'>('mercator')
@@ -2682,6 +2687,13 @@ export function createViewerStore(hostAdapter: HostAdapter, duckdbAssets: DuckDb
     },
     markPlaceSearchNoticeShown() {
       void hostAdapter.saveState(PLACE_NOTICE_KEY, true).catch(() => {})
+    },
+    async googleFontsConsent() {
+      const v = await hostAdapter.loadState<string>(FONTS_CONSENT_KEY).catch(() => null)
+      return v === 'granted' || v === 'denied' ? v : null
+    },
+    setGoogleFontsConsent(value) {
+      void hostAdapter.saveState(FONTS_CONSENT_KEY, value).catch(() => {})
     },
     get projection() {
       return projection

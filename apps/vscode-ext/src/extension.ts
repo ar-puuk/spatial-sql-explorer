@@ -961,7 +961,7 @@ class SpatialExplorerEditorProvider implements vscode.CustomReadonlyEditorProvid
 <html lang="en" data-theme="vscode"${this.context.extensionMode === vscode.ExtensionMode.Production ? '' : ' data-se-test-hooks'}>
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS} https://nominatim.openstreetmap.org; img-src ${csp} data: blob: https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS}; font-src ${csp};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'wasm-unsafe-eval' ${csp}; style-src ${csp} 'unsafe-inline'; worker-src ${csp} blob: data:; connect-src ${csp} blob: http://localhost.:* https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS} https://nominatim.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com; img-src ${csp} data: blob: https://tiles.openfreemap.org ${FEATURED_TILE_HOSTS} ${BASEMAP_HOSTS} ${TERRAIN_HOSTS}; font-src ${csp};">
 <link rel="stylesheet" href="${styleUri}">
 <title>Spatial Explorer</title>
 </head>

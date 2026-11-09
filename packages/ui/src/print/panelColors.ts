@@ -1,5 +1,9 @@
 // Adapted from GeoLibre (MIT): PanelColors, the colors of the panels drawn over the map (user request 2026-11-09, GeoLibre PR 3349).
 
+import type { PrintTextStyle } from "@spatial-explorer/core";
+import { fontStack } from "@spatial-explorer/core";
+import { hexAlpha } from "./textStyle.js";
+
 export type PanelTheme = "light" | "dark";
 
 export interface PanelColors {
@@ -13,6 +17,16 @@ export interface PanelColors {
   /** The map credit's two text shades. */
   creditLead: string;
   creditRest: string;
+  /** The panels' text style: the CSS family list, bold for all text, italic, and the size factor (the callers scale their unit by it). */
+  family: string;
+  bold: boolean;
+  italic: boolean;
+  size: number;
+}
+
+/** The canvas font for panel text of a designed weight and size. */
+export function panelFont(pc: PanelColors, weight: number, px: number): string {
+  return `${pc.italic ? "italic " : ""}${pc.bold ? 700 : weight} ${px}px ${pc.family}`;
 }
 
 const LIGHT: PanelColors = {
@@ -23,6 +37,10 @@ const LIGHT: PanelColors = {
   paper: (a) => `rgba(255,255,255,${a})`,
   creditLead: "#374151",
   creditRest: "#6b7280",
+  family: "",
+  bold: false,
+  italic: false,
+  size: 1,
 };
 
 const DARK: PanelColors = {
@@ -33,6 +51,10 @@ const DARK: PanelColors = {
   paper: (a) => `rgba(17,24,39,${a})`,
   creditLead: "#e5e7eb",
   creditRest: "#9ca3af",
+  family: "",
+  bold: false,
+  italic: false,
+  size: 1,
 };
 
 /** The page color when none is chosen: the panels' own paper, so the page and the panels agree. */
@@ -40,8 +62,12 @@ export function autoPageBackground(theme: PanelTheme | undefined): string {
   return theme === "dark" ? "#111827" : "#ffffff";
 }
 
-export function panelColors(theme: PanelTheme | undefined): PanelColors {
-  return theme === "dark" ? DARK : LIGHT;
+export function panelColors(theme: PanelTheme | undefined, style?: PrintTextStyle): PanelColors {
+  const base = theme === "dark" ? DARK : LIGHT;
+  const font = { family: fontStack(style?.family ?? ""), bold: style?.bold ?? false, italic: style?.italic ?? false, size: (style?.size ?? 100) / 100 };
+  // A chosen color is used for all the panels' text (the lighter shade is the same color, a little fainter).
+  if (style?.color) return { ...base, ...font, ink: style.color, muted: hexAlpha(style.color, 0.7), creditLead: style.color, creditRest: hexAlpha(style.color, 0.7) };
+  return { ...base, ...font };
 }
 
 /** WCAG: is white text more readable than black on this #RGB or #RRGGBB color? */

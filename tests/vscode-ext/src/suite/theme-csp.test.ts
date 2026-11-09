@@ -22,6 +22,11 @@ suite('Spec 008 US5: webview CSP', () => {
     }
     assert.ok(directive('connect-src').includes('https://nominatim.openstreetmap.org'))
     assert.ok(!directive('img-src').includes('nominatim'))
+    // Print text styles: Google Fonts are fetched as bytes, so connect-src only (constitution v1.10.0).
+    for (const host of ['https://fonts.googleapis.com', 'https://fonts.gstatic.com']) {
+      assert.ok(directive('connect-src').includes(host), `connect-src ${host}`)
+      assert.ok(!directive('img-src').includes(host) && !directive('script-src').includes(host), `${host} only in connect-src`)
+    }
   })
 
   // Spec 010 T041: every "More basemaps…" style and tile host is allowed, `*.` wildcards included.
