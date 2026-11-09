@@ -63,6 +63,7 @@ export class PrintComposer {
   legendEdits = $state<LegendEdits>(NO_LEGEND_EDITS)
   /** The draft of the map background's hex field: only a complete color is committed. */
   mapBackgroundDraft = $state('')
+  pageBackgroundDraft = $state('')
 
   /** The atlas (map series): its coverage features, pages and current page. */
   atlas: AtlasState
@@ -79,10 +80,12 @@ export class PrintComposer {
     this.#legend = legend
     this.atlas = new AtlasState(store, () => this.layout)
     this.mapBackgroundDraft = this.layout.mapBackground
+    this.pageBackgroundDraft = this.layout.pageBackground
     void store.loadPrintLayout().then((saved) => {
       if (saved && !this.#loaded) {
         this.layout = saved
         this.mapBackgroundDraft = saved.mapBackground
+        this.pageBackgroundDraft = saved.pageBackground
       }
       this.#loaded = true
     })
@@ -106,6 +109,12 @@ export class PrintComposer {
   commitMapBackground(value: string): void {
     this.mapBackgroundDraft = value
     if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) this.set({ mapBackground: value.trim() })
+  }
+
+  /** A typed or picked page background: a complete color is committed. */
+  commitPageBackground(value: string): void {
+    this.pageBackgroundDraft = value
+    if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) this.set({ pageBackground: value.trim() })
   }
 
   /** The legend as the page shows it: the map's, with the edits. */
@@ -160,6 +169,8 @@ export class PrintComposer {
       showDate: l.showDate,
       dateText: l.dateText.trim() ? l.dateText : new Intl.DateTimeFormat().format(),
       showAttribution: l.showAttribution,
+      attributionPlacement: l.attributionPlacement,
+      footerAlign: l.footerAlign,
       // MapLibre draws the map; the basemap's credit follows, as on the map's own attribution.
       attributionText: c?.attribution ? `MapLibre | ${c.attribution}` : 'MapLibre',
       pageMargin: l.pageMargin,
@@ -169,6 +180,8 @@ export class PrintComposer {
       mapBorderColor: l.mapBorderColor,
       mapBorderWidth: l.mapBorderWidth,
       mapBackground: l.mapBackground,
+      pageBackground: l.pageBackground,
+      panelTheme: l.panelTheme,
       colorbar: l.showColorbar
         ? {
             colors: rampColors({ id: l.colorbarRamp, reversed: false }, 16),

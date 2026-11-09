@@ -69,6 +69,10 @@ export interface PrintLayoutConfig {
   mapBorderColor: string;
   mapBorderWidth: number;
   mapBackground: string;
+  /** Colour of the page around the map (#RGB or #RRGGBB). */
+  pageBackground: string;
+  /** Palette of the panels drawn over the map. */
+  panelTheme: "light" | "dark";
 
   // Map elements
   showTitle: boolean;
@@ -83,6 +87,10 @@ export interface PrintLayoutConfig {
   /** Blank means "today", resolved when the page is drawn. */
   dateText: string;
   showAttribution: boolean;
+  /** Where the map credit is drawn: the map's corner or the footer row's left. */
+  attributionPlacement: "map" | "footer";
+  /** Where the footer text sits between the credit and the date. */
+  footerAlign: "left" | "center" | "right";
 
   // Colorbar
   showColorbar: boolean;
@@ -177,6 +185,8 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   mapBorderColor: "#9ca3af",
   mapBorderWidth: 1,
   mapBackground: "#e5e7eb",
+  pageBackground: "#ffffff",
+  panelTheme: "light",
 
   showTitle: true,
   showSubtitle: true,
@@ -189,6 +199,8 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   showDate: true,
   dateText: "",
   showAttribution: true,
+  attributionPlacement: "map",
+  footerAlign: "right",
 
   showColorbar: false,
   colorbarRamp: "viridis",
@@ -377,6 +389,11 @@ export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | 
     mapBorderColor: str(raw.mapBorderColor, d.mapBorderColor),
     mapBorderWidth: num(raw.mapBorderWidth, d.mapBorderWidth, 0, 10),
     mapBackground: str(raw.mapBackground, d.mapBackground),
+    pageBackground:
+      typeof raw.pageBackground === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw.pageBackground.trim())
+        ? raw.pageBackground.trim()
+        : d.pageBackground,
+    panelTheme: oneOf(raw.panelTheme, ["light", "dark"] as const, d.panelTheme),
 
     showTitle: bool(raw.showTitle, d.showTitle),
     showSubtitle: bool(raw.showSubtitle, d.showSubtitle),
@@ -389,6 +406,8 @@ export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | 
     showDate: bool(raw.showDate, d.showDate),
     dateText: str(raw.dateText, d.dateText),
     showAttribution: bool(raw.showAttribution, d.showAttribution),
+    attributionPlacement: oneOf(raw.attributionPlacement, ["map", "footer"] as const, d.attributionPlacement),
+    footerAlign: oneOf(raw.footerAlign, ["left", "center", "right"] as const, d.footerAlign),
 
     showColorbar: bool(raw.showColorbar, d.showColorbar),
     colorbarRamp: str(raw.colorbarRamp, d.colorbarRamp),

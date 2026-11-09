@@ -5,6 +5,7 @@
 // Data colors are the style's; the legend box is light with dark text whatever
 // the theme, for print.
 import { dashPattern, markerExtent, markerPolygon, type SymbolSpec } from '@spatial-explorer/core'
+import { panelColors, type PanelColors } from './print/panelColors'
 
 export interface LegendGroup {
   title: string
@@ -90,7 +91,7 @@ export function legendHasContent(lg: LegendSpec | null): lg is LegendSpec {
 
 /** The legend box in the bottom-left of `r` (above the space the basemap's logo and scale bar take on screen). */
 export function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, r: Rect): void {
-  paintLegend(ctx, legend, r.h, (boxH) => ({ x: r.x + 10, y: r.y + r.h - boxH - 28 }))
+  paintLegend(ctx, legend, panelColors('light'), r.h, (boxH) => ({ x: r.x + 10, y: r.y + r.h - boxH - 28 }))
 }
 
 /**
@@ -98,17 +99,17 @@ export function drawLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, r:
  * there when `fromBottom`, in at most `maxHeight` (rows beyond it are "+N more"). Returns the box's height in the
  * caller's units, for stacking panels beside it.
  */
-export function drawLegendAt(ctx: CanvasRenderingContext2D, legend: LegendSpec, x: number, y: number, maxHeight: number, scale: number, fromBottom = false): number {
+export function drawLegendAt(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: PanelColors, x: number, y: number, maxHeight: number, scale: number, fromBottom = false): number {
   ctx.save()
   ctx.translate(x, y)
   ctx.scale(scale, scale)
-  const boxH = paintLegend(ctx, legend, maxHeight / scale + 60, (h) => ({ x: 0, y: fromBottom ? -h : 0 }))
+  const boxH = paintLegend(ctx, legend, pc, maxHeight / scale + 60, (h) => ({ x: 0, y: fromBottom ? -h : 0 }))
   ctx.restore()
   return boxH * scale
 }
 
-function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: number, origin: (boxH: number) => { x: number; y: number }): number {
-  if (legend.bivariate) return paintBivariate(ctx, legend, legend.bivariate, origin)
+function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: PanelColors, h: number, origin: (boxH: number) => { x: number; y: number }): number {
+  if (legend.bivariate) return paintBivariate(ctx, legend, pc, legend.bivariate, origin)
   // Whatever the page drew before left its alignment: the legend's text starts at its left.
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
@@ -167,8 +168,8 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
   const boxW = Math.min(320, Math.ceil(Math.max(titleW, sw + 8 + rowW) + pad * 2))
   const boxH = lines.length * row + pad * 2 - 2
   const { x, y } = origin(boxH)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)'
+  ctx.fillStyle = pc.paper(0.92)
+  ctx.strokeStyle = pc.border
   ctx.lineWidth = 1
   roundRect(ctx, x + 0.5, y + 0.5, boxW, boxH, 4)
   ctx.fill()
@@ -178,12 +179,12 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
   ctx.textBaseline = 'alphabetic'
   for (const l of lines) {
     if (l.kind === 'title') {
-      ctx.fillStyle = l.main ? '#1f2328' : '#57606a'
+      ctx.fillStyle = l.main ? pc.ink : pc.muted
       ctx.font = TITLE_FONT
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
     } else if (l.kind === 'axis') {
       ctx.font = FONT
-      ctx.fillStyle = '#57606a'
+      ctx.fillStyle = pc.muted
       ctx.fillText(clip(ctx, l.text, boxW - pad * 2), x + pad, ty)
     } else if (l.kind === 'gradient') {
       const gx = x + pad
@@ -201,7 +202,7 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
       ctx.strokeRect(gx + 0.5, ty - 11.5, gw - 1, 11)
     } else if (l.kind === 'more') {
       ctx.font = FONT
-      ctx.fillStyle = '#57606a'
+      ctx.fillStyle = pc.muted
       ctx.fillText(`+${l.n} more`, x + pad + sw + 8, ty)
     } else {
       ctx.font = FONT
@@ -231,11 +232,11 @@ function paintLegend(ctx: CanvasRenderingContext2D, legend: LegendSpec, h: numbe
         if (g.shape === 'point') ctx.stroke()
         else ctx.strokeRect(x + pad + 0.5, sy + 0.5, sw - 1, 11)
       }
-      ctx.fillStyle = '#1f2328'
+      ctx.fillStyle = pc.ink
       const cw = countW(r)
       ctx.fillText(clip(ctx, r.label, boxW - pad * 2 - sw - 8 - cw), x + pad + sw + 8, ty)
       if (r.count !== undefined) {
-        ctx.fillStyle = '#57606a'
+        ctx.fillStyle = pc.muted
         ctx.textAlign = 'right'
         ctx.fillText(nf.format(r.count), x + boxW - pad, ty)
         ctx.textAlign = 'left'
@@ -254,7 +255,7 @@ const SMALL_FONT = '10px system-ui, -apple-system, "Segoe UI", sans-serif'
  * The cells grow to fill the width the longest name asks for (up to a limit), so a long column name does not leave
  * the box empty on the right. `biv.tilted` turns the grid into a diamond with the axes along its lower edges.
  */
-function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: LegendBivariate, origin: (boxH: number) => { x: number; y: number }): number {
+function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, pc: PanelColors, biv: LegendBivariate, origin: (boxH: number) => { x: number; y: number }): number {
   // Whatever the page drew before left its alignment: the legend's text starts at its left.
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
@@ -296,14 +297,14 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
   const boxH = Math.ceil(pad + titleBlock + gridH + belowGrid + noValueBlock + pad - 2)
   const { x, y } = origin(boxH)
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)'
+  ctx.fillStyle = pc.paper(0.92)
+  ctx.strokeStyle = pc.border
   ctx.lineWidth = 1
   roundRect(ctx, x + 0.5, y + 0.5, boxW, boxH, 4)
   ctx.fill()
   ctx.stroke()
 
-  ctx.fillStyle = '#1f2328'
+  ctx.fillStyle = pc.ink
   ctx.font = TITLE_FONT
   ctx.fillText(clip(ctx, legend.title, boxW - pad * 2), x + pad, y + pad + 12)
 
@@ -331,7 +332,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
     ctx.translate(gx, gridTop)
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) drawCell(i, j)
     ctx.restore()
-    ctx.fillStyle = '#57606a'
+    ctx.fillStyle = pc.muted
     // The x axis: its ends under the grid's ends, its name centered below.
     ctx.font = SMALL_FONT
     const valuesY = gridTop + H + 4 + 9
@@ -342,14 +343,14 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
       ctx.fillText(biv.xRange[1], gx + W, valuesY)
     }
     ctx.font = FONT
-    ctx.fillStyle = '#1f2328'
+    ctx.fillStyle = pc.ink
     ctx.textAlign = 'center'
     ctx.fillText(clip(ctx, xTitle, Math.max(W, innerW - yCol)), gx + W / 2, valuesY + 4 + 12)
     ctx.textAlign = 'left'
     // The y axis, reading upward: its ends along the grid, its name beyond them.
     const labelX = (offset: number): number => x + pad + offset
     ctx.font = SMALL_FONT
-    ctx.fillStyle = '#57606a'
+    ctx.fillStyle = pc.muted
     if (biv.yRange) {
       ctx.save()
       ctx.translate(labelX(yName + 9), gridTop + H)
@@ -361,7 +362,7 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
       ctx.restore()
     }
     ctx.font = FONT
-    ctx.fillStyle = '#1f2328'
+    ctx.fillStyle = pc.ink
     ctx.save()
     ctx.translate(labelX(11), gridTop + H / 2)
     ctx.rotate(-Math.PI / 2)
@@ -398,10 +399,10 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
       ctx.restore()
     }
     const ends = (r: [string, string] | undefined): string => (r ? `${r[0]} → ${r[1]}` : '')
-    edge('x', 11, ends(biv.xRange), SMALL_FONT, '#57606a', W)
-    edge('x', 24, `${biv.x} →`, FONT, '#1f2328', W)
-    edge('y', 11, ends(biv.yRange), SMALL_FONT, '#57606a', H)
-    edge('y', 24, `← ${biv.y}`, FONT, '#1f2328', H)
+    edge('x', 11, ends(biv.xRange), SMALL_FONT, pc.muted, W)
+    edge('x', 24, `${biv.x} →`, FONT, pc.ink, W)
+    edge('y', 11, ends(biv.yRange), SMALL_FONT, pc.muted, H)
+    edge('y', 24, `← ${biv.y}`, FONT, pc.ink, H)
     bottom = gridTop + gridH
   }
   if (noValue) {
@@ -413,9 +414,9 @@ function paintBivariate(ctx: CanvasRenderingContext2D, legend: LegendSpec, biv: 
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
     ctx.lineWidth = 1
     ctx.strokeRect(x + pad + 0.5, ny0 + 0.5, 13, 11)
-    ctx.fillStyle = '#1f2328'
+    ctx.fillStyle = pc.ink
     ctx.fillText(noValue.label, x + pad + 22, ny0 + 10)
-    ctx.fillStyle = '#57606a'
+    ctx.fillStyle = pc.muted
     ctx.textAlign = 'right'
     ctx.fillText(new Intl.NumberFormat('en-US').format(noValue.count), x + boxW - pad, ny0 + 10)
     ctx.textAlign = 'left'

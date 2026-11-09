@@ -104,10 +104,19 @@
       <span>Margin</span>
       <Segmented label="Page margin" value={l.pageMargin} onChange={(v) => c.set({ pageMargin: v as 'normal' | 'narrow' | 'none' })} options={[{ value: 'normal', label: 'Normal' }, { value: 'narrow', label: 'Narrow' }, { value: 'none', label: 'None' }]} />
     </div>
+    <div class="row">
+      <span id="page-bg-label">Page background</span>
+      <ColorField labelledby="page-bg-label" value={l.pageBackground} apply="end" onChange={(v) => c.commitPageBackground(v)} />
+      <input type="text" class="hex" aria-label="Page background color" value={c.pageBackgroundDraft} oninput={(e) => c.commitPageBackground(e.currentTarget.value)} />
+    </div>
   </section>
 
   <section aria-label="Map frame">
     <h3>Map frame</h3>
+    <div class="row">
+      <span>Map panels</span>
+      <Segmented label="Map panels" value={l.panelTheme} onChange={(v) => c.set({ panelTheme: v as 'light' | 'dark' })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
+    </div>
     <div class="row">
       <span id="bg-label">Map background</span>
       <ColorField labelledby="bg-label" value={l.mapBackground} apply="end" onChange={(v) => c.commitMapBackground(v)} />
@@ -138,9 +147,19 @@
       <label class="row nested"><span>Date text</span><input type="text" value={l.dateText} placeholder={c.options.dateText} oninput={(e) => c.set({ dateText: e.currentTarget.value })} /></label>
     {/if}
     {@render toggle('Map attribution', l.showAttribution, (v) => c.set({ showAttribution: v }))}
+    {#if l.showAttribution}
+      <div class="row nested">
+        <span>Credit on</span>
+        <Segmented label="Credit placement" value={l.attributionPlacement} onChange={(v) => c.set({ attributionPlacement: v as 'map' | 'footer' })} options={[{ value: 'map', label: 'Map' }, { value: 'footer', label: 'Footer' }]} />
+      </div>
+    {/if}
     {@render toggle('Footer text', l.showFooter, (v) => c.set({ showFooter: v }))}
     {#if l.showFooter}
       <label class="row nested"><span>Footer</span><input type="text" value={l.footerText} oninput={(e) => c.set({ footerText: e.currentTarget.value })} /></label>
+      <div class="row nested">
+        <span>Align</span>
+        <Segmented label="Footer alignment" value={l.footerAlign} onChange={(v) => c.set({ footerAlign: v as 'left' | 'center' | 'right' })} options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]} />
+      </div>
     {/if}
     {@render toggle('Page border', l.showPageBorder, (v) => c.set({ showPageBorder: v }))}
     {#if l.showPageBorder}

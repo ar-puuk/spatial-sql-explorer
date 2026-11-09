@@ -560,3 +560,65 @@ describe("scaleZoomTarget (#2475, GH #743)", () => {
     assert.equal(scaleZoomTarget(10, 100_000, Number("1".repeat(400)), 0, 24), null);
   });
 });
+
+describe("page background and panel theme (GeoLibre PR 3349)", () => {
+  it("fills the page with the page background, white by default", () => {
+    const a = recordingCanvas();
+    drawLayout(a.canvas, baseOptions());
+    assert.equal(a.fillRects[0].fillStyle, "#ffffff");
+    const b = recordingCanvas();
+    drawLayout(b.canvas, baseOptions({ pageBackground: "#0d1b2a" }));
+    assert.equal(b.fillRects[0].fillStyle, "#0d1b2a");
+  });
+
+  it("prefers light text on a dark page only", async () => {
+    const { prefersLightForeground } = await import("../../packages/ui/src/print/panelColors");
+    assert.equal(prefersLightForeground("#0d1b2a"), true);
+    assert.equal(prefersLightForeground("#ffffff"), false);
+    assert.equal(prefersLightForeground("#fde68a"), false);
+    assert.equal(prefersLightForeground("nope"), false);
+  });
+
+  it("round-trips both settings and falls back on bad values", async () => {
+    const { normalizePrintLayoutConfig, DEFAULT_PRINT_LAYOUT } = await import("../../packages/core/src/printLayoutConfig");
+    const ok = normalizePrintLayoutConfig({ ...DEFAULT_PRINT_LAYOUT, pageBackground: "#0d1b2a", panelTheme: "dark" });
+    assert.equal(ok?.pageBackground, "#0d1b2a");
+    assert.equal(ok?.panelTheme, "dark");
+    const bad = normalizePrintLayoutConfig({ ...DEFAULT_PRINT_LAYOUT, pageBackground: "navy", panelTheme: "blue" });
+    assert.equal(bad?.pageBackground, "#ffffff");
+    assert.equal(bad?.panelTheme, "light");
+    const old = normalizePrintLayoutConfig({ paperSize: "a4" });
+    assert.equal(old?.pageBackground, "#ffffff");
+    assert.equal(old?.panelTheme, "light");
+  });
+
+  it("draws dark panels when asked", () => {
+    const light = recordingCanvas();
+    drawLayout(light.canvas, baseOptions({ showNorthArrow: true }));
+    const dark = recordingCanvas();
+    drawLayout(dark.canvas, baseOptions({ showNorthArrow: true, panelTheme: "dark" }));
+    assert.equal(light.fills.length, dark.fills.length);
+  });
+});
+
+describe("footer row layout", () => {
+  const row = (o: Partial<LayoutOptions>) => {
+    const r = recordingCanvas();
+    drawLayout(r.canvas, baseOptions({ showFooter: true, footerText: "Source: a long credits line for the page", showDate: true, dateText: "2026-11-09", ...o }));
+    return r;
+  };
+  it("keeps credit left, text centered, date right when asked", () => {
+    const { fills } = row({ attributionPlacement: "footer", attributionText: "MapLibre | OSM", footerAlign: "center", showAttribution: true });
+    const credit = fills.find((f) => f.text.startsWith("MapLibre"));
+    const date = fills.find((f) => f.text === "2026-11-09");
+    const text = fills.find((f) => f.text.startsWith("Source"));
+    assert.ok(credit && date && text);
+    assert.equal(credit.textAlign, "left");
+    assert.equal(date.textAlign, "right");
+    assert.ok(credit.x < text.x && text.x < date.x);
+  });
+  it("keeps the credit out of the footer by default", () => {
+    const { fills } = row({ attributionText: "MapLibre | OSM", showAttribution: true });
+    assert.equal(fills.filter((f) => f.y > 0 && f.text.startsWith("MapLibre")).length, 1);
+  });
+});
