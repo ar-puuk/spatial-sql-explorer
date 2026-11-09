@@ -40,6 +40,17 @@
   const lightName = getDefaultBasemap('light').name
   const darkName = getDefaultBasemap('dark').name
   let blankOpen = $state(false)
+  // The color Blank shows when none is chosen: the theme's map background, as a hex the picker can start from.
+  let themeBlank = $state('#808080')
+  $effect(() => {
+    if (!blankOpen) return
+    const css = getComputedStyle(blankButton ?? document.documentElement).getPropertyValue('--se-map-bg').trim()
+    const ctx = document.createElement('canvas').getContext('2d')
+    if (!css || !ctx) return
+    ctx.fillStyle = '#000000'
+    ctx.fillStyle = css
+    if (/^#[0-9a-f]{6}$/i.test(String(ctx.fillStyle))) themeBlank = String(ctx.fillStyle)
+  })
   let blankButton = $state<HTMLElement | null>(null)
   let grid = $state<HTMLDivElement>()
   let resultsList = $state<HTMLUListElement>()
@@ -189,7 +200,7 @@
       bind:open={blankOpen}
       anchor={blankButton}
       label="Blank background color"
-      value={blankColor ?? '#808080'}
+      value={blankColor ?? themeBlank}
       apply="live"
       onChange={(v) => {
         onBlankColor(v)
