@@ -23,7 +23,7 @@ import { applyLegendEdits, editRow, legendEditorRows, moveRow, NO_LEGEND_EDITS, 
 import type { ViewerStore } from '../viewerStore.svelte.js'
 import { atlasPdf, atlasPngZip, copyLayoutToClipboard, layoutPdf, layoutPng, layoutSvg, type AtlasExportSource, type CapturedMap, type PageFile } from './export.js'
 import type { PrintExtent } from './extent.js'
-import { computeScaleRatio, mapBodyAspectRatio, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
+import { computeScaleRatio, mapBodyAspectRatio, mapPlacement, resolvePageSize, scaleZoomTarget, type CustomSize, type LayoutOptions } from './layout.js'
 
 export type ExportKind = 'png' | 'pdf' | 'svg'
 
@@ -330,6 +330,71 @@ export class PrintComposer {
     } finally {
       this.capturing = false
     }
+  }
+
+  /**
+   * Whether dragging and zooming the preview can move the printed map: only when the page frames the live viewport.
+   * A drawn extent fixes the ground area, and an atlas page frames its own feature.
+   */
+  get canMoveMap(): boolean {
+    return this.moveMapBlocker === null
+  }
+
+  /** Why the preview cannot move the map right now, or null when it can. */
+  get moveMapBlocker(): string | null {
+    if (this.atlas.active) return 'Each atlas page frames its own feature: turn the atlas off to move the map.'
+    if (this.layout.captureMode === 'extent') return 'A drawn print extent fixes the area: switch the capture back to the map view to move it.'
+    if (!this.#store.printCamera) return 'The map is not ready.'
+    if (!this.captured) return 'There is no captured map yet.'
+    return null
+  }
+
+  /** Map CSS pixels per CSS pixel of the preview canvas, and the page body's center on it (CSS px); null when there is no capture. */
+  #previewMapping(canvas: HTMLCanvasElement): { mapPerPreview: number; cx: number; cy: number } | null {
+    const cap = this.captured
+    const place = cap ? mapPlacement(this.display, canvas.width, canvas.height) : null
+    if (!cap || !place || canvas.clientWidth <= 0) return null
+    const dpr = canvas.width / canvas.clientWidth
+    return { mapPerPreview: dpr / (place.coverScale * cap.pixelRatio), cx: (place.bodyX + place.bodyW / 2) / dpr, cy: (place.bodyY + place.bodyH / 2) / dpr }
+  }
+
+  /** A drag of the preview by (dx, dy) CSS px moves the map under the pointer. */
+  dragPreview(canvas: HTMLCanvasElement, dx: number, dy: number): void {
+    const camera = this.#store.printCamera
+    const m = this.canMoveMap ? this.#previewMapping(canvas) : null
+    if (!camera || !m) return
+    camera.panBy(dx * m.mapPerPreview, dy * m.mapPerPreview)
+    this.#refresh()
+  }
+
+  /** Zooms the map by `delta` levels about the preview point (x, y) in CSS px of the canvas. */
+  zoomPreview(canvas: HTMLCanvasElement, delta: number, x?: number, y?: number): void {
+    const camera = this.#store.printCamera
+    const m = this.canMoveMap ? this.#previewMapping(canvas) : null
+    if (!camera || !m) return
+    if (x === undefined || y === undefined) camera.zoomBy(delta)
+    else {
+      // The capture's center is the viewport's center: the pointer's offset from the body's center, in map pixels.
+      const vp = camera.viewport()
+      camera.zoomBy(delta, vp.width / 2 + (x - m.cx) * m.mapPerPreview, vp.height / 2 + (y - m.cy) * m.mapPerPreview)
+    }
+    this.#refresh()
+  }
+
+  #dirty = false
+  /** Captures the moved map: at once, and again after it when it moved meanwhile (so a drag keeps up without a capture per event). */
+  #refresh(): void {
+    this.scaleNotice = null
+    if (this.capturing) {
+      this.#dirty = true
+      return
+    }
+    void this.recapture().then(() => {
+      if (this.#dirty) {
+        this.#dirty = false
+        this.#refresh()
+      }
+    })
   }
 
   /** Shows the saved extent box on the map when the composer opens; takes it down when it closes. */

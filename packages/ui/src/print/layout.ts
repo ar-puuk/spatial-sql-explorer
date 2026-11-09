@@ -563,6 +563,21 @@ function coverScaleFor(
 }
 
 /**
+ * Where the captured map lands on a page of W x H pixels: the body rectangle and how many page pixels one pixel of the
+ * captured image takes. The preview turns a drag on the page into a move of the live map with it. Null without a capture.
+ */
+export function mapPlacement(
+  opts: LayoutOptions,
+  W: number,
+  H: number,
+): { bodyX: number; bodyY: number; bodyW: number; bodyH: number; coverScale: number } | null {
+  if (!opts.mapImage || opts.mapImageWidth <= 0 || opts.mapImageHeight <= 0) return null;
+  const { bodyX, bodyY, bodyW, bodyH } = computeBodyRect(opts, W, H);
+  const coverScale = coverScaleFor(bodyW, bodyH, opts.mapImageWidth, opts.mapImageHeight, opts.mapFit ?? "cover");
+  return { bodyX, bodyY, bodyW, bodyH, coverScale };
+}
+
+/**
  * The representative fraction (the N in "1:N") the layout currently renders at:
  * how many ground millimetres each paper millimetre spans. Returns 0 when the
  * scale is not meaningful (a pixel/screen size, or no captured map), so callers

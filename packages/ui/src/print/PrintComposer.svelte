@@ -107,6 +107,40 @@
     schedule()
   })
 
+  // Pan and zoom on the preview move the printed map (the live map's camera), then the page is captured again.
+  let dragging: { id: number; x: number; y: number } | null = null
+  function onPointerDown(e: PointerEvent): void {
+    if (!canvas || !c.canMoveMap || e.button !== 0) return
+    dragging = { id: e.pointerId, x: e.clientX, y: e.clientY }
+    canvas.setPointerCapture(e.pointerId)
+  }
+  function onPointerMove(e: PointerEvent): void {
+    if (!canvas || !dragging || dragging.id !== e.pointerId) return
+    const dx = e.clientX - dragging.x
+    const dy = e.clientY - dragging.y
+    dragging = { id: e.pointerId, x: e.clientX, y: e.clientY }
+    if (dx || dy) c.dragPreview(canvas, dx, dy)
+  }
+  function onPointerUp(e: PointerEvent): void {
+    if (dragging?.id === e.pointerId) dragging = null
+  }
+  function zoomButton(delta: number): void {
+    if (canvas) c.zoomPreview(canvas, delta)
+  }
+  // A wheel listener that may stop the page from scrolling (Svelte's own wheel handlers are passive).
+  $effect(() => {
+    const el = canvas
+    if (!el) return
+    const onWheel = (e: WheelEvent): void => {
+      if (!c.canMoveMap) return
+      e.preventDefault()
+      const r = el.getBoundingClientRect()
+      c.zoomPreview(el, -e.deltaY * (e.ctrlKey ? 0.01 : 0.003), e.clientX - r.left, e.clientY - r.top)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  })
+
   function onKeydown(e: KeyboardEvent): void {
     // The dialog is hidden while the extent is drawn: Escape then belongs to that drawing.
     if (c.drawingExtent) return
@@ -180,8 +214,22 @@
           {/if}
           <button type="button" class="secondary" disabled={busy} onclick={() => void c.recapture()}><Icon name="refresh" size={14} />Recapture map</button>
         </div>
+        <p class="move-hint">{c.moveMapBlocker ?? 'Drag the page to move the map; scroll or use + and − to zoom.'}</p>
         <div class="preview" bind:this={pane}>
-          <canvas bind:this={canvas} aria-label="Preview of the page"></canvas>
+          <canvas
+            bind:this={canvas}
+            class:movable={c.canMoveMap}
+            aria-label="Preview of the page"
+            title={c.canMoveMap ? 'Drag to move the map, scroll to zoom' : undefined}
+            onpointerdown={onPointerDown}
+            onpointermove={onPointerMove}
+            onpointerup={onPointerUp}
+            onpointercancel={onPointerUp}
+          ></canvas>
+          <span class="zoom" role="group" aria-label="Zoom the map">
+            <button type="button" class="icon-button" aria-label="Zoom in" title={c.moveMapBlocker ?? 'Zoom in'} disabled={busy || !c.canMoveMap} onclick={() => zoomButton(0.5)}><Icon name="plus" size={14} /></button>
+            <button type="button" class="icon-button" aria-label="Zoom out" title={c.moveMapBlocker ?? 'Zoom out'} disabled={busy || !c.canMoveMap} onclick={() => zoomButton(-0.5)}><Icon name="minus" size={14} /></button>
+          </span>
           {#if c.capturing}<span class="overlay" role="status">Capturing the map…</span>{/if}
         </div>
         {#if c.error}<p class="result error" role="alert"><Icon name="error" size={14} />{c.error}</p>{/if}
@@ -310,6 +358,27 @@
   }
   canvas {
     background: #fff;
+    box-shadow: var(--se-shadow-elevated);
+  }
+  .move-hint {
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
+  canvas.movable {
+    cursor: grab;
+    touch-action: none;
+  }
+  canvas.movable:active {
+    cursor: grabbing;
+  }
+  .zoom {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    border-radius: var(--se-radius-sm);
+    background: var(--se-bg-elevated);
     box-shadow: var(--se-shadow-elevated);
   }
   .overlay {

@@ -7,6 +7,7 @@ import {
   computeScaleRatio,
   drawLayout,
   mapBodyAspectRatio,
+  mapPlacement,
   pageMm,
   pagePx,
   resolvePageSize,
@@ -642,5 +643,19 @@ describe("footer slots", () => {
     const noDate = normalizePrintLayoutConfig({ showDate: false });
     assert.equal(noDate?.footerRight, "");
     assert.equal(normalizePrintLayoutConfig({})?.footerRight, "{date}");
+  });
+});
+
+describe("mapPlacement (the preview's drag mapping)", () => {
+  it("is null without a capture", () => {
+    assert.equal(mapPlacement(baseOptions(), 1000, 700), null);
+  });
+  it("gives the body and the cover scale of the captured image", () => {
+    const o = baseOptions({ mapImage: {} as CanvasImageSource, mapImageWidth: 2000, mapImageHeight: 1000 });
+    const p = mapPlacement(o, 1000, 700);
+    assert.ok(p);
+    // Cover: the image fills the body, so one image pixel is at least body/width and body/height.
+    assert.ok(Math.abs(p.coverScale - Math.max(p.bodyW / 2000, p.bodyH / 1000)) < 1e-9);
+    assert.ok(p.bodyW > 0 && p.bodyH > 0);
   });
 });

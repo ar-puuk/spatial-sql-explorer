@@ -24,6 +24,10 @@ export interface PrintCamera {
   zoomLimits(): { min: number; max: number }
   /** Jumps to a zoom (no animation), the center kept. */
   setZoom(zoom: number): void
+  /** Moves the map by a drag of (dx, dy) viewport pixels (the map follows the pointer), at once. */
+  panBy(dx: number, dy: number): void
+  /** Changes the zoom by `delta` levels at once, keeping the position under the viewport pixel (x, y) fixed when given. */
+  zoomBy(delta: number, x?: number, y?: number): void
   /** Resolves once the map has drawn the view, or after `timeoutMs`. */
   settled(timeoutMs?: number): Promise<void>
   /** The next drag on the map draws the extent. Resolves with it, or null when cancelled (Escape) or aborted. */

@@ -1266,6 +1266,22 @@
     zoom: () => map?.getZoom() ?? 0,
     zoomLimits: () => ({ min: map?.getMinZoom() ?? 0, max: map?.getMaxZoom() ?? 22 }),
     setZoom: (zoom) => map?.setZoom(zoom),
+    // Dragging the page moves the map with the pointer: the center goes the other way.
+    panBy: (dx, dy) => map?.panBy([-dx, -dy], { animate: false }),
+    zoomBy: (delta, x, y) => {
+      if (!map) return
+      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), map.getZoom() + delta))
+      let around: [number, number] | undefined
+      if (x !== undefined && y !== undefined) {
+        try {
+          const p = map.unproject([x, y])
+          if (Number.isFinite(p.lng) && Number.isFinite(p.lat)) around = [p.lng, p.lat]
+        } catch {
+          // A pixel off the sphere (the globe): zoom about the center.
+        }
+      }
+      map.zoomTo(zoom, { animate: false, ...(around ? { around } : {}) })
+    },
     settled: async (timeoutMs = 1500) => {
       if (map) await idle(map, timeoutMs)
     },
