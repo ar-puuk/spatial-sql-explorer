@@ -477,8 +477,8 @@ function resolveContentFlags(opts: LayoutOptions): ContentFlags {
   };
 }
 
-/** The footer keeps clear of the paper edge even on a borderless page. */
-function footerMargin(unit: number, margin: number): number {
+/** The title and the footer keep clear of the paper edge even on a borderless page. */
+function edgeInset(unit: number, margin: number): number {
   return Math.max(margin, unit * 2);
 }
 
@@ -508,7 +508,7 @@ function computeBodyRect(opts: LayoutOptions, W: number, H: number): BodyRect {
   if (f.hasTitleBlock && !f.titleInside) {
     const titleSize = unit * 4.5;
     const subtitleSize = unit * 2.4;
-    let y = margin + titleSize;
+    let y = edgeInset(unit, margin) + titleSize;
     if (f.hasSubtitleText) y += subtitleSize * 1.4;
     bodyTop = y + unit * 3;
   }
@@ -516,7 +516,7 @@ function computeBodyRect(opts: LayoutOptions, W: number, H: number): BodyRect {
   let bodyBottom = H - margin;
   if (f.hasFooterRow) {
     const footSize = unit * 2.2;
-    bodyBottom = H - footerMargin(unit, margin) - footSize * 1.8;
+    bodyBottom = H - edgeInset(unit, margin) - footSize * 1.8;
   }
 
   bodyTop = Math.min(bodyTop, bodyBottom - unit * 10);
@@ -735,7 +735,7 @@ export function drawLayoutContext(
   if (hasTitleBlock && !titleInside) {
     const titleSize = unit * 4.5;
     const subtitleSize = unit * 2.4;
-    let y = margin + titleSize;
+    let y = edgeInset(unit, margin) + titleSize;
     if (hasTitleText) {
       ctx.fillStyle = pageInk.ink;
       ctx.font = `600 ${titleSize}px system-ui, -apple-system, sans-serif`;
@@ -755,7 +755,7 @@ export function drawLayoutContext(
   // --- Footer row --------------------------------------------------------
   if (hasFooterRow) {
     const footSize = unit * 2.2;
-    const edge = footerMargin(unit, margin);
+    const edge = edgeInset(unit, margin);
     const baselineY = H - edge - footSize * 0.6;
     ctx.fillStyle = pageInk.muted;
     ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
@@ -856,7 +856,7 @@ export function drawLayoutContext(
     ctx.clip();
     const titleSize = unit * 4;
     const subtitleSize = unit * 2.2;
-    const padY = unit * 2;
+    const padY = unit * 3;
     // Seed the baseline at the first line that is actually drawn: when the title
     // is hidden, the subtitle takes the top slot rather than being pushed a full
     // title-height down (which dropped it below the backing rect). GH #526.
