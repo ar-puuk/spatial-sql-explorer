@@ -114,7 +114,8 @@ export class PrintComposer {
   /** A typed or picked page background: a complete color is committed. */
   commitPageBackground(value: string): void {
     this.pageBackgroundDraft = value
-    if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) this.set({ pageBackground: value.trim() })
+    if (value.trim() === '') this.set({ pageBackground: '' })
+    else if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) this.set({ pageBackground: value.trim() })
   }
 
   /** The legend as the page shows it: the map's, with the edits. */
@@ -164,13 +165,11 @@ export class PrintComposer {
       showNorthArrow: l.showNorthArrow,
       // The north arrow is the top-right corner's, the scale bar the bottom-right's: they are not grouped.
       navigationGrouped: false,
-      showFooter: l.showFooter,
-      footerText: l.footerText,
-      showDate: l.showDate,
-      dateText: l.dateText.trim() ? l.dateText : new Intl.DateTimeFormat().format(),
+      footerLeft: l.footerLeft,
+      footerCenter: l.footerCenter,
+      footerRight: l.footerRight,
+      dateText: new Intl.DateTimeFormat().format(),
       showAttribution: l.showAttribution,
-      attributionPlacement: l.attributionPlacement,
-      footerAlign: l.footerAlign,
       // MapLibre draws the map; the basemap's credit follows, as on the map's own attribution.
       attributionText: c?.attribution ? `MapLibre | ${c.attribution}` : 'MapLibre',
       pageMargin: l.pageMargin,
@@ -217,7 +216,7 @@ export class PrintComposer {
   display = $derived.by((): LayoutOptions => {
     const ctx = this.atlas.tokenContext
     const o = this.options
-    return ctx ? { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerText: substituteAtlasTokens(o.footerText, ctx) } : o
+    return ctx ? { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerLeft: substituteAtlasTokens(o.footerLeft ?? '', ctx), footerCenter: substituteAtlasTokens(o.footerCenter ?? '', ctx), footerRight: substituteAtlasTokens(o.footerRight ?? '', ctx) } : o
   })
 
   /** Only physical paper carries a true cartographic scale. */
@@ -420,7 +419,7 @@ export class PrintComposer {
     const l = this.layout
     const ctx: AtlasTokenContext = { name: page.name, pageNumber: page.index + 1, total, properties: page.properties }
     const o = this.options
-    const pageOptions: LayoutOptions = { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerText: substituteAtlasTokens(o.footerText, ctx) }
+    const pageOptions: LayoutOptions = { ...o, title: substituteAtlasTokens(o.title, ctx), subtitle: substituteAtlasTokens(o.subtitle, ctx), footerLeft: substituteAtlasTokens(o.footerLeft ?? '', ctx), footerCenter: substituteAtlasTokens(o.footerCenter ?? '', ctx), footerRight: substituteAtlasTokens(o.footerRight ?? '', ctx) }
     const { width: vw, height: vh } = camera.viewport()
     const frame = atlasViewportFrame(vw, vh, mapBodyAspectRatio(pageOptions))
     // Everything outside a polygon feature is dimmed on request.
@@ -507,7 +506,7 @@ export class PrintComposer {
       ...o,
       title: substituteAtlasTokens(o.title, ctx),
       subtitle: substituteAtlasTokens(o.subtitle, ctx),
-      footerText: substituteAtlasTokens(o.footerText, ctx),
+      footerLeft: substituteAtlasTokens(o.footerLeft ?? '', ctx), footerCenter: substituteAtlasTokens(o.footerCenter ?? '', ctx), footerRight: substituteAtlasTokens(o.footerRight ?? '', ctx),
       dataTable: table,
       dataChart: chart,
       metersPerPixel: cap.metersPerPixel,

@@ -10,6 +10,7 @@
   import Switch from '../kit/Switch.svelte'
   import type { PrintComposer } from './composer.svelte.js'
   import { PAPER_SIZES } from './layout.js'
+  import { autoPageBackground } from './panelColors.js'
 
   interface Props {
     c: PrintComposer
@@ -106,8 +107,9 @@
     </div>
     <div class="row">
       <span id="page-bg-label">Page background</span>
-      <ColorField labelledby="page-bg-label" value={l.pageBackground} apply="end" onChange={(v) => c.commitPageBackground(v)} />
-      <input type="text" class="hex" aria-label="Page background color" value={c.pageBackgroundDraft} oninput={(e) => c.commitPageBackground(e.currentTarget.value)} />
+      <ColorField labelledby="page-bg-label" value={l.pageBackground || autoPageBackground(l.panelTheme)} apply="end" onChange={(v) => c.commitPageBackground(v)} />
+      <input type="text" class="hex" aria-label="Page background color" placeholder="Auto" value={c.pageBackgroundDraft} oninput={(e) => c.commitPageBackground(e.currentTarget.value)} />
+      {#if l.pageBackground}<button type="button" class="secondary" title="Follow the Map panels choice again" onclick={() => c.commitPageBackground('')}>Auto</button>{/if}
     </div>
   </section>
 
@@ -142,25 +144,11 @@
     {@render toggle('Legend', l.showLegend, (v) => c.set({ showLegend: v }))}
     {@render toggle('Scale bar', l.showScaleBar, (v) => c.set({ showScaleBar: v }))}
     {@render toggle('North arrow', l.showNorthArrow, (v) => c.set({ showNorthArrow: v }))}
-    {@render toggle('Date', l.showDate, (v) => c.set({ showDate: v }))}
-    {#if l.showDate}
-      <label class="row nested"><span>Date text</span><input type="text" value={l.dateText} placeholder={c.options.dateText} oninput={(e) => c.set({ dateText: e.currentTarget.value })} /></label>
-    {/if}
-    {@render toggle('Map attribution', l.showAttribution, (v) => c.set({ showAttribution: v }))}
-    {#if l.showAttribution}
-      <div class="row nested">
-        <span>Credit on</span>
-        <Segmented label="Credit placement" value={l.attributionPlacement} onChange={(v) => c.set({ attributionPlacement: v as 'map' | 'footer' })} options={[{ value: 'map', label: 'Map' }, { value: 'footer', label: 'Footer' }]} />
-      </div>
-    {/if}
-    {@render toggle('Footer text', l.showFooter, (v) => c.set({ showFooter: v }))}
-    {#if l.showFooter}
-      <label class="row nested"><span>Footer</span><input type="text" value={l.footerText} oninput={(e) => c.set({ footerText: e.currentTarget.value })} /></label>
-      <div class="row nested">
-        <span>Align</span>
-        <Segmented label="Footer alignment" value={l.footerAlign} onChange={(v) => c.set({ footerAlign: v as 'left' | 'center' | 'right' })} options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]} />
-      </div>
-    {/if}
+    {@render toggle('Credit on the map', l.showAttribution, (v) => c.set({ showAttribution: v }))}
+    <p class="hint">The footer's three places. <code>{'{date}'}</code> is the date, <code>{'{credit}'}</code> the map credit (it leaves the map when named here).</p>
+    <label class="row nested"><span>Footer left</span><input type="text" value={l.footerLeft} oninput={(e) => c.set({ footerLeft: e.currentTarget.value })} /></label>
+    <label class="row nested"><span>Footer center</span><input type="text" value={l.footerCenter} oninput={(e) => c.set({ footerCenter: e.currentTarget.value })} /></label>
+    <label class="row nested"><span>Footer right</span><input type="text" value={l.footerRight} oninput={(e) => c.set({ footerRight: e.currentTarget.value })} /></label>
     {@render toggle('Page border', l.showPageBorder, (v) => c.set({ showPageBorder: v }))}
     {#if l.showPageBorder}
       <div class="row nested">
@@ -233,6 +221,11 @@
 </div>
 
 <style>
+  .hint {
+    margin: 0;
+    color: var(--se-text-secondary);
+    font-size: 0.92em;
+  }
   .controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

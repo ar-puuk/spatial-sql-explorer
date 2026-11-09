@@ -134,8 +134,9 @@ function baseOptions(overrides: Partial<LayoutOptions> = {}): LayoutOptions {
     showLegend: false,
     showScaleBar: false,
     showNorthArrow: false,
-    showFooter: false,
-    footerText: "",
+    footerLeft: "",
+    footerCenter: "",
+    footerRight: "",
     legend: null,
     metersPerPixel: 0,
     bearingDeg: 0,
@@ -193,14 +194,12 @@ describe("mapBodyAspectRatio", () => {
       baseOptions({
         titlePlacement: "inside",
         showAttribution: false,
-        showDate: false,
       }),
     );
     const outside = mapBodyAspectRatio(
       baseOptions({
         titlePlacement: "outside",
         showAttribution: false,
-        showDate: false,
       }),
     );
     assert.ok(outside > inside);
@@ -240,17 +239,16 @@ describe("drawLayout cartographic furniture", () => {
     assert.equal(title.textAlign, "right");
   });
 
-  it("draws the map credit on the left, and the footer text and the date on the right", () => {
+  it("draws the map credit in the map's corner, the footer text in the middle and the date on the right", () => {
     const { canvas, fills } = recordingCanvas();
     drawLayout(
       canvas,
       baseOptions({
         showAttribution: true,
         attributionText: "MapLibre | © OpenFreeMap © OpenStreetMap contributors",
-        showDate: true,
         dateText: "2026-06-19",
-        showFooter: true,
-        footerText: "My Org",
+        footerCenter: "My Org",
+        footerRight: "{date}",
       }),
     );
     // MapLibre is set apart from the basemap's credit after it.
@@ -266,7 +264,6 @@ describe("drawLayout cartographic furniture", () => {
     assert.equal(date.textAlign, "right");
     const footer = fills.find((f) => f.text === "My Org");
     assert.ok(footer, "expected the custom footer text to be drawn");
-    assert.equal(footer.textAlign, "right");
     assert.ok(footer.x < date.x, "the footer text sits before the date");
   });
 
@@ -569,6 +566,10 @@ describe("page background and panel theme (GeoLibre PR 3349)", () => {
     const b = recordingCanvas();
     drawLayout(b.canvas, baseOptions({ pageBackground: "#0d1b2a" }));
     assert.equal(b.fillRects[0].fillStyle, "#0d1b2a");
+    // Left empty, the page follows the panel theme.
+    const c = recordingCanvas();
+    drawLayout(c.canvas, baseOptions({ panelTheme: "dark" }));
+    assert.equal(c.fillRects[0].fillStyle, "#111827");
   });
 
   it("prefers light text on a dark page only", async () => {
@@ -585,10 +586,10 @@ describe("page background and panel theme (GeoLibre PR 3349)", () => {
     assert.equal(ok?.pageBackground, "#0d1b2a");
     assert.equal(ok?.panelTheme, "dark");
     const bad = normalizePrintLayoutConfig({ ...DEFAULT_PRINT_LAYOUT, pageBackground: "navy", panelTheme: "blue" });
-    assert.equal(bad?.pageBackground, "#ffffff");
+    assert.equal(bad?.pageBackground, "");
     assert.equal(bad?.panelTheme, "light");
     const old = normalizePrintLayoutConfig({ paperSize: "a4" });
-    assert.equal(old?.pageBackground, "#ffffff");
+    assert.equal(old?.pageBackground, "");
     assert.equal(old?.panelTheme, "light");
   });
 
@@ -601,24 +602,45 @@ describe("page background and panel theme (GeoLibre PR 3349)", () => {
   });
 });
 
-describe("footer row layout", () => {
-  const row = (o: Partial<LayoutOptions>) => {
+describe("footer slots", () => {
+  const draw = (o: Partial<LayoutOptions>) => {
     const r = recordingCanvas();
-    drawLayout(r.canvas, baseOptions({ showFooter: true, footerText: "Source: a long credits line for the page", showDate: true, dateText: "2026-11-09", ...o }));
-    return r;
+    drawLayout(r.canvas, baseOptions({ dateText: "2026-11-09", attributionText: "MapLibre | OSM", showAttribution: true, ...o }));
+    return r.fills;
   };
-  it("keeps credit left, text centered, date right when asked", () => {
-    const { fills } = row({ attributionPlacement: "footer", attributionText: "MapLibre | OSM", footerAlign: "center", showAttribution: true });
-    const credit = fills.find((f) => f.text.startsWith("MapLibre"));
-    const date = fills.find((f) => f.text === "2026-11-09");
-    const text = fills.find((f) => f.text.startsWith("Source"));
-    assert.ok(credit && date && text);
-    assert.equal(credit.textAlign, "left");
-    assert.equal(date.textAlign, "right");
-    assert.ok(credit.x < text.x && text.x < date.x);
+  it("lays out left, center and right in order, filling {date} and {credit}", () => {
+    const fills = draw({ footerLeft: "{credit}", footerCenter: "Source: a credits line", footerRight: "{date}" });
+    const left = fills.find((f) => f.text.startsWith("MapLibre"));
+    const mid = fills.find((f) => f.text.startsWith("Source"));
+    const right = fills.find((f) => f.text === "2026-11-09");
+    assert.ok(left && mid && right);
+    assert.equal(left.textAlign, "left");
+    assert.equal(right.textAlign, "right");
+    assert.ok(left.x < mid.x && mid.x < right.x);
   });
-  it("keeps the credit out of the footer by default", () => {
-    const { fills } = row({ attributionText: "MapLibre | OSM", showAttribution: true });
-    assert.equal(fills.filter((f) => f.y > 0 && f.text.startsWith("MapLibre")).length, 1);
+  it("moves the credit off the map when a slot names it, and keeps it there otherwise", () => {
+    const inFooter = draw({ footerLeft: "{credit}" });
+    assert.equal(inFooter.filter((f) => f.text.startsWith("MapLibre")).length, 1);
+    assert.ok(!inFooter.some((f) => f.text === "MapLibre"), "no separate pill on the map");
+    const onMap = draw({ footerRight: "{date}" });
+    assert.ok(onMap.some((f) => f.text === "MapLibre"), "the pill is on the map");
+  });
+  it("draws no footer when every slot is empty", () => {
+    const fills = draw({ footerRight: "", showAttribution: false });
+    assert.ok(!fills.some((f) => f.text === "2026-11-09" || f.text.startsWith("MapLibre")));
+  });
+  it("gives a long center text the room the sides leave, within the page", () => {
+    const fills = draw({ footerLeft: "A", footerCenter: "x".repeat(400), footerRight: "{date}" });
+    const mid = fills.find((f) => f.text.startsWith("x"));
+    assert.ok(mid && mid.x >= 0);
+  });
+  it("keeps a footer saved before the slots: the date on the right, the text in the middle", async () => {
+    const { normalizePrintLayoutConfig } = await import("../../packages/core/src/printLayoutConfig");
+    const old = normalizePrintLayoutConfig({ showFooter: true, footerText: "My Org", showDate: true, dateText: "" });
+    assert.equal(old?.footerCenter, "My Org");
+    assert.equal(old?.footerRight, "{date}");
+    const noDate = normalizePrintLayoutConfig({ showDate: false });
+    assert.equal(noDate?.footerRight, "");
+    assert.equal(normalizePrintLayoutConfig({})?.footerRight, "{date}");
   });
 });

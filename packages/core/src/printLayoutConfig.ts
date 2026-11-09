@@ -69,7 +69,7 @@ export interface PrintLayoutConfig {
   mapBorderColor: string;
   mapBorderWidth: number;
   mapBackground: string;
-  /** Colour of the page around the map (#RGB or #RRGGBB). */
+  /** Colour of the page around the map (#RGB or #RRGGBB); empty follows the panel theme. */
   pageBackground: string;
   /** Palette of the panels drawn over the map. */
   panelTheme: "light" | "dark";
@@ -81,16 +81,12 @@ export interface PrintLayoutConfig {
   showScaleBar: boolean;
   showNorthArrow: boolean;
   navigationGrouped: boolean;
-  showFooter: boolean;
-  footerText: string;
-  showDate: boolean;
-  /** Blank means "today", resolved when the page is drawn. */
-  dateText: string;
+  /** The footer row's slots: text that may hold `{date}` and `{credit}` (the map credit leaves the map when one names it). */
+  footerLeft: string;
+  footerCenter: string;
+  footerRight: string;
+  /** Draw the map credit in the map's corner. */
   showAttribution: boolean;
-  /** Where the map credit is drawn: the map's corner or the footer row's left. */
-  attributionPlacement: "map" | "footer";
-  /** Where the footer text sits between the credit and the date. */
-  footerAlign: "left" | "center" | "right";
 
   // Colorbar
   showColorbar: boolean;
@@ -185,7 +181,7 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   mapBorderColor: "#9ca3af",
   mapBorderWidth: 1,
   mapBackground: "#e5e7eb",
-  pageBackground: "#ffffff",
+  pageBackground: "",
   panelTheme: "light",
 
   showTitle: true,
@@ -194,13 +190,10 @@ export const DEFAULT_PRINT_LAYOUT: PrintLayoutConfig = {
   showScaleBar: true,
   showNorthArrow: true,
   navigationGrouped: false,
-  showFooter: false,
-  footerText: "",
-  showDate: true,
-  dateText: "",
+  footerLeft: "",
+  footerCenter: "",
+  footerRight: "{date}",
   showAttribution: true,
-  attributionPlacement: "map",
-  footerAlign: "right",
 
   showColorbar: false,
   colorbarRamp: "viridis",
@@ -360,6 +353,22 @@ function extent(value: unknown): [number, number, number, number] | null {
  * @returns The normalized config, or null when the project carries none, so
  *   callers can tell "absent" from "explicitly default".
  */
+/**
+ * The footer's slots. A print saved before the slots (a footer text, a date switch and a date text) keeps its look:
+ * the date is the right slot and the footer text the center one.
+ */
+function footerSlots(raw: Record<string, unknown>): Pick<PrintLayoutConfig, "footerLeft" | "footerCenter" | "footerRight"> {
+  if ("footerLeft" in raw || "footerCenter" in raw || "footerRight" in raw) {
+    return { footerLeft: str(raw.footerLeft, ""), footerCenter: str(raw.footerCenter, ""), footerRight: str(raw.footerRight, "") };
+  }
+  const date = bool(raw.showDate, true) ? str(raw.dateText, "").trim() || "{date}" : "";
+  return {
+    footerLeft: "",
+    footerCenter: bool(raw.showFooter, false) ? str(raw.footerText, "") : "",
+    footerRight: date,
+  };
+}
+
 export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -401,13 +410,8 @@ export function normalizePrintLayoutConfig(value: unknown): PrintLayoutConfig | 
     showScaleBar: bool(raw.showScaleBar, d.showScaleBar),
     showNorthArrow: bool(raw.showNorthArrow, d.showNorthArrow),
     navigationGrouped: bool(raw.navigationGrouped, d.navigationGrouped),
-    showFooter: bool(raw.showFooter, d.showFooter),
-    footerText: str(raw.footerText, d.footerText),
-    showDate: bool(raw.showDate, d.showDate),
-    dateText: str(raw.dateText, d.dateText),
+    ...footerSlots(raw),
     showAttribution: bool(raw.showAttribution, d.showAttribution),
-    attributionPlacement: oneOf(raw.attributionPlacement, ["map", "footer"] as const, d.attributionPlacement),
-    footerAlign: oneOf(raw.footerAlign, ["left", "center", "right"] as const, d.footerAlign),
 
     showColorbar: bool(raw.showColorbar, d.showColorbar),
     colorbarRamp: str(raw.colorbarRamp, d.colorbarRamp),

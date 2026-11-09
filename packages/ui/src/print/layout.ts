@@ -11,7 +11,7 @@
 // Adapted from GeoLibre's print layout (opengeos/GeoLibre, MIT, © 2026 Qiusheng Wu):
 // apps/geolibre-desktop/src/lib/print-layout.ts. The legend is ours (mapImage.ts),
 // drawn from the resolved style, not GeoLibre's layer-derived entries.
-import { panelColors, prefersLightForeground, type PanelColors, type PanelTheme } from "./panelColors.js";
+import { autoPageBackground, panelColors, prefersLightForeground, type PanelColors, type PanelTheme } from "./panelColors.js";
 import { drawLegendAt, legendHasContent, type LegendSpec } from "../mapImage.js";
 import { formatRoundNum, getRoundNum, scaleDenomination, type MapScaleUnit } from "./scaleUnits.js";
 
@@ -299,20 +299,19 @@ export interface LayoutOptions {
     scale?: string;
     revision?: string;
   };
-  showFooter: boolean;
-  footerText: string;
-  /** Draw the production date (right side of the footer row). */
-  showDate?: boolean;
-  /** The formatted date string drawn when {@link showDate} is true. */
+  /**
+   * The footer row's three slots. Each is text that may hold `{date}` (the production date) and `{credit}` (the map
+   * credit); the row is drawn when one of them has text. A credit named in a slot leaves the map's corner.
+   */
+  footerLeft?: string;
+  footerCenter?: string;
+  footerRight?: string;
+  /** The formatted date that `{date}` stands for. */
   dateText?: string;
-  /** Draw the map credit (left side of the footer row). */
+  /** Draw the map credit in the map's corner (unless `{credit}` puts it in the footer). */
   showAttribution?: boolean;
   /** The map credit, "MapLibre | the basemap's credit" (the part before " | " is set apart); none when omitted. */
   attributionText?: string;
-  /** Where the map credit goes: the map's corner (default) or the left of the footer row. */
-  attributionPlacement?: "map" | "footer";
-  /** Where the footer text sits in the room the credit and the date leave (default right). */
-  footerAlign?: "left" | "center" | "right";
   /** Outer page padding preset: full margins, narrow, or borderless. */
   pageMargin?: "normal" | "narrow" | "none";
   /** Draw a customizable border around the whole page (useful for PNG export). */
@@ -336,7 +335,7 @@ export interface LayoutOptions {
    * projection). Defaults to a light grey.
    */
   mapBackground?: string;
-  /** Colour of the page around the map (title block, footer row, margins); white when omitted. */
+  /** Colour of the page around the map (title block, footer row, margins); when empty it follows the panel theme. */
   pageBackground?: string;
   /** Palette of the panels drawn over the map; "light" when omitted. */
   panelTheme?: PanelTheme;
@@ -437,7 +436,6 @@ export interface LayoutOptions {
   mapFit?: "cover" | "contain";
 }
 
-const PAGE_BACKGROUND = "#ffffff";
 
 /** Resolved presence of the optional title/footer content, shared by the body
  * geometry computation and the drawing pass so they never disagree. */
@@ -447,12 +445,11 @@ interface ContentFlags {
   hasSubtitleText: boolean;
   hasTitleBlock: boolean;
   titleInside: boolean;
+  /** The map credit drawn on the map: none when it is off, or when a footer slot holds it. */
   attributionText: string | false;
-  footerText: string | false;
-  dateText: string | false;
+  /** The footer's slots with `{date}` and `{credit}` filled in. */
+  footer: { left: string; center: string; right: string };
   hasFooterRow: boolean;
-  /** The credit is on the footer row, not on the map. */
-  creditInFooter: boolean;
 }
 
 function resolveContentFlags(opts: LayoutOptions): ContentFlags {
@@ -460,14 +457,14 @@ function resolveContentFlags(opts: LayoutOptions): ContentFlags {
   const showSubtitle = opts.showSubtitle ?? true;
   const hasTitleText = opts.showTitle && opts.title.trim().length > 0;
   const hasSubtitleText = showSubtitle && opts.subtitle.trim().length > 0;
-  // Attribution is opt-out (on unless explicitly disabled), deliberately unlike
-  // the other new booleans: GH #526 wants a pre-checked "the map credit"
-  // credit so it survives a user replacing the footer text.
-  const attributionText =
-    opts.showAttribution !== false && (opts.attributionText ?? "").trim();
-  const footerText = opts.showFooter && opts.footerText.trim();
-  const creditInFooter = Boolean(attributionText) && opts.attributionPlacement === "footer";
-  const dateText = (opts.showDate && (opts.dateText ?? "").trim()) || false;
+  const credit = (opts.attributionText ?? "").trim();
+  const date = (opts.dateText ?? "").trim();
+  const raw = [opts.footerLeft ?? "", opts.footerCenter ?? "", opts.footerRight ?? ""];
+  const fill = (t: string) => t.replace(/\{date\}/g, date).replace(/\{credit\}/g, credit).replace(/\s+/g, " ").trim();
+  const [left, center, right] = raw.map(fill);
+  const creditInFooter = raw.some((t) => t.includes("{credit}"));
+  // The map credit is opt-out (on unless disabled): it is the basemap's licence line. It moves to the footer when a slot names it.
+  const attributionText = opts.showAttribution !== false && !creditInFooter && credit;
   return {
     showSubtitle,
     hasTitleText,
@@ -475,12 +472,14 @@ function resolveContentFlags(opts: LayoutOptions): ContentFlags {
     hasTitleBlock: hasTitleText || hasSubtitleText,
     titleInside,
     attributionText,
-    footerText,
-    dateText,
-    // The map credit is on this row only when placed there; by default it is in the map's corner.
-    hasFooterRow: Boolean(footerText || dateText || creditInFooter),
-    creditInFooter,
+    footer: { left, center, right },
+    hasFooterRow: Boolean(left || center || right),
   };
+}
+
+/** The footer keeps clear of the paper edge even on a borderless page. */
+function footerMargin(unit: number, margin: number): number {
+  return Math.max(margin, unit * 2);
 }
 
 /** Geometry of the map body and the furniture scale unit for a given page. */
@@ -517,7 +516,7 @@ function computeBodyRect(opts: LayoutOptions, W: number, H: number): BodyRect {
   let bodyBottom = H - margin;
   if (f.hasFooterRow) {
     const footSize = unit * 2.2;
-    bodyBottom = H - margin - footSize * 1.8;
+    bodyBottom = H - footerMargin(unit, margin) - footSize * 1.8;
   }
 
   bodyTop = Math.min(bodyTop, bodyBottom - unit * 10);
@@ -699,17 +698,15 @@ export function drawLayoutContext(
     hasTitleBlock,
     titleInside,
     attributionText,
-    footerText,
-    dateText,
+    footer,
     hasFooterRow,
-    creditInFooter,
   } = resolveContentFlags(opts);
 
   const titleAlign = opts.titleAlign ?? "center";
 
   // The panels over the map follow the panel theme; text on the bare page follows the page color.
   const pc = panelColors(opts.panelTheme);
-  const pageBg = opts.pageBackground ?? PAGE_BACKGROUND;
+  const pageBg = opts.pageBackground || autoPageBackground(opts.panelTheme);
   const pageInk = panelColors(prefersLightForeground(pageBg) ? "dark" : "light");
 
   ctx.save();
@@ -743,52 +740,46 @@ export function drawLayoutContext(
   // --- Footer row --------------------------------------------------------
   if (hasFooterRow) {
     const footSize = unit * 2.2;
-    const baselineY = H - margin - footSize * 0.6;
+    const edge = footerMargin(unit, margin);
+    const baselineY = H - edge - footSize * 0.6;
     ctx.fillStyle = pageInk.muted;
     ctx.font = `400 ${footSize}px system-ui, -apple-system, sans-serif`;
     ctx.textBaseline = "middle";
-    const rowL = margin;
-    const rowR = W - margin;
+    const rowL = edge;
+    const rowR = W - edge;
     const gap = unit * 3;
     const side = (rowR - rowL) / 3;
-    // The credit (when placed here) holds the left and the date the right, each at most a third of the row;
-    // the footer text gets the room between them.
+    // The left and right texts take what they need, at most a third of the row each; the centre gets the room between.
     let textL = rowL;
     let textR = rowR;
-    if (creditInFooter && attributionText) {
-      const credit = truncateToWidth(ctx, attributionText, side);
+    if (footer.left) {
+      const left = truncateToWidth(ctx, footer.left, side);
       ctx.textAlign = "left";
-      ctx.fillText(credit, rowL, baselineY);
-      textL = rowL + ctx.measureText(credit).width + gap;
+      ctx.fillText(left, rowL, baselineY);
+      textL = rowL + ctx.measureText(left).width + gap;
     }
-    if (dateText) {
-      const date = truncateToWidth(ctx, dateText, side);
+    if (footer.right) {
+      const right = truncateToWidth(ctx, footer.right, side);
       ctx.textAlign = "right";
-      ctx.fillText(date, rowR, baselineY);
-      textR = rowR - ctx.measureText(date).width - gap;
+      ctx.fillText(right, rowR, baselineY);
+      textR = rowR - ctx.measureText(right).width - gap;
     }
-    if (footerText) {
+    if (footer.center) {
       const room = Math.max(0, textR - textL);
       // A text that does not fit shrinks (to three quarters), then is cut with an ellipsis.
       let size = footSize;
       ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
-      const wide = ctx.measureText(footerText).width;
+      const wide = ctx.measureText(footer.center).width;
       if (wide > room && wide > 0) {
         size = Math.max(footSize * 0.75, (footSize * room) / wide);
         ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
       }
-      const text = truncateToWidth(ctx, footerText, room);
+      const text = truncateToWidth(ctx, footer.center, room);
       const w = ctx.measureText(text).width;
-      const align = opts.footerAlign ?? "right";
       // Centered on the page when that fits between the neighbors, else in the room they leave.
-      const x =
-        align === "left"
-          ? textL
-          : align === "right"
-            ? textR - w
-            : Math.min(Math.max((rowL + rowR) / 2 - w / 2, textL), textR - w);
-      ctx.textAlign = align === "right" ? "right" : "left";
-      ctx.fillText(text, align === "right" ? textR : x, baselineY);
+      const x = Math.min(Math.max((rowL + rowR) / 2 - w / 2, textL), Math.max(textL, textR - w));
+      ctx.textAlign = "left";
+      ctx.fillText(text, x, baselineY);
     }
   }
 
@@ -903,7 +894,7 @@ export function drawLayoutContext(
   // The map credit is a thin strip along the bottom edge of the map, in its right corner (as MapLibre's own attribution is);
   // everything else keeps above it.
   const creditSize = unit * 1.55;
-  const creditH = attributionText && !creditInFooter ? creditSize * 1.9 : 0;
+  const creditH = attributionText ? creditSize * 1.9 : 0;
   const floorH = bodyH - creditH;
   // Metres per pixel in the *output* image after cover scaling.
   const outputMpp = opts.metersPerPixel / (coverScale || 1);
@@ -1072,7 +1063,7 @@ export function drawLayoutContext(
   }
 
   // --- Map credit ----------------------------------------------------------
-  if (attributionText && !creditInFooter) {
+  if (attributionText) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(bodyX, bodyY, bodyW, bodyH);

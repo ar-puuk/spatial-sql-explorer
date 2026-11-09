@@ -35,6 +35,11 @@ const DARK: PanelColors = {
   creditRest: "#9ca3af",
 };
 
+/** The page color when none is chosen: the panels' own paper, so the page and the panels agree. */
+export function autoPageBackground(theme: PanelTheme | undefined): string {
+  return theme === "dark" ? "#111827" : "#ffffff";
+}
+
 export function panelColors(theme: PanelTheme | undefined): PanelColors {
   return theme === "dark" ? DARK : LIGHT;
 }
