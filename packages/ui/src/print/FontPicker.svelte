@@ -18,7 +18,8 @@
 
   /** The value of the "Default" row (an empty value would read as nothing chosen). */
   const DEFAULT = '__default__'
-  let text = $state('')
+  // The box shows the font in use, follows a change made elsewhere, and holds what is typed meanwhile.
+  let text = $derived(value)
   let typed = $state(false)
   let open = $state(false)
 
@@ -29,11 +30,6 @@
   })
   /** Rows drawn at most: a typed query narrows the rest. */
   const MAX_ROWS = 80
-
-  // The box shows the font in use; it follows a change made elsewhere.
-  $effect(() => {
-    text = value
-  })
 
   const query = $derived(text.trim().toLowerCase())
   const matches = (name: string): boolean => !typed || !query || name.toLowerCase().includes(query)
@@ -77,7 +73,7 @@
         {/if}
         {#if custom}
           <Combobox.Item class="se-select-item" value={custom} label={custom}>
-            {#snippet children()}<span>Use “{custom}”</span><span class="se-font-hint">Google Fonts</span>{/snippet}
+            <span>Use “{custom}”</span><span class="se-font-hint">Google Fonts</span>
           </Combobox.Item>
         {/if}
         {#if system.length}
