@@ -2,7 +2,7 @@
 // SpatiaLite databases, and restored primary keys. Pure SQL builders here;
 // the engine runs them in tests/web/specs/sqlite-sources.spec.ts.
 import { describe, expect, it } from 'vitest'
-import { clearGeoPackageId, formatFromFileName, gpkgGeometrySql, isSystemTable, isThreadSpawnError, layerReadSql, mayHaveLayers, readModeFor, stReadSql } from '@spatial-explorer/core'
+import { clearGeoPackageId, filterLoadableLayers, formatFromFileName, gpkgGeometrySql, isEmptySpatialLayer, isSystemTable, isThreadSpawnError, layerReadSql, mayHaveLayers, readModeFor, stReadSql, type FileLayer } from '@spatial-explorer/core'
 
 describe('SQLite files', () => {
   it('.sqlite and .db are SQLite databases, read whole and listed by layer', () => {
@@ -54,5 +54,33 @@ describe('layer readers', () => {
     const sql = layerReadSql({ reader, decodeGeometry: 'geom' })
     expect(sql).toContain('(SELECT r.* EXCLUDE ("geom"), TRY(ST_GeomFromWKB(')
     expect(sql).toContain(`) AS "geom" FROM ${reader} r)`)
+  })
+})
+
+describe('skipping empty spatial layers (local change)', () => {
+  const layer = (name: string, over: Partial<FileLayer> = {}): FileLayer => ({ name, geometryType: 'Polygon', geometryColumn: 'geom', featureCount: 10, srid: 27700, ...over })
+  const habitats = layer('Habitats')
+  const empty = layer('Rivers', { geometryType: 'LineString', featureCount: 0 })
+  const table = layer('layer_styles', { geometryType: null, geometryColumn: null, featureCount: 2 })
+  const emptyTable = layer('empty_table', { geometryType: null, geometryColumn: null, featureCount: 0 })
+  const unknown = layer('Trees', { geometryType: 'Point', featureCount: null })
+
+  it('only a spatial layer with a feature count of 0 counts as empty', () => {
+    expect(isEmptySpatialLayer(empty)).toBe(true)
+    expect(isEmptySpatialLayer(habitats)).toBe(false)
+    expect(isEmptySpatialLayer(unknown)).toBe(false) // count unknown: may hold rows
+    expect(isEmptySpatialLayer(table)).toBe(false) // attribute-only tables are not touched
+    expect(isEmptySpatialLayer(emptyTable)).toBe(false) // even an empty one
+  })
+  it('drops empty spatial layers and keeps attribute-only tables, in file order', () => {
+    expect(filterLoadableLayers([empty, habitats, table, unknown, emptyTable]).map((l) => l.name)).toEqual(['Habitats', 'layer_styles', 'Trees', 'empty_table'])
+  })
+  it('leaves the list unchanged when no spatial layer would remain', () => {
+    const all = [empty, table]
+    expect(filterLoadableLayers(all)).toBe(all)
+  })
+  it('returns the list as given when switched off', () => {
+    const all = [empty, habitats, table]
+    expect(filterLoadableLayers(all, false)).toBe(all)
   })
 })
