@@ -106,17 +106,54 @@ async function streams(conn: AsyncDuckDBConnection, path: string, layer: string)
   }
 }
 
+/**
+ * LOCAL CHANGE (not upstream). When true, a layer that has a geometry field but no
+ * features is skipped when a GeoPackage or SQLite file opens. Attribute-only tables
+ * (no geometry field), including a SQLite file's attribute tables, still load as before.
+ *
+ * Why: GDAL's SQLite driver types a geometry column it cannot sample (a layer with no
+ * rows) as text, so the decode in `gpkgGeometrySql` hands ST_GeomFromWKB a VARCHAR and
+ * the whole file fails to open ("No function matches ... st_geomfromwkb(VARCHAR)").
+ *
+ * Set to false to restore the original behaviour (every layer).
+ */
+export const SKIP_EMPTY_SPATIAL_LAYERS = true
+
+/**
+ * A spatial layer known to hold no features: it has a geometry field and a feature
+ * count of 0. An unknown count (null) is not treated as empty, since the layer may hold rows.
+ */
+export function isEmptySpatialLayer(l: FileLayer): boolean {
+  return l.geometryColumn !== null && l.featureCount === 0
+}
+
+/**
+ * The layers to load: empty spatial layers dropped, everything else (populated spatial
+ * layers and attribute-only tables) kept in file order. If no spatial layer would remain,
+ * the list is returned unchanged so the file opens (or fails) exactly as it did before.
+ */
+export function filterLoadableLayers(layers: FileLayer[], enabled: boolean = SKIP_EMPTY_SPATIAL_LAYERS): FileLayer[] {
+  if (!enabled) return layers
+  const kept = layers.filter((l) => !isEmptySpatialLayer(l))
+  return kept.some((l) => l.geometryColumn !== null) ? kept : layers
+}
+
 /** Plans how each layer of a GeoPackage or SQLite file is read (see the header). */
 export async function planSqliteSource(input: SqlitePlanInput): Promise<SqlitePlan> {
   const { db, conn, format, path, log } = input
   const gpkg = format === 'geopackage'
+  const candidates = filterLoadableLayers(input.layers)
+  if (candidates.length !== input.layers.length) {
+    const skipped = input.layers.filter((l) => !candidates.includes(l)).map((l) => l.name)
+    log?.(`[open] skipped ${skipped.length} empty layer(s): ${skipped.join(', ')}`)
+  }
   const blocked = new Set<string>()
-  if (gpkg) for (const l of input.layers) if (!(await streams(conn, path, l.name))) blocked.add(l.name)
+  if (gpkg) for (const l of candidates) if (!(await streams(conn, path, l.name))) blocked.add(l.name)
 
   const paths: string[] = []
-  let layers = input.layers
+  let layers = candidates
   // A SQLite file's attribute tables (GDAL lists only spatial ones).
-  if (!gpkg) layers = [...layers, ...(await attributeTables(db, conn, path, new Set(layers.map((l) => l.name)), paths, log))]
+  if (!gpkg) layers =[...layers, ...(await attributeTables(db, conn, path, new Set(layers.map((l) => l.name)), paths, log))]
 
   let plainPath: string | null = null
   if (blocked.size) {
